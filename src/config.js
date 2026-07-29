@@ -25,9 +25,23 @@ export const config = {
   fighterSkinColor: '#e8a86a',
   fighterRadius:    22,         // boundary collision radius (px)
 
-  // Punch parameters
-  punchForceBase: 150,
-  rangeMin: 80,
-  rangeMax: 220,
-  smotherDist: 50,
+  // Punch execution
+  punchDuration:      0.15,   // arm animation duration (seconds)
+
+  // Punch force — scales with player momentum per the physics philosophy
+  punchForceBase:      250,   // base stagger impulse (px/s added to dummy stagger velocity)
+  punchMomentumScale:  1.0,   // multiplier on (approachSpeed/moveSpeed * playerMass); 0 = flat force
+
+  // Range gating
+  rangeMin:    80,    // reserved — currently the landing zone is smotherDist..rangeMax
+  rangeMax:   220,
+  smotherDist: 50,   // < this distance = smother (except hook/uppercut which still land)
+
+  // Dummy colors (distinct from player so you can tell them apart at a glance)
+  dummyBodyColor: '#b83020',
+  dummySkinColor: '#d4906a',
+
+  // Dummy spring-damper stagger physics
+  dummyReturnSpeed: 50,   // spring stiffness (px/s² per px of displacement)
+  dummyDamping:     12,   // damping coefficient (higher = less oscillation)
 };
