@@ -15,8 +15,15 @@ export const config = {
   // Fighter movement
   moveSpeed: 200,
 
-  // Fighter physics
-  playerMass: 80,
+  // Fighter physics — mass scales accel/friction so heavier = sluggier
+  playerMass:   80,
+  acceleration: 900,   // force units; effective accel = acceleration / mass
+  friction:     1200,  // deceleration force; effective decel = friction / mass
+
+  // Fighter visuals
+  fighterBodyColor: '#2d5fa8',
+  fighterSkinColor: '#e8a86a',
+  fighterRadius:    22,         // boundary collision radius (px)
 
   // Punch parameters
   punchForceBase: 150,
