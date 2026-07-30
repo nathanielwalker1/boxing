@@ -67,6 +67,12 @@ class RingScene extends Phaser.Scene {
 
     // Current block-held state, refreshed once per frame before punches resolve
     this._blockHeld = false;
+
+    // ── TEMPORARY DEBUG KEY (Stage 5) ───────────────────────────────────────
+    // Press T to force the dummy to throw immediately, bypassing its random
+    // timer, so slip timing can be verified on demand. Intentionally kept in
+    // past Stage 5 for Stage 6+ testing — see Dummy.forceAttack().
+    this._debugForceAttackKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.T);
   }
 
   // ── Ring bounds (re-computed each frame so slider changes take effect) ─────
@@ -116,8 +122,14 @@ class RingScene extends Phaser.Scene {
   // (the player punching the dummy, and the dummy punching the player), so
   // whiff/smother/land handling and the force/stagger calc exist in one place.
   _resolveAttack(attacker, defender, arm, smotherable) {
-    const dx   = defender.x - attacker.x;
-    const dy   = defender.y - attacker.y;
+    // Defenders that can slip (Fighter) expose getHitPos() — normally just
+    // their true (x, y), but offset while a slip is active. Using it here is
+    // the entire "invincibility" implementation: no separate bypass flag.
+    const defPos = typeof defender.getHitPos === 'function'
+      ? defender.getHitPos()
+      : { x: defender.x, y: defender.y };
+    const dx   = defPos.x - attacker.x;
+    const dy   = defPos.y - attacker.y;
     const dist = Math.hypot(dx, dy);
     const fist = attacker.getFistPos(arm);
 
@@ -245,6 +257,9 @@ class RingScene extends Phaser.Scene {
     // Check punch keys BEFORE fighter.update() so arm animation starts same frame
     this.punchBtns.update();
 
+    // DEBUG (temporary, Stage 5): force an immediate dummy attack for testing
+    if (Phaser.Input.Keyboard.JustDown(this._debugForceAttackKey)) this.dummy.forceAttack();
+
     // Step everything
     this.fighter.update(dt, inputX, inputY, this._getRingBounds(), this.dummy.x, this._blockHeld);
     this.dummy.update(dt, this.fighter.x);
@@ -302,3 +317,11 @@ dummyF.add(config, 'dummyWindupDuration', 0.2, 1.5, 0.05).name('Windup Duration'
 dummyF.addColor(config, 'dummyBodyColor').name('Body Color');
 dummyF.addColor(config, 'dummySkinColor').name('Skin Color');
 dummyF.open();
+
+const slipF = gui.addFolder('Slip / Duck');
+slipF.add(config, 'slipInputThreshold',        0.1, 1,   0.05).name('Push Threshold');
+slipF.add(config, 'slipFlickMaxDurationMs',     40, 500, 10).name('Flick Max Duration (ms)');
+slipF.add(config, 'slipInvincibilityDuration', 0.05, 1,  0.01).name('Slip Window (s)');
+slipF.add(config, 'slipHeadOffsetX',             0, 150, 5).name('Head Offset X');
+slipF.add(config, 'slipHeadOffsetY',             0, 150, 5).name('Head Offset Y');
+slipF.open();

@@ -36,6 +36,18 @@ export class Fighter {
     // finished (see update()), so a held block never snaps a punch animation.
     this.isBlocking = false;
 
+    // Slip/duck state (Stage 5) — see _triggerSlip() and getHitPos().
+    this.slipTimer = 0;   // seconds remaining in the active slip window
+    this.slipDirX  = 0;   // captured flick direction (normalized), drives lean + head offset
+    this.slipDirY  = 0;
+
+    // Flick-vs-hold detector — a read-only observer of the same merged movement
+    // input everything else reads. It never gates or delays normal movement.
+    this._pushTimerMs       = 0;       // ms since input crossed slipInputThreshold; 0 = not pushed
+    this._pushDirX          = 0;       // direction captured at the start of the current push
+    this._pushDirY          = 0;
+    this._pushHoldConfirmed = false;   // true once duration exceeds the flick window (reads as footwork)
+
     // Hit flash state (mirrors Dummy's)
     this.flashAlpha = 0;
     this.flashColor = 0xffffff;
@@ -69,6 +81,35 @@ export class Fighter {
     const localX = arm === 'lead' ? -19 : 19;
     const flip   = this.facingRight ? 1 : -1;
     return { x: this.x + localX * flip, y: this.y - 14 };
+  }
+
+  /**
+   * World-space position used for incoming-attack range gating (see
+   * RingScene._resolveAttack). Normally the fighter's true (x, y); while a
+   * slip is active it's offset toward the flick direction. This is how the
+   * slip's "invincibility" is implemented — it's not a bypass flag, it's the
+   * same distance-based whiff/land/smother math in _resolveAttack reading a
+   * displaced target, so no parallel collision system is needed.
+   */
+  getHitPos() {
+    if (this.slipTimer <= 0) return { x: this.x, y: this.y };
+    return {
+      x: this.x + this.slipDirX * config.slipHeadOffsetX,
+      y: this.y + this.slipDirY * config.slipHeadOffsetY,
+    };
+  }
+
+  /**
+   * Trigger a slip/duck in the given (normalized) direction. Ignored while
+   * blocking or while a slip is already active — mutually exclusive with
+   * block, same as punch/block (see CLAUDE.md note in main.js/README about
+   * this being an assumption, not a spec'd rule).
+   */
+  _triggerSlip(dirX, dirY) {
+    if (this.isBlocking || this.slipTimer > 0) return;
+    this.slipTimer = config.slipInvincibilityDuration;
+    this.slipDirX  = dirX;
+    this.slipDirY  = dirY;
   }
 
   /**
@@ -117,6 +158,28 @@ export class Fighter {
       this.gfx.fillStyle(this.flashColor, this.flashAlpha * 0.55);
       this.gfx.fillRect(-14, -50, 28, 64);   // covers torso + head area
     }
+
+    // ── Slip/duck visual lean ───────────────────────────────────────────────
+    // Purely cosmetic — offsets/rotates/scales the gfx child within the
+    // container, never the container's own position (this.x/this.y stay the
+    // true, logic-authoritative position used for range gating/boundaries).
+    // Deliberately uses transforms footwork and guard never touch (rotation,
+    // vertical squash) rather than a plain translate — footwork already
+    // translates the rig every frame, so a lean built only from translation
+    // would be hard to tell apart from ordinary movement in a screenshot.
+    // Horizontal flick  → rig tilts (lean), footwork never rotates.
+    // Vertical flick    → rig squashes (crouch/dip), footwork never scales.
+    let leanX = 0, leanRot = 0, squashY = 1;
+    if (this.slipTimer > 0) {
+      const progress = 1 - this.slipTimer / config.slipInvincibilityDuration;
+      const wave     = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
+      leanX   = this.slipDirX * config.slipHeadOffsetX * 0.35 * wave;
+      leanRot = this.slipDirX * 0.35 * wave;
+      squashY = 1 - Math.abs(this.slipDirY) * 0.3 * wave;
+    }
+    this.gfx.setPosition(leanX, 0);
+    this.gfx.setRotation(leanRot);
+    this.gfx.setScale(1, squashY);
   }
 
   // ── Main update ─────────────────────────────────────────────────────────────
@@ -139,7 +202,34 @@ export class Fighter {
     // ── Block ──────────────────────────────────────────────────────────────
     // Engages the instant the block input is held AND no punch is mid-flight —
     // an in-progress punch is left to finish rather than snapping its animation.
-    this.isBlocking = blockHeld && this.punchTimer === 0;
+    // Also mutually exclusive with an active slip (assumption — see summary).
+    this.isBlocking = blockHeld && this.punchTimer === 0 && this.slipTimer === 0;
+
+    // ── Slip/duck: flick-vs-hold detector ──────────────────────────────────
+    // Watches the same merged inputX/inputY everything else reads — a pure
+    // observer that never gates or delays normal movement/footwork below.
+    const pushMag = Math.hypot(inputX, inputY);
+    if (pushMag >= config.slipInputThreshold) {
+      if (this._pushTimerMs === 0) {
+        // Push just started — capture the direction now, not at release,
+        // so a direction change mid-push doesn't retroactively change it.
+        this._pushDirX = inputX / pushMag;
+        this._pushDirY = inputY / pushMag;
+        this._pushHoldConfirmed = false;
+      }
+      this._pushTimerMs += dt * 1000;
+      if (this._pushTimerMs > config.slipFlickMaxDurationMs) {
+        this._pushHoldConfirmed = true;   // held too long — reads as footwork now
+      }
+    } else {
+      // Released (or never reached threshold this frame).
+      if (this._pushTimerMs > 0 && !this._pushHoldConfirmed) {
+        this._triggerSlip(this._pushDirX, this._pushDirY);   // released early = flick
+      }
+      this._pushTimerMs = 0;
+      this._pushHoldConfirmed = false;
+    }
+    if (this.slipTimer > 0) this.slipTimer = Math.max(0, this.slipTimer - dt);
 
     // ── Hit flash decay ────────────────────────────────────────────────────
     if (this.flashAlpha > 0) this.flashAlpha = Math.max(0, this.flashAlpha - dt / 0.18);

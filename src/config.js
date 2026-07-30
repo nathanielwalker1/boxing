@@ -56,4 +56,15 @@ export const config = {
   // player's own punches can stay snappy while the dummy's telegraph stays readable.
   // Impact resolves at half this duration (peak extension), giving that much time to react.
   dummyWindupDuration: 0.8,   // seconds
+
+  // Slip/duck — flick-vs-hold detection on the SAME movement joystick (Stage 5).
+  // A push is tracked once its magnitude crosses slipInputThreshold. If it drops
+  // back below threshold before slipFlickMaxDurationMs elapses, that's a FLICK
+  // (triggers a slip). If it's still held past that duration, it's a confirmed
+  // HOLD (ordinary footwork — no slip fires, even on eventual release).
+  slipInputThreshold:        0.6,    // 0..1 — min joystick/key magnitude that counts as "pushed"
+  slipFlickMaxDurationMs:    180,    // ms — release before this = flick; held past this = footwork
+  slipInvincibilityDuration: 0.25,   // seconds — length of the active slip window (head offset + lean)
+  slipHeadOffsetX:           90,     // px — head-hitbox shift (see Fighter.getHitPos), toward the flick direction
+  slipHeadOffsetY:           90,     // px — same, vertical axis
 };

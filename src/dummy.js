@@ -117,6 +117,19 @@ export class Dummy {
     this.flashColor = color;
   }
 
+  /**
+   * TEMPORARY DEBUG HOOK (Stage 5) — forces the next attack to fire immediately,
+   * bypassing the randomized cadence, so slip timing can be tested on demand
+   * instead of waiting on the timer. Intentionally left in past Stage 5 (kept
+   * for Stage 6+ testing) rather than removed — see the T key in main.js.
+   * No-ops while a windup is already in progress, so it can't stack/overwrite
+   * one already telegraphing.
+   */
+  forceAttack() {
+    if (this.punchTimer > 0) return;
+    this.attackTimer = 0;
+  }
+
   update(dt, opponentX) {
     // ── Spring-damper: pulls dummy back to origin ─────────────────────────
     const dispX = this.x - this.originX;
