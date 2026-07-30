@@ -37,6 +37,9 @@ export const config = {
   rangeMax:   220,
   smotherDist: 50,   // < this distance = smother (except hook/uppercut which still land)
 
+  // Block — percent of incoming force absorbed while actively blocking (0 = no reduction, 1 = fully negated)
+  blockReduction: 0.75,
+
   // Dummy colors (distinct from player so you can tell them apart at a glance)
   dummyBodyColor: '#b83020',
   dummySkinColor: '#d4906a',

@@ -5,6 +5,7 @@ import { Fighter } from './fighter.js';
 import { Dummy } from './dummy.js';
 import { VirtualJoystick } from './joystick.js';
 import { PunchButtons } from './punchButtons.js';
+import { BlockButton } from './blockButton.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
@@ -58,8 +59,18 @@ class RingScene extends Phaser.Scene {
       (type) => this._resolvePunch(type),
     );
 
+    // ── Block button — bottom-center, clear of the joystick and diamond ────
+    this.blockBtn = new BlockButton(this, GAME_W / 2, GAME_H - 70);
+
     // Stores the last horizontal input so hook/uppercut can read it at punch time
     this._lastInputX = 0;
+
+    // Current block-held state, refreshed once per frame before punches resolve
+    this._blockHeld = false;
+
+    // Debug: 'T' makes the dummy throw a test punch at the player, so block
+    // reduction can be verified before Stage 4 gives the dummy real attacks.
+    this._debugKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.T);
   }
 
   // ── Ring bounds (re-computed each frame so slider changes take effect) ─────
@@ -71,6 +82,10 @@ class RingScene extends Phaser.Scene {
 
   // ── Punch resolution ───────────────────────────────────────────────────────
   _resolvePunch(punchType) {
+    // Punching and blocking are mutually exclusive — ignore punch input entirely
+    // while block is held (no cooldown: this re-checks fresh every frame).
+    if (this._blockHeld) return;
+
     const dx   = this.dummy.x - this.fighter.x;
     const dy   = this.dummy.y - this.fighter.y;
     const dist = Math.hypot(dx, dy);
@@ -138,6 +153,25 @@ class RingScene extends Phaser.Scene {
         break;
       }
     }
+  }
+
+  // ── Debug: dummy test-punch (Stage 3 only — verifies block reduction) ──────
+  _debugDummyPunch() {
+    const dx   = this.fighter.x - this.dummy.x;
+    const dy   = this.fighter.y - this.dummy.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const dirX = dx / dist;
+    const dirY = dy / dist;
+
+    let force = config.punchForceBase;
+    if (this.fighter.isBlocking) force *= (1 - config.blockReduction);
+
+    this.fighter.receiveImpulse(dirX * force, dirY * force);
+
+    // Reuse the same flash vocabulary as a landed punch, on the player instead.
+    const color = this.fighter.isBlocking ? 0x66aaff : 0xff2222;
+    this._flashes.push(makeBurst(this.fighter.x, this.fighter.y - 20, color));
+    this._flashes.push(makeRing(this.fighter.x, this.fighter.y - 20, 0xffffff, 0.2));
   }
 
   // ── Flash effect rendering ─────────────────────────────────────────────────
@@ -210,11 +244,17 @@ class RingScene extends Phaser.Scene {
     const inputY = Phaser.Math.Clamp(ky + joy.y, -1, 1);
     this._lastInputX = inputX;   // saved for hook/uppercut hand selection
 
+    // Block state refreshed BEFORE punch input so the same frame's punch
+    // attempts see up-to-date block-held status (mutual exclusion, no lag).
+    this._blockHeld = this.blockBtn.update();
+
     // Check punch keys BEFORE fighter.update() so arm animation starts same frame
     this.punchBtns.update();
 
+    if (Phaser.Input.Keyboard.JustDown(this._debugKey)) this._debugDummyPunch();
+
     // Step everything
-    this.fighter.update(dt, inputX, inputY, this._getRingBounds(), this.dummy.x);
+    this.fighter.update(dt, inputX, inputY, this._getRingBounds(), this.dummy.x, this._blockHeld);
     this.dummy.update(dt);
     this._updateFlashes(dt);
   }
@@ -258,6 +298,7 @@ combatF.add(config, 'punchMomentumScale',  0,   5, 0.1).name('Momentum Scale');
 combatF.add(config, 'punchDuration',     0.05, 0.5, 0.01).name('Punch Duration');
 combatF.add(config, 'rangeMax',          80,  500,  5).name('Range Max');
 combatF.add(config, 'smotherDist',        0,  150,  5).name('Smother Dist');
+combatF.add(config, 'blockReduction',     0,    1, 0.05).name('Block Reduction');
 combatF.open();
 
 const dummyF = gui.addFolder('Dummy');

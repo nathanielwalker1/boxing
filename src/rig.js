@@ -25,8 +25,9 @@ function cr(g, cx, cy, w, h) {
  * @param {number} skinColor   Phaser integer color
  * @param {number} leadExtend  0..1 — lead arm punch extension (extends in +x direction)
  * @param {number} rearExtend  0..1 — rear arm punch extension (extends in +x direction)
+ * @param {number} guard       0..1 — blend toward raised guard pose (both forearms up in front of the face)
  */
-export function drawRig(g, bodyColor, skinColor, leadExtend = 0, rearExtend = 0) {
+export function drawRig(g, bodyColor, skinColor, leadExtend = 0, rearExtend = 0, guard = 0) {
   g.clear();
 
   // Forearm offsets for punch animation — both arms punch toward local +x (toward opponent)
@@ -36,15 +37,23 @@ export function drawRig(g, bodyColor, skinColor, leadExtend = 0, rearExtend = 0)
   const rx = rearExtend * 16;
   const ry = rearExtend * -3;
 
+  // Guard pose — forearms rise to the chin, elbows tucked in front of the torso.
+  // Blends over idle/punch forearm position rather than replacing it outright.
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const leadFx = lerp(-19 + lx, -8, guard);
+  const leadFy = lerp(-14 + ly, -42, guard);
+  const rearFx = lerp( 19 + rx,  8, guard);
+  const rearFy = lerp(-14 + ry, -42, guard);
+
   // ── Rear limbs (behind — drawn first) ─────────────────────────────────────
   g.fillStyle(bodyColor, 0.55);
   cr(g,  11,   5, 10, 26);           // rear thigh
   cr(g,  11,  29,  9, 22);           // rear shin
   cr(g,  17, -34,  9, 22);           // rear upper arm
 
-  // Rear forearm — can extend for cross/right-hand punch
+  // Rear forearm — can extend for cross/right-hand punch, or rise into guard
   g.fillStyle(skinColor, 0.55);
-  cr(g, 19 + rx, -14 + ry, 8, 18);
+  cr(g, rearFx, rearFy, 8, 18);
 
   // ── Torso ──────────────────────────────────────────────────────────────────
   g.fillStyle(bodyColor, 1.0);
@@ -60,9 +69,9 @@ export function drawRig(g, bodyColor, skinColor, leadExtend = 0, rearExtend = 0)
   cr(g, -11,  29,  9, 22);           // lead shin
   cr(g, -17, -34,  9, 22);           // lead upper arm
 
-  // Lead forearm — can extend for jab/left-hand punch
+  // Lead forearm — can extend for jab/left-hand punch, or rise into guard
   g.fillStyle(skinColor, 1.0);
-  cr(g, -19 + lx, -14 + ly, 8, 18);
+  cr(g, leadFx, leadFy, 8, 18);
 
   // ── Head ───────────────────────────────────────────────────────────────────
   g.fillStyle(skinColor, 1.0);

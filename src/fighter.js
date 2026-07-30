@@ -32,6 +32,10 @@ export class Fighter {
     this.punchArm   = null;   // 'lead' | 'rear' | null
     this.punchTimer = 0;      // seconds remaining in current punch animation
 
+    // Block state — isBlocking only goes true once any in-progress punch has
+    // finished (see update()), so a held block never snaps a punch animation.
+    this.isBlocking = false;
+
     this.container = scene.add.container(x, y);
     this.gfx       = scene.add.graphics();
     this.container.add(this.gfx);
@@ -63,6 +67,16 @@ export class Fighter {
     return { x: this.x + localX * flip, y: this.y - 14 };
   }
 
+  /**
+   * Apply a velocity impulse (e.g. from an incoming punch) directly to the
+   * fighter's momentum, reusing the same vx/vy the movement system already
+   * decays via friction — no separate stagger state needed.
+   */
+  receiveImpulse(vx, vy) {
+    this.vx += vx;
+    this.vy += vy;
+  }
+
   // ── Internal ────────────────────────────────────────────────────────────────
 
   _draw() {
@@ -82,6 +96,7 @@ export class Fighter {
       cssHex(config.fighterSkinColor),
       leadExtend,
       rearExtend,
+      this.isBlocking ? 1 : 0,
     );
   }
 
@@ -93,13 +108,19 @@ export class Fighter {
    * @param {number} inputY      -1..1 vertical
    * @param {{left,right,top,bottom}} ringBounds
    * @param {number} opponentX   world-space x of the opponent, used for facing
+   * @param {boolean} blockHeld  is the block input currently held
    */
-  update(dt, inputX, inputY, ringBounds, opponentX) {
+  update(dt, inputX, inputY, ringBounds, opponentX, blockHeld) {
     // ── Punch timer ────────────────────────────────────────────────────────
     if (this.punchTimer > 0) {
       this.punchTimer = Math.max(0, this.punchTimer - dt);
       if (this.punchTimer === 0) this.punchArm = null;
     }
+
+    // ── Block ──────────────────────────────────────────────────────────────
+    // Engages the instant the block input is held AND no punch is mid-flight —
+    // an in-progress punch is left to finish rather than snapping its animation.
+    this.isBlocking = blockHeld && this.punchTimer === 0;
 
     // ── Movement physics ───────────────────────────────────────────────────
     const accelRate    = config.acceleration / config.playerMass;
