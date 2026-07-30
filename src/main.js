@@ -47,7 +47,7 @@ class RingScene extends Phaser.Scene {
     this.fighter = new Fighter(this, GAME_W / 2 - 170, GAME_H / 2);
 
     // ── Dummy: starts right of center, ~200 px away (within rangeMax=220) ─
-    this.dummy = new Dummy(this, GAME_W / 2 + 170, GAME_H / 2);
+    this.dummy = new Dummy(this, GAME_W / 2 + 170, GAME_H / 2, () => this._resolveDummyAttackImpact());
 
     // ── Virtual joystick — bottom-left ─────────────────────────────────────
     this.joystick = new VirtualJoystick(this, 110, GAME_H - 110, 70);
@@ -67,10 +67,6 @@ class RingScene extends Phaser.Scene {
 
     // Current block-held state, refreshed once per frame before punches resolve
     this._blockHeld = false;
-
-    // Debug: 'T' makes the dummy throw a test punch at the player, so block
-    // reduction can be verified before Stage 4 gives the dummy real attacks.
-    this._debugKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.T);
   }
 
   // ── Ring bounds (re-computed each frame so slider changes take effect) ─────
@@ -80,15 +76,11 @@ class RingScene extends Phaser.Scene {
     return { left: cx - hw, right: cx + hw, top: cy - hh, bottom: cy + hh };
   }
 
-  // ── Punch resolution ───────────────────────────────────────────────────────
+  // ── Punch resolution (player-initiated) ─────────────────────────────────────
   _resolvePunch(punchType) {
     // Punching and blocking are mutually exclusive — ignore punch input entirely
     // while block is held (no cooldown: this re-checks fresh every frame).
     if (this._blockHeld) return;
-
-    const dx   = this.dummy.x - this.fighter.x;
-    const dy   = this.dummy.y - this.fighter.y;
-    const dist = Math.hypot(dx, dy);
 
     // ── Hand selection ─────────────────────────────────────────────────────
     // Jab = always lead (left) arm; Cross = always rear (right) arm.
@@ -106,19 +98,38 @@ class RingScene extends Phaser.Scene {
 
     // ── Start arm animation immediately (plays even on whiff/smother) ──────
     this.fighter.startPunch(arm);
-    const fist = this.fighter.getFistPos(arm);
 
-    // ── Range gating ───────────────────────────────────────────────────────
+    // Only jab/cross are smother-vulnerable at close range — hook/uppercut
+    // still land, per the locked range-gating rule.
+    const smotherable = punchType === 'jab' || punchType === 'cross';
+    this._resolveAttack(this.fighter, this.dummy, arm, smotherable);
+  }
+
+  // ── Attack impact resolution (dummy-initiated) ──────────────────────────────
+  // Called by Dummy at peak extension of its windup — see the onAttackImpact
+  // callback passed into `new Dummy(...)` above.
+  _resolveDummyAttackImpact() {
+    this._resolveAttack(this.dummy, this.fighter, this.dummy.punchArm, true);
+  }
+
+  // ── Shared range-gating / impact resolution — used by both attackers ───────
+  // (the player punching the dummy, and the dummy punching the player), so
+  // whiff/smother/land handling and the force/stagger calc exist in one place.
+  _resolveAttack(attacker, defender, arm, smotherable) {
+    const dx   = defender.x - attacker.x;
+    const dy   = defender.y - attacker.y;
+    const dist = Math.hypot(dx, dy);
+    const fist = attacker.getFistPos(arm);
+
     let outcome;
     if (dist > config.rangeMax) {
       outcome = 'whiff';
-    } else if (dist < config.smotherDist && (punchType === 'jab' || punchType === 'cross')) {
+    } else if (dist < config.smotherDist && smotherable) {
       outcome = 'smother';
     } else {
       outcome = 'land';
     }
 
-    // ── Effects per outcome ────────────────────────────────────────────────
     switch (outcome) {
       case 'whiff':
         // Orange expanding ring at fist — "I swung but hit air"
@@ -126,52 +137,35 @@ class RingScene extends Phaser.Scene {
         this._flashes.push(makeRing(fist.x, fist.y, 0xffdd44, 0.18));
         break;
 
-      case 'smother': {
+      case 'smother':
         // Grey burst at fist — punch absorbed, no stagger
         this._flashes.push(makeBurst(fist.x, fist.y, 0x7788aa));
         this._flashes.push(makeRing(fist.x, fist.y, 0x667799, 0.2));
         break;
-      }
 
       case 'land': {
-        // Red impact burst on dummy + white ring
-        this.dummy.flash(0xff3333);
-        this._flashes.push(makeBurst(this.dummy.x, this.dummy.y - 20, 0xff2222));
-        this._flashes.push(makeRing(this.dummy.x, this.dummy.y - 20, 0xffffff, 0.2));
+        const blocked   = !!defender.isBlocking;
+        const flashTint = blocked ? 0x3388ff : 0xff3333;
+        const burstTint = blocked ? 0x2266ee : 0xff2222;
 
-        // Force = base + momentum contribution from player's approach velocity
+        defender.flash(flashTint);
+        this._flashes.push(makeBurst(defender.x, defender.y - 20, burstTint));
+        this._flashes.push(makeRing(defender.x, defender.y - 20, 0xffffff, 0.2));
+
+        // Force = base + momentum contribution from the attacker's approach velocity
         const d    = dist || 1;
         const dirX = dx / d;
         const dirY = dy / d;
-        // Dot player velocity onto direction-to-dummy to get approach speed
-        const approachSpd = this.fighter.vx * dirX + this.fighter.vy * dirY;
-        const force = config.punchForceBase
+        const approachSpd = attacker.vx * dirX + attacker.vy * dirY;
+        let force = config.punchForceBase
           + (approachSpd / config.moveSpeed) * config.playerMass * config.punchMomentumScale;
-        const safeForce = Math.max(config.punchForceBase * 0.1, force);
+        force = Math.max(config.punchForceBase * 0.1, force);
+        if (blocked) force *= (1 - config.blockReduction);
 
-        this.dummy.receiveImpulse(dirX * safeForce, dirY * safeForce);
+        defender.receiveImpulse(dirX * force, dirY * force);
         break;
       }
     }
-  }
-
-  // ── Debug: dummy test-punch (Stage 3 only — verifies block reduction) ──────
-  _debugDummyPunch() {
-    const dx   = this.fighter.x - this.dummy.x;
-    const dy   = this.fighter.y - this.dummy.y;
-    const dist = Math.hypot(dx, dy) || 1;
-    const dirX = dx / dist;
-    const dirY = dy / dist;
-
-    let force = config.punchForceBase;
-    if (this.fighter.isBlocking) force *= (1 - config.blockReduction);
-
-    this.fighter.receiveImpulse(dirX * force, dirY * force);
-
-    // Reuse the same flash vocabulary as a landed punch, on the player instead.
-    const color = this.fighter.isBlocking ? 0x66aaff : 0xff2222;
-    this._flashes.push(makeBurst(this.fighter.x, this.fighter.y - 20, color));
-    this._flashes.push(makeRing(this.fighter.x, this.fighter.y - 20, 0xffffff, 0.2));
   }
 
   // ── Flash effect rendering ─────────────────────────────────────────────────
@@ -251,11 +245,9 @@ class RingScene extends Phaser.Scene {
     // Check punch keys BEFORE fighter.update() so arm animation starts same frame
     this.punchBtns.update();
 
-    if (Phaser.Input.Keyboard.JustDown(this._debugKey)) this._debugDummyPunch();
-
     // Step everything
     this.fighter.update(dt, inputX, inputY, this._getRingBounds(), this.dummy.x, this._blockHeld);
-    this.dummy.update(dt);
+    this.dummy.update(dt, this.fighter.x);
     this._updateFlashes(dt);
   }
 }
@@ -304,6 +296,9 @@ combatF.open();
 const dummyF = gui.addFolder('Dummy');
 dummyF.add(config, 'dummyReturnSpeed',  5, 200,  5).name('Spring Stiffness');
 dummyF.add(config, 'dummyDamping',      1,  50,  1).name('Damping');
+dummyF.add(config, 'dummyAttackDelayMin', 0.5, 6, 0.1).name('Attack Delay Min');
+dummyF.add(config, 'dummyAttackDelayMax', 0.5, 8, 0.1).name('Attack Delay Max');
+dummyF.add(config, 'dummyWindupDuration', 0.2, 1.5, 0.05).name('Windup Duration');
 dummyF.addColor(config, 'dummyBodyColor').name('Body Color');
 dummyF.addColor(config, 'dummySkinColor').name('Skin Color');
 dummyF.open();

@@ -36,6 +36,10 @@ export class Fighter {
     // finished (see update()), so a held block never snaps a punch animation.
     this.isBlocking = false;
 
+    // Hit flash state (mirrors Dummy's)
+    this.flashAlpha = 0;
+    this.flashColor = 0xffffff;
+
     this.container = scene.add.container(x, y);
     this.gfx       = scene.add.graphics();
     this.container.add(this.gfx);
@@ -77,6 +81,15 @@ export class Fighter {
     this.vy += vy;
   }
 
+  /**
+   * Trigger a brief color flash on the fighter's torso (mirrors Dummy.flash).
+   * @param {number} color  Phaser integer color
+   */
+  flash(color) {
+    this.flashAlpha = 1.0;
+    this.flashColor = color;
+  }
+
   // ── Internal ────────────────────────────────────────────────────────────────
 
   _draw() {
@@ -98,6 +111,12 @@ export class Fighter {
       rearExtend,
       this.isBlocking ? 1 : 0,
     );
+
+    // ── Hit flash overlay drawn ON TOP of the rig (mirrors Dummy's) ────────
+    if (this.flashAlpha > 0) {
+      this.gfx.fillStyle(this.flashColor, this.flashAlpha * 0.55);
+      this.gfx.fillRect(-14, -50, 28, 64);   // covers torso + head area
+    }
   }
 
   // ── Main update ─────────────────────────────────────────────────────────────
@@ -121,6 +140,9 @@ export class Fighter {
     // Engages the instant the block input is held AND no punch is mid-flight —
     // an in-progress punch is left to finish rather than snapping its animation.
     this.isBlocking = blockHeld && this.punchTimer === 0;
+
+    // ── Hit flash decay ────────────────────────────────────────────────────
+    if (this.flashAlpha > 0) this.flashAlpha = Math.max(0, this.flashAlpha - dt / 0.18);
 
     // ── Movement physics ───────────────────────────────────────────────────
     const accelRate    = config.acceleration / config.playerMass;

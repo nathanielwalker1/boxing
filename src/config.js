@@ -34,7 +34,7 @@ export const config = {
 
   // Range gating
   rangeMin:    80,    // reserved — currently the landing zone is smotherDist..rangeMax
-  rangeMax:   220,
+  rangeMax:   100,
   smotherDist: 50,   // < this distance = smother (except hook/uppercut which still land)
 
   // Block — percent of incoming force absorbed while actively blocking (0 = no reduction, 1 = fully negated)
@@ -47,4 +47,13 @@ export const config = {
   // Dummy spring-damper stagger physics
   dummyReturnSpeed: 50,   // spring stiffness (px/s² per px of displacement)
   dummyDamping:     12,   // damping coefficient (higher = less oscillation)
+
+  // Dummy attack cadence — pure randomized timer, no reactive/decision logic (Stage 4)
+  dummyAttackDelayMin: 1.5,   // seconds — shortest gap between dummy punches
+  dummyAttackDelayMax: 3.5,   // seconds — longest gap between dummy punches
+
+  // Dummy windup — deliberately separate from the player's punchDuration so the
+  // player's own punches can stay snappy while the dummy's telegraph stays readable.
+  // Impact resolves at half this duration (peak extension), giving that much time to react.
+  dummyWindupDuration: 0.8,   // seconds
 };
