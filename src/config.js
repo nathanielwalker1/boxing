@@ -48,9 +48,39 @@ export const config = {
   dummyReturnSpeed: 50,   // spring stiffness (px/s² per px of displacement)
   dummyDamping:     12,   // damping coefficient (higher = less oscillation)
 
-  // Dummy attack cadence — pure randomized timer, no reactive/decision logic (Stage 4)
+  // Dummy attack cadence — the randomized base interval. Since Stage 7 the
+  // expiring timer only *arms* an attack; the throw additionally requires the
+  // player to be inside the landing band (see Dummy.update).
   dummyAttackDelayMin: 1.5,   // seconds — shortest gap between dummy punches
   dummyAttackDelayMax: 3.5,   // seconds — longest gap between dummy punches
+
+  // ── Dummy movement AI (Stage 7) ─────────────────────────────────────────────
+  // Reuses the shared locomotion step (movement.js) — same accel/friction/mass
+  // and the same ring clamp as the player, only the top speed differs.
+  // ASSUMPTION — flag for confirmation: set below the player's moveSpeed (200)
+  // so the player can always create distance and the approach reads as
+  // beatable rather than as the dummy matching them perfectly.
+  dummyMoveSpeed: 170,
+  // Distance the dummy tries to hold. Should sit between smotherDist and
+  // rangeMax — the default is the midpoint of the current landing band, i.e.
+  // close enough to threaten but outside the smother zone where its jab dies.
+  // ASSUMPTION — flag for confirmation: feel-based, not derived.
+  dummyStandoffDist: 75,
+  // Hysteresis deadband around dummyStandoffDist: inside it the dummy stops
+  // steering entirely. This is the anti-jitter knob — too small and it hunts
+  // back and forth around the target distance.
+  dummyStandoffBand: 18,
+
+  // ── Dummy reactive block (Stage 7) ──────────────────────────────────────────
+  // ASSUMPTION — both values are feel-based guesses, flag for confirmation.
+  dummyBlockReactionChance: 0.35,   // 0..1 — probability it reacts to a given player punch
+  dummyBlockReactionWindow: 0.45,   // seconds the guard stays up once raised
+
+  // ── Dummy opening aggression (Stage 7) ──────────────────────────────────────
+  // Multiplies how fast the attack timer drains while the player is exposed.
+  // The two openings (gassed / unguarded-in-range) STACK multiplicatively, so
+  // both at once ≈ multiplier². ASSUMPTION — flag for confirmation.
+  dummyOpeningAggressionMultiplier: 1.8,
 
   // Dummy windup — deliberately separate from the player's punchDuration so the
   // player's own punches can stay snappy while the dummy's telegraph stays readable.

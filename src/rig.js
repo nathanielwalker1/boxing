@@ -14,6 +14,14 @@
  *   shins         y ≈ +29, x ≈ ±11
  */
 
+// Visual extent of the rig from the container origin, derived from the layout
+// above. Lives here (with the geometry it's derived from) so the player and the
+// dummy clamp to the ropes identically — see movement.js. Update if the rig
+// geometry below changes.
+export const RIG_MARGIN_X      = 24;   // arms reach ~22 px left/right of origin
+export const RIG_MARGIN_TOP    = 67;   // head top: -50 - 13 - 4 pad
+export const RIG_MARGIN_BOTTOM = 44;   // shin bottom: 29 + 11 + 4 pad
+
 // Draw a rectangle centered at (cx, cy)
 function cr(g, cx, cy, w, h) {
   g.fillRect(cx - w * 0.5, cy - h * 0.5, w, h);

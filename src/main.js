@@ -111,6 +111,10 @@ class RingScene extends Phaser.Scene {
     // ── Start arm animation immediately (plays even on whiff/smother) ──────
     this.fighter.startPunch(arm);
 
+    // Give the dummy its reaction chance BEFORE the punch resolves, so a
+    // successful roll actually guards against this punch (Stage 7).
+    this.dummy.onOpponentPunchStart();
+
     // Only jab/cross are smother-vulnerable at close range — hook/uppercut
     // still land, per the locked range-gating rule.
     const smotherable = punchType === 'jab' || punchType === 'cross';
@@ -274,8 +278,9 @@ class RingScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this._debugForceAttackKey)) this.dummy.forceAttack();
 
     // Step everything
-    this.fighter.update(dt, inputX, inputY, this._getRingBounds(), this.dummy.x, this._blockHeld);
-    this.dummy.update(dt, this.fighter.x);
+    const bounds = this._getRingBounds();
+    this.fighter.update(dt, inputX, inputY, bounds, this.dummy.x, this._blockHeld);
+    this.dummy.update(dt, this.fighter, bounds);
     this._updateFlashes(dt);
     this.hud.update(this.fighter, this.dummy);
   }
@@ -331,6 +336,22 @@ dummyF.add(config, 'dummyWindupDuration', 0.2, 1.5, 0.05).name('Windup Duration'
 dummyF.addColor(config, 'dummyBodyColor').name('Body Color');
 dummyF.addColor(config, 'dummySkinColor').name('Skin Color');
 dummyF.open();
+
+const dummyAiF = gui.addFolder('Dummy AI');
+dummyAiF.add(config, 'dummyMoveSpeed',                 50, 400, 5).name('Move Speed');
+dummyAiF.add(config, 'dummyStandoffDist',               0, 300, 5).name('Standoff Dist');
+dummyAiF.add(config, 'dummyStandoffBand',               2,  80, 1).name('Standoff Band');
+dummyAiF.add(config, 'dummyBlockReactionChance',        0,   1, 0.05).name('Block React Chance');
+dummyAiF.add(config, 'dummyBlockReactionWindow',     0.05, 1.5, 0.05).name('Block Window (s)');
+dummyAiF.add(config, 'dummyOpeningAggressionMultiplier', 1, 5, 0.1).name('Opening Aggression x');
+dummyAiF.open();
+
+// ── Dev hook ──────────────────────────────────────────────────────────────────
+// Lets the Playwright verification scripts in /scripts read live game state
+// (positions, stamina, AI aggression) and override config values instead of
+// inferring everything from pixels. Not read by any gameplay code.
+window.__game   = game;
+window.__config = config;
 
 const slipF = gui.addFolder('Slip / Duck');
 slipF.add(config, 'slipInputThreshold',        0.1, 1,   0.05).name('Push Threshold');

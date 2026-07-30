@@ -1,5 +1,7 @@
+import Phaser from 'phaser';
 import { config } from './config.js';
 import { drawRig } from './rig.js';
+import { stepMovement } from './movement.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
@@ -10,10 +12,25 @@ function randRange(min, max) {
 }
 
 /**
- * Dummy — target fighter with a randomized attack timer (Stage 4).
- * Does not move or make decisions — attacks fire on a random interval,
- * regardless of player position/range. Takes punch impulses and staggers
- * via a spring-damper. Visually identical rig to the player (shared drawRig).
+ * Dummy — the opponent fighter. Reactive heuristics layered on the systems the
+ * player already uses; no pathfinding, no decision tree, no difficulty tiers.
+ *
+ *   1. Movement AI      — steers to hold config.dummyStandoffDist via the shared
+ *                         locomotion step (movement.js), with a hysteresis
+ *                         deadband so it settles instead of hunting.
+ *   2. Range-gated      — the randomized timer only ARMS an attack; the throw
+ *      attacks           also requires the player inside the landing band.
+ *   3. Reactive block    — rolls dummyBlockReactionChance when the player throws,
+ *                         reusing isBlocking / the guard pose / blockReduction.
+ *   4. Opening punish    — a gassed or unguarded player drains the attack timer
+ *                         faster (see _aggression).
+ *
+ * Position model: this.x/this.y stay the authoritative world position, but they
+ * are now composed of two parts — the AI-driven locomotion body (this._loco)
+ * plus the spring-damper stagger OFFSET. Previously the spring pulled back to a
+ * fixed origin; it now hangs off the locomotion position, so a staggered dummy
+ * recovers to wherever it has walked to rather than to where it spawned. The
+ * offset-space spring math is unchanged, so the stagger feel is identical.
  */
 export class Dummy {
   /**
@@ -25,18 +42,27 @@ export class Dummy {
    *        mirroring how the player's punch buttons drive _resolvePunch.
    */
   constructor(scene, x, y, onAttackImpact) {
-    this.scene   = scene;
-    this.originX = x;
-    this.originY = y;
-    this.x       = x;
-    this.y       = y;
+    this.scene = scene;
+    this.x     = x;
+    this.y     = y;
 
-    // Attack-impact resolution has no momentum contribution — the dummy
-    // doesn't move toward the player, so this stays flat at 0.
+    // Locomotion body handed to stepMovement — the same {x,y,vx,vy} contract the
+    // player's Fighter satisfies. Kept as a sub-object (rather than stepping
+    // this.x directly) so the stagger offset below can sit on top of it without
+    // the AI steering against its own stagger wobble.
+    this._loco = { x, y, vx: 0, vy: 0 };
+
+    // Mirrored from _loco each frame — _resolveAttack reads attacker.vx/vy for
+    // the momentum contribution to punch force. Now that the dummy actually
+    // moves, its punches gain force when it throws while advancing, exactly
+    // like the player's (this was pinned at 0 while it was a static target).
     this.vx = 0;
     this.vy = 0;
 
-    // Spring-damper stagger state
+    // Spring-damper stagger, tracked as an OFFSET from the locomotion position
+    // (springs toward 0 rather than toward a fixed origin).
+    this.staggerX  = 0;
+    this.staggerY  = 0;
     this.staggerVx = 0;
     this.staggerVy = 0;
 
@@ -51,12 +77,24 @@ export class Dummy {
     this.punchArm   = null;
     this.punchTimer = 0;
 
-    // Attack cadence — pure randomized timer, no positioning/decision logic
+    // Attack cadence
     this._onAttackImpact  = onAttackImpact;
     this.attackTimer      = randRange(config.dummyAttackDelayMin, config.dummyAttackDelayMax);
     this._impactPending   = false;
     this._impactTimer     = 0;
     this._windupDuration  = config.dummyWindupDuration;   // this attack's actual windup (may be stretched by low stamina)
+    this._forceAttack     = false;   // debug T key — bypasses the range gate (see forceAttack)
+
+    // Reactive block (Stage 7) — same isBlocking flag _resolveAttack already
+    // reads on the player, so blockReduction applies with no new plumbing.
+    this.isBlocking = false;
+    this.blockTimer = 0;
+
+    // Cached each frame for the attack gate / aggression check, and read by
+    // onOpponentPunchStart (which fires earlier in the frame, so it sees the
+    // previous frame's value — a ~16 ms lag that doesn't matter here).
+    this._distToOpponent = Infinity;
+    this._aggression     = 1;
 
     // Health/stamina/knockdown (Stage 6) — mirrors Fighter's, symmetric fight.
     this.health         = config.healthMax;
@@ -94,6 +132,7 @@ export class Dummy {
       cssHex(config.dummySkinColor),
       leadExtend,
       rearExtend,
+      this.isBlocking ? 1 : 0,   // same guard pose the player's block uses
     );
 
     // ── Down pose (Stage 6) — same exaggerated rotate+squash as Fighter's,
@@ -154,24 +193,57 @@ export class Dummy {
     this.punchArm        = null;
     this.punchTimer      = 0;
     this._impactPending  = false;
+    this._forceAttack    = false;
+    this.isBlocking      = false;
+    this.blockTimer      = 0;
     this.staggerVx = 0;
     this.staggerVy = 0;
   }
 
   /**
+   * Reactive block (Stage 7) — called by the scene the instant the player
+   * commits to a punch, before the punch resolves. Rolls once against
+   * config.dummyBlockReactionChance; on success the guard goes up for
+   * config.dummyBlockReactionWindow seconds, which also covers follow-up
+   * punches thrown inside that window.
+   *
+   * NOTE: the player's punch resolves on the same frame as the button press
+   * (Stage 2 design, untouched here), so this reaction necessarily has zero
+   * latency — there is no player-side windup for it to lose a race against.
+   * Giving the player's punch a resolution delay would be a player-side change,
+   * so it's flagged rather than done.
+   */
+  onOpponentPunchStart() {
+    if (this.isDown) return;
+    if (this.punchTimer > 0) return;                                  // mid-windup: punching and blocking are mutually exclusive
+    if (this.blockTimer > 0) return;                                  // guard already up — don't re-roll or extend it
+    if (this._distToOpponent > config.rangeMax) return;               // nothing to defend against from out of range
+    if (Math.random() >= config.dummyBlockReactionChance) return;     // failed the roll — eats this one
+
+    this.blockTimer = config.dummyBlockReactionWindow;
+    this.isBlocking = true;   // set now, not in update(), so it applies to the punch that triggered it
+  }
+
+  /**
    * TEMPORARY DEBUG HOOK (Stage 5) — forces the next attack to fire immediately,
-   * bypassing the randomized cadence, so slip timing can be tested on demand
-   * instead of waiting on the timer. Intentionally left in past Stage 5 (kept
-   * for Stage 6+ testing) rather than removed — see the T key in main.js.
-   * No-ops while a windup is already in progress, so it can't stack/overwrite
-   * one already telegraphing.
+   * bypassing the randomized cadence AND (since Stage 7) the range gate, so the
+   * throw still happens on demand from any distance for whiff/slip testing.
+   * Intentionally left in past Stage 5 — see the T key in main.js. No-ops while
+   * a windup is already in progress or while down.
    */
   forceAttack() {
     if (this.punchTimer > 0 || this.isDown) return;
-    this.attackTimer = 0;
+    this.attackTimer  = 0;
+    this._forceAttack = true;
+    this.blockTimer   = 0;       // drop the guard so the block exclusion can't swallow the forced throw
+    this.isBlocking   = false;
   }
 
-  update(dt, opponentX) {
+  /**
+   * @param {Fighter} player                          the opponent — position, stamina and block state drive the AI
+   * @param {{left,right,top,bottom}} ringBounds      same bounds object the player clamps against
+   */
+  update(dt, player, ringBounds) {
     // ── Knockdown (Stage 6) — counts down regardless of anything else below;
     //    getting back up restores a fraction of health, not full (see the
     //    ASSUMPTION note on config.knockdownHealthRestorePct).
@@ -183,35 +255,89 @@ export class Dummy {
       }
     }
 
-    // ── Stamina regen (Stage 6) — frozen while down; drains once per punch
-    //    at throw time below, regens whenever not mid-windup ─────────────
-    if (!this.isDown && this.punchTimer === 0) {
-      this.stamina = Math.min(config.staminaMax, this.stamina + config.staminaRegenPerSecond * dt);
+    // ── Punch windup animation timer ───────────────────────────────────────
+    if (this.punchTimer > 0) {
+      this.punchTimer = Math.max(0, this.punchTimer - dt);
+      if (this.punchTimer === 0) this.punchArm = null;
     }
 
-    // ── Spring-damper: pulls dummy back to origin ─────────────────────────
-    const dispX = this.x - this.originX;
-    const dispY = this.y - this.originY;
-    const ax = -config.dummyReturnSpeed * dispX - config.dummyDamping * this.staggerVx;
-    const ay = -config.dummyReturnSpeed * dispY - config.dummyDamping * this.staggerVy;
+    // ── Block state (Stage 7) ──────────────────────────────────────────────
+    // Raised by onOpponentPunchStart(); expires on its own timer. Suppressed
+    // mid-windup so the locked "blocking and punching are mutually exclusive"
+    // rule holds for the dummy too.
+    if (this.blockTimer > 0) this.blockTimer = Math.max(0, this.blockTimer - dt);
+    this.isBlocking = !this.isDown && this.blockTimer > 0 && this.punchTimer === 0;
+
+    // ── Stamina (Stage 6) — frozen while down; per-punch cost is deducted at
+    //    throw time below. Blocking drains and suppresses regen, same as the
+    //    player's, so the dummy's guard isn't free either.
+    if (!this.isDown) {
+      if (this.isBlocking) {
+        this.stamina = Math.max(0, this.stamina - config.staminaDrainPerSecondBlocking * dt);
+      } else if (this.punchTimer === 0) {
+        this.stamina = Math.min(config.staminaMax, this.stamina + config.staminaRegenPerSecond * dt);
+      }
+    }
+
+    // ── 1. Movement AI ─────────────────────────────────────────────────────
+    // Steer to hold dummyStandoffDist: advance when too far, back off when too
+    // close (rather than just stopping — sitting inside the smother zone kills
+    // its own jab, so stepping back out restores its full attack options and
+    // produces the natural in-and-out rhythm).
+    //
+    // Distance is measured from the LOCOMOTION position, not this.x, so the
+    // stagger wobble doesn't feed back into the steering as oscillation. Two
+    // anti-jitter measures: a hysteresis deadband (no steering at all inside
+    // it) and a proportional taper that eases speed down as it approaches the
+    // band edge, so it decelerates into the band instead of overshooting and
+    // bouncing back out. The taper reuses the band width — no extra constant.
+    let mvx = 0, mvy = 0;
+    if (!this.isDown) {
+      const dx   = player.x - this._loco.x;
+      const dy   = player.y - this._loco.y;
+      const raw  = Math.hypot(dx, dy);
+      const band = config.dummyStandoffBand;
+      const err  = raw - config.dummyStandoffDist;
+
+      if (Math.abs(err) > band) {
+        // Degenerate overlap: no usable direction, so back straight off along
+        // the axis it's facing.
+        const ux = raw > 1 ? dx / raw : (this.facingRight ? 1 : -1);
+        const uy = raw > 1 ? dy / raw : 0;
+        const mag  = Phaser.Math.Clamp(Math.abs(err) / (band * 2), 0, 1);
+        const sign = err > 0 ? 1 : -1;   // +1 = close in, -1 = back off
+        mvx = ux * sign * mag;
+        mvy = uy * sign * mag;
+      }
+    }
+
+    // Shared locomotion step — same physics + ring clamp as the player.
+    stepMovement(this._loco, dt, mvx, mvy, ringBounds, config.dummyMoveSpeed);
+
+    // ── Spring-damper stagger, in offset space (springs back toward 0) ──────
+    const ax = -config.dummyReturnSpeed * this.staggerX - config.dummyDamping * this.staggerVx;
+    const ay = -config.dummyReturnSpeed * this.staggerY - config.dummyDamping * this.staggerVy;
     this.staggerVx += ax * dt;
     this.staggerVy += ay * dt;
-    this.x += this.staggerVx * dt;
-    this.y += this.staggerVy * dt;
+    this.staggerX  += this.staggerVx * dt;
+    this.staggerY  += this.staggerVy * dt;
+
+    // ── Compose the authoritative world position + velocity ────────────────
+    this.x  = this._loco.x + this.staggerX;
+    this.y  = this._loco.y + this.staggerY;
+    this.vx = this._loco.vx;
+    this.vy = this._loco.vy;
+
+    // Cached for the attack gate, the aggression check, and onOpponentPunchStart.
+    this._distToOpponent = Math.hypot(player.x - this.x, player.y - this.y);
 
     // ── Facing — always toward the player, so the punch telegraph swings the
     //    correct direction even if they circle past the dummy. Frozen while
     //    down so the knockdown pose doesn't suddenly mirror-flip. ─────────
     if (!this.isDown) {
-      if (opponentX > this.x) this.facingRight = true;
-      else if (opponentX < this.x) this.facingRight = false;
+      if (player.x > this.x) this.facingRight = true;
+      else if (player.x < this.x) this.facingRight = false;
       this.container.setScale(this.facingRight ? 1 : -1, 1);
-    }
-
-    // ── Punch windup animation timer ───────────────────────────────────────
-    if (this.punchTimer > 0) {
-      this.punchTimer = Math.max(0, this.punchTimer - dt);
-      if (this.punchTimer === 0) this.punchArm = null;
     }
 
     // ── Pending impact — fires at peak extension (half the windup), not at
@@ -224,19 +350,47 @@ export class Dummy {
       }
     }
 
-    // ── Attack cadence — randomized timer only, no reactive logic. Suspended
-    //    entirely while down (Stage 6) — a downed dummy can't throw. ───────
+    // ── 2 + 4. Attack cadence: range-gated trigger + opening punish ────────
+    // Suspended entirely while down (Stage 6) — a downed dummy can't throw.
     if (!this.isDown) {
-      this.attackTimer -= dt;
+      // 4. Aggression drains the timer FASTER rather than re-rolling a shorter
+      // delay, so the punish tracks an opening appearing or closing mid-wait
+      // instead of being locked in at the moment the last punch landed. The two
+      // openings stack multiplicatively — gassed AND unguarded is punished
+      // harder than either alone.
+      const mult    = config.dummyOpeningAggressionMultiplier;
+      const inRange = this._distToOpponent <= config.rangeMax;
+      let aggression = 1;
+      if (inRange && !player.isBlocking)                        aggression *= mult;
+      if (player.stamina < config.lowStaminaThreshold)          aggression *= mult;
+      this._aggression = aggression;
+
+      this.attackTimer -= dt * aggression;
+
       if (this.attackTimer <= 0) {
-        this.attackTimer = randRange(config.dummyAttackDelayMin, config.dummyAttackDelayMax);
-        const lowStamina     = this.stamina < config.lowStaminaThreshold;
-        this._windupDuration = config.dummyWindupDuration * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
-        this.punchArm        = 'lead';
-        this.punchTimer      = this._windupDuration;
-        this._impactPending  = true;
-        this._impactTimer    = this._windupDuration / 2;
-        this.stamina         = Math.max(0, this.stamina - config.staminaDrainPerPunch);
+        // Timer expired = ARMED, not fired. Held at 0 so it throws the instant
+        // it's actually in range instead of rolling a fresh 1.5–3.5 s wait
+        // after the movement AI finally closes the distance.
+        this.attackTimer = 0;
+
+        // 2. Only throw when the punch can actually land: inside the same
+        //    landing band _resolveAttack gates on (the dummy throws a jab,
+        //    which is smother-vulnerable, so the near edge counts too).
+        const inLandingBand = this._distToOpponent <= config.rangeMax &&
+                              this._distToOpponent >= config.smotherDist;
+        const canThrow      = this.punchTimer === 0 && !this.isBlocking;
+
+        if (canThrow && (inLandingBand || this._forceAttack)) {
+          this._forceAttack    = false;
+          this.attackTimer     = randRange(config.dummyAttackDelayMin, config.dummyAttackDelayMax);
+          const lowStamina     = this.stamina < config.lowStaminaThreshold;
+          this._windupDuration = config.dummyWindupDuration * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
+          this.punchArm        = 'lead';
+          this.punchTimer      = this._windupDuration;
+          this._impactPending  = true;
+          this._impactTimer    = this._windupDuration / 2;
+          this.stamina         = Math.max(0, this.stamina - config.staminaDrainPerPunch);
+        }
       }
     }
 

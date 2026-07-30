@@ -1,16 +1,10 @@
-import Phaser from 'phaser';
 import { config } from './config.js';
 import { drawRig } from './rig.js';
+import { stepMovement } from './movement.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
 }
-
-// Visual extent of the rig from the container origin (derived from rig.js layout).
-// Used for boundary clamping. Update if the rig geometry changes.
-const RIG_MARGIN_X      = 24;   // arms reach ~22 px left/right of origin
-const RIG_MARGIN_TOP    = 67;   // head top: -50 - 13 - 4 pad
-const RIG_MARGIN_BOTTOM = 44;   // shin bottom: 29 + 11 + 4 pad
 
 /**
  * Fighter — player-controlled boxer rig.
@@ -305,44 +299,18 @@ export class Fighter {
       }
     }
 
-    // ── Movement physics — frozen while down (residual velocity bleeds off) ─
-    const accelRate    = config.acceleration / config.playerMass;
-    const frictionRate = config.friction     / config.playerMass;
-    const hasInput     = !this.isDown && (Math.abs(inputX) > 0.01 || Math.abs(inputY) > 0.01);
-
-    if (hasInput) {
-      const len = Math.sqrt(inputX * inputX + inputY * inputY);
-      const nx  = inputX / Math.max(len, 1);
-      const ny  = inputY / Math.max(len, 1);
-      const tvx = nx * config.moveSpeed;
-      const tvy = ny * config.moveSpeed;
-      const a   = Math.min(1, accelRate * dt);
-      this.vx  += (tvx - this.vx) * a;
-      this.vy  += (tvy - this.vy) * a;
-    } else {
-      const decay = Math.min(1, frictionRate * dt);
-      this.vx *= (1 - decay);
-      this.vy *= (1 - decay);
-      if (Math.abs(this.vx) < 0.5) this.vx = 0;
-      if (Math.abs(this.vy) < 0.5) this.vy = 0;
-    }
-
-    const spd = Math.hypot(this.vx, this.vy);
-    if (spd > config.moveSpeed) {
-      this.vx = (this.vx / spd) * config.moveSpeed;
-      this.vy = (this.vy / spd) * config.moveSpeed;
-    }
-
-    // ── Position ───────────────────────────────────────────────────────────
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
-
-    // ── Ring boundary clamp ────────────────────────────────────────────────
-    const preX = this.x, preY = this.y;
-    this.x = Phaser.Math.Clamp(this.x, ringBounds.left + RIG_MARGIN_X,   ringBounds.right  - RIG_MARGIN_X);
-    this.y = Phaser.Math.Clamp(this.y, ringBounds.top  + RIG_MARGIN_TOP, ringBounds.bottom - RIG_MARGIN_BOTTOM);
-    if (this.x !== preX) this.vx = 0;
-    if (this.y !== preY) this.vy = 0;
+    // ── Movement physics + ring boundary clamp ─────────────────────────────
+    // Shared with the dummy's movement AI via movement.js. Frozen while down by
+    // zeroing the input (residual velocity still bleeds off through friction,
+    // exactly as before) rather than by skipping the step.
+    stepMovement(
+      this,
+      dt,
+      this.isDown ? 0 : inputX,
+      this.isDown ? 0 : inputY,
+      ringBounds,
+      config.moveSpeed,
+    );
 
     // ── Facing ─────────────────────────────────────────────────────────────
     // Always face the opponent, independent of movement input/direction.
