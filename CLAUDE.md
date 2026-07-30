@@ -34,6 +34,7 @@ Before reporting any task as done, you must self-check it — do not rely on me 
 3. Check the captured browser console output for errors or warnings. If there are any, fix them before reporting back — do not report "done" with unresolved console errors.
 4. Only after both checks pass, tell me what you built and what to test. If either check fails, keep iterating on your own until it passes, then tell me.
 5. This does NOT replace me playtesting for feel — it only covers "does this render and run without errors." Always be clear about which of the two you're reporting: "verified rendering/no errors" vs. "ready for you to feel-test."
+6. **Ad-hoc debug/verification scripts** (one-off Playwright checks mid-session, not permanent test scripts like `verify.js`/`punch_test.mjs`) go in a single reused file, `scripts/_debug.mjs` — overwrite it in place each time rather than creating a new uniquely-named file. This keeps the permission allowlist in `.claude/settings.json` (which grants `Write(scripts/**)`) effective without needing approval for each new filename. It's gitignored, so its contents don't need to be meaningful between sessions.
 
 ## Current stage
 See the most recent prompt in the conversation for what's being built right now. This file holds the permanent rules; it does not track stage-by-stage progress.

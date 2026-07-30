@@ -52,6 +52,13 @@ export class Fighter {
     this.flashAlpha = 0;
     this.flashColor = 0xffffff;
 
+    // Health/stamina/knockdown (Stage 6) — see takeDamage()/_triggerKnockdown().
+    this.health       = config.healthMax;
+    this.stamina      = config.staminaMax;
+    this.isDown       = false;
+    this.knockdownTimer = 0;
+    this._punchDuration = config.punchDuration;   // this punch's actual duration (may be stretched by low stamina)
+
     this.container = scene.add.container(x, y);
     this.gfx       = scene.add.graphics();
     this.container.add(this.gfx);
@@ -63,12 +70,41 @@ export class Fighter {
   // ── Punch API ──────────────────────────────────────────────────────────────
 
   /**
-   * Trigger a punch animation.  Interrupts any in-progress punch.
+   * Trigger a punch animation.  Interrupts any in-progress punch. Drains a
+   * flat stamina cost regardless of outcome, and — reusing the existing
+   * windup/telegraph timing rather than a new system — stretches the punch
+   * duration when stamina is low, so a gassed fighter is visibly slower to
+   * react to instead of being locked out of throwing at all.
    * @param {'lead'|'rear'} arm  which local arm to animate
    */
   startPunch(arm) {
-    this.punchArm   = arm;
-    this.punchTimer = config.punchDuration;
+    const lowStamina    = this.stamina < config.lowStaminaThreshold;
+    this._punchDuration = config.punchDuration * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
+    this.punchArm        = arm;
+    this.punchTimer      = this._punchDuration;
+    this.stamina         = Math.max(0, this.stamina - config.staminaDrainPerPunch);
+  }
+
+  /**
+   * Apply damage from a landed punch (see RingScene._resolveAttack, which
+   * passes in the same force value already used for the stagger impulse —
+   * no parallel damage number). Triggers a knockdown at 0 health.
+   */
+  takeDamage(amount) {
+    if (this.isDown) return;   // invulnerable while down (belt-and-suspenders; _resolveAttack already gates this)
+    this.health = Math.max(0, this.health - amount);
+    if (this.health === 0) this._triggerKnockdown();
+  }
+
+  _triggerKnockdown() {
+    this.isDown         = true;
+    this.knockdownTimer = config.knockdownRecoveryDuration;
+    this.punchArm       = null;
+    this.punchTimer     = 0;
+    this.isBlocking     = false;
+    this.slipTimer      = 0;
+    this.vx = 0;
+    this.vy = 0;
   }
 
   /**
@@ -137,8 +173,10 @@ export class Fighter {
     let leadExtend = 0, rearExtend = 0;
 
     if (this.punchTimer > 0 && this.punchArm) {
-      // Triangle wave: 0 → 1 at half-duration, 1 → 0 at full duration
-      const progress = 1 - this.punchTimer / config.punchDuration;
+      // Triangle wave: 0 → 1 at half-duration, 1 → 0 at full duration.
+      // Uses this._punchDuration (not config.punchDuration directly) since a
+      // low-stamina punch may be stretched — see startPunch().
+      const progress = 1 - this.punchTimer / this._punchDuration;
       const wave     = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
       if (this.punchArm === 'lead') leadExtend = wave;
       else                          rearExtend = wave;
@@ -159,7 +197,7 @@ export class Fighter {
       this.gfx.fillRect(-14, -50, 28, 64);   // covers torso + head area
     }
 
-    // ── Slip/duck visual lean ───────────────────────────────────────────────
+    // ── Slip/duck visual lean, or down pose (Stage 6) ───────────────────────
     // Purely cosmetic — offsets/rotates/scales the gfx child within the
     // container, never the container's own position (this.x/this.y stay the
     // true, logic-authoritative position used for range gating/boundaries).
@@ -169,15 +207,21 @@ export class Fighter {
     // would be hard to tell apart from ordinary movement in a screenshot.
     // Horizontal flick  → rig tilts (lean), footwork never rotates.
     // Vertical flick    → rig squashes (crouch/dip), footwork never scales.
-    let leanX = 0, leanRot = 0, squashY = 1;
-    if (this.slipTimer > 0) {
+    // Down (knockdown)  → far more extreme rotation + squash than a slip
+    // ever uses, so it reads as a distinct, more dramatic state.
+    let leanX = 0, leanY = 0, leanRot = 0, squashY = 1;
+    if (this.isDown) {
+      leanY   = 26;
+      leanRot = Math.PI / 2 * 0.9;
+      squashY = 0.35;
+    } else if (this.slipTimer > 0) {
       const progress = 1 - this.slipTimer / config.slipInvincibilityDuration;
       const wave     = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
       leanX   = this.slipDirX * config.slipHeadOffsetX * 0.35 * wave;
       leanRot = this.slipDirX * 0.35 * wave;
       squashY = 1 - Math.abs(this.slipDirY) * 0.3 * wave;
     }
-    this.gfx.setPosition(leanX, 0);
+    this.gfx.setPosition(leanX, leanY);
     this.gfx.setRotation(leanRot);
     this.gfx.setScale(1, squashY);
   }
@@ -193,6 +237,18 @@ export class Fighter {
    * @param {boolean} blockHeld  is the block input currently held
    */
   update(dt, inputX, inputY, ringBounds, opponentX, blockHeld) {
+    // ── Knockdown (Stage 6) ──────────────────────────────────────────────────
+    // Counts down regardless of anything else below; getting back up restores
+    // a fraction of health (see config.knockdownHealthRestorePct) rather than
+    // full — see the ASSUMPTION note on that config value.
+    if (this.isDown) {
+      this.knockdownTimer = Math.max(0, this.knockdownTimer - dt);
+      if (this.knockdownTimer === 0) {
+        this.isDown  = false;
+        this.health  = config.healthMax * config.knockdownHealthRestorePct;
+      }
+    }
+
     // ── Punch timer ────────────────────────────────────────────────────────
     if (this.punchTimer > 0) {
       this.punchTimer = Math.max(0, this.punchTimer - dt);
@@ -202,42 +258,57 @@ export class Fighter {
     // ── Block ──────────────────────────────────────────────────────────────
     // Engages the instant the block input is held AND no punch is mid-flight —
     // an in-progress punch is left to finish rather than snapping its animation.
-    // Also mutually exclusive with an active slip (assumption — see summary).
-    this.isBlocking = blockHeld && this.punchTimer === 0 && this.slipTimer === 0;
+    // Also mutually exclusive with an active slip (assumption — see summary),
+    // and disabled entirely while down (Stage 6).
+    this.isBlocking = !this.isDown && blockHeld && this.punchTimer === 0 && this.slipTimer === 0;
 
-    // ── Slip/duck: flick-vs-hold detector ──────────────────────────────────
+    // ── Slip/duck: flick-vs-hold detector — suspended entirely while down ──
     // Watches the same merged inputX/inputY everything else reads — a pure
     // observer that never gates or delays normal movement/footwork below.
-    const pushMag = Math.hypot(inputX, inputY);
-    if (pushMag >= config.slipInputThreshold) {
-      if (this._pushTimerMs === 0) {
-        // Push just started — capture the direction now, not at release,
-        // so a direction change mid-push doesn't retroactively change it.
-        this._pushDirX = inputX / pushMag;
-        this._pushDirY = inputY / pushMag;
+    if (!this.isDown) {
+      const pushMag = Math.hypot(inputX, inputY);
+      if (pushMag >= config.slipInputThreshold) {
+        if (this._pushTimerMs === 0) {
+          // Push just started — capture the direction now, not at release,
+          // so a direction change mid-push doesn't retroactively change it.
+          this._pushDirX = inputX / pushMag;
+          this._pushDirY = inputY / pushMag;
+          this._pushHoldConfirmed = false;
+        }
+        this._pushTimerMs += dt * 1000;
+        if (this._pushTimerMs > config.slipFlickMaxDurationMs) {
+          this._pushHoldConfirmed = true;   // held too long — reads as footwork now
+        }
+      } else {
+        // Released (or never reached threshold this frame).
+        if (this._pushTimerMs > 0 && !this._pushHoldConfirmed) {
+          this._triggerSlip(this._pushDirX, this._pushDirY);   // released early = flick
+        }
+        this._pushTimerMs = 0;
         this._pushHoldConfirmed = false;
       }
-      this._pushTimerMs += dt * 1000;
-      if (this._pushTimerMs > config.slipFlickMaxDurationMs) {
-        this._pushHoldConfirmed = true;   // held too long — reads as footwork now
-      }
-    } else {
-      // Released (or never reached threshold this frame).
-      if (this._pushTimerMs > 0 && !this._pushHoldConfirmed) {
-        this._triggerSlip(this._pushDirX, this._pushDirY);   // released early = flick
-      }
-      this._pushTimerMs = 0;
-      this._pushHoldConfirmed = false;
     }
     if (this.slipTimer > 0) this.slipTimer = Math.max(0, this.slipTimer - dt);
 
     // ── Hit flash decay ────────────────────────────────────────────────────
     if (this.flashAlpha > 0) this.flashAlpha = Math.max(0, this.flashAlpha - dt / 0.18);
 
-    // ── Movement physics ───────────────────────────────────────────────────
+    // ── Stamina drain/regen (Stage 6) — frozen while down ───────────────────
+    // Punch cost is deducted once at throw time (see startPunch()); this only
+    // handles the continuous block drain and the neither-punching-nor-blocking
+    // regen case.
+    if (!this.isDown) {
+      if (this.isBlocking) {
+        this.stamina = Math.max(0, this.stamina - config.staminaDrainPerSecondBlocking * dt);
+      } else if (this.punchTimer === 0) {
+        this.stamina = Math.min(config.staminaMax, this.stamina + config.staminaRegenPerSecond * dt);
+      }
+    }
+
+    // ── Movement physics — frozen while down (residual velocity bleeds off) ─
     const accelRate    = config.acceleration / config.playerMass;
     const frictionRate = config.friction     / config.playerMass;
-    const hasInput     = Math.abs(inputX) > 0.01 || Math.abs(inputY) > 0.01;
+    const hasInput     = !this.isDown && (Math.abs(inputX) > 0.01 || Math.abs(inputY) > 0.01);
 
     if (hasInput) {
       const len = Math.sqrt(inputX * inputX + inputY * inputY);
@@ -275,8 +346,11 @@ export class Fighter {
 
     // ── Facing ─────────────────────────────────────────────────────────────
     // Always face the opponent, independent of movement input/direction.
-    if (opponentX > this.x) this.facingRight = true;
-    else if (opponentX < this.x) this.facingRight = false;
+    // Frozen while down so the knockdown pose doesn't suddenly mirror-flip.
+    if (!this.isDown) {
+      if (opponentX > this.x) this.facingRight = true;
+      else if (opponentX < this.x) this.facingRight = false;
+    }
 
     // ── Sync container ─────────────────────────────────────────────────────
     this.container.setPosition(this.x, this.y);

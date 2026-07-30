@@ -2,8 +2,8 @@
 // Import this object and read from it at runtime — never hardcode values in game logic.
 export const config = {
   // Ring dimensions (pixels)
-  ringWidth: 700,
-  ringHeight: 480,
+  ringWidth: 500,
+  ringHeight: 500,
 
   // Ring visuals
   ringFloorColor: '#c8a060',
@@ -67,4 +67,33 @@ export const config = {
   slipInvincibilityDuration: 0.25,   // seconds — length of the active slip window (head offset + lean)
   slipHeadOffsetX:           90,     // px — head-hitbox shift (see Fighter.getHitPos), toward the flick direction
   slipHeadOffsetY:           90,     // px — same, vertical axis
+
+  // Health (Stage 6) — symmetric for both player and dummy.
+  healthMax: 100,
+  // Damage reuses the exact force value already computed for the stagger
+  // impulse in _resolveAttack (post block-reduction) rather than a parallel
+  // damage number — this is a derived/tuned ratio, not measured from
+  // anything else in config, so treat the default as an assumption to tune:
+  // at defaults (punchForceBase=250) an unblocked solid punch deals roughly
+  // healthDamagePerForce * ~300-400 force ≈ 20-32 health, so ~4-5 clean
+  // hits to knock down. Flag this back if the pacing feels off.
+  healthDamagePerForce: 0.01,
+
+  // Stamina (Stage 6) — symmetric for both player and dummy.
+  staminaMax: 100,
+  staminaDrainPerPunch:            4,    // flat cost per punch thrown (lands or not)
+  staminaDrainPerSecondBlocking:   2,    // continuous drain while block is held
+  staminaRegenPerSecond:          20,    // regen while neither punching nor blocking
+
+  // Low-stamina telegraph (Stage 6) — soft penalty, punches still fire.
+  lowStaminaThreshold:        25,    // stamina below this = telegraphed
+  lowStaminaWindupMultiplier: 2.5,   // multiplies punch/windup duration when gassed
+
+  // Knockdown (Stage 6).
+  knockdownRecoveryDuration:    2.5,   // seconds spent in the "down" state
+  // ASSUMPTION — flag for confirmation: restored to this fraction of
+  // healthMax on getting up (not full health). Picked as a reasonable
+  // starting point (30-40% range) so a fighter doesn't immediately drop
+  // again from residual chip damage, but this is a feel call, not derived.
+  knockdownHealthRestorePct:    0.35,
 };

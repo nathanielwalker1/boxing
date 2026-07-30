@@ -56,6 +56,13 @@ export class Dummy {
     this.attackTimer      = randRange(config.dummyAttackDelayMin, config.dummyAttackDelayMax);
     this._impactPending   = false;
     this._impactTimer     = 0;
+    this._windupDuration  = config.dummyWindupDuration;   // this attack's actual windup (may be stretched by low stamina)
+
+    // Health/stamina/knockdown (Stage 6) — mirrors Fighter's, symmetric fight.
+    this.health         = config.healthMax;
+    this.stamina        = config.staminaMax;
+    this.isDown         = false;
+    this.knockdownTimer = 0;
 
     // Container + graphics (same pattern as Fighter)
     this.container = scene.add.container(x, y);
@@ -72,9 +79,10 @@ export class Dummy {
 
     if (this.punchTimer > 0 && this.punchArm) {
       // Same triangle-wave shape as Fighter's punch animation, but stretched
-      // over dummyWindupDuration (not punchDuration) so it's slow enough to
+      // over this._windupDuration (not config.dummyWindupDuration directly,
+      // since low stamina stretches it — see update()) so it's slow enough to
       // react to — the player's own punches stay snappy and unaffected.
-      const progress = 1 - this.punchTimer / config.dummyWindupDuration;
+      const progress = 1 - this.punchTimer / this._windupDuration;
       const wave     = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
       if (this.punchArm === 'lead') leadExtend = wave;
       else                          rearExtend = wave;
@@ -87,6 +95,18 @@ export class Dummy {
       leadExtend,
       rearExtend,
     );
+
+    // ── Down pose (Stage 6) — same exaggerated rotate+squash as Fighter's,
+    //    applied post-hoc to the gfx child so this.x/this.y stay authoritative.
+    if (this.isDown) {
+      this.gfx.setPosition(0, 26);
+      this.gfx.setRotation(Math.PI / 2 * 0.9);
+      this.gfx.setScale(1, 0.35);
+    } else {
+      this.gfx.setPosition(0, 0);
+      this.gfx.setRotation(0);
+      this.gfx.setScale(1, 1);
+    }
   }
 
   /**
@@ -118,6 +138,27 @@ export class Dummy {
   }
 
   /**
+   * Apply damage from a landed punch (see RingScene._resolveAttack, which
+   * passes in the same force value already used for the stagger impulse —
+   * no parallel damage number). Triggers a knockdown at 0 health.
+   */
+  takeDamage(amount) {
+    if (this.isDown) return;   // invulnerable while down (belt-and-suspenders; _resolveAttack already gates this)
+    this.health = Math.max(0, this.health - amount);
+    if (this.health === 0) this._triggerKnockdown();
+  }
+
+  _triggerKnockdown() {
+    this.isDown          = true;
+    this.knockdownTimer  = config.knockdownRecoveryDuration;
+    this.punchArm        = null;
+    this.punchTimer      = 0;
+    this._impactPending  = false;
+    this.staggerVx = 0;
+    this.staggerVy = 0;
+  }
+
+  /**
    * TEMPORARY DEBUG HOOK (Stage 5) — forces the next attack to fire immediately,
    * bypassing the randomized cadence, so slip timing can be tested on demand
    * instead of waiting on the timer. Intentionally left in past Stage 5 (kept
@@ -126,11 +167,28 @@ export class Dummy {
    * one already telegraphing.
    */
   forceAttack() {
-    if (this.punchTimer > 0) return;
+    if (this.punchTimer > 0 || this.isDown) return;
     this.attackTimer = 0;
   }
 
   update(dt, opponentX) {
+    // ── Knockdown (Stage 6) — counts down regardless of anything else below;
+    //    getting back up restores a fraction of health, not full (see the
+    //    ASSUMPTION note on config.knockdownHealthRestorePct).
+    if (this.isDown) {
+      this.knockdownTimer = Math.max(0, this.knockdownTimer - dt);
+      if (this.knockdownTimer === 0) {
+        this.isDown  = false;
+        this.health  = config.healthMax * config.knockdownHealthRestorePct;
+      }
+    }
+
+    // ── Stamina regen (Stage 6) — frozen while down; drains once per punch
+    //    at throw time below, regens whenever not mid-windup ─────────────
+    if (!this.isDown && this.punchTimer === 0) {
+      this.stamina = Math.min(config.staminaMax, this.stamina + config.staminaRegenPerSecond * dt);
+    }
+
     // ── Spring-damper: pulls dummy back to origin ─────────────────────────
     const dispX = this.x - this.originX;
     const dispY = this.y - this.originY;
@@ -142,10 +200,13 @@ export class Dummy {
     this.y += this.staggerVy * dt;
 
     // ── Facing — always toward the player, so the punch telegraph swings the
-    //    correct direction even if they circle past the dummy ─────────────
-    if (opponentX > this.x) this.facingRight = true;
-    else if (opponentX < this.x) this.facingRight = false;
-    this.container.setScale(this.facingRight ? 1 : -1, 1);
+    //    correct direction even if they circle past the dummy. Frozen while
+    //    down so the knockdown pose doesn't suddenly mirror-flip. ─────────
+    if (!this.isDown) {
+      if (opponentX > this.x) this.facingRight = true;
+      else if (opponentX < this.x) this.facingRight = false;
+      this.container.setScale(this.facingRight ? 1 : -1, 1);
+    }
 
     // ── Punch windup animation timer ───────────────────────────────────────
     if (this.punchTimer > 0) {
@@ -163,14 +224,20 @@ export class Dummy {
       }
     }
 
-    // ── Attack cadence — randomized timer only, no reactive logic ─────────
-    this.attackTimer -= dt;
-    if (this.attackTimer <= 0) {
-      this.attackTimer = randRange(config.dummyAttackDelayMin, config.dummyAttackDelayMax);
-      this.punchArm        = 'lead';
-      this.punchTimer      = config.dummyWindupDuration;
-      this._impactPending  = true;
-      this._impactTimer    = config.dummyWindupDuration / 2;
+    // ── Attack cadence — randomized timer only, no reactive logic. Suspended
+    //    entirely while down (Stage 6) — a downed dummy can't throw. ───────
+    if (!this.isDown) {
+      this.attackTimer -= dt;
+      if (this.attackTimer <= 0) {
+        this.attackTimer = randRange(config.dummyAttackDelayMin, config.dummyAttackDelayMax);
+        const lowStamina     = this.stamina < config.lowStaminaThreshold;
+        this._windupDuration = config.dummyWindupDuration * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
+        this.punchArm        = 'lead';
+        this.punchTimer      = this._windupDuration;
+        this._impactPending  = true;
+        this._impactTimer    = this._windupDuration / 2;
+        this.stamina         = Math.max(0, this.stamina - config.staminaDrainPerPunch);
+      }
     }
 
     // ── Redraw rig (clears previous frame, picks up live color config changes)

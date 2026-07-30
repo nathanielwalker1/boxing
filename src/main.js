@@ -6,6 +6,7 @@ import { Dummy } from './dummy.js';
 import { VirtualJoystick } from './joystick.js';
 import { PunchButtons } from './punchButtons.js';
 import { BlockButton } from './blockButton.js';
+import { Hud } from './hud.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
@@ -62,6 +63,9 @@ class RingScene extends Phaser.Scene {
     // ── Block button — bottom-center, clear of the joystick and diamond ────
     this.blockBtn = new BlockButton(this, GAME_W / 2, GAME_H - 70);
 
+    // ── Health/stamina HUD (Stage 6) ─────────────────────────────────────────
+    this.hud = new Hud(this, GAME_W);
+
     // Stores the last horizontal input so hook/uppercut can read it at punch time
     this._lastInputX = 0;
 
@@ -87,6 +91,8 @@ class RingScene extends Phaser.Scene {
     // Punching and blocking are mutually exclusive — ignore punch input entirely
     // while block is held (no cooldown: this re-checks fresh every frame).
     if (this._blockHeld) return;
+    // Can't throw while down (Stage 6).
+    if (this.fighter.isDown) return;
 
     // ── Hand selection ─────────────────────────────────────────────────────
     // Jab = always lead (left) arm; Cross = always rear (right) arm.
@@ -122,6 +128,10 @@ class RingScene extends Phaser.Scene {
   // (the player punching the dummy, and the dummy punching the player), so
   // whiff/smother/land handling and the force/stagger calc exist in one place.
   _resolveAttack(attacker, defender, arm, smotherable) {
+    // Invulnerable while down (Stage 6) — no resolution at all, not even a
+    // whiff flash; a downed fighter isn't a valid target until they get up.
+    if (defender.isDown) return;
+
     // Defenders that can slip (Fighter) expose getHitPos() — normally just
     // their true (x, y), but offset while a slip is active. Using it here is
     // the entire "invincibility" implementation: no separate bypass flag.
@@ -175,6 +185,9 @@ class RingScene extends Phaser.Scene {
         if (blocked) force *= (1 - config.blockReduction);
 
         defender.receiveImpulse(dirX * force, dirY * force);
+        // Damage reuses this same post-block-reduction force value (Stage 6)
+        // rather than a parallel damage number — see config.healthDamagePerForce.
+        defender.takeDamage(force * config.healthDamagePerForce);
         break;
       }
     }
@@ -264,6 +277,7 @@ class RingScene extends Phaser.Scene {
     this.fighter.update(dt, inputX, inputY, this._getRingBounds(), this.dummy.x, this._blockHeld);
     this.dummy.update(dt, this.fighter.x);
     this._updateFlashes(dt);
+    this.hud.update(this.fighter, this.dummy);
   }
 }
 
@@ -325,3 +339,16 @@ slipF.add(config, 'slipInvincibilityDuration', 0.05, 1,  0.01).name('Slip Window
 slipF.add(config, 'slipHeadOffsetX',             0, 150, 5).name('Head Offset X');
 slipF.add(config, 'slipHeadOffsetY',             0, 150, 5).name('Head Offset Y');
 slipF.open();
+
+const healthF = gui.addFolder('Health / Stamina');
+healthF.add(config, 'healthMax',                 20, 300, 5).name('Health Max');
+healthF.add(config, 'healthDamagePerForce',     0.01, 0.3, 0.005).name('Damage / Force');
+healthF.add(config, 'staminaMax',                20, 300, 5).name('Stamina Max');
+healthF.add(config, 'staminaDrainPerPunch',       0,  30, 1).name('Drain / Punch');
+healthF.add(config, 'staminaDrainPerSecondBlocking', 0, 60, 1).name('Drain / s Blocking');
+healthF.add(config, 'staminaRegenPerSecond',      0,  60, 1).name('Regen / s');
+healthF.add(config, 'lowStaminaThreshold',       0, 100, 1).name('Low Stamina Threshold');
+healthF.add(config, 'lowStaminaWindupMultiplier', 1,   5, 0.1).name('Low Stamina Windup x');
+healthF.add(config, 'knockdownRecoveryDuration', 0.5, 8, 0.1).name('Knockdown Duration (s)');
+healthF.add(config, 'knockdownHealthRestorePct',  0.05, 1, 0.05).name('Knockdown Restore %');
+healthF.open();

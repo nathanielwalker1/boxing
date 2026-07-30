@@ -1,5 +1,6 @@
 node_modules/
 dist/
 scripts/output/
+scripts/_debug.mjs
 .DS_Store
-.claude/
+.claude/settings.local.json

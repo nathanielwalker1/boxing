@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write(scripts/**)",
+      "Write(src/**)",
+      "Bash(cat > scripts/*)",
+      "Bash(node scripts/*)",
+      "Bash(npm run *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(lsof *)",
+      "Bash(ps aux*)",
+      "Bash(tail *)"
+    ],
+    "deny": [
+      "Bash(rm -rf*)",
+      "Bash(git push*)"
+    ],
+    "ask": [
+      "Bash(git commit*)"
+    ]
+  }
+}
