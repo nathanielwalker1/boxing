@@ -15,7 +15,8 @@ const RIG_MARGIN_BOTTOM = 44;   // shin bottom: 29 + 11 + 4 pad
 /**
  * Fighter — player-controlled boxer rig.
  *
- * Local origin = torso center.  Container.scaleX = ±1 controls facing direction.
+ * Local origin = torso center.  Container.scaleX = ±1 controls facing direction;
+ * facing always tracks the opponent's position, never movement input.
  * Punch state drives arm extension in drawRig() via leadExtend / rearExtend.
  */
 export class Fighter {
@@ -91,8 +92,9 @@ export class Fighter {
    * @param {number} inputX      -1..1 horizontal
    * @param {number} inputY      -1..1 vertical
    * @param {{left,right,top,bottom}} ringBounds
+   * @param {number} opponentX   world-space x of the opponent, used for facing
    */
-  update(dt, inputX, inputY, ringBounds) {
+  update(dt, inputX, inputY, ringBounds, opponentX) {
     // ── Punch timer ────────────────────────────────────────────────────────
     if (this.punchTimer > 0) {
       this.punchTimer = Math.max(0, this.punchTimer - dt);
@@ -139,8 +141,9 @@ export class Fighter {
     if (this.y !== preY) this.vy = 0;
 
     // ── Facing ─────────────────────────────────────────────────────────────
-    if (this.vx >  8) this.facingRight = true;
-    if (this.vx < -8) this.facingRight = false;
+    // Always face the opponent, independent of movement input/direction.
+    if (opponentX > this.x) this.facingRight = true;
+    else if (opponentX < this.x) this.facingRight = false;
 
     // ── Sync container ─────────────────────────────────────────────────────
     this.container.setPosition(this.x, this.y);

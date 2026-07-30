@@ -214,7 +214,7 @@ class RingScene extends Phaser.Scene {
     this.punchBtns.update();
 
     // Step everything
-    this.fighter.update(dt, inputX, inputY, this._getRingBounds());
+    this.fighter.update(dt, inputX, inputY, this._getRingBounds(), this.dummy.x);
     this.dummy.update(dt);
     this._updateFlashes(dt);
   }
