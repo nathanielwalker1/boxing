@@ -1,12 +1,13 @@
 import Phaser from 'phaser';
 import GUI from 'lil-gui';
-import { config } from './config.js';
+import { config, punchDamageMult } from './config.js';
 import { Fighter } from './fighter.js';
 import { Dummy } from './dummy.js';
 import { VirtualJoystick } from './joystick.js';
 import { PunchButtons } from './punchButtons.js';
 import { BlockButton } from './blockButton.js';
 import { Hud } from './hud.js';
+import { drawRig, computePose } from './rig.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
@@ -95,7 +96,10 @@ class RingScene extends Phaser.Scene {
     if (this.fighter.isDown) return;
 
     // ── Hand selection ─────────────────────────────────────────────────────
-    // Jab = always lead (left) arm; Cross = always rear (right) arm.
+    // Jab = always the LEAD hand (the one nearer the opponent), cross = always
+    // the REAR hand (crosses the body). Both ignore the joystick entirely; the
+    // lead/rear labels are rig-local, and the rig mirrors with facing, so this
+    // stays correct from either side of the ring.
     // Hook / Uppercut: joystick/keyboard left → left hand (lead arm),
     //                  right → right hand (rear arm), neutral → right hand (rear).
     let arm;
@@ -109,29 +113,26 @@ class RingScene extends Phaser.Scene {
     }
 
     // ── Start arm animation immediately (plays even on whiff/smother) ──────
-    this.fighter.startPunch(arm);
+    this.fighter.startPunch(arm, punchType);
 
     // Give the dummy its reaction chance BEFORE the punch resolves, so a
     // successful roll actually guards against this punch (Stage 7).
     this.dummy.onOpponentPunchStart();
 
-    // Only jab/cross are smother-vulnerable at close range — hook/uppercut
-    // still land, per the locked range-gating rule.
-    const smotherable = punchType === 'jab' || punchType === 'cross';
-    this._resolveAttack(this.fighter, this.dummy, arm, smotherable);
+    this._resolveAttack(this.fighter, this.dummy, arm, punchType);
   }
 
   // ── Attack impact resolution (dummy-initiated) ──────────────────────────────
   // Called by Dummy at peak extension of its windup — see the onAttackImpact
   // callback passed into `new Dummy(...)` above.
   _resolveDummyAttackImpact() {
-    this._resolveAttack(this.dummy, this.fighter, this.dummy.punchArm, true);
+    this._resolveAttack(this.dummy, this.fighter, this.dummy.punchArm, this.dummy.punchType);
   }
 
   // ── Shared range-gating / impact resolution — used by both attackers ───────
   // (the player punching the dummy, and the dummy punching the player), so
   // whiff/smother/land handling and the force/stagger calc exist in one place.
-  _resolveAttack(attacker, defender, arm, smotherable) {
+  _resolveAttack(attacker, defender, arm, punchType) {
     // Invulnerable while down (Stage 6) — no resolution at all, not even a
     // whiff flash; a downed fighter isn't a valid target until they get up.
     if (defender.isDown) return;
@@ -146,6 +147,10 @@ class RingScene extends Phaser.Scene {
     const dy   = defPos.y - attacker.y;
     const dist = Math.hypot(dx, dy);
     const fist = attacker.getFistPos(arm);
+
+    // Only jab/cross are smother-vulnerable at close range — hook/uppercut
+    // still land, per the locked range-gating rule.
+    const smotherable = punchType !== 'hook' && punchType !== 'uppercut';
 
     let outcome;
     if (dist > config.rangeMax) {
@@ -186,6 +191,11 @@ class RingScene extends Phaser.Scene {
         let force = config.punchForceBase
           + (approachSpd / config.moveSpeed) * config.playerMass * config.punchMomentumScale;
         force = Math.max(config.punchForceBase * 0.1, force);
+        // Per-punch damage multiplier (Stage 8) — layered ON TOP of the
+        // momentum result rather than replacing it, so a retreating hook is
+        // still weaker than an advancing one. Scales stagger and health damage
+        // together, since damage is derived from this same force value.
+        force *= punchDamageMult(punchType);
         if (blocked) force *= (1 - config.blockReduction);
 
         defender.receiveImpulse(dirX * force, dirY * force);
@@ -321,11 +331,24 @@ fighterF.close();
 const combatF = gui.addFolder('Combat');
 combatF.add(config, 'punchForceBase',     50, 800,  5).name('Base Force');
 combatF.add(config, 'punchMomentumScale',  0,   5, 0.1).name('Momentum Scale');
-combatF.add(config, 'punchDuration',     0.05, 0.5, 0.01).name('Punch Duration');
+combatF.add(config, 'punchDuration',     0.05, 0.5, 0.01).name('Punch Duration (base)');
 combatF.add(config, 'rangeMax',          80,  500,  5).name('Range Max');
 combatF.add(config, 'smotherDist',        0,  150,  5).name('Smother Dist');
 combatF.add(config, 'blockReduction',     0,    1, 0.05).name('Block Reduction');
 combatF.open();
+
+// Per-punch identity (Stage 8). Damage multiplies the momentum-based force;
+// speed divides config.punchDuration (higher = snappier).
+const punchTypeF = gui.addFolder('Punch Types');
+punchTypeF.add(config, 'jabDamage',       0.1, 3, 0.05).name('Jab Damage x');
+punchTypeF.add(config, 'jabSpeed',        0.3, 3, 0.05).name('Jab Speed x');
+punchTypeF.add(config, 'crossDamage',     0.1, 3, 0.05).name('Cross Damage x');
+punchTypeF.add(config, 'crossSpeed',      0.3, 3, 0.05).name('Cross Speed x');
+punchTypeF.add(config, 'hookDamage',      0.1, 3, 0.05).name('Hook Damage x');
+punchTypeF.add(config, 'hookSpeed',       0.3, 3, 0.05).name('Hook Speed x');
+punchTypeF.add(config, 'uppercutDamage',  0.1, 3, 0.05).name('Uppercut Damage x');
+punchTypeF.add(config, 'uppercutSpeed',   0.3, 3, 0.05).name('Uppercut Speed x');
+punchTypeF.open();
 
 const dummyF = gui.addFolder('Dummy');
 dummyF.add(config, 'dummyReturnSpeed',  5, 200,  5).name('Spring Stiffness');
@@ -352,6 +375,9 @@ dummyAiF.open();
 // inferring everything from pixels. Not read by any gameplay code.
 window.__game   = game;
 window.__config = config;
+// Also exposed so the punch-animation checks can render a contact sheet of every
+// punch's trajectory in one frame instead of scrubbing the live fighter.
+window.__rig    = { drawRig, computePose };
 
 const slipF = gui.addFolder('Slip / Duck');
 slipF.add(config, 'slipInputThreshold',        0.1, 1,   0.05).name('Push Threshold');

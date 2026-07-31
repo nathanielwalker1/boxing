@@ -40,18 +40,22 @@ await page.evaluate(() => {
   const sc = window.__game.scene.keys.RingScene;
   window.__out = [];
   const orig = sc._resolveAttack.bind(sc);
-  sc._resolveAttack = (attacker, defender, arm, smotherable) => {
+  // NOTE: the 4th arg is the punch TYPE (Stage 8) — smother-vulnerability is
+  // derived from it inside _resolveAttack, so mirror that derivation here.
+  sc._resolveAttack = (attacker, defender, arm, punchType) => {
     const p    = typeof defender.getHitPos === 'function' ? defender.getHitPos() : defender;
     const dist = Math.hypot(p.x - attacker.x, p.y - attacker.y);
+    const smotherable = punchType !== 'hook' && punchType !== 'uppercut';
     if (attacker === sc.fighter) {
       window.__out.push({
         outcome: dist > window.__config.rangeMax ? 'whiff'
                : (dist < window.__config.smotherDist && smotherable) ? 'smother' : 'land',
         dist: Math.round(dist),
         arm,
+        punchType,
       });
     }
-    return orig(attacker, defender, arm, smotherable);
+    return orig(attacker, defender, arm, punchType);
   };
 });
 

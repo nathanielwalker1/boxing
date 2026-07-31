@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { config } from './config.js';
-import { drawRig } from './rig.js';
+import { drawRig, computePose, peakProgress } from './rig.js';
 import { stepMovement } from './movement.js';
 
 function cssHex(str) {
@@ -73,8 +73,12 @@ export class Dummy {
     // Faces the player — starts facing left since the player starts on the left.
     this.facingRight = false;
 
-    // Punch windup animation (reuses the same leadExtend/rearExtend blend as Fighter)
+    // Punch windup animation (reuses the same rig pose solver as Fighter).
+    // The dummy only throws jabs — punch variety for the opponent is a separate
+    // stage; punchType exists so its damage multiplier and jab trajectory flow
+    // through the same shared code the player uses.
     this.punchArm   = null;
+    this.punchType  = null;
     this.punchTimer = 0;
 
     // Attack cadence
@@ -112,26 +116,28 @@ export class Dummy {
     this.draw();
   }
 
+  /**
+   * Current punch animation state in the form rig.js consumes, or null when
+   * idle. The trajectory is the shared per-type one, but stretched over
+   * this._windupDuration (NOT the player's punchDuration/speed multipliers) so
+   * the dummy's telegraph stays deliberately slow and readable — see the note
+   * on config.dummyWindupDuration.
+   */
+  _punchState(atPeak = false) {
+    if (this.punchTimer <= 0 || !this.punchArm) return null;
+    return {
+      type: this.punchType,
+      arm:  this.punchArm,
+      p:    atPeak ? peakProgress(this.punchType) : 1 - this.punchTimer / this._windupDuration,
+    };
+  }
+
   draw() {
-    let leadExtend = 0, rearExtend = 0;
-
-    if (this.punchTimer > 0 && this.punchArm) {
-      // Same triangle-wave shape as Fighter's punch animation, but stretched
-      // over this._windupDuration (not config.dummyWindupDuration directly,
-      // since low stamina stretches it — see update()) so it's slow enough to
-      // react to — the player's own punches stay snappy and unaffected.
-      const progress = 1 - this.punchTimer / this._windupDuration;
-      const wave     = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
-      if (this.punchArm === 'lead') leadExtend = wave;
-      else                          rearExtend = wave;
-    }
-
     drawRig(
       this.gfx,
       cssHex(config.dummyBodyColor),
       cssHex(config.dummySkinColor),
-      leadExtend,
-      rearExtend,
+      this._punchState(),
       this.isBlocking ? 1 : 0,   // same guard pose the player's block uses
     );
 
@@ -153,9 +159,10 @@ export class Dummy {
    * @param {'lead'|'rear'} arm
    */
   getFistPos(arm) {
-    const localX = arm === 'lead' ? -19 : 19;
-    const flip   = this.facingRight ? 1 : -1;
-    return { x: this.x + localX * flip, y: this.y - 14 };
+    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0);
+    const hand = arm === 'lead' ? pose.lead : pose.rear;
+    const flip = this.facingRight ? 1 : -1;
+    return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
   }
 
   /**
@@ -191,6 +198,7 @@ export class Dummy {
     this.isDown          = true;
     this.knockdownTimer  = config.knockdownRecoveryDuration;
     this.punchArm        = null;
+    this.punchType       = null;
     this.punchTimer      = 0;
     this._impactPending  = false;
     this._forceAttack    = false;
@@ -258,7 +266,7 @@ export class Dummy {
     // ── Punch windup animation timer ───────────────────────────────────────
     if (this.punchTimer > 0) {
       this.punchTimer = Math.max(0, this.punchTimer - dt);
-      if (this.punchTimer === 0) this.punchArm = null;
+      if (this.punchTimer === 0) { this.punchArm = null; this.punchType = null; }
     }
 
     // ── Block state (Stage 7) ──────────────────────────────────────────────
@@ -386,6 +394,7 @@ export class Dummy {
           const lowStamina     = this.stamina < config.lowStaminaThreshold;
           this._windupDuration = config.dummyWindupDuration * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
           this.punchArm        = 'lead';
+          this.punchType       = 'jab';
           this.punchTimer      = this._windupDuration;
           this._impactPending  = true;
           this._impactTimer    = this._windupDuration / 2;

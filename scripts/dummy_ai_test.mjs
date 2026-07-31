@@ -61,7 +61,7 @@ async function freshLoad() {
     requestAnimationFrame(tick);
 
     const orig = sc._resolveAttack.bind(sc);
-    sc._resolveAttack = (attacker, defender, arm, smotherable) => {
+    sc._resolveAttack = (attacker, defender, arm, punchType) => {
       const p = typeof defender.getHitPos === 'function' ? defender.getHitPos() : defender;
       const dist = Math.hypot(p.x - attacker.x, p.y - attacker.y);
       window.__resolves.push({
@@ -73,7 +73,7 @@ async function freshLoad() {
         inRange:    dist <= window.__config.rangeMax,
         dist,
       });
-      return orig(attacker, defender, arm, smotherable);
+      return orig(attacker, defender, arm, punchType);
     };
   });
 }

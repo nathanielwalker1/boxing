@@ -26,11 +26,30 @@ export const config = {
   fighterRadius:    22,         // boundary collision radius (px)
 
   // Punch execution
-  punchDuration:      0.15,   // arm animation duration (seconds)
+  punchDuration:      0.15,   // BASE arm animation duration (seconds); divided by the per-punch speed below
 
   // Punch force — scales with player momentum per the physics philosophy
   punchForceBase:      250,   // base stagger impulse (px/s added to dummy stagger velocity)
   punchMomentumScale:  1.0,   // multiplier on (approachSpeed/moveSpeed * playerMass); 0 = flat force
+
+  // ── Per-punch damage / speed (Stage 8) ──────────────────────────────────────
+  // Both are MULTIPLIERS on the existing shared systems, not replacements:
+  //   damage — scales the momentum-based force computed in _resolveAttack, so it
+  //            scales stagger impulse and health damage together (damage is still
+  //            derived from force via healthDamagePerForce). 1.0 = the old value.
+  //   speed  — rate multiplier on config.punchDuration (duration = punchDuration
+  //            / speed). Higher = faster. 1.0 = the old duration.
+  // ASSUMPTION — first-pass feel numbers, not derived from anything; the intended
+  // ordering (jab weakest/fastest → hook & uppercut heaviest/slowest) is the spec,
+  // the exact spacing is for the sliders to settle.
+  jabDamage:        0.70,
+  jabSpeed:         1.50,
+  crossDamage:      0.95,
+  crossSpeed:       1.35,
+  hookDamage:       1.45,
+  hookSpeed:        1.05,
+  uppercutDamage:   1.55,
+  uppercutSpeed:    1.00,
 
   // Range gating
   rangeMin:    80,    // reserved — currently the landing zone is smotherDist..rangeMax
@@ -127,3 +146,15 @@ export const config = {
   // again from residual chip damage, but this is a feel call, not derived.
   knockdownHealthRestorePct:    0.35,
 };
+
+// Per-punch multiplier lookups. Read through these rather than indexing config
+// directly so punch logic never names a punch-type constant inline, and so the
+// tuning-panel sliders (which bind to the flat keys above) take effect live.
+export function punchDamageMult(type) {
+  const v = config[`${type}Damage`];
+  return typeof v === 'number' ? v : 1;
+}
+export function punchSpeedMult(type) {
+  const v = config[`${type}Speed`];
+  return typeof v === 'number' && v > 0 ? v : 1;
+}

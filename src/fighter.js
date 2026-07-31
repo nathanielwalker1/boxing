@@ -1,5 +1,5 @@
-import { config } from './config.js';
-import { drawRig } from './rig.js';
+import { config, punchSpeedMult } from './config.js';
+import { drawRig, computePose, peakProgress } from './rig.js';
 import { stepMovement } from './movement.js';
 
 function cssHex(str) {
@@ -11,7 +11,8 @@ function cssHex(str) {
  *
  * Local origin = torso center.  Container.scaleX = ±1 controls facing direction;
  * facing always tracks the opponent's position, never movement input.
- * Punch state drives arm extension in drawRig() via leadExtend / rearExtend.
+ * Punch state (type + arm + progress) is handed to drawRig(), which owns the
+ * per-punch-type trajectory — see the PUNCHES table in rig.js.
  */
 export class Fighter {
   constructor(scene, x, y) {
@@ -24,6 +25,7 @@ export class Fighter {
 
     // Punch animation state
     this.punchArm   = null;   // 'lead' | 'rear' | null
+    this.punchType  = null;   // 'jab' | 'cross' | 'hook' | 'uppercut' | null — selects the trajectory in rig.js
     this.punchTimer = 0;      // seconds remaining in current punch animation
 
     // Block state — isBlocking only goes true once any in-progress punch has
@@ -69,14 +71,33 @@ export class Fighter {
    * windup/telegraph timing rather than a new system — stretches the punch
    * duration when stamina is low, so a gassed fighter is visibly slower to
    * react to instead of being locked out of throwing at all.
-   * @param {'lead'|'rear'} arm  which local arm to animate
+   * Duration is the shared config.punchDuration divided by the punch type's own
+   * speed multiplier (Stage 8), so the four punches differ in snappiness while
+   * still tracking the one shared base value and the low-stamina stretch.
+   * @param {'lead'|'rear'} arm   which local arm to animate
+   * @param {string} type         'jab' | 'cross' | 'hook' | 'uppercut'
    */
-  startPunch(arm) {
+  startPunch(arm, type) {
     const lowStamina    = this.stamina < config.lowStaminaThreshold;
-    this._punchDuration = config.punchDuration * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
+    this._punchDuration = config.punchDuration / punchSpeedMult(type)
+                          * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
     this.punchArm        = arm;
+    this.punchType       = type;
     this.punchTimer      = this._punchDuration;
     this.stamina         = Math.max(0, this.stamina - config.staminaDrainPerPunch);
+  }
+
+  /**
+   * Current punch animation state in the form rig.js consumes, or null when
+   * idle. Shared by _draw() and getFistPos() so both read the same pose.
+   */
+  _punchState(atPeak = false) {
+    if (this.punchTimer <= 0 || !this.punchArm) return null;
+    return {
+      type: this.punchType,
+      arm:  this.punchArm,
+      p:    atPeak ? peakProgress(this.punchType) : 1 - this.punchTimer / this._punchDuration,
+    };
   }
 
   /**
@@ -94,6 +115,7 @@ export class Fighter {
     this.isDown         = true;
     this.knockdownTimer = config.knockdownRecoveryDuration;
     this.punchArm       = null;
+    this.punchType      = null;
     this.punchTimer     = 0;
     this.isBlocking     = false;
     this.slipTimer      = 0;
@@ -103,14 +125,19 @@ export class Fighter {
 
   /**
    * Return the world-space position of the specified fist (for flash spawning).
+   * Solved from the rig pose sampled at the punch's PEAK, so a whiff/smother
+   * flash appears where the punch actually arrives — which now differs a lot
+   * per punch type (an uppercut's fist is nowhere near a jab's). Sampling the
+   * current frame instead would place it at the fist's press-time rest spot,
+   * since the player's punch resolves on the frame it's thrown.
    * @param {'lead'|'rear'} arm
    * @returns {{ x: number, y: number }}
    */
   getFistPos(arm) {
-    // Local fist x: lead arm at -19, rear arm at +19 (from rig.js layout)
-    const localX = arm === 'lead' ? -19 : 19;
-    const flip   = this.facingRight ? 1 : -1;
-    return { x: this.x + localX * flip, y: this.y - 14 };
+    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0);
+    const hand = arm === 'lead' ? pose.lead : pose.rear;
+    const flip = this.facingRight ? 1 : -1;
+    return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
   }
 
   /**
@@ -164,24 +191,13 @@ export class Fighter {
   // ── Internal ────────────────────────────────────────────────────────────────
 
   _draw() {
-    let leadExtend = 0, rearExtend = 0;
-
-    if (this.punchTimer > 0 && this.punchArm) {
-      // Triangle wave: 0 → 1 at half-duration, 1 → 0 at full duration.
-      // Uses this._punchDuration (not config.punchDuration directly) since a
-      // low-stamina punch may be stretched — see startPunch().
-      const progress = 1 - this.punchTimer / this._punchDuration;
-      const wave     = progress < 0.5 ? progress * 2 : (1 - progress) * 2;
-      if (this.punchArm === 'lead') leadExtend = wave;
-      else                          rearExtend = wave;
-    }
-
+    // rig.js owns the punch trajectory now — this just hands it the current
+    // punch type/arm and normalized progress (see _punchState()).
     drawRig(
       this.gfx,
       cssHex(config.fighterBodyColor),
       cssHex(config.fighterSkinColor),
-      leadExtend,
-      rearExtend,
+      this._punchState(),
       this.isBlocking ? 1 : 0,
     );
 
@@ -246,7 +262,7 @@ export class Fighter {
     // ── Punch timer ────────────────────────────────────────────────────────
     if (this.punchTimer > 0) {
       this.punchTimer = Math.max(0, this.punchTimer - dt);
-      if (this.punchTimer === 0) this.punchArm = null;
+      if (this.punchTimer === 0) { this.punchArm = null; this.punchType = null; }
     }
 
     // ── Block ──────────────────────────────────────────────────────────────
