@@ -1,6 +1,6 @@
 import { config, punchSpeedMult } from './config.js';
 import { drawRig, computePose, peakProgress, armSlot, hurtboxes } from './rig.js';
-import { stepMovement, stepBob } from './movement.js';
+import { stepMovement, stepBob, stepFacing } from './movement.js';
 import { HitReaction } from './reaction.js';
 
 function cssHex(str) {
@@ -103,6 +103,19 @@ export class Fighter {
     this.punchTimer      = this._punchDuration;
     this.stamina         = Math.max(0, this.stamina - config.staminaDrainPerPunch);
   }
+
+  /**
+   * The x an OPPONENT should face toward — see stepFacing(). The player has no
+   * stagger offset (impulses go straight into vx/vy), so this IS this.x; it
+   * exists so both fighters expose the same facing contract.
+   */
+  get facingAnchorX() { return this.x; }
+
+  /**
+   * The body other systems should push against. The player has no stagger
+   * offset, so this is the Fighter itself. See resolveOverlap().
+   */
+  get locoBody() { return this; }
 
   /**
    * Current punch animation state in the form rig.js consumes, or null when
@@ -302,7 +315,8 @@ export class Fighter {
    * @param {number} inputX      -1..1 horizontal
    * @param {number} inputY      -1..1 vertical
    * @param {{left,right,top,bottom}} ringBounds
-   * @param {number} opponentX   world-space x of the opponent, used for facing
+   * @param {number} opponentX   the opponent's LOCOMOTION x (their facingAnchorX),
+   *                             used for facing — see stepFacing()
    * @param {boolean} blockHeld  is the block input currently held
    */
   update(dt, inputX, inputY, ringBounds, opponentX, blockHeld) {
@@ -396,9 +410,9 @@ export class Fighter {
     // ── Facing ─────────────────────────────────────────────────────────────
     // Always face the opponent, independent of movement input/direction.
     // Frozen while down so the knockdown pose doesn't suddenly mirror-flip.
+    // Same shared rule the dummy uses — see stepFacing() in movement.js.
     if (!this.isDown) {
-      if (opponentX > this.x) this.facingRight = true;
-      else if (opponentX < this.x) this.facingRight = false;
+      this.facingRight = stepFacing(this.facingRight, this.x, opponentX);
     }
 
     // ── Sync container ─────────────────────────────────────────────────────

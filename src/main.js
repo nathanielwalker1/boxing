@@ -9,6 +9,7 @@ import { PunchButtons } from './punchButtons.js';
 import { BlockButton } from './blockButton.js';
 import { Hud } from './hud.js';
 import { FollowCamera } from './camera.js';
+import { resolveOverlap } from './movement.js';
 import {
   drawRig, computePose, leadArm, rearArm,
   peakProgress, hurtboxes, circleHitsCircle, circleHitsBox,
@@ -491,7 +492,16 @@ class RingScene extends Phaser.Scene {
 
     // Step everything
     const bounds = this._getRingBounds();
-    this.fighter.update(dt, inputX, inputY, bounds, this.dummy.x, this._blockHeld);
+    // Body separation runs BEFORE the two steps, on last frame's final
+    // positions, so each fighter's update() then composes and syncs its
+    // container from the already-corrected position — resolving afterwards
+    // would leave the sprites a frame behind the push.
+    resolveOverlap(this.fighter.locoBody, this.dummy.locoBody, bounds);
+
+    // facingAnchorX, not .x — the dummy's .x carries its stagger offset, which
+    // is an impact wobble rather than a change of where it is standing. See
+    // stepFacing() in movement.js.
+    this.fighter.update(dt, inputX, inputY, bounds, this.dummy.facingAnchorX, this._blockHeld);
     this.dummy.update(dt, this.fighter, bounds);
     // AFTER both have stepped — a punch resolves against current positions.
     this._updatePendingImpacts(dt);
@@ -551,6 +561,9 @@ fighterF.addColor(config, 'fighterSkinColor').name('Skin Color');
 fighterF.add(config, 'guardBobAmplitude', 0, 12, 0.5).name('Move Bob px');
 fighterF.add(config, 'guardBobFrequency', 0,  6, 0.1).name('Move Bob Hz');
 fighterF.add(config, 'rearArmAlpha',    0.4,  1, 0.01).name('Rear Limb Alpha');
+fighterF.add(config, 'facingDeadband',    0, 10, 0.25).name('Facing Deadband px');
+fighterF.add(config, 'fighterSeparationDist',     0, 100, 1).name('Separation Dist');
+fighterF.add(config, 'fighterSeparationStrength', 0,   1, 0.05).name('Separation Strength');
 fighterF.close();
 
 const combatF = gui.addFolder('Combat');

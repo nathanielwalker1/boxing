@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { config } from './config.js';
 import { drawRig, computePose, peakProgress, armSlot, leadArm, hurtboxes } from './rig.js';
-import { stepMovement, stepBob } from './movement.js';
+import { stepMovement, stepBob, stepFacing } from './movement.js';
 import { HitReaction } from './reaction.js';
 
 function cssHex(str) {
@@ -130,6 +130,18 @@ export class Dummy {
 
     this.draw();
   }
+
+  /**
+   * The x an OPPONENT should face toward — this fighter's locomotion position,
+   * deliberately excluding the stagger offset baked into this.x. See stepFacing().
+   */
+  get facingAnchorX() { return this._loco.x; }
+
+  /**
+   * The body other systems should push against — the locomotion body, so the
+   * stagger offset stays a pure impact wobble. See resolveOverlap().
+   */
+  get locoBody() { return this._loco; }
 
   /**
    * Current punch animation state in the form rig.js consumes, or null when
@@ -399,9 +411,11 @@ export class Dummy {
     // ── Facing — always toward the player, so the punch telegraph swings the
     //    correct direction even if they circle past the dummy. Frozen while
     //    down so the knockdown pose doesn't suddenly mirror-flip. ─────────
+    //    Measured between LOCOMOTION positions on both sides (see stepFacing) —
+    //    this.x carries the stagger offset, and reading that made a punch spin
+    //    the dummy to face the ropes whenever it was pinned against one.
     if (!this.isDown) {
-      if (player.x > this.x) this.facingRight = true;
-      else if (player.x < this.x) this.facingRight = false;
+      this.facingRight = stepFacing(this.facingRight, this._loco.x, player.facingAnchorX);
       this.container.setScale(this.facingRight ? 1 : -1, 1);
     }
 
