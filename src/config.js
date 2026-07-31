@@ -82,6 +82,23 @@ export const config = {
   // near-stacked facing ever reads as twitchy in play.
   facingDeadband: 0.5,
 
+  // ── Body separation ─────────────────────────────────────────────────────────
+  // Fighters are soft bodies, not solid walls: an overlapping pair is EASED
+  // apart each frame rather than blocked outright, so walking into someone
+  // shoves them (which is what infighting should feel like) instead of hitting
+  // an invisible wall. Deliberately smaller than smotherDist (50) so the
+  // too-close/smothered band is still reachable, and well under the dummy's
+  // standoff (64) so its movement AI never fights the push.
+  // Dist is the REST target, not a hard floor: because only a fraction of the
+  // overlap is corrected per frame, someone leaning their whole walk speed into
+  // an opponent compresses it a few px (measured: ~33-37 px at the values below
+  // depending on approach angle, ~35 px even at strength 1). That give is the
+  // point — it reads as shoving,
+  // and the pair still never stacks. Strength also sets how fast a dead-stacked
+  // pair separates: 0.15 ≈ 27 frames, 0.5 ≈ 7, 1.0 ≈ 1 (visibly a hard snap).
+  fighterSeparationDist:     38,   // min center-to-center distance (px). 0 = off
+  fighterSeparationStrength: 0.5,  // fraction of the overlap corrected per frame; 1 = rigid
+
   // Fighter physics — mass scales accel/friction so heavier = sluggier
   playerMass:   80,
   acceleration: 900,   // force units; effective accel = acceleration / mass

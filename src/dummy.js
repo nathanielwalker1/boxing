@@ -138,6 +138,12 @@ export class Dummy {
   get facingAnchorX() { return this._loco.x; }
 
   /**
+   * The body other systems should push against — the locomotion body, so the
+   * stagger offset stays a pure impact wobble. See resolveOverlap().
+   */
+  get locoBody() { return this._loco; }
+
+  /**
    * Current punch animation state in the form rig.js consumes, or null when
    * idle. The trajectory is the shared per-type one, but stretched over
    * this._windupDuration (NOT the player's punchDuration/speed multipliers) so

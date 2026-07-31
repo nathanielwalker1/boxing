@@ -112,6 +112,12 @@ export class Fighter {
   get facingAnchorX() { return this.x; }
 
   /**
+   * The body other systems should push against. The player has no stagger
+   * offset, so this is the Fighter itself. See resolveOverlap().
+   */
+  get locoBody() { return this; }
+
+  /**
    * Current punch animation state in the form rig.js consumes, or null when
    * idle. Shared by _draw() and getFistPos() so both read the same pose.
    */
