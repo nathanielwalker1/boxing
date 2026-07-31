@@ -47,6 +47,9 @@ class RingScene extends Phaser.Scene {
     // _resolvePunch / _updatePendingImpacts.
     this._pendingImpacts = [];
 
+    // Seconds of hit-stop remaining — see _triggerHitStop / update().
+    this._hitStopTimer = 0;
+
     // ── Keyboard: movement ─────────────────────────────────────────────────
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd    = this.input.keyboard.addKeys({
@@ -236,13 +239,15 @@ class RingScene extends Phaser.Scene {
         break;
 
       case 'land': {
-        const blocked   = !!defender.isBlocking;
-        const flashTint = blocked ? 0x3388ff : 0xff3333;
-        const burstTint = blocked ? 0x2266ee : 0xff2222;
+        const blocked = !!defender.isBlocking;
 
-        defender.flash(flashTint);
-        this._flashes.push(makeBurst(defender.x, defender.y - 20, burstTint));
-        this._flashes.push(makeRing(defender.x, defender.y - 20, 0xffffff, 0.2));
+        // Stage 10: the generic circular hit flash (a body-centered burst + ring)
+        // is GONE for clean hits — the localized rig reaction below is the
+        // feedback now. The blue overlay is kept ONLY for blocked hits, where it
+        // isn't hit feedback at all: it's the readout for a distinct game state
+        // (blockReduction cuts the force by 75%, so the reaction alone would be
+        // near-invisible and a blocked hit would look like a whiff).
+        if (blocked) defender.flash(0x3388ff);
 
         // Force = base + momentum contribution from the attacker's approach velocity
         const d    = dist || 1;
@@ -260,9 +265,16 @@ class RingScene extends Phaser.Scene {
         if (blocked) force *= (1 - config.blockReduction);
 
         defender.receiveImpulse(dirX * force, dirY * force);
+        // Localized punch-type reaction (Stage 10) — head/torso/tilt, driven by
+        // this same force value so it scales with momentum and damage rather
+        // than being a flat per-type animation.
+        defender.receiveHit(punchType, force);
         // Damage reuses this same post-block-reduction force value (Stage 6)
         // rather than a parallel damage number — see config.healthDamagePerForce.
         defender.takeDamage(force * config.healthDamagePerForce);
+        // Hit-stop (Stage 10) — a few frames of near-frozen timescale, length
+        // scaled by the same force. Applied globally in update().
+        this._triggerHitStop(force);
         break;
       }
     }
@@ -271,6 +283,21 @@ class RingScene extends Phaser.Scene {
     // instead of re-deriving it from positions (which is how punch_test used to
     // work — it would have kept passing against the old distance rule).
     return outcome;
+  }
+
+  // ── Hit-stop (Stage 10) ────────────────────────────────────────────────────
+  // A brief freeze-frame on a landed hit. Deliberately implemented as a scale on
+  // the dt handed to update() rather than as Phaser's own timescale, so it slows
+  // exactly the things the game steps itself (fighters, springs, pending
+  // impacts, flashes) and nothing else — and so the hit-stop clock keeps running
+  // on REAL time and can't freeze itself out.
+  //
+  // Overlapping hits take the longer of the two rather than stacking; stacking
+  // would let a fast combo compound into a genuine hang.
+  _triggerHitStop(force) {
+    if (!config.hitStopEnabled) return;
+    const dur = Math.min(config.hitStopMax, config.hitStopBase + force * config.hitStopPerForce);
+    this._hitStopTimer = Math.max(this._hitStopTimer, dur);
   }
 
   // ── Flash effect rendering ─────────────────────────────────────────────────
@@ -353,7 +380,17 @@ class RingScene extends Phaser.Scene {
 
   // ── Main update loop ──────────────────────────────────────────────────────
   update(_time, delta) {
-    const dt = Math.min(delta / 1000, 0.05);
+    const realDt = Math.min(delta / 1000, 0.05);
+
+    // Hit-stop (Stage 10): the timer burns REAL time while everything the game
+    // steps runs on a near-zero dt. Input reading below is unaffected — a press
+    // during the stop is still registered, it just resolves as the game resumes,
+    // which is what keeps this reading as impact rather than as dropped input.
+    let dt = realDt;
+    if (this._hitStopTimer > 0) {
+      this._hitStopTimer = Math.max(0, this._hitStopTimer - realDt);
+      dt = realDt * config.hitStopScale;
+    }
 
     this.drawRing();
 
@@ -458,6 +495,36 @@ punchTypeF.add(config, 'hookSpeed',       0.3, 3, 0.05).name('Hook Speed x');
 punchTypeF.add(config, 'uppercutDamage',  0.1, 3, 0.05).name('Uppercut Damage x');
 punchTypeF.add(config, 'uppercutSpeed',   0.3, 3, 0.05).name('Uppercut Speed x');
 punchTypeF.open();
+
+// Hit reaction (Stage 10) — the localized rig response to a landed punch.
+// Shared spring first, then the per-punch shape (direction/proportion only:
+// magnitude always comes from the force calc, so these compose with Base Force,
+// Momentum Scale and the per-punch Damage multiplier above).
+const reactF = gui.addFolder('Hit Reaction');
+reactF.add(config, 'reactionStiffness',  50, 1500, 10).name('Spring Stiffness');
+reactF.add(config, 'reactionDamping',     1,   60,  1).name('Damping');
+reactF.add(config, 'reactionForceScale',  0,    6, 0.05).name('Force → Motion x');
+reactF.add(config, 'reactionTwistScale',  0, 0.05, 0.001).name('Force → Twist x');
+reactF.add(config, 'reactionMaxOffset',   5,  100,  1).name('Max Offset px');
+reactF.add(config, 'reactionMaxTilt',   0.1,  1.5, 0.05).name('Max Tilt (rad)');
+for (const t of ['jab', 'cross', 'hook', 'uppercut']) {
+  const f = reactF.addFolder(t[0].toUpperCase() + t.slice(1));
+  f.add(config, `${t}ReactBack`,  -1, 2, 0.05).name('Back');
+  f.add(config, `${t}ReactLift`,  -1, 2, 0.05).name('Lift (up +)');
+  f.add(config, `${t}ReactTwist`, -2, 2, 0.05).name('Twist');
+  f.add(config, `${t}ReactTorso`,  0, 1, 0.05).name('Torso Bleed');
+  f.add(config, `${t}ReactSnap`, 0.3, 3, 0.05).name('Snap x');
+  f.close();
+}
+reactF.close();
+
+const hitStopF = gui.addFolder('Hit Stop');
+hitStopF.add(config, 'hitStopEnabled')                    .name('Enabled');
+hitStopF.add(config, 'hitStopBase',     0,   0.15, 0.005).name('Base (s)');
+hitStopF.add(config, 'hitStopPerForce', 0, 0.0006, 0.00002).name('Per Force (s)');
+hitStopF.add(config, 'hitStopMax',   0.01,    0.3, 0.01) .name('Max (s)');
+hitStopF.add(config, 'hitStopScale',    0,      1, 0.01) .name('Timescale');
+hitStopF.close();
 
 const dummyF = gui.addFolder('Dummy');
 dummyF.add(config, 'dummyReturnSpeed',  5, 200,  5).name('Spring Stiffness');

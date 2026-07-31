@@ -54,6 +54,12 @@ export function armSlot(stance, arm) {
   return arm === leadArm(stance) ? 'lead' : 'rear';
 }
 
+// ── Hit reaction (Stage 10) ──────────────────────────────────────────────────
+// The rest value of the offsets reaction.js produces. Shared (and frozen) so
+// the overwhelmingly common "nobody is currently reacting" case allocates
+// nothing per frame, and so both modules agree on the shape of the object.
+export const NO_REACT = Object.freeze({ headX: 0, headY: 0, torsoX: 0, torsoY: 0, tilt: 0 });
+
 // ── Skeleton constants ───────────────────────────────────────────────────────
 const SHOULDER_X = 17;
 const SHOULDER_Y = -45;
@@ -273,9 +279,14 @@ function solveArm(sx, sy, a1, a2) {
  * @param {number} bob    px of movement bounce (see stepBob in movement.js);
  *                        folded into `dip`, so it rides the torso/head/thighs
  *                        while the shins stay planted
- * @returns {{ torsoShift, dip, turn, ext, punchingArm, lead, rear }}
+ * @param {{headX,headY,torsoX,torsoY,tilt}} react  hit-reaction offsets in this
+ *                        same local space (see reaction.js). The torso part
+ *                        moves the SHOULDERS here, so the arms travel with the
+ *                        body rather than detaching from it; the head part is
+ *                        applied on top of it by drawRig/hurtboxes.
+ * @returns {{ torsoShift, dip, turn, ext, punchingArm, lead, rear, react }}
  */
-export function computePose(punch, guard = 0, bob = 0) {
+export function computePose(punch, guard = 0, bob = 0, react = NO_REACT) {
   const def = punch && PUNCHES[punch.type] ? PUNCHES[punch.type] : null;
   const punchingArm = def ? punch.arm : null;
 
@@ -288,10 +299,12 @@ export function computePose(punch, guard = 0, bob = 0) {
   const dip        = key.dip  * (1 - g) + bob;
   const torsoShift = TORSO_SHIFT * turn;
 
-  const leadSx = SHOULDER_X + torsoShift +
+  const rk = react || NO_REACT;
+  const leadSx = SHOULDER_X + torsoShift + rk.torsoX +
     (punchingArm === 'lead' ? LEAD_SHOULDER_DRIVE * turn : -LEAD_SHOULDER_PULL * turn);
-  const rearSx = -SHOULDER_X + torsoShift +
+  const rearSx = -SHOULDER_X + torsoShift + rk.torsoX +
     (punchingArm === 'rear' ? REAR_SHOULDER_DRIVE * turn : -REAR_SHOULDER_PULL * turn);
+  const shoulderY = SHOULDER_Y + dip + rk.torsoY;
 
   // The non-punching arm simply holds its guard — it no longer needs a
   // turn-driven retraction, because the guard IS hands-up now; the shoulder
@@ -310,9 +323,9 @@ export function computePose(punch, guard = 0, bob = 0) {
   const ra = blend(rearA, 'rear');
 
   return {
-    torsoShift, dip, turn, ext, punchingArm,
-    lead: solveArm(leadSx, SHOULDER_Y + dip, la.a1, la.a2),
-    rear: solveArm(rearSx, SHOULDER_Y + dip, ra.a1, ra.a2),
+    torsoShift, dip, turn, ext, punchingArm, react: rk,
+    lead: solveArm(leadSx, shoulderY, la.a1, la.a2),
+    rear: solveArm(rearSx, shoulderY, ra.a1, ra.a2),
   };
 }
 
@@ -331,19 +344,26 @@ export function computePose(punch, guard = 0, bob = 0) {
  * @param {ReturnType<typeof computePose>} pose
  */
 export function hurtboxes(pose) {
+  // Stage 10: the hit-reaction offsets are included, so a head that has just
+  // been snapped back is genuinely where the drawn head is. Keeping them out
+  // would put the boxes back where Stage 9 spent its effort getting them off —
+  // a punch that visually misses a rocked head has to actually miss. (The
+  // reaction's `tilt` is deliberately NOT applied: it's a small cosmetic lean,
+  // and rotating the boxes would mean an oriented-box test for a few degrees.)
+  const rk = pose.react || NO_REACT;
   return {
     // Matches the head circle drawn in drawRig(): local (1 + shift*0.9, -50+dip).
     head: {
-      x: 1 + pose.torsoShift * 0.9,
-      y: config.headHurtboxOffsetY + pose.dip,
+      x: 1 + pose.torsoShift * 0.9 + rk.torsoX + rk.headX,
+      y: config.headHurtboxOffsetY + pose.dip + rk.torsoY + rk.headY,
       r: config.headHurtboxRadius,
     },
     // Matches the torso rect: centered at (shift, -20+dip). Width is held fixed
     // rather than tracking the turn-driven torsoW, so rotating into a punch
     // doesn't silently widen your own hurtbox.
     body: {
-      x: pose.torsoShift,
-      y: config.bodyHurtboxOffsetY + pose.dip,
+      x: pose.torsoShift + rk.torsoX,
+      y: config.bodyHurtboxOffsetY + pose.dip + rk.torsoY,
       hw: config.bodyHurtboxWidth  / 2,
       hh: config.bodyHurtboxHeight / 2,
     },
@@ -393,22 +413,52 @@ function drawArm(g, bodyColor, skinColor, arm, alpha) {
  * @param {{type, arm, p}|null} punch  current punch state (null = idle)
  * @param {number} guard      0..1 blend toward the raised block pose
  * @param {number} bob        px of movement bounce (0 when standing still)
+ * @param {{headX,headY,torsoX,torsoY,tilt}} react  hit-reaction offsets (Stage 10)
  */
-export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0, bob = 0) {
+export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0, bob = 0, react = NO_REACT) {
   g.clear();
 
-  const pose      = computePose(punch, guard, bob);
+  const pose      = computePose(punch, guard, bob, react);
   const shift     = pose.torsoShift;
   const dip       = pose.dip;
   const turn      = pose.turn;
   const rearIsPunching = pose.punchingArm === 'rear';
 
+  // Hit reaction (Stage 10). The torso offset carries the torso, shorts and —
+  // via computePose above — the shoulders. The hips take a fraction of it and
+  // the shins none at all, so the fighter is rocked back on their feet rather
+  // than sliding as a rigid block. The vertical drag is higher than the
+  // horizontal one because a torso lifted off stationary hips (the uppercut)
+  // opens a visible gap, whereas a torso slid sideways over them doesn't.
+  const rk        = pose.react;
+  const hipDragX  = 0.35;
+  const hipDragY  = 0.65;
+
+  // The tilt is applied around the WAIST and only to the upper body — never as
+  // a rotation of the whole graphics object. Rotating everything swung the feet
+  // out from under the fighter, which is exactly what the planted shins below
+  // exist to prevent; it read as toppling over rather than as being rocked.
+  // Positive tilt leans the upper body AWAY from the opponent (-x), matching
+  // `back` and `lift`: every positive shape value in config pushes the defender
+  // away from the punch.
+  const TILT_PIVOT_Y = -2;   // where the torso meets the hips
+  const tilted = fn => {
+    if (!rk.tilt) { fn(); return; }
+    g.save();
+    g.translateCanvas(0, TILT_PIVOT_Y);
+    g.rotateCanvas(-rk.tilt);
+    g.translateCanvas(0, -TILT_PIVOT_Y);
+    fn();
+    g.restore();
+  };
+
   // Hip rotation — thighs swing with the turn, shins stay planted so the feet
   // don't slide out from under the fighter.
-  const leadHipX = HIP_X  + shift * 0.5 +
+  const leadHipX = HIP_X  + shift * 0.5 + rk.torsoX * hipDragX +
     (pose.punchingArm === 'lead' ? HIP_DRIVE * turn : -HIP_PULL * turn);
-  const rearHipX = -HIP_X + shift * 0.5 +
+  const rearHipX = -HIP_X + shift * 0.5 + rk.torsoX * hipDragX +
     (rearIsPunching ? HIP_DRIVE * turn : -HIP_PULL * turn);
+  const hipY     = rk.torsoY * hipDragY;
 
   // ── Rear side (behind — drawn first, dimmed for depth) ─────────────────────
   // One shared alpha for every rear-side limb (see config.rearArmAlpha) so the
@@ -416,43 +466,53 @@ export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0, bob = 
   // still stuck at 0.55 reads as a bug, not as depth.
   const rearAlpha = config.rearArmAlpha;
   g.fillStyle(bodyColor, rearAlpha);
-  cr(g, rearHipX,       5 + dip, 10, 26);   // rear thigh
-  cr(g, -HIP_X,        29,        9, 22);   // rear shin (planted)
+  cr(g, rearHipX,       5 + dip + hipY, 10, 26);   // rear thigh
+  cr(g, -HIP_X,        29,              9, 22);    // rear shin (planted)
 
   // A punching rear arm is deferred: it swings ACROSS the front of the body, so
   // it has to be drawn on top of the torso, not behind it.
-  if (!rearIsPunching) drawArm(g, bodyColor, skinColor, pose.rear, rearAlpha);
+  // Everything from here that belongs to the UPPER body goes inside tilted() —
+  // in three groups rather than one, because the legs are drawn interleaved
+  // between them and the draw order is what produces the depth layering.
+  if (!rearIsPunching) tilted(() => drawArm(g, bodyColor, skinColor, pose.rear, rearAlpha));
 
   // ── Torso ──────────────────────────────────────────────────────────────────
   // Widens with the turn: a rotating fighter presents more chest to the camera.
   // Together with the forward shift this is what makes a cross read as torqued
   // rather than as a jab from the other hand.
   const torsoW = 28 + 7 * turn;
-  g.fillStyle(bodyColor, 1.0);
-  cr(g, shift, -20 + dip, torsoW, 38);
+  tilted(() => {
+    g.fillStyle(bodyColor, 1.0);
+    cr(g, shift + rk.torsoX, -20 + dip + rk.torsoY, torsoW, 38);
 
-  // Shorts stripe (visual anchor — makes the hip rotation readable)
-  g.fillStyle(0xffffff, 0.22);
-  cr(g, shift, -4 + dip, torsoW, 9);
+    // Shorts stripe (visual anchor — makes the hip rotation readable)
+    g.fillStyle(0xffffff, 0.22);
+    cr(g, shift + rk.torsoX, -4 + dip + rk.torsoY, torsoW, 9);
+  });
 
   // ── Lead side (front — drawn on top) ───────────────────────────────────────
   g.fillStyle(bodyColor, 1.0);
-  cr(g, leadHipX,  5 + dip, 10, 26);        // lead thigh
-  cr(g, HIP_X,    29,        9, 22);        // lead shin (planted)
+  cr(g, leadHipX,  5 + dip + hipY, 10, 26);   // lead thigh
+  cr(g, HIP_X,    29,               9, 22);   // lead shin (planted)
 
-  drawArm(g, bodyColor, skinColor, pose.lead, 1.0);
+  tilted(() => {
+    drawArm(g, bodyColor, skinColor, pose.lead, 1.0);
 
-  // Rear arm mid-cross: brightens as it extends so it reads as coming forward.
-  // Starts from the same tunable rear alpha and closes the remaining gap to
-  // fully solid, so the punch always ends at full opacity whatever the slider.
-  if (rearIsPunching) {
-    drawArm(g, bodyColor, skinColor, pose.rear, rearAlpha + (1 - rearAlpha) * PUNCH_BRIGHTEN * pose.ext);
-  }
+    // Rear arm mid-cross: brightens as it extends so it reads as coming forward.
+    // Starts from the same tunable rear alpha and closes the remaining gap to
+    // fully solid, so the punch always ends at full opacity whatever the slider.
+    if (rearIsPunching) {
+      drawArm(g, bodyColor, skinColor, pose.rear, rearAlpha + (1 - rearAlpha) * PUNCH_BRIGHTEN * pose.ext);
+    }
 
-  // ── Head ───────────────────────────────────────────────────────────────────
-  const headX = 1 + shift * 0.9;
-  g.fillStyle(skinColor, 1.0);
-  g.fillCircle(headX, -50 + dip, 13);
-  g.fillStyle(skinColor, 0.80);
-  g.fillCircle(headX - 7, -47 + dip, 5);    // ear (on the away side)
+    // ── Head ─────────────────────────────────────────────────────────────────
+    // The head carries the torso's displacement PLUS its own, so a jab (torso
+    // bleed ~0) snaps only the head while a cross moves the whole upper body.
+    const headX = 1 + shift * 0.9 + rk.torsoX + rk.headX;
+    const headY = -50 + dip + rk.torsoY + rk.headY;
+    g.fillStyle(skinColor, 1.0);
+    g.fillCircle(headX, headY, 13);
+    g.fillStyle(skinColor, 0.80);
+    g.fillCircle(headX - 7, headY + 3, 5);    // ear (on the away side)
+  });
 }
