@@ -8,9 +8,63 @@ export const config = {
   // Ring visuals
   ringFloorColor: '#c8a060',
   ringRopeColor:  '#cc2222',
-  ringPostColor:  '#ffffff',
-  ringRopeCount:  3,
-  ringBorderThickness: 8,
+  ringPostColor:  '#e9e9f2',
+  ringRopeCount:  3,          // strands PER SIDE (was: lines drawn across the mat)
+  ringBorderThickness: 5,     // canvas trim line where the mat meets the deck
+
+  // ── Arena dressing (Stage 12) ───────────────────────────────────────────────
+  // Everything below is consumed only by arena.js. None of it is read by
+  // movement, hit resolution, the camera clamp or the HUD — the ring bounds rect
+  // is unchanged, this layer just draws around it. Colours follow the project
+  // convention: CSS hex strings, converted at the draw site.
+
+  // Ropes. Strand 0 sits ON the ring bounds rect and the rest step outward, so
+  // the multi-strand look never moves the line the fighters clamp to.
+  ringRopeColor2:    '#e8e8ee',
+  ringRopeColor3:    '#2b46a8',
+  ringRopeSpacing:   7,      // px between adjacent strands
+  ringRopeThickness: 3.5,    // px
+
+  // Corner posts + turnbuckle pads. A/B are the two left and two right corners
+  // (your side / theirs) rather than the usual diagonal pair — at this zoom the
+  // diagonal arrangement reads as random colours.
+  ringPostSize:  16,
+  ringPadSize:   30,
+  ringPadColorA: '#2b4a9e',
+  ringPadColorB: '#a8202a',
+
+  // Apron: the deck outside the ropes, and the skirt hanging off its near edge.
+  ringApronWidth:   34,      // px of deck on all four sides
+  ringSkirtHeight:  34,      // px of skirt below the near edge only
+  apronDeckColor:   '#7d5f3e',
+  apronSkirtColor:  '#1d2a63',
+  apronStripeColor: '#c9a24a',
+
+  // Canvas mat surface.
+  matGrainAlpha:  0.10,      // fabric speckle
+  matShadeAlpha:  0.30,      // darkening toward the mat's own edges
+  matGlowAlpha:   0.22,      // overhead pool of light on the mat
+  matTrimColor:   '#f0e6d2',
+  matEmblemAlpha: 0.09,      // 0 = no centre mark
+  matEmblemColor: '#7a5628',
+
+  // Crowd. Baked once at boot into a RenderTexture; changing these needs a
+  // reload (or Arena.rebuildCrowd()) rather than taking effect live.
+  crowdRowGap:    30,        // px between rows
+  crowdSeatGap:   26,        // px between figures within a row (scaled by depth)
+  crowdHeadScale: 1.0,
+  crowdFarColor:  '#242439', // top of frame — hazed toward the backdrop
+  crowdNearColor: '#08080f', // bottom of frame — near-black silhouette
+  crowdHighlightColor:  '#7b7fa8',   // the few figures catching the ring light
+  crowdHighlightChance: 0.055,       // 0..1
+
+  // Backdrop + atmosphere.
+  arenaVoidColor:   '#06060d',
+  arenaHazeColor:   '#3a3f7a',   // dim lift centred on the ring
+  arenaHazeAlpha:   0.28,
+  vignetteStrength: 0.70,        // 0 = off
+  beamAlpha:        0.24,        // per-beam additive strength
+  beamCount:        3,           // 0-3
 
   // ── Follow camera (Stage 11) ────────────────────────────────────────────────
   // Viewport only — see camera.js. Nothing here affects ring bounds, hit
