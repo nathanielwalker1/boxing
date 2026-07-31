@@ -36,6 +36,16 @@ export class VirtualJoystick {
     this._draw();
   }
 
+  /**
+   * Every Phaser object this component owns, for camera layer assignment
+   * (Stage 11) — screen-anchored UI, ignored by the world camera. Its pointer
+   * hit-tests read pointer.x/y, which is canvas space and already independent
+   * of camera scroll/zoom, so nothing else here needs to change.
+   */
+  displayObjects() {
+    return [this.gfx];
+  }
+
   // ── Pointer event handlers ───────────────────────────────────────────────
 
   _onDown(pointer) {

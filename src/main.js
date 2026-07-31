@@ -7,6 +7,7 @@ import { VirtualJoystick } from './joystick.js';
 import { PunchButtons } from './punchButtons.js';
 import { BlockButton } from './blockButton.js';
 import { Hud } from './hud.js';
+import { FollowCamera } from './camera.js';
 import {
   drawRig, computePose, leadArm, rearArm,
   peakProgress, hurtboxes, circleHitsCircle, circleHitsBox,
@@ -92,6 +93,59 @@ class RingScene extends Phaser.Scene {
     // timer, so slip timing can be verified on demand. Intentionally kept in
     // past Stage 5 for Stage 6+ testing — see Dummy.forceAttack().
     this._debugForceAttackKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.T);
+
+    this._setupCameras();
+  }
+
+  // ── Cameras (Stage 11) ──────────────────────────────────────────────────────
+  // Two cameras over one scene, split by mutual ignore lists:
+  //
+  //   cameras.main — the WORLD. Scrolls and zooms (see FollowCamera).
+  //   this.uiCam   — the SCREEN. Never scrolls, never zooms, added second so it
+  //                  renders on top. transparent = true by default, so it
+  //                  composites over the world rather than clearing it.
+  //
+  // Splitting by ignore list rather than by depth is the point: depth alone
+  // wouldn't help, since a scrolling camera moves everything it renders. The
+  // HUD/joystick/buttons are laid out in canvas coordinates and their pointer
+  // hit-tests read pointer.x/y (canvas space, camera-independent), so keeping
+  // them off the world camera is the whole fix — no per-object repositioning.
+  _setupCameras() {
+    const world = [
+      this.ringGfx, this.flashGfx, this.debugGfx,
+      this.fighter.container, this.dummy.container,
+    ];
+    const ui = [
+      ...this.joystick.displayObjects(),
+      ...this.punchBtns.displayObjects(),
+      ...this.blockBtn.displayObjects(),
+      ...this.hud.displayObjects(),
+    ];
+
+    this.uiCam = this.cameras.add(0, 0, GAME_W, GAME_H);
+    this.uiCam.setName('ui');
+
+    this.cameras.main.ignore(ui);
+    this.uiCam.ignore(world);
+
+    this.followCam = new FollowCamera(this, GAME_W, GAME_H);
+  }
+
+  /**
+   * Assign a NEWLY created display object to one of the two camera layers.
+   *
+   * Anything added to the scene after _setupCameras() is rendered by BOTH
+   * cameras until it is ignored by one of them — a world object would then be
+   * drawn a second time unscrolled, and a UI object a second time scrolled. Any
+   * later stage that calls this.add.* has to route it through here.
+   *
+   * @param {Phaser.GameObjects.GameObject|Array} obj
+   * @param {'world'|'ui'} layer
+   */
+  assignToLayer(obj, layer) {
+    if (layer === 'ui') this.cameras.main.ignore(obj);
+    else                this.uiCam.ignore(obj);
+    return obj;
   }
 
   // ── Ring bounds (re-computed each frame so slider changes take effect) ─────
@@ -425,6 +479,12 @@ class RingScene extends Phaser.Scene {
     this._updateFlashes(dt);
     this._drawHurtboxDebug();
     this.hud.update(this.fighter, this.dummy);
+
+    // Camera last — it frames this frame's final positions rather than trailing
+    // them by one. Handed the SCALED dt on purpose: during a hit-stop that dt is
+    // near zero, so the follow eases by a near-zero amount and the camera freezes
+    // with the fight instead of continuing to glide on real time.
+    this.followCam.update(dt, this.fighter, this.dummy, bounds);
   }
 }
 
@@ -449,6 +509,17 @@ ringF.addColor(config, 'ringRopeColor')               .name('Rope Color');
 ringF.add(config, 'ringRopeCount',         1,   6,  1).name('Rope Lines');
 ringF.add(config, 'ringBorderThickness',   1,  24,  1).name('Border px');
 ringF.close();
+
+// Follow camera (Stage 11) — viewport only, no gameplay effect. Zoom first:
+// see the trade-off note on config.camZoom.
+const cameraF = gui.addFolder('Camera');
+cameraF.add(config, 'camZoom',        1,   4, 0.05).name('Zoom');
+cameraF.add(config, 'camPairMix',     0,   1, 0.05).name('Player ↔ Pair Anchor');
+cameraF.add(config, 'camBiasFrac',    0, 0.3, 0.01).name('Left Bias (frac)');
+cameraF.add(config, 'camBiasFalloff', 5, 300,   5) .name('Bias Flip Ramp px');
+cameraF.add(config, 'camLerpX',       0.5, 20, 0.5).name('Follow Rate X');
+cameraF.add(config, 'camLerpY',       0.5, 20, 0.5).name('Follow Rate Y');
+cameraF.open();
 
 const fighterF = gui.addFolder('Fighter');
 fighterF.add(config, 'moveSpeed',    50,  600,  1).name('Move Speed');
@@ -555,6 +626,30 @@ window.__config = config;
 // Also exposed so the punch-animation checks can render a contact sheet of every
 // punch's trajectory in one frame instead of scrubbing the live fighter.
 window.__rig    = { drawRig, computePose, hurtboxes, peakProgress, circleHitsCircle, circleHitsBox };
+// Camera state for the Stage 11 checks: the visible world rect, the two
+// cameras' scroll/zoom, and screen-space projections of anything worth
+// asserting on — so the tests read the real transform instead of guessing it
+// from a screenshot.
+window.__cam = () => {
+  const s = game.scene.keys.RingScene;
+  if (!s || !s.followCam) return null;
+  const main = s.cameras.main;
+  const ui   = s.uiCam;
+  const view = s.followCam.getView();
+  const toScreen = (p) => ({
+    x: (p.x - main.scrollX - main.width / 2) * main.zoom + main.width / 2,
+    y: (p.y - main.scrollY - main.height / 2) * main.zoom + main.height / 2,
+  });
+  return {
+    view,
+    ring: s._getRingBounds(),
+    main: { scrollX: main.scrollX, scrollY: main.scrollY, zoom: main.zoom },
+    ui:   { scrollX: ui.scrollX,   scrollY: ui.scrollY,   zoom: ui.zoom },
+    player: { x: s.fighter.x, y: s.fighter.y, screen: toScreen(s.fighter) },
+    dummy:  { x: s.dummy.x,   y: s.dummy.y,   screen: toScreen(s.dummy) },
+    hitStop: s._hitStopTimer,
+  };
+};
 
 const slipF = gui.addFolder('Slip / Duck');
 slipF.add(config, 'slipInputThreshold',        0.1, 1,   0.05).name('Push Threshold');

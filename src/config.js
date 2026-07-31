@@ -12,6 +12,39 @@ export const config = {
   ringRopeCount:  3,
   ringBorderThickness: 8,
 
+  // ── Follow camera (Stage 11) ────────────────────────────────────────────────
+  // Viewport only — see camera.js. Nothing here affects ring bounds, hit
+  // geometry or input; it is purely what the world camera scrolls/zooms to.
+  //
+  // camZoom is the knob to reach for first. It trades two things off against
+  // each other in a ring this size: the ring is 500 px wide and the player's
+  // own reachable x-range is only ~450 px, so at low zoom the view is nearly as
+  // wide as the ring and the horizontal clamp pins the camera almost always
+  // (the left-bias then never gets to show). Zooming in frees horizontal travel
+  // but tightens how much of an incoming punch you see coming.
+  //   2.4 → view is 400 × 267 world px (fighters ≈ 40% of screen height,
+  //         ~100 px of horizontal camera travel, ~233 px of vertical).
+  // ASSUMPTION — first-pass framing, deliberately on the loose side per spec.
+  camZoom: 2.4,
+  // 0 = anchor on the player alone (rigid left-third lock, opponent free to
+  // drift off-frame), 1 = anchor on the midpoint between both fighters (always
+  // symmetric, but the player drifts off-frame at big separations). Between the
+  // two: the pair stays framed AND the player stays left-ish.
+  camPairMix: 0.6,
+  // How far left of center the player is pushed, as a FRACTION of the visible
+  // width (so it means the same thing at any zoom). At the defaults the player
+  // sits around 1/3 from the left edge whenever the camera isn't clamped.
+  camBiasFrac: 0.10,
+  // px of horizontal separation over which the bias ramps from full-left to
+  // full-right. Crossing past the opponent has to flip the bias (otherwise THEY
+  // get shoved off-screen); this ramp is what makes that a slide, not a snap.
+  camBiasFalloff: 60,
+  // Follow smoothing, in 1/s (higher = snappier, lower = floatier). Vertical is
+  // slower on purpose — up/down drift is constant during footwork and a fast
+  // vertical follow reads as the camera bobbing.
+  camLerpX: 6,
+  camLerpY: 4,
+
   // ── Stance ('orthodox' | 'southpaw') ────────────────────────────────────────
   // Which anatomical arm leads: orthodox = left leads/jabs, southpaw = right.
   // A property of the fighter, independent of which way they are facing — see

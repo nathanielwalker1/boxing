@@ -39,6 +39,14 @@ export class BlockButton {
     this._draw();
   }
 
+  /**
+   * Every Phaser object this component owns, for camera layer assignment
+   * (Stage 11) — screen-anchored UI, ignored by the world camera.
+   */
+  displayObjects() {
+    return [this.gfx, this.text];
+  }
+
   // ── Pointer handlers ─────────────────────────────────────────────────────
 
   _hit(pointer) {

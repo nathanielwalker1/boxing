@@ -23,6 +23,15 @@ export class Hud {
       .setOrigin(1, 0).setDepth(26);
   }
 
+  /**
+   * Every Phaser object this component owns, for camera layer assignment
+   * (Stage 11) — the HUD is screen-anchored UI and must be ignored by the
+   * world camera, or it would scroll and scale with the fight.
+   */
+  displayObjects() {
+    return [this.gfx, this.playerLabel, this.dummyLabel];
+  }
+
   _labelStyle() {
     return { fontSize: '11px', color: '#ffffff', fontFamily: 'monospace' };
   }
