@@ -12,6 +12,15 @@ export const config = {
   ringRopeCount:  3,
   ringBorderThickness: 8,
 
+  // ── Stance ('orthodox' | 'southpaw') ────────────────────────────────────────
+  // Which anatomical arm leads: orthodox = left leads/jabs, southpaw = right.
+  // A property of the fighter, independent of which way they are facing — see
+  // leadArm()/armSlot() in rig.js. These are only the DEFAULTS each fighter is
+  // constructed with; the live value is the instance's own `stance` field, so
+  // flip it there (e.g. via the __game dev hook) rather than here at runtime.
+  playerStance: 'orthodox',
+  dummyStance:  'orthodox',
+
   // Fighter movement
   moveSpeed: 200,
 

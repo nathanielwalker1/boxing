@@ -7,7 +7,7 @@ import { VirtualJoystick } from './joystick.js';
 import { PunchButtons } from './punchButtons.js';
 import { BlockButton } from './blockButton.js';
 import { Hud } from './hud.js';
-import { drawRig, computePose } from './rig.js';
+import { drawRig, computePose, leadArm, rearArm } from './rig.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
@@ -96,20 +96,23 @@ class RingScene extends Phaser.Scene {
     if (this.fighter.isDown) return;
 
     // ── Hand selection ─────────────────────────────────────────────────────
-    // Jab = always the LEAD hand (the one nearer the opponent), cross = always
-    // the REAR hand (crosses the body). Both ignore the joystick entirely; the
-    // lead/rear labels are rig-local, and the rig mirrors with facing, so this
-    // stays correct from either side of the ring.
-    // Hook / Uppercut: joystick/keyboard left → left hand (lead arm),
-    //                  right → right hand (rear arm), neutral → right hand (rear).
+    // Resolves to an ANATOMICAL arm ('left' | 'right'); the rig maps it to its
+    // lead/rear slot via the fighter's stance (see armSlot() in rig.js).
+    //
+    // Jab = the stance's lead hand, cross = the rear hand. Both ignore the
+    // joystick AND facing entirely — an orthodox fighter jabs with their left
+    // from either side of the ring; only the rendered mirror changes.
+    // Hook / Uppercut: joystick/keyboard left → LEFT hand, right (or neutral)
+    //                  → RIGHT hand. Stance-independent by design (locked spec).
+    const stance = this.fighter.stance;
     let arm;
     if (punchType === 'jab') {
-      arm = 'lead';
+      arm = leadArm(stance);
     } else if (punchType === 'cross') {
-      arm = 'rear';
+      arm = rearArm(stance);
     } else {
-      // hook / uppercut — direction-sensitive
-      arm = this._lastInputX < -0.25 ? 'lead' : 'rear';
+      // hook / uppercut — direction-sensitive, picks the hand directly
+      arm = this._lastInputX < -0.25 ? 'left' : 'right';
     }
 
     // ── Start arm animation immediately (plays even on whiff/smother) ──────

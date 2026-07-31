@@ -117,9 +117,13 @@ const mid  = (cfg.smother + cfg.rangeMax) / 2;
 const left = await step('hook holding left',  'land', mid, 'KeyI', 'punch_hook_left',  'ArrowLeft');
 const right= await step('hook holding right', 'land', mid, 'KeyI', 'punch_hook_right', 'ArrowRight');
 
-const handPass = left?.arm === 'lead' && right?.arm === 'rear';
+// Arms are named anatomically now ('left'/'right'), not by rig slot
+// ('lead'/'rear') — the slot a hand occupies depends on stance. Hook/uppercut
+// hand selection is stance-independent by design: the hold picks the hand.
+// Full stance × facing × hold matrix lives in scripts/stance_test.mjs.
+const handPass = left?.arm === 'left' && right?.arm === 'right';
 results.push({ name: 'hook hand follows joystick direction', pass: handPass });
-console.log(`  [${handPass ? 'PASS' : 'FAIL'}] hook hand follows joystick     left→${left?.arm}, right→${right?.arm} (expect lead, rear)`);
+console.log(`  [${handPass ? 'PASS' : 'FAIL'}] hook hand follows joystick     left→${left?.arm}, right→${right?.arm} (expect left, right)`);
 
 await browser.close();
 

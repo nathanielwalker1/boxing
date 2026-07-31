@@ -1,5 +1,5 @@
 import { config, punchSpeedMult } from './config.js';
-import { drawRig, computePose, peakProgress } from './rig.js';
+import { drawRig, computePose, peakProgress, armSlot } from './rig.js';
 import { stepMovement } from './movement.js';
 
 function cssHex(str) {
@@ -10,13 +10,18 @@ function cssHex(str) {
  * Fighter — player-controlled boxer rig.
  *
  * Local origin = torso center.  Container.scaleX = ±1 controls facing direction;
- * facing always tracks the opponent's position, never movement input.
+ * facing always tracks the opponent's position, never movement input. Facing is
+ * PURELY COSMETIC — it mirrors the rendered rig and nothing else. Which arm
+ * throws a jab or a cross comes from `stance` (see rig.js), so an orthodox
+ * fighter jabs with their left hand from either side of the ring.
  * Punch state (type + arm + progress) is handed to drawRig(), which owns the
  * per-punch-type trajectory — see the PUNCHES table in rig.js.
  */
 export class Fighter {
-  constructor(scene, x, y) {
+  /** @param {'orthodox'|'southpaw'} stance  defaults to config.playerStance */
+  constructor(scene, x, y, stance = config.playerStance) {
     this.scene = scene;
+    this.stance = stance;
     this.x = x;
     this.y = y;
     this.vx = 0;
@@ -24,7 +29,7 @@ export class Fighter {
     this.facingRight = true;
 
     // Punch animation state
-    this.punchArm   = null;   // 'lead' | 'rear' | null
+    this.punchArm   = null;   // 'left' | 'right' | null — anatomical, resolved to a rig slot via stance
     this.punchType  = null;   // 'jab' | 'cross' | 'hook' | 'uppercut' | null — selects the trajectory in rig.js
     this.punchTimer = 0;      // seconds remaining in current punch animation
 
@@ -74,7 +79,8 @@ export class Fighter {
    * Duration is the shared config.punchDuration divided by the punch type's own
    * speed multiplier (Stage 8), so the four punches differ in snappiness while
    * still tracking the one shared base value and the low-stamina stretch.
-   * @param {'lead'|'rear'} arm   which local arm to animate
+   * @param {'left'|'right'} arm  which ANATOMICAL arm throws (stance decides
+   *        whether that is the lead or rear slot in the rig — see armSlot())
    * @param {string} type         'jab' | 'cross' | 'hook' | 'uppercut'
    */
   startPunch(arm, type) {
@@ -95,7 +101,7 @@ export class Fighter {
     if (this.punchTimer <= 0 || !this.punchArm) return null;
     return {
       type: this.punchType,
-      arm:  this.punchArm,
+      arm:  armSlot(this.stance, this.punchArm),   // anatomical → rig slot
       p:    atPeak ? peakProgress(this.punchType) : 1 - this.punchTimer / this._punchDuration,
     };
   }
@@ -130,12 +136,12 @@ export class Fighter {
    * per punch type (an uppercut's fist is nowhere near a jab's). Sampling the
    * current frame instead would place it at the fist's press-time rest spot,
    * since the player's punch resolves on the frame it's thrown.
-   * @param {'lead'|'rear'} arm
+   * @param {'left'|'right'} arm  anatomical arm; stance maps it to a rig slot
    * @returns {{ x: number, y: number }}
    */
   getFistPos(arm) {
     const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0);
-    const hand = arm === 'lead' ? pose.lead : pose.rear;
+    const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
   }

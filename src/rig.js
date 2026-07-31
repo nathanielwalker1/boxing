@@ -13,6 +13,13 @@
  * NOTE: this used to be inverted (lead drawn at -x), which made the jab appear
  * to come from the back hand and the cross from the front hand.
  *
+ * 'lead' and 'rear' here are GEOMETRIC SLOTS, not anatomical arms — the rig's
+ * single horizontal axis is toward/away-from-opponent, so it has nowhere to put
+ * a fixed left/right. Which anatomical arm occupies each slot is decided by the
+ * fighter's STANCE (see leadArm/rearArm/armSlot below), which is a property of
+ * the fighter and never changes with facing. Game logic talks in 'left'/'right'
+ * and converts at this boundary; only the rig thinks in lead/rear.
+ *
  * Arms are a two-segment jointed chain solved from angles, not fixed rects, so
  * each punch type can trace its own trajectory (see PUNCHES below):
  *   a1 = upper-arm angle at the shoulder, a2 = forearm angle at the elbow.
@@ -27,6 +34,19 @@
 export const RIG_MARGIN_X      = 24;   // arms rest ~22 px left/right of origin
 export const RIG_MARGIN_TOP    = 67;   // head top: -50 - 13 - 4 pad
 export const RIG_MARGIN_BOTTOM = 44;   // shin bottom: 29 + 11 + 4 pad
+
+// ── Stance ↔ anatomical arm identity ─────────────────────────────────────────
+// Orthodox: left arm leads (jabs), right arm is rear (crosses the body).
+// Southpaw: the mirror of that. Facing is NOT an input here on purpose — an
+// orthodox fighter's jab is their left hand from either side of the ring; the
+// container's scaleX mirror handles the rendered side on its own.
+export function leadArm(stance) { return stance === 'southpaw' ? 'right' : 'left';  }
+export function rearArm(stance) { return stance === 'southpaw' ? 'left'  : 'right'; }
+
+/** Which rig slot ('lead' | 'rear') the given anatomical arm occupies. */
+export function armSlot(stance, arm) {
+  return arm === leadArm(stance) ? 'lead' : 'rear';
+}
 
 // ── Skeleton constants ───────────────────────────────────────────────────────
 const SHOULDER_X = 17;

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { config } from './config.js';
-import { drawRig, computePose, peakProgress } from './rig.js';
+import { drawRig, computePose, peakProgress, armSlot, leadArm } from './rig.js';
 import { stepMovement } from './movement.js';
 
 function cssHex(str) {
@@ -40,9 +40,13 @@ export class Dummy {
    * @param {() => void} onAttackImpact  called when a thrown punch reaches
    *        full extension — the scene resolves range gating/force from here,
    *        mirroring how the player's punch buttons drive _resolvePunch.
+   * @param {'orthodox'|'southpaw'} stance  defaults to config.dummyStance. Data
+   *        flag only for now — it decides which anatomical arm jabs, and is the
+   *        hook for per-opponent variety later.
    */
-  constructor(scene, x, y, onAttackImpact) {
-    this.scene = scene;
+  constructor(scene, x, y, onAttackImpact, stance = config.dummyStance) {
+    this.scene  = scene;
+    this.stance = stance;
     this.x     = x;
     this.y     = y;
 
@@ -77,7 +81,7 @@ export class Dummy {
     // The dummy only throws jabs — punch variety for the opponent is a separate
     // stage; punchType exists so its damage multiplier and jab trajectory flow
     // through the same shared code the player uses.
-    this.punchArm   = null;
+    this.punchArm   = null;   // 'left' | 'right' | null — anatomical, same as Fighter's
     this.punchType  = null;
     this.punchTimer = 0;
 
@@ -127,7 +131,7 @@ export class Dummy {
     if (this.punchTimer <= 0 || !this.punchArm) return null;
     return {
       type: this.punchType,
-      arm:  this.punchArm,
+      arm:  armSlot(this.stance, this.punchArm),   // anatomical → rig slot
       p:    atPeak ? peakProgress(this.punchType) : 1 - this.punchTimer / this._windupDuration,
     };
   }
@@ -156,11 +160,11 @@ export class Dummy {
 
   /**
    * Return the world-space position of the specified fist (for flash spawning).
-   * @param {'lead'|'rear'} arm
+   * @param {'left'|'right'} arm  anatomical arm; stance maps it to a rig slot
    */
   getFistPos(arm) {
     const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0);
-    const hand = arm === 'lead' ? pose.lead : pose.rear;
+    const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
   }
@@ -393,7 +397,7 @@ export class Dummy {
           this.attackTimer     = randRange(config.dummyAttackDelayMin, config.dummyAttackDelayMax);
           const lowStamina     = this.stamina < config.lowStaminaThreshold;
           this._windupDuration = config.dummyWindupDuration * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
-          this.punchArm        = 'lead';
+          this.punchArm        = leadArm(this.stance);   // it only jabs, and a jab is always the lead hand
           this.punchType       = 'jab';
           this.punchTimer      = this._windupDuration;
           this._impactPending  = true;
