@@ -4,6 +4,7 @@
  * Dev server must be running on localhost:5173.
  */
 import { chromium } from 'playwright';
+import { DEV_URL } from './devUrl.js';
 import { mkdirSync } from 'fs';
 
 mkdirSync('scripts/output', { recursive: true });
@@ -15,7 +16,7 @@ const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 page.on('console',   m => { if (m.type() === 'error') errors.push(m.text()); });
 
-await page.goto('http://localhost:5173', { waitUntil: 'networkidle', timeout: 15000 });
+await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
 await page.waitForTimeout(500);
 
 // The dummy's FIRST attack timer is randomly drawn once at construction time,

@@ -20,8 +20,9 @@
  * purpose — it must not import the code under test.
  */
 import { chromium } from 'playwright';
+import { DEV_URL } from './devUrl.js';
 
-const URL = 'http://localhost:5173';
+const URL = DEV_URL;
 
 // ── Independent oracle ───────────────────────────────────────────────────────
 const expectedArm = (stance, punch, hold) => {

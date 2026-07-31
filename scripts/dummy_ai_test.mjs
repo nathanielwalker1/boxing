@@ -13,6 +13,7 @@
  * visual checks (guard pose, advancing, settled).
  */
 import { chromium } from 'playwright';
+import { DEV_URL } from './devUrl.js';
 import { mkdirSync } from 'fs';
 
 const OUT = 'scripts/output/dummy_ai';
@@ -41,7 +42,7 @@ const check = (label, pass, detail) => {
  *      taken from inside _resolveAttack itself.
  */
 async function freshLoad() {
-  await page.goto('http://localhost:5173', { waitUntil: 'networkidle', timeout: 15000 });
+  await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
   await page.waitForTimeout(800);
   await page.evaluate(() => {
     const sc = window.__game.scene.keys.RingScene;

@@ -7,13 +7,13 @@ import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { DEV_URL } from './devUrl.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dirname, 'output');
 mkdirSync(OUT, { recursive: true });
 
-const PORT = 5173;
-const URL  = `http://localhost:${PORT}`;
+const URL = DEV_URL;
 
 console.log(`Connecting to ${URL} …`);
 

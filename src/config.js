@@ -208,6 +208,96 @@ export const config = {
   // starting point (30-40% range) so a fighter doesn't immediately drop
   // again from residual chip damage, but this is a feel call, not derived.
   knockdownHealthRestorePct:    0.35,
+
+  // ── Combat audio (Stage 10) ─────────────────────────────────────────────────
+  // Impact/whiff SFX only — footwork, breathing and crowd are deliberately not
+  // in this stage. Sounds are synthesised at runtime (see audio.js for why), so
+  // the "asset manifest" below is a set of synth recipes rather than file paths;
+  // swapping to sampled files later would replace audio.js's playRecipe(), not
+  // any of the call sites in main.js.
+  audioEnabled:       true,
+  audioMasterVolume:  0.55,   // 0..1 — the single master knob asked for in the panel
+  audioPitchJitter:   0.05,   // ±5% per play, so repeated punches aren't a loop
+  audioVolumeJitter:  0.10,   // ±10% per play, same reason
+
+  // Which impact sound each punch type gets when it lands UNBLOCKED. Blocked
+  // hits ignore this entirely and always use 'impactBlocked' (see _resolveAttack)
+  // — a blocked hook should read as absorbed, not as a heavy hit.
+  audioPunchClass: {
+    jab:      'impactSharp',
+    cross:    'impactSharp',
+    hook:     'impactHeavy',
+    uppercut: 'impactHeavy',
+  },
+
+  // Synth recipes. Each sound is a stack of layers, all fired on the same
+  // timestamp; each layer is source → optional filter → AD envelope.
+  //   type   'noise' (white-noise buffer) | 'tone' (oscillator)
+  //   wave   oscillator shape, tone layers only
+  //   freq / freqEnd     oscillator pitch sweep, in Hz
+  //   filter {type, freq, freqEnd, q}   biquad, freqEnd sweeps the cutoff
+  //   attack / decay     envelope, in seconds — every sound stays under 300 ms
+  //   gain               layer mix level, before master volume
+  audioSounds: {
+    // The three impact sounds are deliberately given three different parts of
+    // the SPECTRUM, not three volumes of the same hit — that's what makes them
+    // tellable apart mid-fight rather than only side by side. Sharp owns the
+    // top, heavy owns the bottom, blocked owns the middle. audio_test.mjs
+    // asserts exactly that, so a re-tune that collapses two of them fails.
+    //
+    // Recipe `gain` is a trim that keeps each sound peaking under ~0.85 with the
+    // master slider at 1.0, so the panel's full range stays clean of clipping.
+
+    // Jab / cross — sharp and high. The 3 kHz bandpass layer is the "crack".
+    impactSharp: {
+      gain: 0.62,
+      layers: [
+        { type: 'noise', gain: 0.85, attack: 0.001, decay: 0.060, filter: { type: 'highpass', freq: 1600, q: 0.7 } },
+        { type: 'noise', gain: 0.60, attack: 0.001, decay: 0.035, filter: { type: 'bandpass', freq: 3200, q: 1.5 } },
+        { type: 'tone',  gain: 0.35, attack: 0.001, decay: 0.070, wave: 'triangle', freq: 320, freqEnd: 140 },
+      ],
+    },
+
+    // Hook / uppercut — heavy and low. The deep sine thud carries it; the noise
+    // layers are the meat of the smack rather than a crack. Rings roughly 3x
+    // longer than the sharp variant, which is most of the "weight" impression.
+    impactHeavy: {
+      gain: 0.60,
+      layers: [
+        { type: 'tone',  gain: 1.00, attack: 0.002, decay: 0.240, wave: 'sine', freq: 150, freqEnd: 45 },
+        { type: 'noise', gain: 0.55, attack: 0.001, decay: 0.140, filter: { type: 'lowpass',  freq: 500,  q: 0.8 } },
+        { type: 'noise', gain: 0.25, attack: 0.001, decay: 0.030, filter: { type: 'bandpass', freq: 1500, q: 1.0 } },
+      ],
+    },
+
+    // Blocked (and smothered) — absorbed. Sits in the mids: no sub thud (that
+    // would read as a heavy hit connecting) and no HF crack (that would read as
+    // a clean one). The ~4x slower attack removes the transient snap, which is
+    // the other half of why it reads as stopped rather than landed.
+    // No tone layer at all, on purpose: any sustained low sine here pulls it
+    // back toward the heavy thud. It's three narrow-ish noise bands stacked
+    // around 1 kHz — a leathery glove-on-glove slap with no bottom end.
+    impactBlocked: {
+      gain: 1.50,
+      layers: [
+        { type: 'noise', gain: 0.90, attack: 0.005, decay: 0.090, filter: { type: 'bandpass', freq: 820,  q: 1.3 } },
+        { type: 'noise', gain: 0.20, attack: 0.006, decay: 0.045, filter: { type: 'bandpass', freq: 1150, q: 1.5 } },
+        { type: 'noise', gain: 0.45, attack: 0.006, decay: 0.070, filter: { type: 'bandpass', freq: 520,  q: 1.4 } },
+      ],
+    },
+
+    // Whiff — air moving past, no contact. Both layers are cutoff sweeps rather
+    // than fixed filters: up then down is what makes it read as passing BY you.
+    // Trimmed to sit clearly under the impacts — a miss shouldn't punch through
+    // the mix — but not so far down it stops registering as feedback.
+    whiff: {
+      gain: 2.60,
+      layers: [
+        { type: 'noise', gain: 0.55, attack: 0.030, decay: 0.160, filter: { type: 'bandpass', freq: 300,  freqEnd: 2400, q: 1.4 } },
+        { type: 'noise', gain: 0.28, attack: 0.020, decay: 0.120, filter: { type: 'bandpass', freq: 1800, freqEnd: 500,  q: 1.2 } },
+      ],
+    },
+  },
 };
 
 // Per-punch multiplier lookups. Read through these rather than indexing config
@@ -220,4 +310,12 @@ export function punchDamageMult(type) {
 export function punchSpeedMult(type) {
   const v = config[`${type}Speed`];
   return typeof v === 'number' && v > 0 ? v : 1;
+}
+
+/**
+ * Which impact sound an UNBLOCKED landed punch of this type plays. Same pattern
+ * as the multiplier lookups above — punch logic never names a sound inline.
+ */
+export function punchAudioClass(type) {
+  return config.audioPunchClass[type] || 'impactSharp';
 }

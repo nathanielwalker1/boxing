@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { DEV_URL } from './devUrl.js';
 
 const browser = await chromium.launch();
 const page    = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -7,7 +8,7 @@ const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 
-await page.goto('http://localhost:5173', { waitUntil: 'networkidle', timeout: 15000 });
+await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
 await page.waitForTimeout(1500);
 
 // Hold RIGHT — fighter should hit the right rope wall and stop there

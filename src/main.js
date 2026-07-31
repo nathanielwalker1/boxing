@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import GUI from 'lil-gui';
-import { config, punchDamageMult } from './config.js';
+import { config, punchDamageMult, punchAudioClass } from './config.js';
+import { initCombatAudio, playCombatSound, renderCombatSound, audioLog } from './audio.js';
 import { Fighter } from './fighter.js';
 import { Dummy } from './dummy.js';
 import { VirtualJoystick } from './joystick.js';
@@ -89,6 +90,12 @@ class RingScene extends Phaser.Scene {
     // timer, so slip timing can be verified on demand. Intentionally kept in
     // past Stage 5 for Stage 6+ testing — see Dummy.forceAttack().
     this._debugForceAttackKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.T);
+
+    // ── Combat audio (Stage 10) ─────────────────────────────────────────────
+    // Hands Phaser's own AudioContext over when it has one, so we don't open a
+    // second one. Stays silent (not broken) if WebAudio is unavailable or the
+    // browser hasn't seen a user gesture yet — see audio.js.
+    initCombatAudio(this.sound && this.sound.context);
   }
 
   // ── Ring bounds (re-computed each frame so slider changes take effect) ─────
@@ -227,18 +234,30 @@ class RingScene extends Phaser.Scene {
         // Orange expanding ring at fist — "I swung but hit air"
         this._flashes.push(makeRing(fist.x, fist.y, 0xffaa00));
         this._flashes.push(makeRing(fist.x, fist.y, 0xffdd44, 0.18));
+        playCombatSound('whiff');
         break;
 
       case 'smother':
         // Grey burst at fist — punch absorbed, no stagger
         this._flashes.push(makeBurst(fist.x, fist.y, 0x7788aa));
         this._flashes.push(makeRing(fist.x, fist.y, 0x667799, 0.2));
+        // JUDGEMENT CALL — flag if you disagree: the brief specified sounds for
+        // land / block / whiff and didn't mention smother, but leaving the
+        // fourth outcome silent is a hole in the feedback. A smother is a punch
+        // that got absorbed at zero range, so it borrows the blocked variant
+        // rather than getting a fifth sound of its own.
+        playCombatSound('impactBlocked');
         break;
 
       case 'land': {
         const blocked   = !!defender.isBlocking;
         const flashTint = blocked ? 0x3388ff : 0xff3333;
         const burstTint = blocked ? 0x2266ee : 0xff2222;
+
+        // Blocked hits are always the absorbed variant regardless of punch
+        // type; only clean hits get the per-weight-class impact. Both attackers
+        // route through here, so player and dummy sound identical for free.
+        playCombatSound(blocked ? 'impactBlocked' : punchAudioClass(punchType));
 
         defender.flash(flashTint);
         this._flashes.push(makeBurst(defender.x, defender.y - 20, burstTint));
@@ -459,6 +478,16 @@ punchTypeF.add(config, 'uppercutDamage',  0.1, 3, 0.05).name('Uppercut Damage x'
 punchTypeF.add(config, 'uppercutSpeed',   0.3, 3, 0.05).name('Uppercut Speed x');
 punchTypeF.open();
 
+// Combat audio (Stage 10). Master volume is the knob that matters; the jitter
+// pair is here because config rules say no gameplay constant gets hardcoded, and
+// "how robotic do repeated punches sound" is exactly a feel value to slide.
+const audioF = gui.addFolder('Audio');
+audioF.add(config, 'audioEnabled')                        .name('Enabled');
+audioF.add(config, 'audioMasterVolume', 0, 1,    0.01)    .name('Master Volume');
+audioF.add(config, 'audioPitchJitter',  0, 0.30, 0.01)    .name('Pitch Jitter ±');
+audioF.add(config, 'audioVolumeJitter', 0, 0.50, 0.01)    .name('Volume Jitter ±');
+audioF.open();
+
 const dummyF = gui.addFolder('Dummy');
 dummyF.add(config, 'dummyReturnSpeed',  5, 200,  5).name('Spring Stiffness');
 dummyF.add(config, 'dummyDamping',      1,  50,  1).name('Damping');
@@ -488,6 +517,12 @@ window.__config = config;
 // Also exposed so the punch-animation checks can render a contact sheet of every
 // punch's trajectory in one frame instead of scrubbing the live fighter.
 window.__rig    = { drawRig, computePose, hurtboxes, peakProgress, circleHitsCircle, circleHitsBox };
+// Audio can't be asserted on by listening in a headless browser, so the checks
+// in scripts/audio_test.mjs read the bounded log of which logical sound each
+// resolved outcome asked for, and at what pitch. See audio.js.
+// `render` additionally renders a sound offline so the checks can measure the
+// waveform the recipes actually produce, not just which name was requested.
+window.__audio  = { log: audioLog, play: playCombatSound, render: renderCombatSound };
 
 const slipF = gui.addFolder('Slip / Duck');
 slipF.add(config, 'slipInputThreshold',        0.1, 1,   0.05).name('Push Threshold');
