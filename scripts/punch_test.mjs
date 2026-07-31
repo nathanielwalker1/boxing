@@ -1,5 +1,5 @@
 /**
- * punch_test.mjs — verify all three range states and hook hand selection.
+ * punch_test.mjs — verify all three outcomes and hook hand selection.
  * Run with: node scripts/punch_test.mjs
  * Dev server must be running on localhost:5173.
  *
@@ -8,8 +8,19 @@
  * longer lands the player at a predictable distance — every case drifted into a
  * different range state. This test now PINS the dummy (dummyMoveSpeed = 0, its
  * attack timer frozen) and places the player at explicit distances through the
- * dev hook, so the three range states are exercised deterministically again.
+ * dev hook, so the three outcomes are exercised deterministically again.
  * Movement-driven approach is covered separately by dummy_ai_test.mjs.
+ *
+ * Stage 9 notes:
+ *  - Landing is geometric now, so there is no rangeMax to derive distances
+ *    from. Cases are pinned to distances chosen against the MEASURED reach
+ *    envelope (see reach_test.mjs), which is the thing that defines range now.
+ *  - The wrapper below asserts on _resolveAttack's RETURNED outcome instead of
+ *    recomputing it from the distance. The old version re-derived the verdict
+ *    with the old distance-band formula, so it would have kept passing no
+ *    matter what the resolver actually did.
+ *  - Punches resolve at peak extension, a few frames after the press, so each
+ *    case waits for the impact rather than reading immediately.
  */
 import { chromium } from 'playwright';
 import { mkdirSync } from 'fs';
@@ -40,33 +51,40 @@ await page.evaluate(() => {
   const sc = window.__game.scene.keys.RingScene;
   window.__out = [];
   const orig = sc._resolveAttack.bind(sc);
-  // NOTE: the 4th arg is the punch TYPE (Stage 8) — smother-vulnerability is
-  // derived from it inside _resolveAttack, so mirror that derivation here.
   sc._resolveAttack = (attacker, defender, arm, punchType) => {
-    const p    = typeof defender.getHitPos === 'function' ? defender.getHitPos() : defender;
-    const dist = Math.hypot(p.x - attacker.x, p.y - attacker.y);
-    const smotherable = punchType !== 'hook' && punchType !== 'uppercut';
+    const outcome = orig(attacker, defender, arm, punchType);
     if (attacker === sc.fighter) {
+      // Distance is recorded at IMPACT (peak extension), which is not
+      // necessarily the distance the case was set up at — holding a direction
+      // to pick the hook/uppercut hand also drags the player a few px.
       window.__out.push({
-        outcome: dist > window.__config.rangeMax ? 'whiff'
-               : (dist < window.__config.smotherDist && smotherable) ? 'smother' : 'land',
-        dist: Math.round(dist),
+        outcome,
+        dist: Math.round(Math.hypot(defender.x - attacker.x, defender.y - attacker.y)),
         arm,
         punchType,
       });
     }
-    return orig(attacker, defender, arm, punchType);
+    return outcome;
   };
 });
 
-// Place the player a given distance to the LEFT of the pinned dummy.
+// Place the player a given distance to the LEFT of the pinned dummy, and clear
+// the dummy's stagger so a previous case's knockback isn't still in play.
 async function standOff(px) {
   await page.evaluate(d => {
     const sc = window.__game.scene.keys.RingScene;
+    sc.dummy.staggerX = sc.dummy.staggerY = 0;
+    sc.dummy.staggerVx = sc.dummy.staggerVy = 0;
+    sc.dummy.x = sc.dummy._loco.x;
+    sc.dummy.y = sc.dummy._loco.y;
     sc.fighter.x  = sc.dummy.x - d;
     sc.fighter.y  = sc.dummy.y;
     sc.fighter.vx = 0;
     sc.fighter.vy = 0;
+    for (const f of [sc.fighter, sc.dummy]) {
+      f.health  = window.__config.healthMax;
+      f.stamina = window.__config.staminaMax;
+    }
   }, px);
   await page.waitForTimeout(120);
 }
@@ -84,38 +102,48 @@ async function step(name, expected, distance, key, shot, holdDir) {
   await standOff(distance);
   if (holdDir) await page.keyboard.down(holdDir);
   await tap(key);
-  await page.waitForTimeout(60);
+  // Impact resolves at peak extension (Stage 9), not on the press frame, so the
+  // outcome is only readable after the punch has had time to arrive.
+  await page.waitForTimeout(200);
   if (holdDir) await page.keyboard.up(holdDir);
   const got = await page.evaluate(() => window.__out.splice(0));
   await page.screenshot({ path: `scripts/output/${shot}.png` });
   await page.waitForTimeout(300);   // let the punch animation finish before the next case
 
   const r    = got[0];
-  const pass = r && r.outcome === expected && (!holdDir || true);
+  const pass = !!r && r.outcome === expected;
   results.push({ name, pass });
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${name.padEnd(32)} expected ${expected.padEnd(8)} got ${r ? `${r.outcome}@${r.dist}px (${r.arm} arm)` : '(nothing resolved)'}`);
   return r;
 }
 
-const cfg = await page.evaluate(() => ({ rangeMax: window.__config.rangeMax, smother: window.__config.smotherDist }));
-console.log(`landing band: ${cfg.smother}–${cfg.rangeMax} px\n`);
+// Distances are chosen against the measured geometric reach envelope — see
+// reach_test.mjs, which is what pins those numbers down. Nothing here derives
+// from a range constant any more, because there isn't one.
+const cfg = await page.evaluate(() => ({ smother: window.__config.smotherDist }));
+console.log(`smother inside ${cfg.smother} px; landing is geometric beyond that\n`);
 
-// ── 1. WHIFF — well outside rangeMax ────────────────────────────────────────
-await step('jab, far outside range', 'whiff',   cfg.rangeMax + 120, 'KeyJ', 'punch_whiff');
+const CLOSE = cfg.smother - 20;   // 30 px — inside the smother radius
+const MID   = 65;                 // comfortably inside every punch's reach
 
-// ── 2. LAND — middle of the landing band ────────────────────────────────────
-await step('jab, mid landing band',  'land',    (cfg.smother + cfg.rangeMax) / 2, 'KeyJ', 'punch_land');
+// ── 1. WHIFF — beyond every punch's reach (longest is the cross at ~90 px) ──
+await step('jab, far outside reach',  'whiff',   220, 'KeyJ', 'punch_whiff');
+
+// ── 2. LAND — mid range ─────────────────────────────────────────────────────
+await step('jab, mid range',          'land',    MID, 'KeyJ', 'punch_land');
 
 // ── 3. SMOTHER — inside smotherDist, jab is smother-vulnerable ──────────────
-await step('jab, inside smother',    'smother', cfg.smother - 20, 'KeyJ', 'punch_smother');
+await step('jab, inside smother',     'smother', CLOSE, 'KeyJ', 'punch_smother');
 
 // ── 4. Hook at smother distance → still LANDS (hooks work at close range) ───
-await step('hook, inside smother',   'land',    cfg.smother - 20, 'KeyI', 'punch_hook_close');
+await step('hook, inside smother',    'land',    CLOSE, 'KeyI', 'punch_hook_close');
+
+// ── 4b. Uppercut inside smother → also still lands (locked spec) ────────────
+await step('uppercut, inside smother','land',    CLOSE, 'KeyM', 'punch_uppercut_close');
 
 // ── 5. Hook hand selection at mid range ─────────────────────────────────────
-const mid  = (cfg.smother + cfg.rangeMax) / 2;
-const left = await step('hook holding left',  'land', mid, 'KeyI', 'punch_hook_left',  'ArrowLeft');
-const right= await step('hook holding right', 'land', mid, 'KeyI', 'punch_hook_right', 'ArrowRight');
+const left = await step('hook holding left',  'land', MID, 'KeyI', 'punch_hook_left',  'ArrowLeft');
+const right= await step('hook holding right', 'land', MID, 'KeyI', 'punch_hook_right', 'ArrowRight');
 
 // Arms are named anatomically now ('left'/'right'), not by rig slot
 // ('lead'/'rear') — the slot a hand occupies depends on stance. Hook/uppercut

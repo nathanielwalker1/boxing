@@ -7,7 +7,10 @@ import { VirtualJoystick } from './joystick.js';
 import { PunchButtons } from './punchButtons.js';
 import { BlockButton } from './blockButton.js';
 import { Hud } from './hud.js';
-import { drawRig, computePose, leadArm, rearArm } from './rig.js';
+import {
+  drawRig, computePose, leadArm, rearArm,
+  peakProgress, hurtboxes, circleHitsCircle, circleHitsBox,
+} from './rig.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
@@ -36,6 +39,14 @@ class RingScene extends Phaser.Scene {
     this.flashGfx = this.add.graphics().setDepth(15);
     this._flashes = [];
 
+    // Dev-only hurtbox overlay (config.showHurtboxes) — the hit geometry is
+    // otherwise invisible, which makes the hurtbox sliders impossible to tune.
+    this.debugGfx = this.add.graphics().setDepth(20);
+
+    // Punches scheduled to resolve at their peak-extension frame — see
+    // _resolvePunch / _updatePendingImpacts.
+    this._pendingImpacts = [];
+
     // ── Keyboard: movement ─────────────────────────────────────────────────
     this.cursors = this.input.keyboard.createCursorKeys();
     this.wasd    = this.input.keyboard.addKeys({
@@ -48,7 +59,7 @@ class RingScene extends Phaser.Scene {
     // ── Fighter: starts left of center ─────────────────────────────────────
     this.fighter = new Fighter(this, GAME_W / 2 - 170, GAME_H / 2);
 
-    // ── Dummy: starts right of center, ~200 px away (within rangeMax=220) ─
+    // ── Dummy: starts right of center, ~340 px away (well out of reach) ───
     this.dummy = new Dummy(this, GAME_W / 2 + 170, GAME_H / 2, () => this._resolveDummyAttackImpact());
 
     // ── Virtual joystick — bottom-left ─────────────────────────────────────
@@ -119,10 +130,42 @@ class RingScene extends Phaser.Scene {
     this.fighter.startPunch(arm, punchType);
 
     // Give the dummy its reaction chance BEFORE the punch resolves, so a
-    // successful roll actually guards against this punch (Stage 7).
+    // successful roll actually guards against this punch (Stage 7). It now gets
+    // a genuine window to do it in, rather than a zero-latency reaction — see
+    // the scheduling note below.
     this.dummy.onOpponentPunchStart();
 
-    this._resolveAttack(this.fighter, this.dummy, arm, punchType);
+    // ── Resolve at PEAK EXTENSION, not on the press frame (Stage 9) ────────
+    // The old code resolved immediately, which was fine for a distance band but
+    // is wrong for a geometric check: it would test this punch's peak fist pose
+    // against where the opponent stood when the button went down. Scheduling the
+    // impact for the frame the fist actually arrives is what makes hits track a
+    // moving target. Same mechanism the dummy has always used for its windup.
+    this._pendingImpacts.push({
+      attacker: this.fighter,
+      defender: this.dummy,
+      arm,
+      punchType,
+      timer: peakProgress(punchType) * this.fighter._punchDuration,
+    });
+  }
+
+  /**
+   * Tick scheduled punch impacts. Called AFTER both fighters have stepped, so a
+   * punch resolves against this frame's positions, not last frame's.
+   */
+  _updatePendingImpacts(dt) {
+    if (this._pendingImpacts.length === 0) return;
+    const still = [];
+    for (const imp of this._pendingImpacts) {
+      imp.timer -= dt;
+      if (imp.timer > 0) { still.push(imp); continue; }
+      // A knockdown mid-flight cancels the punch (startPunch state is cleared in
+      // _triggerKnockdown), so the impact it scheduled must die with it.
+      if (imp.attacker.isDown) continue;
+      this._resolveAttack(imp.attacker, imp.defender, imp.arm, imp.punchType);
+    }
+    this._pendingImpacts = still;
   }
 
   // ── Attack impact resolution (dummy-initiated) ──────────────────────────────
@@ -132,17 +175,27 @@ class RingScene extends Phaser.Scene {
     this._resolveAttack(this.dummy, this.fighter, this.dummy.punchArm, this.dummy.punchType);
   }
 
-  // ── Shared range-gating / impact resolution — used by both attackers ───────
+  // ── Shared impact resolution — used by both attackers ─────────────────────
   // (the player punching the dummy, and the dummy punching the player), so
   // whiff/smother/land handling and the force/stagger calc exist in one place.
+  //
+  // Stage 9: landing is GEOMETRIC. Called on the punch's peak-extension frame,
+  // it asks one question — does the fist (a circle of config.fistRadius at the
+  // pose-solved wrist) overlap either of the defender's hurtboxes right now?
+  // Reach is therefore a consequence of the rig and the per-punch trajectory
+  // rather than a declared number, so the four punches differ in range for
+  // free and a punch that visually misses actually misses.
+  //
+  // @returns {'whiff'|'smother'|'land'|null}  null = no resolution (target down)
   _resolveAttack(attacker, defender, arm, punchType) {
     // Invulnerable while down (Stage 6) — no resolution at all, not even a
     // whiff flash; a downed fighter isn't a valid target until they get up.
-    if (defender.isDown) return;
+    if (defender.isDown) return null;
 
     // Defenders that can slip (Fighter) expose getHitPos() — normally just
-    // their true (x, y), but offset while a slip is active. Using it here is
-    // the entire "invincibility" implementation: no separate bypass flag.
+    // their true (x, y), but offset while a slip is active. It also anchors
+    // getHurtboxes() below, which is the entire "invincibility" implementation:
+    // no separate bypass flag, the boxes simply aren't there any more.
     const defPos = typeof defender.getHitPos === 'function'
       ? defender.getHitPos()
       : { x: defender.x, y: defender.y };
@@ -152,16 +205,21 @@ class RingScene extends Phaser.Scene {
     const fist = attacker.getFistPos(arm);
 
     // Only jab/cross are smother-vulnerable at close range — hook/uppercut
-    // still land, per the locked range-gating rule.
+    // still land, per the locked range-gating rule. Checked BEFORE the overlap
+    // test on purpose: point-blank, a straight punch's fist still passes through
+    // the head geometrically, so geometry alone can never produce a smother.
     const smotherable = punchType !== 'hook' && punchType !== 'uppercut';
 
     let outcome;
-    if (dist > config.rangeMax) {
-      outcome = 'whiff';
-    } else if (dist < config.smotherDist && smotherable) {
+    if (dist < config.smotherDist && smotherable) {
       outcome = 'smother';
     } else {
-      outcome = 'land';
+      const hb = defender.getHurtboxes();
+      const r  = config.fistRadius;
+      outcome = (circleHitsCircle(fist.x, fist.y, r, hb.head) ||
+                 circleHitsBox(fist.x, fist.y, r, hb.body))
+        ? 'land'
+        : 'whiff';
     }
 
     switch (outcome) {
@@ -208,6 +266,11 @@ class RingScene extends Phaser.Scene {
         break;
       }
     }
+
+    // Returned so the Playwright checks can assert on the resolver's own verdict
+    // instead of re-deriving it from positions (which is how punch_test used to
+    // work — it would have kept passing against the old distance rule).
+    return outcome;
   }
 
   // ── Flash effect rendering ─────────────────────────────────────────────────
@@ -231,6 +294,32 @@ class RingScene extends Phaser.Scene {
     }
 
     this._flashes = this._flashes.filter(f => f.elapsed < f.maxTime);
+  }
+
+  // ── Hurtbox debug overlay (dev only, off by default) ──────────────────────
+  // Draws exactly what _resolveAttack tests against: both fighters' head/body
+  // hurtboxes, plus the fist circle of any punch currently in flight.
+  _drawHurtboxDebug() {
+    const g = this.debugGfx;
+    g.clear();
+    if (!config.showHurtboxes) return;
+
+    for (const f of [this.fighter, this.dummy]) {
+      if (f.isDown) continue;
+      const hb = f.getHurtboxes();
+      g.lineStyle(1, 0x00ff88, 0.9);
+      g.strokeCircle(hb.head.x, hb.head.y, hb.head.r);
+      g.lineStyle(1, 0x00aaff, 0.9);
+      g.strokeRect(hb.body.x - hb.body.hw, hb.body.y - hb.body.hh, hb.body.hw * 2, hb.body.hh * 2);
+
+      // Fist at its PEAK pose — where the punch will be tested from, which is
+      // the useful thing to see while tuning, not where the hand is right now.
+      if (f.punchArm) {
+        const fist = f.getFistPos(f.punchArm);
+        g.lineStyle(1, 0xffcc00, 0.9);
+        g.strokeCircle(fist.x, fist.y, config.fistRadius);
+      }
+    }
   }
 
   // ── Ring drawing ──────────────────────────────────────────────────────────
@@ -294,7 +383,10 @@ class RingScene extends Phaser.Scene {
     const bounds = this._getRingBounds();
     this.fighter.update(dt, inputX, inputY, bounds, this.dummy.x, this._blockHeld);
     this.dummy.update(dt, this.fighter, bounds);
+    // AFTER both have stepped — a punch resolves against current positions.
+    this._updatePendingImpacts(dt);
     this._updateFlashes(dt);
+    this._drawHurtboxDebug();
     this.hud.update(this.fighter, this.dummy);
   }
 }
@@ -331,16 +423,28 @@ fighterF.addColor(config, 'fighterBodyColor').name('Body Color');
 fighterF.addColor(config, 'fighterSkinColor').name('Skin Color');
 fighterF.add(config, 'guardBobAmplitude', 0, 12, 0.5).name('Move Bob px');
 fighterF.add(config, 'guardBobFrequency', 0,  6, 0.1).name('Move Bob Hz');
+fighterF.add(config, 'rearArmAlpha',    0.4,  1, 0.01).name('Rear Limb Alpha');
 fighterF.close();
 
 const combatF = gui.addFolder('Combat');
 combatF.add(config, 'punchForceBase',     50, 800,  5).name('Base Force');
 combatF.add(config, 'punchMomentumScale',  0,   5, 0.1).name('Momentum Scale');
 combatF.add(config, 'punchDuration',     0.05, 0.5, 0.01).name('Punch Duration (base)');
-combatF.add(config, 'rangeMax',          80,  500,  5).name('Range Max');
 combatF.add(config, 'smotherDist',        0,  150,  5).name('Smother Dist');
 combatF.add(config, 'blockReduction',     0,    1, 0.05).name('Block Reduction');
 combatF.open();
+
+// Hit geometry (Stage 9) — these ARE the range gate now: reach is whatever the
+// fist circle plus these boxes happen to produce per punch type.
+const hurtboxF = gui.addFolder('Hurtboxes');
+hurtboxF.add(config, 'fistRadius',          2,  30, 1).name('Fist Radius');
+hurtboxF.add(config, 'headHurtboxRadius',   4,  40, 1).name('Head Radius');
+hurtboxF.add(config, 'headHurtboxOffsetY', -80,  0, 1).name('Head Offset Y');
+hurtboxF.add(config, 'bodyHurtboxWidth',   10,  70, 1).name('Body Width');
+hurtboxF.add(config, 'bodyHurtboxHeight',  10,  80, 1).name('Body Height');
+hurtboxF.add(config, 'bodyHurtboxOffsetY', -60, 20, 1).name('Body Offset Y');
+hurtboxF.add(config, 'showHurtboxes')                 .name('Show Hurtboxes');
+hurtboxF.open();
 
 // Per-punch identity (Stage 8). Damage multiplies the momentum-based force;
 // speed divides config.punchDuration (higher = snappier).
@@ -368,6 +472,7 @@ dummyF.open();
 const dummyAiF = gui.addFolder('Dummy AI');
 dummyAiF.add(config, 'dummyMoveSpeed',                 50, 400, 5).name('Move Speed');
 dummyAiF.add(config, 'dummyStandoffDist',               0, 300, 5).name('Standoff Dist');
+dummyAiF.add(config, 'dummyEngageDist',                20, 300, 1).name('Engage Dist');
 dummyAiF.add(config, 'dummyStandoffBand',               2,  80, 1).name('Standoff Band');
 dummyAiF.add(config, 'dummyBlockReactionChance',        0,   1, 0.05).name('Block React Chance');
 dummyAiF.add(config, 'dummyBlockReactionWindow',     0.05, 1.5, 0.05).name('Block Window (s)');
@@ -382,7 +487,7 @@ window.__game   = game;
 window.__config = config;
 // Also exposed so the punch-animation checks can render a contact sheet of every
 // punch's trajectory in one frame instead of scrubbing the live fighter.
-window.__rig    = { drawRig, computePose };
+window.__rig    = { drawRig, computePose, hurtboxes, peakProgress, circleHitsCircle, circleHitsBox };
 
 const slipF = gui.addFolder('Slip / Duck');
 slipF.add(config, 'slipInputThreshold',        0.1, 1,   0.05).name('Push Threshold');

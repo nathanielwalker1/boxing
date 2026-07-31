@@ -26,6 +26,8 @@
  *   Angle 0 = segment hanging straight down; positive = rotating toward +x.
  */
 
+import { config } from './config.js';
+
 // Visual extent of the rig from the container origin, derived from the layout
 // below. Lives here (with the geometry it's derived from) so the player and the
 // dummy clamp to the ropes identically — see movement.js. Deliberately measured
@@ -72,8 +74,37 @@ const LEAD_SHOULDER_PULL  = 22;  // lead shoulder pulls back while the rear arm 
 const HIP_DRIVE           = 5;   // punching-side hip rotates forward
 const HIP_PULL            = 4;   // opposite hip rotates back
 
+// Fraction of the gap between config.rearArmAlpha and solid that a punching rear
+// arm closes at full extension. At the default 0.55 this reproduces the original
+// hardcoded 0.55 → 0.95 brighten exactly.
+const PUNCH_BRIGHTEN      = 0.89;
+
 // ── Pose keyframes ───────────────────────────────────────────────────────────
-const BLOCK_ANGLES = { a1: -0.14, a2: -2.73 };   // both forearms folded up in front of the chin
+/**
+ * The BLOCK — both gloves folded up in front of the face.
+ *
+ * Per-slot, for the same reason the guard is (see LEAD_GUARD/REAR_GUARD): the
+ * two shoulders sit 34 px apart on the toward/away axis, so ONE shared absolute
+ * angle pair cannot put both gloves at the chin — it just translates the same
+ * arm shape 34 px backwards for the rear slot. That is what this used to do,
+ * and it parked the rear elbow/glove at x = -20/-25 while the lead reached only
+ * to +14, so the rig's limb mass sat BEHIND the torso. Since facing is expressed
+ * purely by the scaleX mirror, a silhouette whose limbs stick out the away side
+ * reads as a fighter pointing the wrong way — the block appeared to spin the
+ * fighter around even though facing itself was (and is) computed correctly.
+ *
+ *   lead: elbow forward at the shoulder line, forearm up and slightly back —
+ *         glove at (+13, -40), covering the front edge of the head
+ *   rear: elbow swung IN to the ribs (not left trailing at the shoulder),
+ *         forearm up and forward — glove at (+1, -41), covering the face center
+ *
+ * Both gloves therefore sit at or ahead of center with the lead one further
+ * forward, so the block keeps the same forward-reading asymmetry as the guard.
+ */
+const LEAD_BLOCK = { a1: 0.10, a2: -2.872 };   // elbow (+19, -23) → glove (+13, -40)
+const REAR_BLOCK = { a1: 0.45, a2:  2.181 };   // elbow  (-7, -25) → glove  (+1, -41)
+
+const slotBlock = slot => (slot === 'lead' ? LEAD_BLOCK : REAR_BLOCK);
 
 /**
  * The GUARD — the pose both fighters hold whenever they aren't punching. It is
@@ -268,18 +299,67 @@ export function computePose(punch, guard = 0, bob = 0) {
   const leadA = punchingArm === 'lead' ? key : LEAD_GUARD;
   const rearA = punchingArm === 'rear' ? key : REAR_GUARD;
 
-  const blend = a => ({
-    a1: lerp(a.a1, BLOCK_ANGLES.a1, g),
-    a2: lerp(a.a2, nearestAngle(BLOCK_ANGLES.a2, a.a2), g),
-  });
-  const la = blend(leadA);
-  const ra = blend(rearA);
+  const blend = (a, slot) => {
+    const B = slotBlock(slot);
+    return {
+      a1: lerp(a.a1, B.a1, g),
+      a2: lerp(a.a2, nearestAngle(B.a2, a.a2), g),
+    };
+  };
+  const la = blend(leadA, 'lead');
+  const ra = blend(rearA, 'rear');
 
   return {
     torsoShift, dip, turn, ext, punchingArm,
     lead: solveArm(leadSx, SHOULDER_Y + dip, la.a1, la.a2),
     rear: solveArm(rearSx, SHOULDER_Y + dip, ra.a1, ra.a2),
   };
+}
+
+// ── Hurtboxes (Stage 9) ──────────────────────────────────────────────────────
+/**
+ * The defender's vulnerable regions, in the SAME local space as the pose — i.e.
+ * hung off the rig's actual head and torso rather than being a second, parallel
+ * body model. They therefore inherit the pose's dip (bob, uppercut crouch) and
+ * torso shift (a fighter torqued into a cross presents their head further
+ * forward), so a moving target's hurtboxes move with it.
+ *
+ * Sizes/offsets come from config so they're live-tunable — see the Hurtboxes
+ * folder in the tuning panel. Caller maps to world space (and applies the facing
+ * mirror to x) — see getHurtboxes() on Fighter/Dummy.
+ *
+ * @param {ReturnType<typeof computePose>} pose
+ */
+export function hurtboxes(pose) {
+  return {
+    // Matches the head circle drawn in drawRig(): local (1 + shift*0.9, -50+dip).
+    head: {
+      x: 1 + pose.torsoShift * 0.9,
+      y: config.headHurtboxOffsetY + pose.dip,
+      r: config.headHurtboxRadius,
+    },
+    // Matches the torso rect: centered at (shift, -20+dip). Width is held fixed
+    // rather than tracking the turn-driven torsoW, so rotating into a punch
+    // doesn't silently widen your own hurtbox.
+    body: {
+      x: pose.torsoShift,
+      y: config.bodyHurtboxOffsetY + pose.dip,
+      hw: config.bodyHurtboxWidth  / 2,
+      hh: config.bodyHurtboxHeight / 2,
+    },
+  };
+}
+
+/** Circle (x, y, r) vs circle {x, y, r}. */
+export function circleHitsCircle(x, y, r, c) {
+  return Math.hypot(x - c.x, y - c.y) <= r + c.r;
+}
+
+/** Circle (x, y, r) vs axis-aligned box {x, y, hw, hh} — nearest-point test. */
+export function circleHitsBox(x, y, r, b) {
+  const nx = Math.min(Math.max(x, b.x - b.hw), b.x + b.hw);
+  const ny = Math.min(Math.max(y, b.y - b.hh), b.y + b.hh);
+  return Math.hypot(x - nx, y - ny) <= r;
 }
 
 // ── Drawing helpers ──────────────────────────────────────────────────────────
@@ -331,13 +411,17 @@ export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0, bob = 
     (rearIsPunching ? HIP_DRIVE * turn : -HIP_PULL * turn);
 
   // ── Rear side (behind — drawn first, dimmed for depth) ─────────────────────
-  g.fillStyle(bodyColor, 0.55);
+  // One shared alpha for every rear-side limb (see config.rearArmAlpha) so the
+  // depth cue stays consistent when it's dialed — an arm at 1.0 next to a thigh
+  // still stuck at 0.55 reads as a bug, not as depth.
+  const rearAlpha = config.rearArmAlpha;
+  g.fillStyle(bodyColor, rearAlpha);
   cr(g, rearHipX,       5 + dip, 10, 26);   // rear thigh
   cr(g, -HIP_X,        29,        9, 22);   // rear shin (planted)
 
   // A punching rear arm is deferred: it swings ACROSS the front of the body, so
   // it has to be drawn on top of the torso, not behind it.
-  if (!rearIsPunching) drawArm(g, bodyColor, skinColor, pose.rear, 0.55);
+  if (!rearIsPunching) drawArm(g, bodyColor, skinColor, pose.rear, rearAlpha);
 
   // ── Torso ──────────────────────────────────────────────────────────────────
   // Widens with the turn: a rotating fighter presents more chest to the camera.
@@ -359,7 +443,11 @@ export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0, bob = 
   drawArm(g, bodyColor, skinColor, pose.lead, 1.0);
 
   // Rear arm mid-cross: brightens as it extends so it reads as coming forward.
-  if (rearIsPunching) drawArm(g, bodyColor, skinColor, pose.rear, 0.55 + 0.4 * pose.ext);
+  // Starts from the same tunable rear alpha and closes the remaining gap to
+  // fully solid, so the punch always ends at full opacity whatever the slider.
+  if (rearIsPunching) {
+    drawArm(g, bodyColor, skinColor, pose.rear, rearAlpha + (1 - rearAlpha) * PUNCH_BRIGHTEN * pose.ext);
+  }
 
   // ── Head ───────────────────────────────────────────────────────────────────
   const headX = 1 + shift * 0.9;

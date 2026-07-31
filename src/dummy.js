@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { config } from './config.js';
-import { drawRig, computePose, peakProgress, armSlot, leadArm } from './rig.js';
+import { drawRig, computePose, peakProgress, armSlot, leadArm, hurtboxes } from './rig.js';
 import { stepMovement, stepBob } from './movement.js';
 
 function cssHex(str) {
@@ -175,6 +175,23 @@ export class Dummy {
   }
 
   /**
+   * World-space head + body hurtboxes (Stage 9) — see Fighter.getHurtboxes().
+   * Anchored to this.x/this.y, which already includes the stagger offset, so a
+   * dummy still rocking from the last punch is genuinely harder to hit clean.
+   * The dummy has no slip, so there's no getHitPos() displacement here.
+   * @returns {{ head: {x,y,r}, body: {x,y,hw,hh} }}
+   */
+  getHurtboxes() {
+    const pose = computePose(this._punchState(), this.isBlocking ? 1 : 0, this._bob);
+    const hb   = hurtboxes(pose);
+    const flip = this.facingRight ? 1 : -1;
+    return {
+      head: { x: this.x + hb.head.x * flip, y: this.y + hb.head.y, r: hb.head.r },
+      body: { x: this.x + hb.body.x * flip, y: this.y + hb.body.y, hw: hb.body.hw, hh: hb.body.hh },
+    };
+  }
+
+  /**
    * Apply a velocity impulse to the stagger system.
    * vx/vy are in world-space px/s.
    */
@@ -234,7 +251,7 @@ export class Dummy {
     if (this.isDown) return;
     if (this.punchTimer > 0) return;                                  // mid-windup: punching and blocking are mutually exclusive
     if (this.blockTimer > 0) return;                                  // guard already up — don't re-roll or extend it
-    if (this._distToOpponent > config.rangeMax) return;               // nothing to defend against from out of range
+    if (this._distToOpponent > config.dummyEngageDist) return;        // nothing to defend against from out of range
     if (Math.random() >= config.dummyBlockReactionChance) return;     // failed the roll — eats this one
 
     this.blockTimer = config.dummyBlockReactionWindow;
@@ -382,7 +399,7 @@ export class Dummy {
       // openings stack multiplicatively — gassed AND unguarded is punished
       // harder than either alone.
       const mult    = config.dummyOpeningAggressionMultiplier;
-      const inRange = this._distToOpponent <= config.rangeMax;
+      const inRange = this._distToOpponent <= config.dummyEngageDist;
       let aggression = 1;
       if (inRange && !player.isBlocking)                        aggression *= mult;
       if (player.stamina < config.lowStaminaThreshold)          aggression *= mult;
@@ -396,10 +413,14 @@ export class Dummy {
         // after the movement AI finally closes the distance.
         this.attackTimer = 0;
 
-        // 2. Only throw when the punch can actually land: inside the same
-        //    landing band _resolveAttack gates on (the dummy throws a jab,
-        //    which is smother-vulnerable, so the near edge counts too).
-        const inLandingBand = this._distToOpponent <= config.rangeMax &&
+        // 2. Only throw when the punch can actually land. Since Stage 9 that is
+        //    no longer a config value _resolveAttack also reads — landing is
+        //    geometric, so the far edge is dummyEngageDist, an AI-owned
+        //    threshold set from the MEASURED reach of the dummy's lead jab (see
+        //    the note on that config value). The near edge is still smotherDist,
+        //    which the resolver does share: the dummy throws a jab, and a jab is
+        //    smother-vulnerable, so getting too close still kills the punch.
+        const inLandingBand = this._distToOpponent <= config.dummyEngageDist &&
                               this._distToOpponent >= config.smotherDist;
         const canThrow      = this.punchTimer === 0 && !this.isBlocking;
 
@@ -412,7 +433,10 @@ export class Dummy {
           this.punchType       = 'jab';
           this.punchTimer      = this._windupDuration;
           this._impactPending  = true;
-          this._impactTimer    = this._windupDuration / 2;
+          // Impact fires at the trajectory's own peak (Stage 9), not at a flat
+          // half-windup — getFistPos() samples the peak pose, so the two have to
+          // refer to the same instant for the geometric check to mean anything.
+          this._impactTimer    = peakProgress(this.punchType) * this._windupDuration;
           this.stamina         = Math.max(0, this.stamina - config.staminaDrainPerPunch);
         }
       }

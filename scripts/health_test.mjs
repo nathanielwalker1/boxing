@@ -27,16 +27,39 @@ async function newPage() {
   return page;
 }
 
+/**
+ * Put the player a fixed distance in front of the dummy and pin the dummy so it
+ * stays there. Replaces the "walk right for 1300 ms" setup the landing cases
+ * used to rely on: both fighters close on each other now, so a timed walk
+ * overshot into the smother zone and the jabs it was meant to land didn't.
+ * Also silences the dummy's own offence, which otherwise damages the player
+ * mid-case and muddies which bar moved.
+ */
+async function pinAt(page, dist) {
+  await page.evaluate(d => {
+    const sc = window.__game.scene.keys.RingScene;
+    window.__config.dummyMoveSpeed           = 0;
+    window.__config.dummyAttackDelayMin      = 999;
+    window.__config.dummyAttackDelayMax      = 999;
+    window.__config.dummyBlockReactionChance = 0;
+    sc.dummy.attackTimer = 999;
+    sc.fighter.x = sc.dummy.x - d;
+    sc.fighter.y = sc.dummy.y;
+    sc.fighter.vx = sc.fighter.vy = 0;
+  }, dist);
+  await page.waitForTimeout(150);
+}
+
+// Comfortably inside the jab's measured geometric reach (~85 px) and clear of
+// the 50 px smother radius — see reach_test.mjs.
+const JAB_RANGE = 65;
+
 // ── (a) Health/stamina bars visible and changing during a fight ────────────
-// Move into landing range (calibrated: 1300ms closes the 340px starting gap
-// to ~85px, inside the 50-100 land band at current rangeMax/smotherDist) and
-// throw a jab so the dummy's health AND stamina bars visibly change.
+// Land a jab from a pinned distance so the dummy's health AND stamina bars
+// visibly change.
 {
   const page = await newPage();
-  await page.keyboard.down('ArrowRight');
-  await page.waitForTimeout(1300);
-  await page.keyboard.up('ArrowRight');
-  await page.waitForTimeout(200);
+  await pinAt(page, JAB_RANGE);
   await page.keyboard.down('J');
   await page.waitForTimeout(50);
   await page.keyboard.up('J');
@@ -86,20 +109,15 @@ async function newPage() {
   await setGuiNumber(page, 'Damage / Force', 0.3);
   await page.mouse.click(575, 400);
 
-  await page.keyboard.down('ArrowRight');
-  await page.waitForTimeout(1300);
-  await page.keyboard.up('ArrowRight');
-  await page.waitForTimeout(200);
-
-  await page.keyboard.down('J');
-  await page.waitForTimeout(50);
-  await page.keyboard.up('J');
-  await page.waitForTimeout(300);
-
-  await page.keyboard.down('J');
-  await page.waitForTimeout(50);
-  await page.keyboard.up('J');
-  await page.waitForTimeout(300);
+  // Re-pin before EACH jab: a landed punch knocks the dummy back through the
+  // stagger spring, which would otherwise carry it out of reach for the second.
+  for (let i = 0; i < 2; i++) {
+    await pinAt(page, JAB_RANGE);
+    await page.keyboard.down('J');
+    await page.waitForTimeout(50);
+    await page.keyboard.up('J');
+    await page.waitForTimeout(300);
+  }
   await page.screenshot({ path: 'scripts/output/knockdown_down_pose.png' });
 
   // knockdownRecoveryDuration defaults to 2.5s — wait it out, then confirm recovery.

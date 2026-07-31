@@ -67,10 +67,11 @@ async function freshLoad() {
       window.__resolves.push({
         fromPlayer: attacker === sc.fighter,
         blocked:    !!defender.isBlocking,
-        // A punch thrown from outside rangeMax whiffs regardless, and the dummy
-        // deliberately doesn't spend a reaction roll on one it isn't in range of —
-        // so the meaningful block rate is measured over in-range punches only.
-        inRange:    dist <= window.__config.rangeMax,
+        // The dummy deliberately doesn't spend a reaction roll on a punch it
+        // isn't in range of, so the meaningful block rate is measured over
+        // in-range punches only. Since Stage 9 that threshold is the AI's own
+        // dummyEngageDist — the resolver has no range constant any more.
+        inRange:    dist <= window.__config.dummyEngageDist,
         dist,
       });
       return orig(attacker, defender, arm, punchType);
@@ -107,7 +108,7 @@ const cfg = await (async () => { await freshLoad(); return peek(() => ({
   standoff:    window.__config.dummyStandoffDist,
   band:        window.__config.dummyStandoffBand,
   smother:     window.__config.smotherDist,
-  rangeMax:    window.__config.rangeMax,
+  engage:      window.__config.dummyEngageDist,
   blockChance: window.__config.dummyBlockReactionChance,
 })); })();
 
@@ -137,8 +138,8 @@ for (let i = 1; i < trace.length; i++) {
 const hold = dists[dists.length - 1];
 check('settles without jitter', spread < 4 && flips === 0,
   `spread ${spread.toFixed(1)} px, ${flips} velocity sign flips`);
-check('holds inside the landing band', hold > cfg.smother && hold < cfg.rangeMax,
-  `holds ${hold.toFixed(0)} px (band ${cfg.smother}–${cfg.rangeMax}, standoff ${cfg.standoff}±${cfg.band})`);
+check('holds inside the landing band', hold > cfg.smother && hold < cfg.engage,
+  `holds ${hold.toFixed(0)} px (band ${cfg.smother}–${cfg.engage}, standoff ${cfg.standoff}±${cfg.band})`);
 
 // Cornered — the pinned case where naive approach logic vibrates. Give it a
 // long settle first: the dummy has to travel around the pinned player to find
@@ -171,14 +172,14 @@ await peek(() => {
 await page.waitForTimeout(4000);
 let s = await sample();
 check('does not throw while out of range', s.throws === 0,
-  `dist ${s.dist.toFixed(0)} > rangeMax ${cfg.rangeMax}, ${s.throws} throws`);
+  `dist ${s.dist.toFixed(0)} > engage dist ${cfg.engage}, ${s.throws} throws`);
 check('timer holds armed at 0 waiting for range', s.atk === 0, `attackTimer=${s.atk.toFixed(2)}`);
 await page.screenshot({ path: `${OUT}/04_armed_out_of_range.png` });
 
 await peek(() => { window.__config.dummyMoveSpeed = 170; });
 await page.waitForTimeout(5000);
 s = await sample();
-const outOfBand = s.throwDists.filter(d => d > cfg.rangeMax + 5 || d < cfg.smother - 5);
+const outOfBand = s.throwDists.filter(d => d > cfg.engage + 5 || d < cfg.smother - 5);
 check('throws once it has closed into range', s.throws > 0, `${s.throws} throws`);
 check('every throw starts inside the landing band', outOfBand.length === 0,
   `distances ${s.throwDists.map(d => d.toFixed(0)).join(', ')}`);

@@ -29,6 +29,12 @@ export const config = {
   guardBobAmplitude: 3.5,   // px of vertical travel at full speed
   guardBobFrequency: 2.2,   // bounce cycles per second at full speed
 
+  // Depth cue: the rear-side limbs (rear arm at rest, rear thigh) are drawn
+  // dimmed so they read as being behind the torso. At this rig scale a low value
+  // can read as "missing" rather than "receded", so it's tunable — 1.0 removes
+  // the cue entirely and draws the rear side solid.
+  rearArmAlpha: 0.55,
+
   // Fighter movement
   moveSpeed: 200,
 
@@ -68,10 +74,34 @@ export const config = {
   uppercutDamage:   1.55,
   uppercutSpeed:    1.00,
 
-  // Range gating
-  rangeMin:    80,    // reserved — currently the landing zone is smotherDist..rangeMax
-  rangeMax:   100,
-  smotherDist: 50,   // < this distance = smother (except hook/uppercut which still land)
+  // ── Hit geometry (Stage 9) ──────────────────────────────────────────────────
+  // Landing is no longer a distance band — a punch lands when the FIST (sampled
+  // at the punch's peak-extension frame, see peakProgress in rig.js) overlaps one
+  // of the defender's hurtboxes. Effective reach therefore falls out of the rig +
+  // the per-punch trajectory instead of being declared, so a jab, a rear hook and
+  // an uppercut all reach different distances for free.
+  //
+  // The offsets below are the rig's own head/torso centers (see drawRig) — move
+  // them only if the rig geometry moves. The sizes start slightly larger than the
+  // drawn shapes because the drawn "fist" is the wrist joint, not the glove.
+  // ASSUMPTION — first-pass sizes, expected to be dialed in on the sliders.
+  fistRadius:           10,   // px — the glove around the solved wrist position
+  headHurtboxRadius:    15,   // px — drawn head is r=13
+  headHurtboxOffsetY:  -50,   // px from torso center (rig head center)
+  bodyHurtboxWidth:     32,   // px — drawn torso is 28 wide
+  bodyHurtboxHeight:    44,   // px — drawn torso is 38 tall
+  bodyHurtboxOffsetY:  -20,   // px from torso center (rig torso center)
+
+  // Dev-only overlay: draws both fighters' hurtboxes and the live fist circle so
+  // the sliders above can be tuned against something visible. Off by default.
+  showHurtboxes: false,
+
+  // Smother — the one part of range gating that stays a proximity test, because
+  // "too close to extend" is inherently about distance, not overlap (a straight
+  // punch fired point-blank still passes THROUGH the head geometrically). Locked
+  // spec: jab/cross smother, hook/uppercut still land inside this radius.
+  // Measured center-to-center, same as before this stage.
+  smotherDist: 50,
 
   // Block — percent of incoming force absorbed while actively blocking (0 = no reduction, 1 = fully negated)
   blockReduction: 0.75,
@@ -97,15 +127,31 @@ export const config = {
   // so the player can always create distance and the approach reads as
   // beatable rather than as the dummy matching them perfectly.
   dummyMoveSpeed: 170,
-  // Distance the dummy tries to hold. Should sit between smotherDist and
-  // rangeMax — the default is the midpoint of the current landing band, i.e.
-  // close enough to threaten but outside the smother zone where its jab dies.
-  // ASSUMPTION — flag for confirmation: feel-based, not derived.
-  dummyStandoffDist: 75,
+  // Distance the dummy tries to hold. The whole hysteresis band has to fit
+  // between smotherDist and dummyEngageDist, not just its center: approaching
+  // from far out, the dummy stops the moment it enters the band, so its actual
+  // resting distance is standoff + band, NOT standoff. At the old 75 ± 18 that
+  // put it at ~88 px — past the reach of its own jab — where it would sit
+  // forever and never throw. 64 ± 12 rests at ~76: inside its jab's reach, and
+  // still clear of the smother radius at the near edge.
+  dummyStandoffDist: 64,
+  // How far out the dummy is willing to commit to a punch, and the range inside
+  // which it bothers reacting to the player's punches with its guard. Replaces
+  // the old rangeMax, which was a hit-resolution constant the AI borrowed and
+  // which no longer exists now that landing is geometric.
+  //
+  // MEASURED, not guessed: the dummy only throws a lead jab, and with the
+  // hurtbox defaults above that jab lands out to ~85 px center-to-center and
+  // whiffs past it (see scripts/reach_test.mjs, which sweeps the real resolver).
+  // Set a little under that measured edge so the punch still connects if the
+  // player drifts back a few px during the 0.8 s windup.
+  dummyEngageDist: 78,
   // Hysteresis deadband around dummyStandoffDist: inside it the dummy stops
   // steering entirely. This is the anti-jitter knob — too small and it hunts
-  // back and forth around the target distance.
-  dummyStandoffBand: 18,
+  // back and forth around the target distance. Narrowed from 18 so the whole
+  // band clears dummyEngageDist (see above); the proportional taper in
+  // Dummy.update does most of the settling work, so this stays jitter-free.
+  dummyStandoffBand: 12,
 
   // ── Dummy reactive block (Stage 7) ──────────────────────────────────────────
   // ASSUMPTION — both values are feel-based guesses, flag for confirmation.

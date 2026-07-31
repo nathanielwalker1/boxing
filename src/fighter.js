@@ -1,5 +1,5 @@
 import { config, punchSpeedMult } from './config.js';
-import { drawRig, computePose, peakProgress, armSlot } from './rig.js';
+import { drawRig, computePose, peakProgress, armSlot, hurtboxes } from './rig.js';
 import { stepMovement, stepBob } from './movement.js';
 
 function cssHex(str) {
@@ -148,6 +148,28 @@ export class Fighter {
     const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
+  }
+
+  /**
+   * World-space head + body hurtboxes (Stage 9) — what an incoming fist is
+   * tested against in RingScene._resolveAttack.
+   *
+   * Solved from the CURRENT pose (not a peak sample), so they track this
+   * fighter's live position, bob and torso rotation frame by frame. Anchored to
+   * getHitPos() rather than (x, y), which is what keeps a slip working: the slip
+   * displaces the anchor, so the whole hurtbox set moves out of the incoming
+   * punch's way. Still no bypass flag.
+   * @returns {{ head: {x,y,r}, body: {x,y,hw,hh} }}
+   */
+  getHurtboxes() {
+    const base = this.getHitPos();
+    const pose = computePose(this._punchState(), this.isBlocking ? 1 : 0, this._bob);
+    const hb   = hurtboxes(pose);
+    const flip = this.facingRight ? 1 : -1;
+    return {
+      head: { x: base.x + hb.head.x * flip, y: base.y + hb.head.y, r: hb.head.r },
+      body: { x: base.x + hb.body.x * flip, y: base.y + hb.body.y, hw: hb.body.hw, hh: hb.body.hh },
+    };
   }
 
   /**

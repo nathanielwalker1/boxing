@@ -63,11 +63,18 @@ await page.keyboard.up('ArrowLeft');
 await page.waitForTimeout(200);
 
 // ── (c) Debug test-punch whiffing during an active slip window ─────────────
-// Move well into landing range (current rangeMax=100, smotherDist=50; the
-// 340px starting gap needs a solid approach to close under rangeMax).
-await page.keyboard.down('ArrowRight');
-await page.waitForTimeout(1900);
-await page.keyboard.up('ArrowRight');
+// Pin the fighters at a distance where the dummy's jab would COMFORTABLY land
+// (its measured reach is ~85 px, smother radius is 50) so the only reason the
+// punch misses is the slip. This used to be a timed walk, but both fighters
+// close on each other now, so it overshot into the smother zone — where the
+// punch fails for an unrelated reason and the test proves nothing.
+await page.evaluate(() => {
+  const sc = window.__game.scene.keys.RingScene;
+  window.__config.dummyMoveSpeed = 0;
+  sc.fighter.x  = sc.dummy.x - 65;
+  sc.fighter.y  = sc.dummy.y;
+  sc.fighter.vx = sc.fighter.vy = 0;
+});
 await page.waitForTimeout(200);
 
 // Force an immediate dummy attack (T = temporary debug key). The dummy's own
@@ -76,7 +83,8 @@ await page.waitForTimeout(200);
 await page.keyboard.down('T');
 await page.waitForTimeout(50);
 await page.keyboard.up('T');
-// dummyWindupDuration=0.8s, impact fires at 0.4s. Flick partway through the
+// dummyWindupDuration=0.8s; impact fires at the jab trajectory's own peak
+// (peakAt 0.42 → ~0.34s), not at a flat half-windup. Flick partway through the
 // windup so the 0.25s slip window covers the impact moment.
 await page.waitForTimeout(200);
 await page.keyboard.down('ArrowDown');

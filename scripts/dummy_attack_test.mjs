@@ -27,9 +27,10 @@ async function burstUntilStagger(prefix, maxMs, intervalMs) {
   }
 }
 
-// Fighters start ~340px apart, outside rangeMax (220) — close the distance
-// first so the dummy's punch actually has a chance to land, same as it
-// would for a real attack.
+// Fighters start ~340px apart, far outside the dummy's engage distance — close
+// some of the gap first so it reaches its standoff (and so a punch of its own
+// has a chance to land) inside the capture window below. The dummy's own
+// movement AI covers the rest, exactly as it would in a real fight.
 async function closeDistance() {
   await page.keyboard.down('ArrowRight');
   await page.waitForTimeout(900);
