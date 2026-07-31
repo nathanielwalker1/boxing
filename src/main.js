@@ -10,15 +10,12 @@ import { BlockButton } from './blockButton.js';
 import { Hud } from './hud.js';
 import { FollowCamera } from './camera.js';
 import { resolveOverlap } from './movement.js';
+import { Arena } from './arena.js';
 import {
   drawRig, computePose, leadArm, rearArm, armSlot,
   peakProgress, hurtboxes, circleHitsCircle, circleHitsBox,
   aimAngle, punchGeometry, maxAimAngleRad,
 } from './rig.js';
-
-function cssHex(str) {
-  return parseInt(str.replace('#', ''), 16);
-}
 
 const GAME_W = 960;
 const GAME_H = 640;
@@ -38,8 +35,12 @@ class RingScene extends Phaser.Scene {
   }
 
   create() {
-    // ── Ring graphics ──────────────────────────────────────────────────────
-    this.ringGfx  = this.add.graphics();
+    // ── Arena (Stage 12) ───────────────────────────────────────────────────
+    // Owns every environment layer: backdrop, crowd, apron, mat, ropes/posts,
+    // light beams and the vignette. Purely visual — it reads the ring bounds
+    // rect to draw around, and nothing reads it back.
+    this.arena = new Arena(this, GAME_W, GAME_H);
+
     this.flashGfx = this.add.graphics().setDepth(15);
     this._flashes = [];
 
@@ -121,7 +122,7 @@ class RingScene extends Phaser.Scene {
   // them off the world camera is the whole fix — no per-object repositioning.
   _setupCameras() {
     const world = [
-      this.ringGfx, this.flashGfx, this.debugGfx,
+      ...this.arena.displayObjects(), this.flashGfx, this.debugGfx,
       this.fighter.container, this.dummy.container,
     ];
     const ui = [
@@ -512,35 +513,6 @@ class RingScene extends Phaser.Scene {
     }
   }
 
-  // ── Ring drawing ──────────────────────────────────────────────────────────
-  drawRing() {
-    const g  = this.ringGfx;
-    const cx = GAME_W / 2, cy = GAME_H / 2;
-    const hw = config.ringWidth / 2, hh = config.ringHeight / 2;
-    g.clear();
-
-    g.fillStyle(cssHex(config.ringFloorColor), 1);
-    g.fillRect(cx - hw, cy - hh, config.ringWidth, config.ringHeight);
-
-    const ropeCount = Math.max(1, Math.round(config.ringRopeCount));
-    const ropeStep  = config.ringHeight / (ropeCount + 1);
-    g.lineStyle(Math.max(1, config.ringBorderThickness / 3), cssHex(config.ringRopeColor), 0.85);
-    for (let i = 1; i <= ropeCount; i++) {
-      const y = cy - hh + ropeStep * i;
-      g.beginPath(); g.moveTo(cx - hw, y); g.lineTo(cx + hw, y); g.strokePath();
-    }
-
-    g.lineStyle(config.ringBorderThickness, cssHex(config.ringRopeColor), 1);
-    g.strokeRect(cx - hw, cy - hh, config.ringWidth, config.ringHeight);
-
-    const ps = 14;
-    g.fillStyle(cssHex(config.ringPostColor), 1);
-    for (const [px, py] of [
-      [cx - hw, cy - hh], [cx + hw, cy - hh],
-      [cx - hw, cy + hh], [cx + hw, cy + hh],
-    ]) g.fillRect(px - ps / 2, py - ps / 2, ps, ps);
-  }
-
   // ── Main update loop ──────────────────────────────────────────────────────
   update(_time, delta) {
     const realDt = Math.min(delta / 1000, 0.05);
@@ -554,8 +526,6 @@ class RingScene extends Phaser.Scene {
       this._hitStopTimer = Math.max(0, this._hitStopTimer - realDt);
       dt = realDt * config.hitStopScale;
     }
-
-    this.drawRing();
 
     // Movement input
     let kx = 0, ky = 0;
@@ -587,6 +557,10 @@ class RingScene extends Phaser.Scene {
     // would leave the sprites a frame behind the push.
     resolveOverlap(this.fighter.locoBody, this.dummy.locoBody, bounds);
 
+    // Arena dressing is drawn from this same rect, before anything moves — it
+    // is the only consumer of the bounds that doesn't act on them.
+    this.arena.drawWorld(bounds);
+
     // facingAnchorX, not .x — the dummy's .x carries its stagger offset, which
     // is an impact wobble rather than a change of where it is standing. See
     // stepFacing() in movement.js.
@@ -603,6 +577,11 @@ class RingScene extends Phaser.Scene {
     // near zero, so the follow eases by a near-zero amount and the camera freezes
     // with the fight instead of continuing to glide on real time.
     this.followCam.update(dt, this.fighter, this.dummy, bounds);
+
+    // Vignette last of all: it is fitted to the visible rect, so it has to be
+    // placed AFTER the camera has settled this frame's scroll/zoom or it would
+    // trail by a frame and show a bright sliver at the leading edge.
+    this.arena.updateOverlay(this.followCam.getView(), bounds);
   }
 }
 
@@ -622,11 +601,55 @@ const gui = new GUI({ title: 'Tuning Panel', width: 270 });
 const ringF = gui.addFolder('Ring');
 ringF.add(config, 'ringWidth',           200, 900,  1).name('Width');
 ringF.add(config, 'ringHeight',          100, 600,  1).name('Height');
-ringF.addColor(config, 'ringFloorColor')              .name('Floor Color');
-ringF.addColor(config, 'ringRopeColor')               .name('Rope Color');
-ringF.add(config, 'ringRopeCount',         1,   6,  1).name('Rope Lines');
-ringF.add(config, 'ringBorderThickness',   1,  24,  1).name('Border px');
+ringF.addColor(config, 'ringFloorColor')              .name('Mat Color');
+ringF.add(config, 'ringRopeCount',         1,   6,  1).name('Strands / Side');
+ringF.add(config, 'ringRopeSpacing',       2,  16, 0.5).name('Strand Gap px');
+ringF.add(config, 'ringRopeThickness',     1,  10, 0.5).name('Strand px');
+ringF.addColor(config, 'ringRopeColor')               .name('Strand 1');
+ringF.addColor(config, 'ringRopeColor2')              .name('Strand 2');
+ringF.addColor(config, 'ringRopeColor3')              .name('Strand 3');
+ringF.add(config, 'ringPostSize',          6,  36,  1).name('Post px');
+ringF.add(config, 'ringPadSize',          10,  70,  1).name('Turnbuckle px');
+ringF.addColor(config, 'ringPostColor')               .name('Post Color');
+ringF.addColor(config, 'ringPadColorA')               .name('Pad — Left');
+ringF.addColor(config, 'ringPadColorB')               .name('Pad — Right');
+ringF.add(config, 'ringBorderThickness',   1,  24,  1).name('Mat Trim px');
 ringF.close();
+
+// ── Arena dressing (Stage 12) — purely visual, no gameplay effect ────────────
+const arenaF = gui.addFolder('Arena');
+arenaF.add(config, 'ringApronWidth',   0, 120, 1).name('Apron Deck px');
+arenaF.add(config, 'ringSkirtHeight',  0, 140, 1).name('Skirt px');
+arenaF.addColor(config, 'apronDeckColor')        .name('Deck Color');
+arenaF.addColor(config, 'apronSkirtColor')       .name('Skirt Color');
+arenaF.addColor(config, 'apronStripeColor')      .name('Skirt Stripe');
+arenaF.add(config, 'matGrainAlpha',  0, 0.6, 0.01).name('Mat Grain');
+arenaF.add(config, 'matShadeAlpha',  0,   1, 0.01).name('Mat Edge Shade');
+arenaF.add(config, 'matGlowAlpha',   0,   1, 0.01).name('Mat Light Pool');
+arenaF.add(config, 'matEmblemAlpha', 0, 0.6, 0.01).name('Emblem Alpha');
+arenaF.addColor(config, 'matEmblemColor')        .name('Emblem Color');
+arenaF.addColor(config, 'matTrimColor')          .name('Mat Trim Color');
+arenaF.open();
+
+const atmoF = gui.addFolder('Atmosphere');
+atmoF.add(config, 'vignetteStrength', 0,   1, 0.01).name('Vignette');
+atmoF.add(config, 'beamAlpha',        0, 0.5, 0.01).name('Beam Strength');
+atmoF.add(config, 'beamCount',        0,   3,   1) .name('Beam Count');
+atmoF.add(config, 'arenaHazeAlpha',   0,   1, 0.01).name('Arena Haze');
+atmoF.addColor(config, 'arenaHazeColor')          .name('Haze Color');
+atmoF.addColor(config, 'arenaVoidColor')          .name('Void Color');
+atmoF.open();
+
+// Crowd is baked into a RenderTexture at boot, so these need an explicit
+// rebuild rather than taking effect on the next frame like everything else.
+const crowdF = gui.addFolder('Crowd');
+const rebuildCrowd = () => game.scene.keys.RingScene?.arena?.rebuildCrowd();
+crowdF.add(config, 'crowdRowGap',    12, 70, 1)    .name('Row Gap px')  .onFinishChange(rebuildCrowd);
+crowdF.add(config, 'crowdSeatGap',   10, 70, 1)    .name('Seat Gap px') .onFinishChange(rebuildCrowd);
+crowdF.add(config, 'crowdHeadScale', 0.4, 2.5, 0.05).name('Head Scale') .onFinishChange(rebuildCrowd);
+crowdF.addColor(config, 'crowdFarColor')            .name('Far Color')  .onFinishChange(rebuildCrowd);
+crowdF.addColor(config, 'crowdNearColor')           .name('Near Color') .onFinishChange(rebuildCrowd);
+crowdF.close();
 
 // Follow camera (Stage 11) — viewport only, no gameplay effect. Zoom first:
 // see the trade-off note on config.camZoom.
