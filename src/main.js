@@ -329,6 +329,8 @@ fighterF.add(config, 'friction',     100, 3000, 10).name('Friction');
 fighterF.add(config, 'fighterRadius', 10,  60,  1).name('Hit Radius');
 fighterF.addColor(config, 'fighterBodyColor').name('Body Color');
 fighterF.addColor(config, 'fighterSkinColor').name('Skin Color');
+fighterF.add(config, 'guardBobAmplitude', 0, 12, 0.5).name('Move Bob px');
+fighterF.add(config, 'guardBobFrequency', 0,  6, 0.1).name('Move Bob Hz');
 fighterF.close();
 
 const combatF = gui.addFolder('Combat');

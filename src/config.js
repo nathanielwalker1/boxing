@@ -21,6 +21,14 @@ export const config = {
   playerStance: 'orthodox',
   dummyStance:  'orthodox',
 
+  // ── Guard stance ────────────────────────────────────────────────────────────
+  // The guard POSE itself (arm angles) lives in rig.js with the punch
+  // trajectory table — it's pose shape, not a gameplay tunable. These two are
+  // the movement bounce layered on top of it: how much the body rises/falls
+  // while moving, and how fast. Both scale to zero when standing still.
+  guardBobAmplitude: 3.5,   // px of vertical travel at full speed
+  guardBobFrequency: 2.2,   // bounce cycles per second at full speed
+
   // Fighter movement
   moveSpeed: 200,
 

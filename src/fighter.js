@@ -1,6 +1,6 @@
 import { config, punchSpeedMult } from './config.js';
 import { drawRig, computePose, peakProgress, armSlot } from './rig.js';
-import { stepMovement } from './movement.js';
+import { stepMovement, stepBob } from './movement.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
@@ -48,6 +48,10 @@ export class Fighter {
     this._pushDirX          = 0;       // direction captured at the start of the current push
     this._pushDirY          = 0;
     this._pushHoldConfirmed = false;   // true once duration exceeds the flick window (reads as footwork)
+
+    // Movement bounce on top of the guard pose — see stepBob() in movement.js.
+    this._bobPhase = 0;
+    this._bob      = 0;
 
     // Hit flash state (mirrors Dummy's)
     this.flashAlpha = 0;
@@ -140,7 +144,7 @@ export class Fighter {
    * @returns {{ x: number, y: number }}
    */
   getFistPos(arm) {
-    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0);
+    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0, this._bob);
     const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
@@ -205,6 +209,7 @@ export class Fighter {
       cssHex(config.fighterSkinColor),
       this._punchState(),
       this.isBlocking ? 1 : 0,
+      this._bob,
     );
 
     // ── Hit flash overlay drawn ON TOP of the rig (mirrors Dummy's) ────────
@@ -333,6 +338,9 @@ export class Fighter {
       ringBounds,
       config.moveSpeed,
     );
+
+    // Movement bounce — zero while down, so the knockdown pose stays still.
+    this._bob = this.isDown ? 0 : stepBob(this, dt, this.vx, this.vy, config.moveSpeed);
 
     // ── Facing ─────────────────────────────────────────────────────────────
     // Always face the opponent, independent of movement input/direction.

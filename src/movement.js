@@ -19,6 +19,30 @@ import { RIG_MARGIN_X, RIG_MARGIN_TOP, RIG_MARGIN_BOTTOM } from './rig.js';
  * @param {{left,right,top,bottom}} ringBounds
  * @param {number} moveSpeed   top speed for this body (px/s)
  */
+/**
+ * Movement bounce — the "weight shift" layer on top of the static guard pose,
+ * so standing still and moving don't look identical. Advances the carrier's
+ * `_bobPhase` and returns this frame's vertical bob in px, which the rig folds
+ * into its dip (torso/head/thighs ride it, shins stay planted).
+ *
+ * Both amplitude and phase rate scale with speed, so the bounce fades in and
+ * out with movement instead of switching on. The phase FREEZES rather than
+ * resetting when a fighter stops, so stopping mid-stride and starting again
+ * never snaps the body to a new offset.
+ *
+ * @param {{_bobPhase:number}} carrier  holds the phase (Fighter / Dummy)
+ * @param {number} dt         seconds
+ * @param {number} vx         locomotion velocity (NOT stagger — see dummy.js)
+ * @param {number} vy
+ * @param {number} refSpeed   this body's top speed, i.e. what counts as "full"
+ * @returns {number} px of vertical bob this frame
+ */
+export function stepBob(carrier, dt, vx, vy, refSpeed) {
+  const frac = Math.min(1, Math.hypot(vx, vy) / Math.max(refSpeed, 1));
+  carrier._bobPhase += dt * config.guardBobFrequency * Math.PI * 2 * frac;
+  return Math.sin(carrier._bobPhase) * config.guardBobAmplitude * frac;
+}
+
 export function stepMovement(body, dt, inputX, inputY, ringBounds, moveSpeed) {
   const accelRate    = config.acceleration / config.playerMass;
   const frictionRate = config.friction     / config.playerMass;

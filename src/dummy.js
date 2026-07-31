@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { config } from './config.js';
 import { drawRig, computePose, peakProgress, armSlot, leadArm } from './rig.js';
-import { stepMovement } from './movement.js';
+import { stepMovement, stepBob } from './movement.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
@@ -69,6 +69,10 @@ export class Dummy {
     this.staggerY  = 0;
     this.staggerVx = 0;
     this.staggerVy = 0;
+
+    // Movement bounce on top of the guard pose — see stepBob() in movement.js.
+    this._bobPhase = 0;
+    this._bob      = 0;
 
     // Hit flash state
     this.flashAlpha = 0;
@@ -142,7 +146,8 @@ export class Dummy {
       cssHex(config.dummyBodyColor),
       cssHex(config.dummySkinColor),
       this._punchState(),
-      this.isBlocking ? 1 : 0,   // same guard pose the player's block uses
+      this.isBlocking ? 1 : 0,   // same block pose the player's block uses
+      this._bob,
     );
 
     // ── Down pose (Stage 6) — same exaggerated rotate+squash as Fighter's,
@@ -163,7 +168,7 @@ export class Dummy {
    * @param {'left'|'right'} arm  anatomical arm; stance maps it to a rig slot
    */
   getFistPos(arm) {
-    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0);
+    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0, this._bob);
     const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
@@ -325,6 +330,12 @@ export class Dummy {
 
     // Shared locomotion step — same physics + ring clamp as the player.
     stepMovement(this._loco, dt, mvx, mvy, ringBounds, config.dummyMoveSpeed);
+
+    // Movement bounce — driven by the LOCOMOTION velocity, so being knocked
+    // around by the stagger spring doesn't read as walking. Zero while down.
+    this._bob = this.isDown
+      ? 0
+      : stepBob(this, dt, this._loco.vx, this._loco.vy, config.dummyMoveSpeed);
 
     // ── Spring-damper stagger, in offset space (springs back toward 0) ──────
     const ax = -config.dummyReturnSpeed * this.staggerX - config.dummyDamping * this.staggerVx;

@@ -31,6 +31,10 @@
 // dummy clamp to the ropes identically — see movement.js. Deliberately measured
 // from the IDLE pose: a punch reaches well past this, but clamping to the punch
 // extent would shrink the usable ring and change movement feel.
+// NOTE: the guard pose reaches further than this on the lead side (the lead
+// fist sits ~38 px out), same as a punch does. The margin is deliberately NOT
+// widened to match — it is a movement/feel constant, and growing it would
+// shrink the usable ring. A glove overlapping the rope reads fine.
 export const RIG_MARGIN_X      = 24;   // arms rest ~22 px left/right of origin
 export const RIG_MARGIN_TOP    = 67;   // head top: -50 - 13 - 4 pad
 export const RIG_MARGIN_BOTTOM = 44;   // shin bottom: 29 + 11 + 4 pad
@@ -69,8 +73,33 @@ const HIP_DRIVE           = 5;   // punching-side hip rotates forward
 const HIP_PULL            = 4;   // opposite hip rotates back
 
 // ── Pose keyframes ───────────────────────────────────────────────────────────
-const REST_KEY     = { a1: 0, a2: 0, dip: 0, turn: 0 };
-const GUARD_ANGLES = { a1: -0.14, a2: -2.73 };   // forearm folded up in front of the chin
+const BLOCK_ANGLES = { a1: -0.14, a2: -2.73 };   // both forearms folded up in front of the chin
+
+/**
+ * The GUARD — the pose both fighters hold whenever they aren't punching. It is
+ * the rest pose punches start from and return to, replacing the old
+ * arms-hanging-at-the-waist rest.
+ *
+ *   lead: elbow low and slightly forward, forearm angled UP AND FORWARD at
+ *         ~38° — the fist sits ~40 px in front of center (the jabbing hand)
+ *   rear: elbow tucked by the ribs, forearm straight UP — the fist sits by the
+ *         chin, ~20 px behind center and higher than the lead fist (power hand)
+ *
+ * The asymmetry is load-bearing, not decoration. Facing is expressed ONLY by
+ * the container's scaleX mirror, so a left/right-symmetric rig mirrors into an
+ * identical silhouette and a fighter's facing becomes unreadable. A lead hand
+ * reaching well past the torso on one side, against a compact vertical column
+ * on the other, is what makes "which way is this fighter pointing" legible at a
+ * glance — deliberately over-extended rather than anatomically cautious.
+ *
+ * Which anatomical arm holds which of these is the fighter's stance (see
+ * armSlot() above), so the whole pose mirrors for a southpaw for free.
+ */
+const LEAD_GUARD = { a1: 0.69, a2:  1.47 };   // elbow (+31, -28) → fist (+46, -38)
+const REAR_GUARD = { a1: 0.15, a2: -3.10 };   // elbow (-14, -23) → fist (-17, -41)
+
+const slotGuard = slot => (slot === 'lead' ? LEAD_GUARD : REAR_GUARD);
+const restKey   = slot => ({ ...slotGuard(slot), dip: 0, turn: 0 });
 
 /**
  * Per-punch trajectory table. Each punch runs rest → cock → peak → rest across
@@ -80,6 +109,17 @@ const GUARD_ANGLES = { a1: -0.14, a2: -2.73 };   // forearm folded up in front o
  *   turn    — hip/shoulder rotation at peak (0 = square on, 1 = full torque)
  *   dip     — px the body drops during the wind-up (leg drive for the uppercut)
  *
+ * The wind-up comes in two flavours, and which one a punch uses is a real
+ * distinction, not a style choice:
+ *   cock    — an ABSOLUTE pose. For the punches that genuinely wind up somewhere
+ *             specific (hook coils across the body, uppercut drops to the hip).
+ *   cockRel — a wind-back RELATIVE to wherever the guard is. The straight
+ *             punches have no real wind-up: they fire from the guard, and their
+ *             numbers were only ever a small nudge off the rest pose.
+ * Straight punches must be relative, because rest is now the guard rather than
+ * arms-at-the-waist: held absolute, their old values would drop the hand to the
+ * hip for the one frame the wind-up lasts before the arm shot out.
+ *
  * These are pose/animation shape, not gameplay tunables — damage and speed live
  * in config.js. Timings are fractions of the punch's duration, so they stay
  * proportional when a punch's speed multiplier or low stamina stretches it.
@@ -87,14 +127,14 @@ const GUARD_ANGLES = { a1: -0.14, a2: -2.73 };   // forearm folded up in front o
 const PUNCHES = {
   // Straight, minimal rotation, snaps back fast.
   jab: {
-    cock: { a1: -0.15, a2: -0.30 },
-    peak: { a1:  1.50, a2:  0.05 },
+    cockRel: { a1: -0.15, a2: -0.30 },
+    peak:    { a1:  1.50, a2:  0.05 },
     cockEnd: 0.12, peakAt: 0.42, turn: 0.15, dip: 0,
   },
   // Straight, but the rear shoulder/hip rotate all the way through — longest reach.
   cross: {
-    cock: { a1: -0.35, a2: -0.55 },
-    peak: { a1:  1.48, a2:  0.10 },
+    cockRel: { a1: -0.35, a2: -0.55 },
+    peak:    { a1:  1.48, a2:  0.10 },
     cockEnd: 0.20, peakAt: 0.52, turn: 1.00, dip: 0,
   },
   // Wound back across the body, then a wide lateral sweep with the elbow bent
@@ -106,13 +146,10 @@ const PUNCHES = {
   },
   // Drops to the hip, then the forearm whips upward: the fist rises ~37 px and
   // finishes at chin height clear of the chest, with the elbow staying low.
-  // recoverA2 keeps the forearm rotating the SAME way on the way out (-2π is
-  // visually identical to 0) instead of unwinding backwards through the strike.
   uppercut: {
     cock: { a1:  0.65, a2: -1.60 },
     peak: { a1:  0.79, a2: -4.38 },
     cockEnd: 0.26, peakAt: 0.60, turn: 0.70, dip: 6,
-    recoverA2: -Math.PI * 2,
   },
 };
 
@@ -140,24 +177,47 @@ function keyLerp(A, B, t) {
 /**
  * Resolve a punch definition at progress p into a pose key + an "extension"
  * scalar (0 at rest/cocked, 1 at peak) used for depth/alpha cues.
+ *
+ * Rest is the throwing slot's GUARD pose, so a punch winds up out of the guard
+ * and settles back into it. The trajectory itself (cock/peak/timings) is
+ * untouched — only the endpoints moved off the old arms-down rest.
+ *
+ * @param {'lead'|'rear'} slot  which guard the arm returns to
  */
-function punchKey(def, p) {
-  const cockK = { a1: def.cock.a1, a2: def.cock.a2, dip:  def.dip,        turn: def.turn * 0.2 };
+function punchKey(def, p, slot) {
+  const rest = restKey(slot);
+  // Absolute wind-up pose, or a wind-back relative to the guard — see PUNCHES.
+  const cockA = def.cockRel
+    ? { a1: rest.a1 + def.cockRel.a1, a2: rest.a2 + def.cockRel.a2 }
+    : def.cock;
+  const cockK = { a1: cockA.a1,    a2: cockA.a2,    dip:  def.dip,        turn: def.turn * 0.2 };
   const peakK = { a1: def.peak.a1, a2: def.peak.a2, dip: -def.dip * 0.4,  turn: def.turn };
 
   if (p < def.cockEnd) {
     const u = easeOut(p / def.cockEnd);
-    return { key: keyLerp(REST_KEY, cockK, u), ext: 0 };
+    return { key: keyLerp(rest, cockK, u), ext: 0 };
   }
   if (p < def.peakAt) {
     const u = easeOut((p - def.cockEnd) / (def.peakAt - def.cockEnd));
     return { key: keyLerp(cockK, peakK, u), ext: u };
   }
-  const restK = def.recoverA2 === undefined
-    ? REST_KEY
-    : { ...REST_KEY, a2: def.recoverA2 };
+  // Recovery unwinds by the SHORT way round: a2 is an angle, so the guard's
+  // value has infinitely many equivalents 2π apart and the nearest one to the
+  // peak is the one that doesn't rewind the forearm back through the strike.
+  // (This replaces the uppercut's old hand-written recoverA2: -2π — that punch
+  // ends at a2 = -4.38, and the lead guard's +1.75 resolves to -4.53 here, so
+  // the forearm still finishes its rotation the way it was already going.)
+  const restK = { ...rest, a2: nearestAngle(rest.a2, def.peak.a2) };
   const u = easeIO((p - def.peakAt) / (1 - def.peakAt));
   return { key: keyLerp(peakK, restK, u), ext: 1 - u };
+}
+
+/** The representative of `angle` (mod 2π) closest to `to`. */
+function nearestAngle(angle, to) {
+  let a = angle;
+  while (a - to >  Math.PI) a -= Math.PI * 2;
+  while (a - to < -Math.PI) a += Math.PI * 2;
+  return a;
 }
 
 /** Solve one arm chain from its shoulder anchor + joint angles. */
@@ -178,20 +238,23 @@ function solveArm(sx, sy, a1, a2) {
  * rather than a fixed offset.
  *
  * @param {{type: string, arm: 'lead'|'rear', p: number}|null} punch  p = 0..1 progress
- * @param {number} guard  0..1 blend toward the raised-guard (block) pose
+ * @param {number} guard  0..1 blend toward the raised BLOCK pose
+ * @param {number} bob    px of movement bounce (see stepBob in movement.js);
+ *                        folded into `dip`, so it rides the torso/head/thighs
+ *                        while the shins stay planted
  * @returns {{ torsoShift, dip, turn, ext, punchingArm, lead, rear }}
  */
-export function computePose(punch, guard = 0) {
+export function computePose(punch, guard = 0, bob = 0) {
   const def = punch && PUNCHES[punch.type] ? PUNCHES[punch.type] : null;
   const punchingArm = def ? punch.arm : null;
 
-  let key = REST_KEY, ext = 0;
-  if (def) ({ key, ext } = punchKey(def, clamp01(punch.p)));
+  let key = { a1: 0, a2: 0, dip: 0, turn: 0 }, ext = 0;
+  if (def) ({ key, ext } = punchKey(def, clamp01(punch.p), punchingArm));
 
-  // The guard pose is square-on: rotation/dip fade out as the guard comes up.
+  // The block pose is square-on: rotation/dip fade out as the guard comes up.
   const g          = clamp01(guard);
   const turn       = key.turn * (1 - g);
-  const dip        = key.dip  * (1 - g);
+  const dip        = key.dip  * (1 - g) + bob;
   const torsoShift = TORSO_SHIFT * turn;
 
   const leadSx = SHOULDER_X + torsoShift +
@@ -199,15 +262,15 @@ export function computePose(punch, guard = 0) {
   const rearSx = -SHOULDER_X + torsoShift +
     (punchingArm === 'rear' ? REAR_SHOULDER_DRIVE * turn : -REAR_SHOULDER_PULL * turn);
 
-  // Non-punching arm retracts toward the chin as the body rotates, so the off
-  // hand doesn't just hang there while the body torques.
-  const offArm = { a1: -0.10 * turn, a2: -1.00 * turn };
-  const leadA  = punchingArm === 'lead' ? key : offArm;
-  const rearA  = punchingArm === 'rear' ? key : offArm;
+  // The non-punching arm simply holds its guard — it no longer needs a
+  // turn-driven retraction, because the guard IS hands-up now; the shoulder
+  // pull above already carries the body torque.
+  const leadA = punchingArm === 'lead' ? key : LEAD_GUARD;
+  const rearA = punchingArm === 'rear' ? key : REAR_GUARD;
 
   const blend = a => ({
-    a1: lerp(a.a1, GUARD_ANGLES.a1, g),
-    a2: lerp(a.a2, GUARD_ANGLES.a2, g),
+    a1: lerp(a.a1, BLOCK_ANGLES.a1, g),
+    a2: lerp(a.a2, nearestAngle(BLOCK_ANGLES.a2, a.a2), g),
   });
   const la = blend(leadA);
   const ra = blend(rearA);
@@ -248,12 +311,13 @@ function drawArm(g, bodyColor, skinColor, arm, alpha) {
  * @param {number} bodyColor  Phaser integer color
  * @param {number} skinColor  Phaser integer color
  * @param {{type, arm, p}|null} punch  current punch state (null = idle)
- * @param {number} guard      0..1 blend toward the raised guard pose
+ * @param {number} guard      0..1 blend toward the raised block pose
+ * @param {number} bob        px of movement bounce (0 when standing still)
  */
-export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0) {
+export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0, bob = 0) {
   g.clear();
 
-  const pose      = computePose(punch, guard);
+  const pose      = computePose(punch, guard, bob);
   const shift     = pose.torsoShift;
   const dip       = pose.dip;
   const turn      = pose.turn;
