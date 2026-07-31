@@ -21,7 +21,7 @@
  */
 import { chromium } from 'playwright';
 
-const URL = 'http://localhost:5173';
+const URL = `http://localhost:${process.env.PORT ?? 5173}`;
 
 // ── Independent oracle ───────────────────────────────────────────────────────
 const expectedArm = (stance, punch, hold) => {

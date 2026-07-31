@@ -41,7 +41,7 @@ const check = (label, pass, detail) => {
  *      taken from inside _resolveAttack itself.
  */
 async function freshLoad() {
-  await page.goto('http://localhost:5173', { waitUntil: 'networkidle', timeout: 15000 });
+  await page.goto(`http://localhost:${process.env.PORT ?? 5173}`, { waitUntil: 'networkidle', timeout: 15000 });
   await page.waitForTimeout(800);
   await page.evaluate(() => {
     const sc = window.__game.scene.keys.RingScene;

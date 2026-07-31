@@ -8,7 +8,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 
 async function freshLoad() {
-  await page.goto('http://localhost:5173', { waitUntil: 'networkidle', timeout: 15000 });
+  await page.goto(`http://localhost:${process.env.PORT ?? 5173}`, { waitUntil: 'networkidle', timeout: 15000 });
   await page.waitForTimeout(1200);
 }
 

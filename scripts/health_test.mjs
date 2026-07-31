@@ -22,7 +22,7 @@ async function newPage() {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   page.on('pageerror', e => errors.push(e.message));
   page.on('console',   m => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto('http://localhost:5173', { waitUntil: 'networkidle', timeout: 15000 });
+  await page.goto(`http://localhost:${process.env.PORT ?? 5173}`, { waitUntil: 'networkidle', timeout: 15000 });
   await page.waitForTimeout(1500);
   return page;
 }

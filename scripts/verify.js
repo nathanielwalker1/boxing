@@ -12,7 +12,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dirname, 'output');
 mkdirSync(OUT, { recursive: true });
 
-const PORT = 5173;
+const PORT = Number(process.env.PORT ?? 5173);
 const URL  = `http://localhost:${PORT}`;
 
 console.log(`Connecting to ${URL} …`);
