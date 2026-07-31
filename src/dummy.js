@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { config } from './config.js';
 import { drawRig, computePose, peakProgress, armSlot, leadArm, hurtboxes } from './rig.js';
 import { stepMovement, stepBob } from './movement.js';
+import { HitReaction } from './reaction.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
@@ -74,9 +75,15 @@ export class Dummy {
     this._bobPhase = 0;
     this._bob      = 0;
 
-    // Hit flash state
+    // Hit flash state. Since Stage 10 this is only raised for BLOCKED hits —
+    // a clean hit is communicated by the rig reaction below.
     this.flashAlpha = 0;
     this.flashColor = 0xffffff;
+
+    // Localized spring-damped hit reaction (Stage 10) — head/torso/tilt offsets
+    // in rig-local space. Distinct from the whole-body stagger offset above:
+    // that one moves the fighter through the ring, this one deforms the pose.
+    this.reaction = new HitReaction();
 
     // Faces the player — starts facing left since the player starts on the left.
     this.facingRight = false;
@@ -148,6 +155,7 @@ export class Dummy {
       this._punchState(),
       this.isBlocking ? 1 : 0,   // same block pose the player's block uses
       this._bob,
+      this.reaction.pose(),
     );
 
     // ── Down pose (Stage 6) — same exaggerated rotate+squash as Fighter's,
@@ -157,6 +165,8 @@ export class Dummy {
       this.gfx.setRotation(Math.PI / 2 * 0.9);
       this.gfx.setScale(1, 0.35);
     } else {
+      // The hit-reaction lean is applied inside drawRig (upper body only, so
+      // the shins stay planted) — see the note in Fighter._draw.
       this.gfx.setPosition(0, 0);
       this.gfx.setRotation(0);
       this.gfx.setScale(1, 1);
@@ -168,7 +178,7 @@ export class Dummy {
    * @param {'left'|'right'} arm  anatomical arm; stance maps it to a rig slot
    */
   getFistPos(arm) {
-    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0, this._bob);
+    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0, this._bob, this.reaction.pose());
     const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
@@ -182,7 +192,7 @@ export class Dummy {
    * @returns {{ head: {x,y,r}, body: {x,y,hw,hh} }}
    */
   getHurtboxes() {
-    const pose = computePose(this._punchState(), this.isBlocking ? 1 : 0, this._bob);
+    const pose = computePose(this._punchState(), this.isBlocking ? 1 : 0, this._bob, this.reaction.pose());
     const hb   = hurtboxes(pose);
     const flip = this.facingRight ? 1 : -1;
     return {
@@ -198,6 +208,16 @@ export class Dummy {
   receiveImpulse(vx, vy) {
     this.staggerVx += vx;
     this.staggerVy += vy;
+  }
+
+  /**
+   * Localized hit reaction (Stage 10) — mirrors Fighter.receiveHit(), so the
+   * punch-type-specific response is identical on both sides of the fight.
+   * @param {string} punchType
+   * @param {number} force    post-block impact force
+   */
+  receiveHit(punchType, force) {
+    this.reaction.apply(punchType, force);
   }
 
   /**
@@ -232,6 +252,7 @@ export class Dummy {
     this.blockTimer      = 0;
     this.staggerVx = 0;
     this.staggerVy = 0;
+    this.reaction.reset();   // the knockdown pose takes the rig over entirely
   }
 
   /**
@@ -361,6 +382,10 @@ export class Dummy {
     this.staggerVy += ay * dt;
     this.staggerX  += this.staggerVx * dt;
     this.staggerY  += this.staggerVy * dt;
+
+    // ── Localized hit-reaction springs (Stage 10) — rig-local, independent of
+    //    the whole-body stagger above. See reaction.js.
+    this.reaction.update(dt);
 
     // ── Compose the authoritative world position + velocity ────────────────
     this.x  = this._loco.x + this.staggerX;

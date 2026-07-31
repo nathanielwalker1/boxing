@@ -12,6 +12,39 @@ export const config = {
   ringRopeCount:  3,
   ringBorderThickness: 8,
 
+  // ── Follow camera (Stage 11) ────────────────────────────────────────────────
+  // Viewport only — see camera.js. Nothing here affects ring bounds, hit
+  // geometry or input; it is purely what the world camera scrolls/zooms to.
+  //
+  // camZoom is the knob to reach for first. It trades two things off against
+  // each other in a ring this size: the ring is 500 px wide and the player's
+  // own reachable x-range is only ~450 px, so at low zoom the view is nearly as
+  // wide as the ring and the horizontal clamp pins the camera almost always
+  // (the left-bias then never gets to show). Zooming in frees horizontal travel
+  // but tightens how much of an incoming punch you see coming.
+  //   2.4 → view is 400 × 267 world px (fighters ≈ 40% of screen height,
+  //         ~100 px of horizontal camera travel, ~233 px of vertical).
+  // ASSUMPTION — first-pass framing, deliberately on the loose side per spec.
+  camZoom: 2.4,
+  // 0 = anchor on the player alone (rigid left-third lock, opponent free to
+  // drift off-frame), 1 = anchor on the midpoint between both fighters (always
+  // symmetric, but the player drifts off-frame at big separations). Between the
+  // two: the pair stays framed AND the player stays left-ish.
+  camPairMix: 0.6,
+  // How far left of center the player is pushed, as a FRACTION of the visible
+  // width (so it means the same thing at any zoom). At the defaults the player
+  // sits around 1/3 from the left edge whenever the camera isn't clamped.
+  camBiasFrac: 0.10,
+  // px of horizontal separation over which the bias ramps from full-left to
+  // full-right. Crossing past the opponent has to flip the bias (otherwise THEY
+  // get shoved off-screen); this ramp is what makes that a slide, not a snap.
+  camBiasFalloff: 60,
+  // Follow smoothing, in 1/s (higher = snappier, lower = floatier). Vertical is
+  // slower on purpose — up/down drift is constant during footwork and a fast
+  // vertical follow reads as the camera bobbing.
+  camLerpX: 6,
+  camLerpY: 4,
+
   // ── Stance ('orthodox' | 'southpaw') ────────────────────────────────────────
   // Which anatomical arm leads: orthodox = left leads/jabs, southpaw = right.
   // A property of the fighter, independent of which way they are facing — see
@@ -105,6 +138,69 @@ export const config = {
 
   // Block — percent of incoming force absorbed while actively blocking (0 = no reduction, 1 = fully negated)
   blockReduction: 0.75,
+
+  // ── Hit reaction (Stage 10) ─────────────────────────────────────────────────
+  // The localized rig response to a landed punch — see reaction.js. Shared
+  // spring first, then the per-punch SHAPE that decides where the impact goes.
+  //
+  // Magnitude is NOT a per-type constant: every value below multiplies the same
+  // force _resolveAttack already computed (base × momentum × per-punch damage),
+  // so a hard advancing cross and a weak retreating one differ on the same
+  // shape. The per-type numbers are direction and proportion only.
+  reactionStiffness:  400,    // spring stiffness (1/s²) pulling head/torso/tilt back to rest
+  reactionDamping:     16,    // damping coefficient — lower = more wobble/oscillation
+  reactionForceScale: 2.6,    // px/s of rig velocity per unit of impact force
+  reactionTwistScale: 0.012,  // radians of tilt velocity per unit of (force × twist)
+  reactionMaxOffset:   40,    // px — hard clamp so an extreme force can't fling the head off the body
+  reactionMaxTilt:    0.6,    // radians — same clamp for the lean
+
+  // Per-punch reaction shape. All in the DEFENDER's rig-local space (+x = toward
+  // the attacker, -y = up), so the container mirror renders it correctly from
+  // either side of the ring.
+  //   back  — head snap straight back, away from the attacker
+  //   lift  — upward component (positive = chin rises)
+  //   twist — rotational whip of the upper body (positive = leans away)
+  //   torso — fraction of back/lift that bleeds into the torso (0 = pure head)
+  //   snap  — stiffness multiplier: higher = quicker, shorter-lived reaction
+  // ASSUMPTION — first-pass feel numbers. The ORDERING is the spec (jab = small,
+  // fast, head-only; cross = same axis but heavier with body behind it; hook =
+  // rotational; uppercut = lifts), the exact spacing is for the sliders.
+  jabReactBack:        0.70,
+  jabReactLift:        0.15,
+  jabReactTwist:       0.06,
+  jabReactTorso:       0.05,   // almost entirely a head effect, per spec
+  jabReactSnap:        1.80,   // short duration — springs back nearly twice as fast
+
+  crossReactBack:      1.00,   // same axis as the jab, more of everything
+  crossReactLift:      0.20,
+  crossReactTwist:     0.20,
+  crossReactTorso:     0.45,
+  crossReactSnap:      1.15,
+
+  hookReactBack:       0.55,   // less straight-back — the hook's signature is the twist
+  hookReactLift:       0.10,
+  hookReactTwist:      1.00,
+  hookReactTorso:      0.40,
+  hookReactSnap:       1.00,
+
+  uppercutReactBack:   0.35,   // barely goes back...
+  uppercutReactLift:   0.58,   // ...it goes UP
+  uppercutReactTwist:  0.35,   // a lean back, not a whip around — the lift is the story here
+  uppercutReactTorso:  0.75,   // much higher than the others: the head only overlaps the torso by
+                               // ~2 px, so a big head-relative lift detaches it. The uppercut therefore
+                               // raises the whole upper body and the head only slightly more.
+  uppercutReactSnap:   0.90,
+
+  // ── Hit-stop (Stage 10) ─────────────────────────────────────────────────────
+  // A few frames of near-frozen timescale on a landed hit. Duration scales with
+  // the same force value as everything else above, so a jab barely hitches and a
+  // clean uppercut visibly stops. Applied globally in RingScene.update by
+  // scaling dt — nothing else needs to know about it.
+  hitStopEnabled:    true,
+  hitStopBase:       0.015,     // seconds — floor, applied to even the lightest hit
+  hitStopPerForce:   0.00012,   // extra seconds per unit of impact force
+  hitStopMax:        0.10,      // seconds — ceiling, so a huge hit can't read as a hang
+  hitStopScale:      0.05,      // timescale during the stop (0 = hard freeze, 1 = no effect)
 
   // Dummy colors (distinct from player so you can tell them apart at a glance)
   dummyBodyColor: '#b83020',
@@ -209,7 +305,7 @@ export const config = {
   // again from residual chip damage, but this is a feel call, not derived.
   knockdownHealthRestorePct:    0.35,
 
-  // ── Combat audio (Stage 10) ─────────────────────────────────────────────────
+  // ── Combat audio (Stage 12) ─────────────────────────────────────────────────
   // Impact/whiff SFX only — footwork, breathing and crowd are deliberately not
   // in this stage. Sounds are synthesised at runtime (see audio.js for why), so
   // the "asset manifest" below is a set of synth recipes rather than file paths;
@@ -318,4 +414,24 @@ export function punchSpeedMult(type) {
  */
 export function punchAudioClass(type) {
   return config.audioPunchClass[type] || 'impactSharp';
+}
+
+/**
+ * Per-punch hit-reaction shape (Stage 10) — see reaction.js and the block of
+ * `*React*` keys above. Same read-through-a-lookup convention as the two
+ * multipliers, so reaction code never names a punch-type constant inline and
+ * the tuning-panel sliders take effect live.
+ */
+function num(key, fallback) {
+  const v = config[key];
+  return typeof v === 'number' ? v : fallback;
+}
+export function punchReaction(type) {
+  return {
+    back:  num(`${type}ReactBack`,  1),
+    lift:  num(`${type}ReactLift`,  0),
+    twist: num(`${type}ReactTwist`, 0),
+    torso: num(`${type}ReactTorso`, 0.3),
+    snap:  num(`${type}ReactSnap`,  1),
+  };
 }

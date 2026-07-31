@@ -1,6 +1,7 @@
 import { config, punchSpeedMult } from './config.js';
 import { drawRig, computePose, peakProgress, armSlot, hurtboxes } from './rig.js';
 import { stepMovement, stepBob } from './movement.js';
+import { HitReaction } from './reaction.js';
 
 function cssHex(str) {
   return parseInt(str.replace('#', ''), 16);
@@ -53,9 +54,15 @@ export class Fighter {
     this._bobPhase = 0;
     this._bob      = 0;
 
-    // Hit flash state (mirrors Dummy's)
+    // Hit flash state (mirrors Dummy's). Since Stage 10 this is only raised for
+    // BLOCKED hits — a clean hit is communicated by the rig reaction below.
     this.flashAlpha = 0;
     this.flashColor = 0xffffff;
+
+    // Localized spring-damped hit reaction (Stage 10) — head/torso/tilt offsets
+    // in rig-local space, layered on top of the whole-body knockback that
+    // receiveImpulse() already applies to vx/vy. See reaction.js.
+    this.reaction = new HitReaction();
 
     // Health/stamina/knockdown (Stage 6) — see takeDamage()/_triggerKnockdown().
     this.health       = config.healthMax;
@@ -131,6 +138,7 @@ export class Fighter {
     this.slipTimer      = 0;
     this.vx = 0;
     this.vy = 0;
+    this.reaction.reset();   // the knockdown pose takes the rig over entirely
   }
 
   /**
@@ -144,7 +152,7 @@ export class Fighter {
    * @returns {{ x: number, y: number }}
    */
   getFistPos(arm) {
-    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0, this._bob);
+    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0, this._bob, this.reaction.pose());
     const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
@@ -163,7 +171,7 @@ export class Fighter {
    */
   getHurtboxes() {
     const base = this.getHitPos();
-    const pose = computePose(this._punchState(), this.isBlocking ? 1 : 0, this._bob);
+    const pose = computePose(this._punchState(), this.isBlocking ? 1 : 0, this._bob, this.reaction.pose());
     const hb   = hurtboxes(pose);
     const flip = this.facingRight ? 1 : -1;
     return {
@@ -212,6 +220,18 @@ export class Fighter {
   }
 
   /**
+   * Localized hit reaction (Stage 10) — the punch-type-specific part of getting
+   * hit. Called by RingScene._resolveAttack alongside receiveImpulse/takeDamage,
+   * with the SAME force value all three share, so a weak retreating jab and a
+   * hard advancing cross differ in reaction as well as in damage.
+   * @param {string} punchType
+   * @param {number} force    post-block impact force
+   */
+  receiveHit(punchType, force) {
+    this.reaction.apply(punchType, force);
+  }
+
+  /**
    * Trigger a brief color flash on the fighter's torso (mirrors Dummy.flash).
    * @param {number} color  Phaser integer color
    */
@@ -225,6 +245,7 @@ export class Fighter {
   _draw() {
     // rig.js owns the punch trajectory now — this just hands it the current
     // punch type/arm and normalized progress (see _punchState()).
+    const react = this.reaction.pose();
     drawRig(
       this.gfx,
       cssHex(config.fighterBodyColor),
@@ -232,6 +253,7 @@ export class Fighter {
       this._punchState(),
       this.isBlocking ? 1 : 0,
       this._bob,
+      react,
     );
 
     // ── Hit flash overlay drawn ON TOP of the rig (mirrors Dummy's) ────────
@@ -264,6 +286,10 @@ export class Fighter {
       leanRot = this.slipDirX * 0.35 * wave;
       squashY = 1 - Math.abs(this.slipDirY) * 0.3 * wave;
     }
+    // NOTE: the hit-reaction lean is NOT applied here — drawRig tilts only the
+    // upper body around the waist, so the planted shins stay planted. Rotating
+    // the whole graphics object (as this does for slip/knockdown, which are
+    // whole-body states) swung the feet out from under the fighter.
     this.gfx.setPosition(leanX, leanY);
     this.gfx.setRotation(leanRot);
     this.gfx.setScale(1, squashY);
@@ -335,6 +361,9 @@ export class Fighter {
 
     // ── Hit flash decay ────────────────────────────────────────────────────
     if (this.flashAlpha > 0) this.flashAlpha = Math.max(0, this.flashAlpha - dt / 0.18);
+
+    // ── Hit reaction springs (Stage 10) ────────────────────────────────────
+    this.reaction.update(dt);
 
     // ── Stamina drain/regen (Stage 6) — frozen while down ───────────────────
     // Punch cost is deducted once at throw time (see startPunch()); this only
