@@ -43,6 +43,42 @@ export function stepBob(carrier, dt, vx, vy, refSpeed) {
   return Math.sin(carrier._bobPhase) * config.guardBobAmplitude * frac;
 }
 
+/**
+ * Facing — the ONE rule, shared by the player and the dummy: face wherever the
+ * opponent is standing RIGHT NOW, recomputed every frame from live positions.
+ * Nothing else feeds it — not movement input, not velocity, not AI state, not
+ * ring position.
+ *
+ * Both arguments must be LOCOMOTION positions (where the fighter is standing),
+ * never a render position carrying a transient impact offset. The dummy's
+ * this.x is its locomotion x plus the stagger spring's offset, and passing that
+ * in is what broke facing near the ropes: a few px of stagger wobble is not the
+ * fighter walking around their opponent, but pinned against a rope it is the
+ * ENTIRE horizontal separation — both bodies clamp to the same RIG_MARGIN_X, so
+ * they sit at the identical x — and the wobble's sign therefore decided facing.
+ * A punch would spin the dummy to face the ropes for the whole ~1 s recovery.
+ * Same reason the movement AI measures its standoff distance from _loco.
+ *
+ * Exact ties are routine rather than a rare float coincidence, for that same
+ * shared-clamp reason. Zero separation has no left/right answer, so facing
+ * holds through a small deadband — stated deliberately, instead of falling out
+ * of an `if (>) … else if (<)` with no else, and wide enough that sub-pixel
+ * jitter can't strobe the sprite. Because the deadband only ever engages at
+ * effectively-zero separation, the value it holds is the last real side the
+ * opponent was on, which at a rope is always the ring side.
+ *
+ * @param {boolean} facingRight  current facing, returned unchanged inside the deadband
+ * @param {number} selfX         this fighter's locomotion x
+ * @param {number} opponentX     the opponent's locomotion x
+ * @returns {boolean} facingRight for this frame
+ */
+export function stepFacing(facingRight, selfX, opponentX) {
+  const dx = opponentX - selfX;
+  if (dx >  config.facingDeadband) return true;
+  if (dx < -config.facingDeadband) return false;
+  return facingRight;
+}
+
 export function stepMovement(body, dt, inputX, inputY, ringBounds, moveSpeed) {
   const accelRate    = config.acceleration / config.playerMass;
   const frictionRate = config.friction     / config.playerMass;

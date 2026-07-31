@@ -71,6 +71,17 @@ export const config = {
   // Fighter movement
   moveSpeed: 200,
 
+  // Facing deadband (px of horizontal separation). Below this the fighter keeps
+  // its current facing instead of flipping — see stepFacing() in movement.js.
+  // Deliberately tiny: it exists only to give the exactly-zero case an answer
+  // (pinned against a rope both fighters clamp to the same x, so there is no
+  // side to face), NOT to smooth anything. Measured across a scripted corner
+  // chase, 0 / 0.5 / 1 all produced the same facing-flip rate — there is no
+  // sub-pixel strobing to damp — while 2+ started holding a stale direction at
+  // ~1.5-2 px separations that should have resolved live. Raise it only if
+  // near-stacked facing ever reads as twitchy in play.
+  facingDeadband: 0.5,
+
   // Fighter physics — mass scales accel/friction so heavier = sluggier
   playerMass:   80,
   acceleration: 900,   // force units; effective accel = acceleration / mass

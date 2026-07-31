@@ -472,7 +472,10 @@ class RingScene extends Phaser.Scene {
 
     // Step everything
     const bounds = this._getRingBounds();
-    this.fighter.update(dt, inputX, inputY, bounds, this.dummy.x, this._blockHeld);
+    // facingAnchorX, not .x — the dummy's .x carries its stagger offset, which
+    // is an impact wobble rather than a change of where it is standing. See
+    // stepFacing() in movement.js.
+    this.fighter.update(dt, inputX, inputY, bounds, this.dummy.facingAnchorX, this._blockHeld);
     this.dummy.update(dt, this.fighter, bounds);
     // AFTER both have stepped — a punch resolves against current positions.
     this._updatePendingImpacts(dt);
@@ -532,6 +535,7 @@ fighterF.addColor(config, 'fighterSkinColor').name('Skin Color');
 fighterF.add(config, 'guardBobAmplitude', 0, 12, 0.5).name('Move Bob px');
 fighterF.add(config, 'guardBobFrequency', 0,  6, 0.1).name('Move Bob Hz');
 fighterF.add(config, 'rearArmAlpha',    0.4,  1, 0.01).name('Rear Limb Alpha');
+fighterF.add(config, 'facingDeadband',    0, 10, 0.25).name('Facing Deadband px');
 fighterF.close();
 
 const combatF = gui.addFolder('Combat');
