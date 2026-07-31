@@ -11,8 +11,9 @@ import { Hud } from './hud.js';
 import { FollowCamera } from './camera.js';
 import { resolveOverlap } from './movement.js';
 import {
-  drawRig, computePose, leadArm, rearArm,
+  drawRig, computePose, leadArm, rearArm, armSlot,
   peakProgress, hurtboxes, circleHitsCircle, circleHitsBox,
+  aimAngle, punchGeometry, maxAimAngleRad,
 } from './rig.js';
 
 function cssHex(str) {
@@ -191,8 +192,32 @@ class RingScene extends Phaser.Scene {
       arm = this._lastInputX < -0.25 ? 'left' : 'right';
     }
 
+    // ── Aim cone (Stage 13) ────────────────────────────────────────────────
+    // Sampled HERE, on the input frame, from the positions that are live right
+    // now — not deferred to the next frame, which would add a frame of input
+    // latency to every punch. This runs before resolveOverlap() and before
+    // facing is recomputed this frame, so it reads last frame's settled
+    // positions: that IS the state at the moment the button went down.
+    //
+    // The angle is handed to startPunch and then locked. Nothing re-samples it,
+    // which is what makes a separation shove or (later) a slip actually beat a
+    // committed punch instead of being tracked through.
+    //
+    // Aimed at the dummy's RENDER position rather than its locomotion body,
+    // deliberately breaking the loco-not-render rule facing follows: that rule
+    // exists because facing is a per-frame binary flip that a few px of stagger
+    // wobble could strobe. Aim is a one-shot continuous sample, and the render
+    // position is where the hurtboxes the resolver tests against actually are.
+    const slot = armSlot(stance, arm);
+    const flip = this.fighter.facingRight ? 1 : -1;
+    const aim  = aimAngle(
+      punchType, slot,
+      (this.dummy.x - this.fighter.x) * flip,
+      this.dummy.y - this.fighter.y,
+    );
+
     // ── Start arm animation immediately (plays even on whiff/smother) ──────
-    this.fighter.startPunch(arm, punchType);
+    this.fighter.startPunch(arm, punchType, aim);
 
     // Give the dummy its reaction chance BEFORE the punch resolves, so a
     // successful roll actually guards against this punch (Stage 7). It now gets
@@ -400,9 +425,14 @@ class RingScene extends Phaser.Scene {
   // ── Hurtbox debug overlay (dev only, off by default) ──────────────────────
   // Draws exactly what _resolveAttack tests against: both fighters' head/body
   // hurtboxes, plus the fist circle of any punch currently in flight.
+  _drawDebugOverlays() {
+    this.debugGfx.clear();
+    this._drawHurtboxDebug();
+    this._drawAimConeDebug();
+  }
+
   _drawHurtboxDebug() {
     const g = this.debugGfx;
-    g.clear();
     if (!config.showHurtboxes) return;
 
     for (const f of [this.fighter, this.dummy]) {
@@ -419,6 +449,65 @@ class RingScene extends Phaser.Scene {
         const fist = f.getFistPos(f.punchArm);
         g.lineStyle(1, 0xffcc00, 0.9);
         g.strokeCircle(fist.x, fist.y, config.fistRadius);
+      }
+    }
+  }
+
+  // ── Aim-cone debug overlay (dev only, off by default) ─────────────────────
+  // Draws, per fighter, the cone the aim solve is allowed to bend within and —
+  // while a punch is in flight — the angle it actually locked. Without this the
+  // Max Aim Angle slider is being tuned blind: the bend is a few degrees of arm
+  // rotation, which is very hard to read off the rig itself.
+  //
+  // Drawn from the throwing SHOULDER at the punch's own reach, because that is
+  // literally the joint and the radius the bend rotates about. Idle fighters
+  // show their lead-hand jab cone as the representative one.
+  _drawAimConeDebug() {
+    const g = this.debugGfx;
+    if (!config.showAimCone) return;
+
+    const max = maxAimAngleRad();
+
+    for (const f of [this.fighter, this.dummy]) {
+      if (f.isDown) continue;
+
+      const throwing = !!f.punchArm;
+      const arm      = throwing ? f.punchArm : leadArm(f.stance);
+      const type     = throwing ? f.punchType : 'jab';
+      const geo      = punchGeometry(type, armSlot(f.stance, arm));
+      if (!geo) continue;
+
+      const sh   = f.getShoulderPos(arm);
+      const flip = f.facingRight ? 1 : -1;
+      // Rig-local angle → a world-space point at distance `reach`. Only x is
+      // mirrored; y never is, which is exactly why the cone behaves the same
+      // from either side of the ring.
+      const at = (a) => ({
+        x: sh.x + Math.cos(a) * geo.reach * flip,
+        y: sh.y + Math.sin(a) * geo.reach,
+      });
+
+      // Cone bounds + the arc closing them off.
+      g.lineStyle(1, 0x8866ff, 0.55);
+      for (const edge of [geo.angle - max, geo.angle + max]) {
+        const p = at(edge);
+        g.beginPath(); g.moveTo(sh.x, sh.y); g.lineTo(p.x, p.y); g.strokePath();
+      }
+      g.beginPath();
+      const STEPS = 12;
+      for (let i = 0; i <= STEPS; i++) {
+        const p = at(geo.angle - max + (2 * max * i) / STEPS);
+        if (i === 0) g.moveTo(p.x, p.y); else g.lineTo(p.x, p.y);
+      }
+      g.strokePath();
+
+      // The locked aim line for the punch actually in flight.
+      if (throwing) {
+        const p = at(geo.angle + (f.punchAim || 0));
+        g.lineStyle(2, 0xff44aa, 0.95);
+        g.beginPath(); g.moveTo(sh.x, sh.y); g.lineTo(p.x, p.y); g.strokePath();
+        g.fillStyle(0xff44aa, 0.95);
+        g.fillCircle(p.x, p.y, 3);
       }
     }
   }
@@ -506,7 +595,7 @@ class RingScene extends Phaser.Scene {
     // AFTER both have stepped — a punch resolves against current positions.
     this._updatePendingImpacts(dt);
     this._updateFlashes(dt);
-    this._drawHurtboxDebug();
+    this._drawDebugOverlays();
     this.hud.update(this.fighter, this.dummy);
 
     // Camera last — it frames this frame's final positions rather than trailing
@@ -585,6 +674,21 @@ hurtboxF.add(config, 'bodyHurtboxHeight',  10,  80, 1).name('Body Height');
 hurtboxF.add(config, 'bodyHurtboxOffsetY', -60, 20, 1).name('Body Offset Y');
 hurtboxF.add(config, 'showHurtboxes')                 .name('Show Hurtboxes');
 hurtboxF.open();
+
+// Aim cone (Stage 13) — how far a punch may bend off its own trajectory toward
+// an off-axis opponent. Max Aim Angle is the knob that decides whether ring
+// position is a tactical layer or a per-punch precision requirement; Show Aim
+// Cone is what makes it tunable by eye rather than by guesswork.
+const aimF = gui.addFolder('Aim');
+aimF.add(config, 'maxAimAngle',  0,  60, 1)   .name('Max Aim Angle (deg)');
+aimF.add(config, 'aimBendRamp', 0.2, 4, 0.1)  .name('Bend Ramp');
+aimF.add(config, 'aimMinRun',     1, 40, 1)   .name('Min Run px');
+aimF.add(config, 'jabAimPointY',      -80, 20, 1).name('Jab Aim Point Y');
+aimF.add(config, 'crossAimPointY',    -80, 20, 1).name('Cross Aim Point Y');
+aimF.add(config, 'hookAimPointY',     -80, 20, 1).name('Hook Aim Point Y');
+aimF.add(config, 'uppercutAimPointY', -80, 20, 1).name('Uppercut Aim Point Y');
+aimF.add(config, 'showAimCone')                  .name('Show Aim Cone');
+aimF.open();
 
 // Per-punch identity (Stage 8). Damage multiplies the momentum-based force;
 // speed divides config.punchDuration (higher = snappier).
@@ -667,7 +771,12 @@ window.__game   = game;
 window.__config = config;
 // Also exposed so the punch-animation checks can render a contact sheet of every
 // punch's trajectory in one frame instead of scrubbing the live fighter.
-window.__rig    = { drawRig, computePose, hurtboxes, peakProgress, circleHitsCircle, circleHitsBox };
+window.__rig    = {
+  drawRig, computePose, hurtboxes, peakProgress, circleHitsCircle, circleHitsBox,
+  // Stage 13 — so the aim checks can solve the cone angle and read a punch's
+  // real peak geometry directly, instead of re-deriving either from pixels.
+  aimAngle, punchGeometry, maxAimAngleRad, armSlot,
+};
 // Audio can't be asserted on by listening in a headless browser, so the checks
 // in scripts/audio_test.mjs read the bounded log of which logical sound each
 // resolved outcome asked for, and at what pitch. See audio.js.

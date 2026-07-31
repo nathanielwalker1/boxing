@@ -90,22 +90,32 @@ function check(name, pass, detail) {
  *                                   decaying through friction mid-windup
  * @param {number} [o.teleportDx]    jump the dummy to this separation one frame
  *                                   after the press
+ * @param {number} [o.teleportDy]    same, vertically — used to simulate a
+ *                                   separation shove landing mid-punch
+ * @param {boolean} [o.mirror]       put the player on the RIGHT instead, so the
+ *                                   identical geometry is thrown facing left
  * @param {number} [o.settleMs]      how long to wait for the impact
  */
 async function fire(o) {
-  const opts = { dy: 0, inputX: 1, playerVx: 0, dummyVx: 0, pinDummy: true, settleMs: 250, ...o };
+  const opts = { dy: 0, inputX: 1, playerVx: 0, dummyVx: 0, pinDummy: true, settleMs: 250, mirror: false, ...o };
 
   const setup = () => page.evaluate(p => {
     const sc = window.__game.scene.keys.RingScene;
     window.__config.dummyMoveSpeed = p.pinDummy ? 0 : 170;
     const b  = sc._getRingBounds();
     const cx = (b.left + b.right) / 2, cy = (b.top + b.bottom) / 2;
+    // Mirroring flips only the horizontal placement: the vertical offset is
+    // deliberately left alone, so the two facings are handed geometry that is
+    // identical in the fighter's own local frame and must produce identical
+    // results. (y is never mirrored by the rig either — that asymmetry is
+    // exactly where a facing sign error would show up.)
+    const s  = p.mirror ? -1 : 1;
     // Split the gap either side of center so neither fighter hits a rope.
-    sc.fighter.x = cx - p.dx / 2; sc.fighter.y = cy - p.dy / 2;
+    sc.fighter.x = cx - s * p.dx / 2; sc.fighter.y = cy - p.dy / 2;
     sc.fighter.vx = p.playerVx;   sc.fighter.vy = 0;
     sc.fighter.health  = window.__config.healthMax;
     sc.fighter.stamina = window.__config.staminaMax;
-    sc.dummy._loco.x  = cx + p.dx / 2; sc.dummy._loco.y = cy + p.dy / 2;
+    sc.dummy._loco.x  = cx + s * p.dx / 2; sc.dummy._loco.y = cy + p.dy / 2;
     sc.dummy._loco.vx = p.dummyVx;     sc.dummy._loco.vy = 0;
     sc.dummy.x = sc.dummy._loco.x;     sc.dummy.y = sc.dummy._loco.y;
     sc.dummy.staggerX = sc.dummy.staggerY = sc.dummy.staggerVx = sc.dummy.staggerVy = 0;
@@ -128,12 +138,22 @@ async function fire(o) {
     sc._resolvePunch(p.type);
   }, opts);
 
-  if (opts.teleportDx !== undefined) {
+  // The aim angle the punch locked in, read back on the press frame — the
+  // Stage 13 cases assert on this directly rather than inferring it from where
+  // the fist ended up.
+  const aim = await page.evaluate(() => {
+    const sc = window.__game.scene.keys.RingScene;
+    return { deg: +(sc.fighter.punchAim * 180 / Math.PI).toFixed(2), raw: sc.fighter.punchAim };
+  });
+
+  if (opts.teleportDx !== undefined || opts.teleportDy !== undefined) {
     await page.waitForTimeout(40);
     await page.evaluate(p => {
       const sc = window.__game.scene.keys.RingScene;
-      sc.dummy._loco.x = sc.fighter.x + p.teleportDx;
+      if (p.teleportDx !== undefined) sc.dummy._loco.x = sc.fighter.x + p.teleportDx;
+      if (p.teleportDy !== undefined) sc.dummy._loco.y = sc.fighter.y + p.teleportDy;
       sc.dummy.x = sc.dummy._loco.x;
+      sc.dummy.y = sc.dummy._loco.y;
     }, opts);
   }
 
@@ -141,7 +161,7 @@ async function fire(o) {
   if (opts.holdKey) await page.keyboard.up(opts.holdKey);
   const got = await page.evaluate(() => window.__out.splice(0));
   await page.waitForTimeout(200);   // let the animation unwind before the next case
-  return got.find(g => g.byPlayer) ?? { outcome: 'none' };
+  return { aim, ...(got.find(g => g.byPlayer) ?? { outcome: 'none' }) };
 }
 
 // Smother is a separate proximity rule that would mask geometry at close range;
@@ -279,6 +299,312 @@ await page.evaluate(() => { window.__config.showHurtboxes = true; });
 await page.waitForTimeout(300);
 await page.screenshot({ path: 'scripts/output/reach_hurtboxes.png' });
 await page.evaluate(() => { window.__config.showHurtboxes = false; });
+
+// ── 5. Aim cone (Stage 13) ──────────────────────────────────────────────────
+// The rig has no anatomical rotation, so before this stage every punch travelled
+// along one fixed rig-local trajectory and sailed past a target that was merely
+// a bit above or below. The cone bends the throwing arm about its own shoulder
+// by an angle sampled once, on the input frame, and then locked.
+//
+// The reference for "would this have whiffed before?" is maxAimAngle = 0, fired
+// through the same live resolver — not a remembered number, so these cases stay
+// honest if the rig or the hurtboxes move.
+console.log('\n5. Aim cone — bending toward an off-axis target\n');
+
+const setAim = v => page.evaluate(x => { window.__config.maxAimAngle = x; }, v);
+const DEFAULT_AIM = await page.evaluate(() => window.__config.maxAimAngle);
+
+/** Same shot with the cone off, then on. */
+async function coneOffOn(o) {
+  await setAim(0);
+  const off = await fire(o);
+  await setAim(DEFAULT_AIM);
+  const on  = await fire(o);
+  return { off, on };
+}
+
+// ── 5a. Incidental vertical offset stops causing whiffs ─────────────────────
+// Moderately above and below, at several horizontal distances. These are the
+// offsets that show up just from circling, which is the whole reason the cone
+// exists.
+// NOTE on the ABOVE cases: the pre-cone rig was not symmetric about the fist's
+// travel height. The fist crosses at roughly head height (y ~ -44 rig-local),
+// and the defender's body hurtbox is a tall box reaching up to -42, so a target
+// somewhat ABOVE already got caught by its body while an equally-offset target
+// BELOW was a clean miss. The offsets below are therefore deliberately larger
+// on the up side — that is where the old geometry stopped reaching, not an
+// arbitrary choice.
+// These offsets are calibrated to the SHIPPED cap (see config.maxAimAngle) —
+// they sit in the band the cone rescues at that setting, and widening or
+// narrowing the cap is expected to move them.
+const OFFSETS = [
+  { type: 'jab',      dx: 50, dy:  35, inputX:  1 },
+  { type: 'jab',      dx: 60, dy: -60, inputX:  1 },
+  { type: 'cross',    dx: 70, dy:  35, inputX:  1 },
+  { type: 'cross',    dx: 60, dy: -60, inputX:  1 },
+  { type: 'hook',     dx: 50, dy:  35, inputX:  1 },
+  { type: 'uppercut', dx: 50, dy:  30, inputX: -1 },
+];
+let rescued = 0, regressed = 0;
+for (const o of OFFSETS) {
+  const { off, on } = await coneOffOn(o);
+  if (off.outcome === 'whiff' && on.outcome === 'land') rescued++;
+  if (off.outcome === 'land'  && on.outcome !== 'land') regressed++;
+  console.log(`     ${o.type.padEnd(9)} dx=${String(o.dx).padStart(3)} dy=${String(o.dy).padStart(4)}  ` +
+              `cone off → ${off.outcome.padEnd(6)}  cone on → ${on.outcome.padEnd(6)} (bend ${on.aim.deg}deg)`);
+}
+check('off-axis shots that used to whiff now land', rescued === OFFSETS.length && regressed === 0,
+  `${rescued}/${OFFSETS.length} rescued, ${regressed} regressed`);
+
+// ── 5b. Beyond the cap, the punch still falls short ─────────────────────────
+// Chosen so DISTANCE is not the binding constraint — 78 px is inside the jab's
+// straight-on reach. The only reason it misses is that the target is ~50 deg
+// off the facing axis and the cone stops at 30. Proven by re-firing the exact
+// same shot with the cap opened right up, which lands: a real height advantage
+// someone earned by outmaneuvering you is not erased.
+const STEEP = { type: 'jab', dx: 50, dy: 60, inputX: 1 };
+const steepCapped = await fire(STEEP);
+await setAim(90);
+const steepOpen = await fire(STEEP);
+await setAim(DEFAULT_AIM);
+check('target beyond the cone still whiffs', steepCapped.outcome === 'whiff',
+  `50/60 px (dist ${steepCapped.dist}, needs ~50deg) at cap ${DEFAULT_AIM}deg → ${steepCapped.outcome} (bend ${steepCapped.aim.deg}deg)`);
+check('...and it is the CLAMP that stopped it, not distance', steepOpen.outcome === 'land',
+  `same shot with the cap at 90deg → ${steepOpen.outcome} (bend ${steepOpen.aim.deg}deg)`);
+
+// ── 5c. Reach is preserved along the bent path ──────────────────────────────
+// The silent regression this stage could have shipped: if reach were measured
+// horizontally, bending would shorten it (~13% at 30deg) and a punch that lands
+// at max range straight-on would start whiffing once bent.
+//
+// The exact invariant first — the bend is a rigid rotation of the arm chain
+// about the shoulder, so the wrist's distance FROM that shoulder cannot change.
+// Asserted to floating-point equality, so a future change that rotates the
+// trajectory some other way fails here rather than silently costing reach.
+const extension = await page.evaluate(() => {
+  const { computePose, peakProgress, punchGeometry } = window.__rig;
+  const combos = [['jab', 'lead'], ['cross', 'rear'], ['hook', 'lead'],
+                  ['hook', 'rear'], ['uppercut', 'lead'], ['uppercut', 'rear']];
+  return combos.map(([type, slot]) => {
+    const base = punchGeometry(type, slot).reach;
+    const worst = Math.max(...[-0.6, -0.35, -0.1, 0, 0.1, 0.35, 0.6].map(aim => {
+      const pose = computePose({ type, arm: slot, p: peakProgress(type), aim }, 0, 0);
+      const h = slot === 'lead' ? pose.lead : pose.rear;
+      return Math.abs(Math.hypot(h.wx - h.sx, h.wy - h.sy) - base);
+    }));
+    return { k: `${type}:${slot}`, base: +base.toFixed(3), worst };
+  });
+});
+check('extension is identical at every bend angle',
+  extension.every(e => e.worst < 1e-9),
+  `max drift ${Math.max(...extension.map(e => e.worst)).toExponential(1)} px across 6 punches x 7 angles`);
+
+// And the behavioural form of the same claim, through the live resolver: a
+// punch fired at (near) its straight-on maximum range still lands when that
+// same distance is taken up at an angle inside the cone.
+async function maxReachAt(type, inputX, deg) {
+  const r = deg * Math.PI / 180;
+  let lo = 10, hi = 170;
+  while (hi - lo > 1) {
+    const mid = Math.round((lo + hi) / 2);
+    const res = await fire({ type, dx: Math.round(mid * Math.cos(r)), dy: Math.round(mid * Math.sin(r)), inputX });
+    if (res.outcome === 'land') lo = mid; else hi = mid;
+  }
+  return lo;
+}
+await setSmother(0);
+// Measured at the cone's own edge, so this stays meaningful if the cap is
+// re-tuned rather than silently testing an angle the cone no longer reaches.
+const RAY = DEFAULT_AIM;
+const BENT_TOL = 0.10;   // fraction of straight-on reach a bent punch may lose
+let bentOk = true;
+for (const c of [{ type: 'jab', inputX: 1 }, { type: 'hook', inputX: -1 }, { type: 'uppercut', inputX: -1 }]) {
+  const straight = await maxReachAt(c.type, c.inputX, 0);
+  const down     = await maxReachAt(c.type, c.inputX,  RAY);
+  const up       = await maxReachAt(c.type, c.inputX, -RAY);
+  const loss     = (straight - Math.min(down, up)) / straight;
+  if (loss > BENT_TOL) bentOk = false;
+  console.log(`     ${c.type.padEnd(9)} max reach: straight ${straight} px, +${RAY}deg ${down} px, -${RAY}deg ${up} px  (loss ${(loss * 100).toFixed(1)}%)`);
+}
+check('max range holds up when bent', bentOk,
+  `every punch keeps >=${((1 - BENT_TOL) * 100).toFixed(0)}% of its straight-on reach at +/-${RAY}deg`);
+
+// The literal case: fire at 95% of the measured straight-on maximum, but with
+// that distance taken up on a 20deg ray. Both must land.
+const jabStraightMax = await maxReachAt('jab', 1, 0);
+const R  = Math.round(jabStraightMax * 0.95);
+const at0   = await fire({ type: 'jab', dx: R, dy: 0, inputX: 1 });
+const atRay = await fire({ type: 'jab', dx: Math.round(R * Math.cos(RAY * Math.PI / 180)),
+                           dy: Math.round(R * Math.sin(RAY * Math.PI / 180)), inputX: 1 });
+check('max-range straight AND max-range bent both land',
+  at0.outcome === 'land' && atRay.outcome === 'land',
+  `at ${R} px: straight=${at0.outcome}, ${RAY}deg bent=${atRay.outcome} (bend ${atRay.aim.deg}deg)`);
+await setSmother(50);
+
+// ── 5d. Smother still fires at max bend ─────────────────────────────────────
+// Smother is a proximity rule, deliberately upstream of the geometry, so the
+// cone must not be able to sneak a straight punch through it at an angle.
+// Same close, steeply-offset geometry for both, so the punch type is the only
+// variable: the jab is smothered, the hook — which the locked spec exempts —
+// still gets to land, and the cone changes neither.
+// Inside smotherDist (50) but outside fighterSeparationDist (38), so the pair
+// is not being actively shoved apart while the punch resolves.
+const CLOSE = { dx: 40, dy: 20 };
+const smotherBent = await fire({ type: 'jab',  ...CLOSE, inputX:  1 });
+const hookBent    = await fire({ type: 'hook', ...CLOSE, inputX: -1 });
+const smotherDist = await page.evaluate(() => window.__config.smotherDist);
+check('smother still triggers at full bend', smotherBent.outcome === 'smother',
+  `jab at dist ${smotherBent.dist} (< ${smotherDist}), bend ${smotherBent.aim.deg}deg → ${smotherBent.outcome}`);
+check('...and hook is still exempt from it at full bend', hookBent.outcome === 'land',
+  `hook at the same dist ${hookBent.dist}, bend ${hookBent.aim.deg}deg → ${hookBent.outcome}`);
+
+// ── 5e. Both facings, identical local geometry ──────────────────────────────
+// The classic bug in a cone measured off a mirrored facing axis: it works one
+// way round and inverts the other. The cone is measured in rig-local space, in
+// which x is mirrored and y never is, so the SAME local geometry must produce
+// the same bend and the same outcome from either side of the ring.
+let mirrorOk = true;
+for (const o of [
+  { type: 'jab',      dx: 65, dy:  35, inputX:  1 },
+  { type: 'jab',      dx: 65, dy: -35, inputX:  1 },
+  { type: 'cross',    dx: 70, dy:  40, inputX:  1 },
+  { type: 'uppercut', dx: 45, dy: -30, inputX: -1 },
+]) {
+  const right = await fire({ ...o, mirror: false });
+  const left  = await fire({ ...o, mirror: true  });
+  const same  = right.outcome === left.outcome && Math.abs(right.aim.deg - left.aim.deg) < 0.5;
+  if (!same) mirrorOk = false;
+  console.log(`     ${o.type.padEnd(9)} dx=${o.dx} dy=${String(o.dy).padStart(4)}  ` +
+              `facing right: ${right.outcome} @${right.aim.deg}deg   facing left: ${left.outcome} @${left.aim.deg}deg`);
+}
+check('both facings bend identically', mirrorOk,
+  'same local geometry → same bend and same outcome from either side');
+
+// ── 5f. The angle is LOCKED, not tracked ────────────────────────────────────
+// The single most important property of this stage, asserted directly so a
+// future change cannot quietly turn tracking back on: a punch that keeps
+// re-aiming is a homing missile, it contradicts the momentum-commitment
+// philosophy, and it would make the slip/duck stage cosmetic.
+await page.evaluate(() => { window.__config.punchDuration = 0.6; });
+const locked = await page.evaluate(async () => {
+  const sc = window.__game.scene.keys.RingScene;
+  const b  = sc._getRingBounds();
+  const cx = (b.left + b.right) / 2, cy = (b.top + b.bottom) / 2;
+  sc.fighter.x = cx - 35; sc.fighter.y = cy; sc.fighter.vx = sc.fighter.vy = 0;
+  sc.dummy._loco.x = cx + 35; sc.dummy._loco.y = cy;
+  sc.dummy.x = sc.dummy._loco.x; sc.dummy.y = sc.dummy._loco.y;
+  await new Promise(r => setTimeout(r, 80));
+
+  sc._lastInputX = 1;
+  sc._resolvePunch('jab');
+  const samples = [];
+  // Drag the target hard up and down through the whole punch. Anything that
+  // re-sampled the angle would move; a locked one cannot.
+  for (let i = 0; i < 18; i++) {
+    sc.dummy._loco.y = cy + (i % 2 ? 70 : -70);
+    sc.dummy.y = sc.dummy._loco.y;
+    await new Promise(r => setTimeout(r, 25));
+    if (sc.fighter.punchArm) samples.push(sc.fighter.punchAim);
+  }
+  return samples;
+});
+check('aim angle never changes across the punch',
+  locked.length >= 5 && locked.every(v => v === locked[0]),
+  `${locked.length} in-flight samples, all ${(locked[0] * 180 / Math.PI).toFixed(2)}deg`);
+
+// A shove landing mid-punch therefore makes it MISS — which reads as impact and
+// timing, not as a bug. The control underneath is the same offset present at
+// the press, which lands: the difference is purely when the target moved.
+const shoved  = await fire({ type: 'jab', dx: 60, dy: 0,  teleportDy: 35, settleMs: 700 });
+const present = await fire({ type: 'jab', dx: 60, dy: 35,                 settleMs: 700 });
+await page.evaluate(() => { window.__config.punchDuration = 0.15; });
+check('target shoved mid-punch → miss, no re-aim',
+  shoved.outcome === 'whiff' && present.outcome === 'land',
+  `shoved after the press → ${shoved.outcome} (bend ${shoved.aim.deg}deg); same offset at the press → ${present.outcome} (bend ${present.aim.deg}deg)`);
+
+// ── 5g. Degenerate geometry ─────────────────────────────────────────────────
+// Target directly above/below (no horizontal run at all), behind the shoulder,
+// stacked inside the separation slack, and exactly on the cone boundary. None
+// may produce NaN, a flipped punch, or a snap past the cap.
+const degenerate = await page.evaluate(() => {
+  const { aimAngle, maxAimAngleRad } = window.__rig;
+  const max = maxAimAngleRad() + 1e-9;
+  const cases = {
+    'directly below':      aimAngle('jab', 'lead', 0, 90),
+    'directly above':      aimAngle('jab', 'lead', 0, -90),
+    'exactly stacked':     aimAngle('jab', 'lead', 0, 0),
+    'behind the shoulder': aimAngle('jab', 'lead', -60, 40),
+    'inside separation':   aimAngle('hook', 'rear', 4, 6),
+    'far beyond the cone': aimAngle('cross', 'rear', 30, 400),
+    'unknown punch type':  aimAngle('bolo', 'lead', 70, 30),
+    'NaN input':           aimAngle('jab', 'lead', NaN, 30),
+    'Infinity input':      aimAngle('jab', 'lead', 70, Infinity),
+  };
+  const bad = Object.entries(cases)
+    .filter(([, v]) => !Number.isFinite(v) || Math.abs(v) > max)
+    .map(([k, v]) => `${k}=${v}`);
+  // The boundary itself must clamp to exactly the cap, never overshoot it.
+  const boundary = aimAngle('jab', 'lead', 60, 1e6);
+  return { bad, boundary, max, cases };
+});
+check('degenerate geometry stays finite and inside the cone',
+  degenerate.bad.length === 0,
+  degenerate.bad.length ? degenerate.bad.join(', ') : '9 cases: all finite, none past the cap');
+check('the cone boundary clamps exactly',
+  Math.abs(degenerate.boundary - degenerate.max) < 1e-6,
+  `extreme offset → ${(degenerate.boundary * 180 / Math.PI).toFixed(4)}deg, cap ${(degenerate.max * 180 / Math.PI).toFixed(4)}deg`);
+
+// A degenerate case fired through the LIVE game, not just the solve — an
+// overlapping pair, where the separation system is actively pushing.
+const stacked = await fire({ type: 'hook', dx: 2, dy: 4, inputX: -1 });
+const finite  = await page.evaluate(() => {
+  const sc = window.__game.scene.keys.RingScene;
+  return [sc.fighter.x, sc.fighter.y, sc.fighter.punchAim, sc.dummy.x, sc.dummy.y].every(Number.isFinite);
+});
+check('overlapping fighters produce no NaN', finite,
+  `stacked pair, hook thrown → ${stacked.outcome}, all positions/aim finite`);
+
+// ── 5h. Screenshots — is a bent arm actually readable? ──────────────────────
+console.log('\n6. Aim-cone screenshots\n');
+await page.evaluate(() => {
+  window.__config.showAimCone  = true;
+  window.__config.showHurtboxes = true;
+  window.__config.punchDuration = 1.2;   // hold near peak long enough to capture
+});
+const SHOTS = [
+  { name: 'jab_below',        type: 'jab',      dx: 60, dy:  40, inputX:  1 },
+  { name: 'cross_above',      type: 'cross',    dx: 70, dy: -50, inputX:  1 },
+  { name: 'hook_below',       type: 'hook',     dx: 55, dy:  40, inputX: -1 },
+  { name: 'uppercut_above',   type: 'uppercut', dx: 45, dy: -35, inputX: -1 },
+  { name: 'cone_boundary',    type: 'jab',      dx: 45, dy:  70, inputX:  1 },
+];
+for (const s of SHOTS) {
+  await page.evaluate(p => {
+    const sc = window.__game.scene.keys.RingScene;
+    const b  = sc._getRingBounds();
+    const cx = (b.left + b.right) / 2, cy = (b.top + b.bottom) / 2;
+    sc.fighter.x = cx - p.dx / 2; sc.fighter.y = cy - p.dy / 2;
+    sc.fighter.vx = sc.fighter.vy = 0;
+    sc.dummy._loco.x = cx + p.dx / 2; sc.dummy._loco.y = cy + p.dy / 2;
+    sc.dummy.x = sc.dummy._loco.x; sc.dummy.y = sc.dummy._loco.y;
+  }, s);
+  await page.waitForTimeout(120);
+  await page.evaluate(p => {
+    const sc = window.__game.scene.keys.RingScene;
+    sc._lastInputX = p.inputX;
+    sc._resolvePunch(p.type);
+  }, s);
+  // peakAt is 0.42-0.62 of the duration depending on the punch; land in that band.
+  await page.waitForTimeout(620);
+  await page.screenshot({ path: `scripts/output/aim_${s.name}.png` });
+  console.log(`     scripts/output/aim_${s.name}.png`);
+  await page.waitForTimeout(700);
+}
+await page.evaluate(() => {
+  window.__config.showAimCone   = false;
+  window.__config.showHurtboxes = false;
+  window.__config.punchDuration = 0.15;
+});
 
 await browser.close();
 

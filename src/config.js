@@ -157,6 +157,68 @@ export const config = {
   // the sliders above can be tuned against something visible. Off by default.
   showHurtboxes: false,
 
+  // ── Aim cone (Stage 13) ─────────────────────────────────────────────────────
+  // The rig has no anatomical rotation — facing is a binary left/right mirror —
+  // so a punch's fist travels along one fixed rig-local trajectory and sails
+  // past a target that is merely a bit above or below. The cone bends the
+  // THROWING ARM ONLY (a rigid rotation of the arm chain about its own
+  // shoulder), by an angle sampled ONCE on the input frame and then locked for
+  // the punch's duration. Body, torso, guard, footwork and the mirror are
+  // untouched — only where the arm reaches changes.
+  //
+  // The bend is measured RELATIVE to the level case, not absolutely: it is the
+  // angle between (shoulder → aim point) and (shoulder → that same aim point
+  // with the opponent's vertical offset removed). So at zero vertical offset
+  // every punch bends by exactly 0° and keeps the trajectory, reach and
+  // character it has today — see the note on the aim points below for why an
+  // absolute "point at the head/body" formulation could not do that.
+  // Set to 15 after feel-testing at 30: the wider cone was doing too much of the
+  // work, which is the failure mode that matters here — ring position has to
+  // stay a tactical layer, and a punch that finds a target you never lined up
+  // erases the reason to circle for angles at all. 15 still erases the
+  // incidental misalignment that normal footwork produces.
+  maxAimAngle: 15,   // degrees off the punch's own natural trajectory, either way
+
+  // How sharply the bend ramps in across the punch. The bend is scaled by the
+  // punch's existing extension curve (0 through the whole wind-up, 0→1 into
+  // peak, back to 0 on recovery) raised to this power, so the arm never cocks
+  // at an angle before it throws — it leaves the guard straight and bends onto
+  // the target as it extends. 1 = follow the extension curve exactly; higher =
+  // the bend arrives later and more suddenly.
+  // ASSUMPTION — feel value. 1.5 back-loads it slightly, which reads as the
+  // punch tracking onto the target rather than being aimed from the shoulder.
+  aimBendRamp: 1.5,
+
+  // The point ON THE OPPONENT each punch tracks, as a y offset from their torso
+  // center — the same reference points the hurtboxes use (head = -50, body =
+  // -20), kept as separate values so aim can be tuned without moving the hit
+  // geometry. Jab/cross/hook track the head; the uppercut tracks the body,
+  // since it rises into the target by design.
+  //
+  // These are NOT an absolute aiming target: at zero vertical offset every
+  // punch bends 0° regardless of what is set here (aiming the uppercut
+  // absolutely at the body would tip it 30° downward at a level opponent,
+  // which is a redesign of the punch, not an aim cone). What they change is how
+  // much correction a given vertical offset asks for — tracking a high point on
+  // a low opponent needs more bend than tracking a low one. At 30 px of offset
+  // and 70 px of range that is ~32° for a head-tracking jab vs ~21° for a
+  // body-tracking uppercut.
+  jabAimPointY:      -50,
+  crossAimPointY:    -50,
+  hookAimPointY:     -50,
+  uppercutAimPointY: -20,
+
+  // Floor on the shoulder→target horizontal run used in the angle solve. Guards
+  // the degenerate cases — a target directly above/below, or one inside the
+  // separation slack and effectively on top of the shoulder — where the run
+  // goes to zero or negative and the angle would otherwise blow up or flip
+  // sign. Clamped rather than special-cased so the result stays continuous.
+  aimMinRun: 8,   // px
+
+  // Dev-only overlay: draws each fighter's cone bounds and, mid-punch, the
+  // locked aim line actually being used. Sits next to Show Hurtboxes.
+  showAimCone: false,
+
   // Smother — the one part of range gating that stays a proximity test, because
   // "too close to extend" is inherently about distance, not overlap (a straight
   // punch fired point-blank still passes THROUGH the head geometrically). Locked
@@ -434,6 +496,16 @@ export function punchDamageMult(type) {
 export function punchSpeedMult(type) {
   const v = config[`${type}Speed`];
   return typeof v === 'number' && v > 0 ? v : 1;
+}
+
+/**
+ * The y offset (from the opponent's torso center) this punch type tracks — see
+ * the aim-point block above. Same read-through-a-lookup convention as the
+ * multipliers, so aim code never names a punch type inline.
+ */
+export function punchAimPointY(type) {
+  const v = config[`${type}AimPointY`];
+  return typeof v === 'number' ? v : config.headHurtboxOffsetY;
 }
 
 /**

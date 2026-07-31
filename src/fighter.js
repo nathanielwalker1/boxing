@@ -33,6 +33,7 @@ export class Fighter {
     this.punchArm   = null;   // 'left' | 'right' | null — anatomical, resolved to a rig slot via stance
     this.punchType  = null;   // 'jab' | 'cross' | 'hook' | 'uppercut' | null — selects the trajectory in rig.js
     this.punchTimer = 0;      // seconds remaining in current punch animation
+    this.punchAim   = 0;      // aim-cone bend (radians), LOCKED at the input frame — see aimAngle() in rig.js
 
     // Block state — isBlocking only goes true once any in-progress punch has
     // finished (see update()), so a held block never snaps a punch animation.
@@ -93,13 +94,17 @@ export class Fighter {
    * @param {'left'|'right'} arm  which ANATOMICAL arm throws (stance decides
    *        whether that is the lead or rear slot in the rig — see armSlot())
    * @param {string} type         'jab' | 'cross' | 'hook' | 'uppercut'
+   * @param {number} [aim]        aim-cone bend in radians, sampled by the caller
+   *        on THIS frame and stored unchanged for the punch's whole duration —
+   *        never re-sampled (see aimAngle() in rig.js for why)
    */
-  startPunch(arm, type) {
+  startPunch(arm, type, aim = 0) {
     const lowStamina    = this.stamina < config.lowStaminaThreshold;
     this._punchDuration = config.punchDuration / punchSpeedMult(type)
                           * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
     this.punchArm        = arm;
     this.punchType       = type;
+    this.punchAim        = aim;
     this.punchTimer      = this._punchDuration;
     this.stamina         = Math.max(0, this.stamina - config.staminaDrainPerPunch);
   }
@@ -127,6 +132,7 @@ export class Fighter {
       type: this.punchType,
       arm:  armSlot(this.stance, this.punchArm),   // anatomical → rig slot
       p:    atPeak ? peakProgress(this.punchType) : 1 - this.punchTimer / this._punchDuration,
+      aim:  this.punchAim,                         // locked at throw time, never re-sampled
     };
   }
 
@@ -147,6 +153,7 @@ export class Fighter {
     this.punchArm       = null;
     this.punchType      = null;
     this.punchTimer     = 0;
+    this.punchAim       = 0;
     this.isBlocking     = false;
     this.slipTimer      = 0;
     this.vx = 0;
@@ -169,6 +176,19 @@ export class Fighter {
     const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
+  }
+
+  /**
+   * World-space shoulder the given arm pivots about, sampled at the same peak
+   * pose getFistPos() uses. Only the aim-cone debug overlay needs this — the
+   * cone is drawn from the joint the bend actually rotates around.
+   * @param {'left'|'right'} arm
+   */
+  getShoulderPos(arm) {
+    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0, this._bob, this.reaction.pose());
+    const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
+    const flip = this.facingRight ? 1 : -1;
+    return { x: this.x + hand.sx * flip, y: this.y + hand.sy };
   }
 
   /**

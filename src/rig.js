@@ -26,7 +26,7 @@
  *   Angle 0 = segment hanging straight down; positive = rotating toward +x.
  */
 
-import { config } from './config.js';
+import { config, punchAimPointY } from './config.js';
 
 // Visual extent of the rig from the container origin, derived from the layout
 // below. Lives here (with the geometry it's derived from) so the player and the
@@ -274,7 +274,11 @@ function solveArm(sx, sy, a1, a2) {
  * fighters, so flash effects spawn at the fist's ACTUAL animated position
  * rather than a fixed offset.
  *
- * @param {{type: string, arm: 'lead'|'rear', p: number}|null} punch  p = 0..1 progress
+ * @param {{type: string, arm: 'lead'|'rear', p: number, aim?: number}|null} punch
+ *                        p = 0..1 progress; aim = the locked aim-cone bend in
+ *                        radians (see aimAngle below), positive = downward in
+ *                        rig-local space. Optional — absent/0 is the pre-Stage-13
+ *                        behaviour exactly.
  * @param {number} guard  0..1 blend toward the raised BLOCK pose
  * @param {number} bob    px of movement bounce (see stepBob in movement.js);
  *                        folded into `dip`, so it rides the torso/head/thighs
@@ -306,11 +310,33 @@ export function computePose(punch, guard = 0, bob = 0, react = NO_REACT) {
     (punchingArm === 'rear' ? REAR_SHOULDER_DRIVE * turn : -REAR_SHOULDER_PULL * turn);
   const shoulderY = SHOULDER_Y + dip + rk.torsoY;
 
+  // ── Aim-cone bend (Stage 13) ───────────────────────────────────────────────
+  // A rigid rotation of the THROWING arm chain about its own shoulder: a2 is
+  // measured relative to a1, so subtracting the bend from a1 alone swings the
+  // upper arm and forearm together without changing the arm's shape. Two
+  // properties fall out of that, and both are load-bearing:
+  //   - the shoulder does not move, so the torso/hips/head/legs are untouched
+  //     and the punch still reads as itself;
+  //   - the wrist's distance FROM the shoulder is unchanged, so total extension
+  //     along the bent path is constant at any angle. Reach is therefore not
+  //     quietly shortened by bending (a horizontally-measured reach would lose
+  //     ~13% at 30°, and a max-range punch would start whiffing once bent).
+  // Positive bend = rotate downward: a1 = 0 hangs straight down and increases
+  // toward +x, so past horizontal a larger a1 points further UP.
+  //
+  // Scaled by `ext`, which is already 0 for the whole wind-up, ramps to 1 at
+  // peak extension and falls back to 0 on the recovery — so the arm leaves the
+  // guard straight, bends onto the target as it reaches, and unwinds straight.
+  const bend = def
+    ? (punch.aim || 0) * Math.pow(ext, Math.max(0.1, config.aimBendRamp))
+    : 0;
+  const bentKey = bend ? { a1: key.a1 - bend, a2: key.a2 } : key;
+
   // The non-punching arm simply holds its guard — it no longer needs a
   // turn-driven retraction, because the guard IS hands-up now; the shoulder
   // pull above already carries the body torque.
-  const leadA = punchingArm === 'lead' ? key : LEAD_GUARD;
-  const rearA = punchingArm === 'rear' ? key : REAR_GUARD;
+  const leadA = punchingArm === 'lead' ? bentKey : LEAD_GUARD;
+  const rearA = punchingArm === 'rear' ? bentKey : REAR_GUARD;
 
   const blend = (a, slot) => {
     const B = slotBlock(slot);
@@ -323,10 +349,86 @@ export function computePose(punch, guard = 0, bob = 0, react = NO_REACT) {
   const ra = blend(rearA, 'rear');
 
   return {
-    torsoShift, dip, turn, ext, punchingArm, react: rk,
+    torsoShift, dip, turn, ext, bend, punchingArm, react: rk,
     lead: solveArm(leadSx, shoulderY, la.a1, la.a2),
     rear: solveArm(rearSx, shoulderY, ra.a1, ra.a2),
   };
+}
+
+// ── Aim cone (Stage 13) ──────────────────────────────────────────────────────
+
+/**
+ * The unbent peak-extension geometry of one punch, in rig-local space: where
+ * its shoulder sits, how far the fist reaches from that shoulder, and along
+ * what angle. Shared by the aim solve, the debug overlay and the tests so all
+ * three read the punch's real trajectory instead of re-deriving it.
+ *
+ * @param {string} type            punch type
+ * @param {'lead'|'rear'} slot     which rig slot throws it
+ */
+export function punchGeometry(type, slot) {
+  const def = PUNCHES[type];
+  if (!def) return null;
+  const pose = computePose({ type, arm: slot, p: def.peakAt }, 0, 0);
+  const arm  = slot === 'lead' ? pose.lead : pose.rear;
+  return {
+    sx: arm.sx, sy: arm.sy,
+    fx: arm.wx, fy: arm.wy,
+    reach: Math.hypot(arm.wx - arm.sx, arm.wy - arm.sy),
+    angle: Math.atan2(arm.wy - arm.sy, arm.wx - arm.sx),
+  };
+}
+
+/** The cone's half-angle in radians (config stores it in degrees). */
+export function maxAimAngleRad() {
+  return Math.abs(config.maxAimAngle) * Math.PI / 180;
+}
+
+/**
+ * How far to bend this punch toward an opponent who is off the facing axis.
+ * Sampled ONCE, on the frame the input is registered, and then locked for the
+ * punch's duration — a punch that keeps re-aiming is a homing missile, it
+ * contradicts the momentum-commitment philosophy, and it would make a slip
+ * cosmetic (the punch would simply follow the head down).
+ *
+ * Measured relative to the LEVEL case rather than absolutely: the returned
+ * angle is the difference between the direction from this punch's shoulder to
+ * the aim point, and the direction to that same aim point with the opponent's
+ * vertical offset removed. Two consequences worth stating, because both are the
+ * reason it is written this way:
+ *   - at dy = 0 the result is exactly 0 for every punch type, so nothing about
+ *     a level exchange changes;
+ *   - the per-type aim point (head vs body) is what sets how steeply the
+ *     correction grows with offset, rather than pointing the punch somewhere
+ *     new on the frame it is thrown.
+ *
+ * Everything is in RIG-LOCAL space — dxLocal is already mirrored by the
+ * caller's facing, y never is — so the cone is measured off the facing axis and
+ * behaves identically from either side of the ring.
+ *
+ * @param {string} type            punch type
+ * @param {'lead'|'rear'} slot     which rig slot throws it
+ * @param {number} dxLocal         opponent's horizontal offset, +ve = in front
+ * @param {number} dy              opponent's vertical offset, +ve = below
+ * @returns {number} radians, clamped to ±maxAimAngle; positive = aim downward
+ */
+export function aimAngle(type, slot, dxLocal, dy) {
+  const geo = punchGeometry(type, slot);
+  if (!geo) return 0;
+
+  // Aim-point height relative to the throwing shoulder, and the horizontal run
+  // out to it. The run is floored (config.aimMinRun) so an opponent stacked on
+  // top of us, or directly above/below, produces a large-but-finite angle that
+  // the clamp below absorbs — rather than a division blow-up or a sign flip
+  // once the target passes behind the shoulder.
+  const k   = punchAimPointY(type) - geo.sy;
+  const run = Math.max(config.aimMinRun, dxLocal - geo.sx);
+
+  const a = Math.atan2(dy + k, run) - Math.atan2(k, run);
+  if (!Number.isFinite(a)) return 0;
+
+  const max = maxAimAngleRad();
+  return a > max ? max : a < -max ? -max : a;
 }
 
 // ── Hurtboxes (Stage 9) ──────────────────────────────────────────────────────

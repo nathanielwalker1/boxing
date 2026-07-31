@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { config } from './config.js';
-import { drawRig, computePose, peakProgress, armSlot, leadArm, hurtboxes } from './rig.js';
+import { drawRig, computePose, peakProgress, armSlot, leadArm, hurtboxes, aimAngle } from './rig.js';
 import { stepMovement, stepBob, stepFacing } from './movement.js';
 import { HitReaction } from './reaction.js';
 
@@ -95,6 +95,7 @@ export class Dummy {
     this.punchArm   = null;   // 'left' | 'right' | null — anatomical, same as Fighter's
     this.punchType  = null;
     this.punchTimer = 0;
+    this.punchAim   = 0;      // aim-cone bend (radians), locked when the throw commits — same rule as the player's
 
     // Attack cadence
     this._onAttackImpact  = onAttackImpact;
@@ -156,6 +157,7 @@ export class Dummy {
       type: this.punchType,
       arm:  armSlot(this.stance, this.punchArm),   // anatomical → rig slot
       p:    atPeak ? peakProgress(this.punchType) : 1 - this.punchTimer / this._windupDuration,
+      aim:  this.punchAim,                         // locked at throw time, never re-sampled
     };
   }
 
@@ -194,6 +196,18 @@ export class Dummy {
     const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
+  }
+
+  /**
+   * World-space shoulder the given arm pivots about — see Fighter.getShoulderPos().
+   * Only the aim-cone debug overlay reads this.
+   * @param {'left'|'right'} arm
+   */
+  getShoulderPos(arm) {
+    const pose = computePose(this._punchState(true), this.isBlocking ? 1 : 0, this._bob, this.reaction.pose());
+    const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
+    const flip = this.facingRight ? 1 : -1;
+    return { x: this.x + hand.sx * flip, y: this.y + hand.sy };
   }
 
   /**
@@ -258,6 +272,7 @@ export class Dummy {
     this.punchArm        = null;
     this.punchType       = null;
     this.punchTimer      = 0;
+    this.punchAim        = 0;
     this._impactPending  = false;
     this._forceAttack    = false;
     this.isBlocking      = false;
@@ -470,6 +485,17 @@ export class Dummy {
           this._windupDuration = config.dummyWindupDuration * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
           this.punchArm        = leadArm(this.stance);   // it only jabs, and a jab is always the lead hand
           this.punchType       = 'jab';
+          // Aim cone (Stage 13) — sampled ONCE here, on the frame the throw
+          // commits, and locked for the whole windup. Deliberately the same
+          // shared solve the player uses: the dummy gets no special case, and
+          // no re-aim, so the player can still walk out from under a committed
+          // punch during its 0.8 s telegraph.
+          this.punchAim        = aimAngle(
+            this.punchType,
+            armSlot(this.stance, this.punchArm),
+            (player.x - this.x) * (this.facingRight ? 1 : -1),
+            player.y - this.y,
+          );
           this.punchTimer      = this._windupDuration;
           this._impactPending  = true;
           // Impact fires at the trajectory's own peak (Stage 9), not at a flat
