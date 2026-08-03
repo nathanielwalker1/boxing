@@ -1,11 +1,7 @@
-import { config, punchSpeedMult } from './config.js';
+import { config, punchSpeedMult, playerPalette } from './config.js';
 import { drawRig, computePose, peakProgress, armSlot, hurtboxes } from './rig.js';
 import { stepMovement, stepBob, stepFacing } from './movement.js';
 import { HitReaction } from './reaction.js';
-
-function cssHex(str) {
-  return parseInt(str.replace('#', ''), 16);
-}
 
 /**
  * Fighter — player-controlled boxer rig.
@@ -75,6 +71,9 @@ export class Fighter {
     this.container = scene.add.container(x, y);
     this.gfx       = scene.add.graphics();
     this.container.add(this.gfx);
+    // Initial value only — RingScene re-derives BOTH fighters' depth from their
+    // world y every frame, so whoever is lower on screen draws in front. See
+    // _updateDepthSort() in main.js.
     this.container.setDepth(5);
 
     this._draw();
@@ -281,8 +280,7 @@ export class Fighter {
     const react = this.reaction.pose();
     drawRig(
       this.gfx,
-      cssHex(config.fighterBodyColor),
-      cssHex(config.fighterSkinColor),
+      playerPalette(),
       this._punchState(),
       this.isBlocking ? 1 : 0,
       this._bob,

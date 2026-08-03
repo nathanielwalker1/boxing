@@ -116,11 +116,24 @@ export const config = {
   guardBobAmplitude: 3.5,   // px of vertical travel at full speed
   guardBobFrequency: 2.2,   // bounce cycles per second at full speed
 
-  // Depth cue: the rear-side limbs (rear arm at rest, rear thigh) are drawn
-  // dimmed so they read as being behind the torso. At this rig scale a low value
-  // can read as "missing" rather than "receded", so it's tunable — 1.0 removes
-  // the cue entirely and draws the rear side solid.
-  rearArmAlpha: 0.55,
+  // ── Rear-side depth cue (Stage 14 part 3) ───────────────────────────────────
+  // The rear-side limbs (rear arm, rear thigh, rear shin, rear glove, rear
+  // trunks) are pushed back visually so they read as being behind the torso.
+  // There are two mechanisms and BOTH sliders are live, so the two treatments
+  // can be compared side by side without a code change:
+  //
+  //   rearLimbDarken — the current treatment. The rear side draws FULLY OPAQUE
+  //     in a darkened tint of its own colour. Nothing shows through it, so it
+  //     reads as a limb in shadow rather than as a rendering glitch.
+  //   rearArmAlpha   — the OLD treatment, now defaulted off (1.0). Translucent
+  //     rear limbs let the mat show through, which at this rig scale read as
+  //     missing geometry rather than as depth. Kept so it can be dialled back
+  //     in for comparison.
+  //
+  // Whichever is used, it applies to EVERY rear-side element — an arm on one
+  // treatment next to a thigh on the other reads as a bug, not as depth.
+  rearLimbDarken: 0.35,   // 0..1 — fraction the rear side's colours are darkened
+  rearArmAlpha:   1.0,    // 0..1 — legacy translucency; 1.0 = off
 
   // Fighter movement
   moveSpeed: 200,
@@ -158,10 +171,43 @@ export const config = {
   acceleration: 900,   // force units; effective accel = acceleration / mass
   friction:     1200,  // deceleration force; effective decel = friction / mass
 
-  // Fighter visuals
-  fighterBodyColor: '#2d5fa8',
-  fighterSkinColor: '#e8a86a',
-  fighterRadius:    22,         // boundary collision radius (px)
+  // ── Fighter visuals ─────────────────────────────────────────────────────────
+  // NOTE (Stage 14 part 5): fighterBodyColor / dummyBodyColor no longer colour
+  // anything. The torso, upper arms and shins moved to skinColor and the hips /
+  // upper thighs moved to trunksColor, which between them covered everything
+  // bodyColor used to fill. They are deliberately left in place (config key,
+  // palette field and tuning-panel slider) rather than deleted, pending a call
+  // on whether some element should be handed back to them.
+  fighterBodyColor:   '#2d5fa8',
+  fighterSkinColor:   '#e8a86a',
+  fighterTrunksColor: '#2d5fa8',   // the player's identity colour since Stage 14
+  fighterGloveColor:  '#4d8ce0',
+  fighterRadius:      22,          // boundary collision radius (px)
+
+  // How far down the thigh the trunks reach, in px. The thigh segment is 26 px
+  // long, so this is clamped to 0..26 — 0 is bare legs, 26 is trunks to the knee.
+  // ASSUMPTION — the trunk line is the thing this stage exists to settle; the
+  // default is a first guess, not derived from anything.
+  trunksHeight: 14,
+
+  // ── Contact shadows (Stage 14 part 2) ───────────────────────────────────────
+  // A soft ellipse on the canvas under each fighter. Drawn by RingScene into its
+  // own layer, NOT inside the fighter containers — those rotate and squash for
+  // slip and knockdown, and a shadow that tilts off the ground during a slip is
+  // exactly wrong. It tracks world (x, y) only: not the hit-reaction offsets,
+  // not the slip lean, not the bob. A fighter rocked back by a cross has moved
+  // their upper body, not their feet.
+  // ASSUMPTION — every number here is a first-pass look guess.
+  shadowEnabled:     true,
+  shadowColor:       '#000000',
+  shadowAlpha:       0.30,
+  shadowRadiusX:     26,     // px — half-width of the ellipse
+  shadowRadiusY:     8,      // px — half-height
+  shadowOffsetY:     40,     // px below the torso origin; the shins bottom out at +40 local
+  // Knockdown is the one state that changes the shadow's SHAPE: the body is
+  // lying on the canvas rather than standing on it, so the ellipse widens by
+  // this factor and flattens by the same factor.
+  shadowDownRadiusScale: 1.7,
 
   // Punch execution
   punchDuration:      0.15,   // BASE arm animation duration (seconds); divided by the per-punch speed below
@@ -346,9 +392,15 @@ export const config = {
   hitStopMax:        0.10,      // seconds — ceiling, so a huge hit can't read as a hang
   hitStopScale:      0.05,      // timescale during the stop (0 = hard freeze, 1 = no effect)
 
-  // Dummy colors (distinct from player so you can tell them apart at a glance)
-  dummyBodyColor: '#b83020',
-  dummySkinColor: '#d4906a',
+  // Dummy colors. Since Stage 14 the two fighters are told apart by their TRUNKS
+  // and GLOVES only: dummySkinColor is deliberately set to the same value as
+  // fighterSkinColor so the trunks carry the whole identity read and it can be
+  // judged on its own. Both sliders are kept — reintroducing a skin difference
+  // is one drag away if trunks-plus-gloves turns out not to be enough.
+  dummyBodyColor:   '#b83020',   // unused since Stage 14 — see fighterBodyColor
+  dummySkinColor:   '#e8a86a',
+  dummyTrunksColor: '#b83020',
+  dummyGloveColor:  '#e04a34',
 
   // Dummy spring-damper stagger physics
   dummyReturnSpeed: 50,   // spring stiffness (px/s² per px of displacement)
@@ -539,6 +591,43 @@ export const config = {
     },
   },
 };
+
+/**
+ * CSS hex string → Phaser integer colour. Lives here because config is where
+ * colours are stored as strings; every draw site converts at its own boundary.
+ */
+export function cssHex(str) {
+  return parseInt(String(str).replace('#', ''), 16);
+}
+
+/**
+ * The colour set one fighter's rig is drawn with — see drawRig() in rig.js.
+ * Built fresh each frame (same reason the ring is redrawn every frame) so a
+ * tuning-panel colour change appears instantly.
+ *
+ * `body` is currently read by nothing (see the note on fighterBodyColor above);
+ * it stays in the shape so handing an element back to it is a one-line change.
+ *
+ * @returns {{body:number, skin:number, trunks:number, glove:number}}
+ */
+export function playerPalette() {
+  return {
+    body:   cssHex(config.fighterBodyColor),
+    skin:   cssHex(config.fighterSkinColor),
+    trunks: cssHex(config.fighterTrunksColor),
+    glove:  cssHex(config.fighterGloveColor),
+  };
+}
+
+/** The dummy's equivalent — same shape, so the rig never asks who it's drawing. */
+export function dummyPalette() {
+  return {
+    body:   cssHex(config.dummyBodyColor),
+    skin:   cssHex(config.dummySkinColor),
+    trunks: cssHex(config.dummyTrunksColor),
+    glove:  cssHex(config.dummyGloveColor),
+  };
+}
 
 // Per-punch multiplier lookups. Read through these rather than indexing config
 // directly so punch logic never names a punch-type constant inline, and so the

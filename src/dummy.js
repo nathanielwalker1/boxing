@@ -1,12 +1,8 @@
 import Phaser from 'phaser';
-import { config } from './config.js';
+import { config, dummyPalette } from './config.js';
 import { drawRig, computePose, peakProgress, armSlot, leadArm, hurtboxes, aimAngle } from './rig.js';
 import { stepMovement, stepBob, stepFacing } from './movement.js';
 import { HitReaction } from './reaction.js';
-
-function cssHex(str) {
-  return parseInt(str.replace('#', ''), 16);
-}
 
 function randRange(min, max) {
   return min + Math.random() * (max - min);
@@ -126,7 +122,10 @@ export class Dummy {
     this.container = scene.add.container(x, y);
     this.gfx       = scene.add.graphics();
     this.container.add(this.gfx);
-    this.container.setDepth(4);   // just behind player (depth 5)
+    // Initial value only — RingScene re-derives BOTH fighters' depth from their
+    // world y every frame (see _updateDepthSort() in main.js), so the dummy is
+    // no longer statically pinned behind the player.
+    this.container.setDepth(4);
     this.container.setScale(-1, 1);
 
     this.draw();
@@ -164,8 +163,7 @@ export class Dummy {
   draw() {
     drawRig(
       this.gfx,
-      cssHex(config.dummyBodyColor),
-      cssHex(config.dummySkinColor),
+      dummyPalette(),
       this._punchState(),
       this.isBlocking ? 1 : 0,   // same block pose the player's block uses
       this._bob,

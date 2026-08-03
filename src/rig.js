@@ -69,6 +69,35 @@ const UPPER_W    = 9;
 const FORE_W     = 8;
 const HIP_X      = 11;
 
+// Torso / leg segment geometry. These were inline literals until Stage 14; the
+// trunks split needs to know where a thigh starts and ends, so they are named
+// here with the rest of the skeleton rather than re-derived at the draw site.
+const TORSO_H  = 38;   // torso rect height; its center sits at TORSO_CY
+const TORSO_CY = -20;
+const THIGH_W  = 10;
+const THIGH_H  = 26;
+const THIGH_CY = 5;    // thigh spans -8 .. +18 local
+const SHIN_W   = 9;
+const SHIN_H   = 22;
+const SHIN_CY  = 29;   // shin spans +18 .. +40 local — +40 is the sole of the
+                       // foot, i.e. the floor. config.shadowOffsetY is measured
+                       // against that, so moving the legs means retuning it.
+
+// ── Trunks (Stage 14 part 5) ─────────────────────────────────────────────────
+// The trunks are NOT a single overlay rect drawn on top at the end: the hips
+// rotate independently (see leadHipX/rearHipX and HIP_DRIVE/HIP_PULL below), so
+// a flat overlay would visibly detach from the legs it is supposed to be worn
+// on. Instead each thigh owns its own trunk segment and rotates with it, and the
+// torso owns the waistband that joins them.
+//
+// How far the trunks reach DOWN THE THIGH is config.trunksHeight (the value this
+// stage exists to settle). The two numbers below are the torso half of the same
+// garment and are pose geometry rather than gameplay tunables, so they live here
+// with the skeleton. ASSUMPTION — both are first-pass look guesses.
+const TRUNK_TORSO_H = 12;   // px of the torso's lower edge that is trunks, not skin
+const TRUNK_FLARE   = 4;    // px the trunks sit proud of the torso on each side
+const WAISTBAND_H   = 4;    // px of highlight along the top edge of the trunks
+
 // Body-rotation response to a punch's `turn` value (0..1). Splitting the drive
 // per side is what makes a cross read differently from a jab: the rear shoulder
 // has to travel all the way across the body, the lead shoulder is already there.
@@ -80,10 +109,16 @@ const LEAD_SHOULDER_PULL  = 22;  // lead shoulder pulls back while the rear arm 
 const HIP_DRIVE           = 5;   // punching-side hip rotates forward
 const HIP_PULL            = 4;   // opposite hip rotates back
 
-// Fraction of the gap between config.rearArmAlpha and solid that a punching rear
-// arm closes at full extension. At the default 0.55 this reproduces the original
-// hardcoded 0.55 → 0.95 brighten exactly.
-const PUNCH_BRIGHTEN      = 0.89;
+// How much of the rear side's recede treatment a punching rear arm sheds at full
+// extension, so a cross reads as coming forward. It drives BOTH mechanisms (see
+// config.rearLimbDarken / rearArmAlpha): the darkening interpolates toward 0 and
+// the alpha toward solid, on the same curve, so the arm ends at full body colour
+// whichever treatment is dialled in.
+// Was 0.89 pre-Stage-14, purely to reproduce an older hardcoded 0.55 → 0.95
+// alpha ramp exactly. That endpoint no longer exists (rearArmAlpha defaults to
+// 1.0, which makes the alpha term vanish entirely), and a rear arm that finishes
+// a cross 4% dark is not a thing worth preserving — so it closes fully now.
+const PUNCH_BRIGHTEN      = 1.0;
 
 // ── Pose keyframes ───────────────────────────────────────────────────────────
 /**
@@ -501,23 +536,96 @@ function seg(g, x, y, angle, len, w) {
   g.restore();
 }
 
-function drawArm(g, bodyColor, skinColor, arm, alpha) {
-  g.fillStyle(bodyColor, alpha);
-  seg(g, arm.sx, arm.sy, arm.a1, UPPER_LEN, UPPER_W);
-  g.fillStyle(skinColor, alpha);
-  seg(g, arm.ex, arm.ey, arm.af, FORE_LEN, FORE_W);
+/** Darken a Phaser integer colour by `amount` (0 = unchanged, 1 = black). */
+function darkenHex(c, amount) {
+  const t = 1 - clamp01(amount);
+  return (Math.round(((c >> 16) & 0xff) * t) << 16)
+       | (Math.round(((c >>  8) & 0xff) * t) <<  8)
+       |  Math.round((c & 0xff) * t);
+}
+
+/**
+ * Resolve a whole palette for ONE side of the body, so every element on that
+ * side is guaranteed to get the same treatment. Both mechanisms are applied
+ * together (see config.rearLimbDarken / rearArmAlpha) and either can be 0/1.
+ *
+ * @param {{body,skin,trunks,glove}} pal
+ * @param {number} darken  0 = lead side / full colour
+ * @param {number} alpha
+ */
+function shade(pal, darken, alpha) {
+  if (darken <= 0) return { ...pal, alpha };
+  return {
+    body:   darkenHex(pal.body,   darken),
+    skin:   darkenHex(pal.skin,   darken),
+    trunks: darkenHex(pal.trunks, darken),
+    glove:  darkenHex(pal.glove,  darken),
+    alpha,
+  };
+}
+
+/**
+ * The glove, pivoted on the WRIST.
+ *
+ * Deliberately its own function called from drawArm() rather than inlined into
+ * the forearm draw: a sprite-part pass is coming that will replace each of these
+ * shapes from the same pose data (head, torso, upper arm, forearm, thigh, shin,
+ * glove), and a glove baked into the forearm rect would have to be unpicked.
+ *
+ * Radius is config.fistRadius — the SAME circle _resolveAttack tests with. The
+ * fist was the one place where the drawn thing and the hit geometry had come
+ * apart (the hit circle existed, nothing was drawn there), so dragging the Fist
+ * Radius slider now visibly resizes the glove.
+ */
+function drawGlove(g, sh, arm) {
+  g.fillStyle(sh.glove, sh.alpha);
+  g.fillCircle(arm.wx, arm.wy, config.fistRadius);
+}
+
+/** Upper arm + forearm + glove, all on one side's shaded palette. */
+function drawArm(g, sh, arm) {
+  g.fillStyle(sh.skin, sh.alpha);
+  seg(g, arm.sx, arm.sy, arm.a1, UPPER_LEN, UPPER_W);   // upper arm
+  seg(g, arm.ex, arm.ey, arm.af, FORE_LEN, FORE_W);     // forearm
+  drawGlove(g, sh, arm);
+}
+
+/**
+ * One thigh, split into a trunks segment at the top and a bare-skin segment
+ * below it. Drawn as part of the thigh's own group (the caller has already
+ * placed it at that hip's rotated x), so the trunks rotate with the leg they
+ * are worn on instead of detaching from it.
+ */
+function drawThigh(g, sh, cx, cy) {
+  const top = cy - THIGH_H / 2;
+  const tH  = Math.min(Math.max(config.trunksHeight, 0), THIGH_H);
+  if (tH > 0) {
+    g.fillStyle(sh.trunks, sh.alpha);
+    cr(g, cx, top + tH / 2, THIGH_W, tH);
+  }
+  if (tH < THIGH_H) {
+    g.fillStyle(sh.skin, sh.alpha);
+    cr(g, cx, top + tH + (THIGH_H - tH) / 2, THIGH_W, THIGH_H - tH);
+  }
+}
+
+/** One shin — planted, so it takes no hip rotation and no dip. */
+function drawShin(g, sh, cx) {
+  g.fillStyle(sh.skin, sh.alpha);
+  cr(g, cx, SHIN_CY, SHIN_W, SHIN_H);
 }
 
 /**
  * @param {Phaser.GameObjects.Graphics} g
- * @param {number} bodyColor  Phaser integer color
- * @param {number} skinColor  Phaser integer color
+ * @param {{body,skin,trunks,glove}} pal  Phaser integer colours — see
+ *        playerPalette()/dummyPalette() in config.js. `body` is currently read
+ *        by nothing (Stage 14 part 5 moved everything it filled to skin/trunks).
  * @param {{type, arm, p}|null} punch  current punch state (null = idle)
  * @param {number} guard      0..1 blend toward the raised block pose
  * @param {number} bob        px of movement bounce (0 when standing still)
  * @param {{headX,headY,torsoX,torsoY,tilt}} react  hit-reaction offsets (Stage 10)
  */
-export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0, bob = 0, react = NO_REACT) {
+export function drawRig(g, pal, punch = null, guard = 0, bob = 0, react = NO_REACT) {
   g.clear();
 
   const pose      = computePose(punch, guard, bob, react);
@@ -562,21 +670,26 @@ export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0, bob = 
     (rearIsPunching ? HIP_DRIVE * turn : -HIP_PULL * turn);
   const hipY     = rk.torsoY * hipDragY;
 
-  // ── Rear side (behind — drawn first, dimmed for depth) ─────────────────────
-  // One shared alpha for every rear-side limb (see config.rearArmAlpha) so the
-  // depth cue stays consistent when it's dialed — an arm at 1.0 next to a thigh
-  // still stuck at 0.55 reads as a bug, not as depth.
-  const rearAlpha = config.rearArmAlpha;
-  g.fillStyle(bodyColor, rearAlpha);
-  cr(g, rearHipX,       5 + dip + hipY, 10, 26);   // rear thigh
-  cr(g, -HIP_X,        29,              9, 22);    // rear shin (planted)
+  // ── Side palettes ──────────────────────────────────────────────────────────
+  // One shaded palette per side, resolved once, so EVERY rear-side element —
+  // upper arm, forearm, glove, thigh, trunks segment, shin — gets an identical
+  // treatment. An arm on one treatment next to a thigh on another reads as a
+  // bug, not as depth, which is the same reasoning the old shared rear alpha
+  // gave; the difference since Stage 14 is that it's a darker opaque tint by
+  // default rather than translucency (see config.rearLimbDarken).
+  const leadSide = shade(pal, 0, 1.0);
+  const rearSide = shade(pal, config.rearLimbDarken, config.rearArmAlpha);
+
+  // ── Rear side (behind — drawn first, receded for depth) ────────────────────
+  drawThigh(g, rearSide, rearHipX, THIGH_CY + dip + hipY);
+  drawShin(g, rearSide, -HIP_X);
 
   // A punching rear arm is deferred: it swings ACROSS the front of the body, so
   // it has to be drawn on top of the torso, not behind it.
   // Everything from here that belongs to the UPPER body goes inside tilted() —
   // in three groups rather than one, because the legs are drawn interleaved
   // between them and the draw order is what produces the depth layering.
-  if (!rearIsPunching) tilted(() => drawArm(g, bodyColor, skinColor, pose.rear, rearAlpha));
+  if (!rearIsPunching) tilted(() => drawArm(g, rearSide, pose.rear));
 
   // ── Torso ──────────────────────────────────────────────────────────────────
   // Widens with the turn: a rotating fighter presents more chest to the camera.
@@ -584,27 +697,46 @@ export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0, bob = 
   // rather than as a jab from the other hand.
   const torsoW = 28 + 7 * turn;
   tilted(() => {
-    g.fillStyle(bodyColor, 1.0);
-    cr(g, shift + rk.torsoX, -20 + dip + rk.torsoY, torsoW, 38);
+    const torsoX  = shift + rk.torsoX;
+    const torsoY  = TORSO_CY + dip + rk.torsoY;
+    const waistY  = torsoY + TORSO_H / 2 - TRUNK_TORSO_H;   // top edge of the trunks
+    const trunksW = torsoW + TRUNK_FLARE * 2;
 
-    // Shorts stripe (visual anchor — makes the hip rotation readable)
+    // Bare torso.
+    g.fillStyle(leadSide.skin, 1.0);
+    cr(g, torsoX, torsoY, torsoW, TORSO_H);
+
+    // The torso's share of the trunks — its lower edge, so the waistline is
+    // continuous with each thigh's own trunk segment below it.
+    g.fillStyle(leadSide.trunks, 1.0);
+    cr(g, torsoX, waistY + TRUNK_TORSO_H / 2, trunksW, TRUNK_TORSO_H);
+
+    // Waistband highlight, sitting on the top edge of the trunks. This is the
+    // old shorts stripe in a new role, kept because it is the visual anchor that
+    // makes the hip rotation readable — a job that matters MORE now that the
+    // torso above it is a single flat skin tone with no other landmark.
     g.fillStyle(0xffffff, 0.22);
-    cr(g, shift + rk.torsoX, -4 + dip + rk.torsoY, torsoW, 9);
+    cr(g, torsoX, waistY + WAISTBAND_H / 2, trunksW, WAISTBAND_H);
   });
 
   // ── Lead side (front — drawn on top) ───────────────────────────────────────
-  g.fillStyle(bodyColor, 1.0);
-  cr(g, leadHipX,  5 + dip + hipY, 10, 26);   // lead thigh
-  cr(g, HIP_X,    29,               9, 22);   // lead shin (planted)
+  drawThigh(g, leadSide, leadHipX, THIGH_CY + dip + hipY);
+  drawShin(g, leadSide, HIP_X);
 
   tilted(() => {
-    drawArm(g, bodyColor, skinColor, pose.lead, 1.0);
+    drawArm(g, leadSide, pose.lead);
 
-    // Rear arm mid-cross: brightens as it extends so it reads as coming forward.
-    // Starts from the same tunable rear alpha and closes the remaining gap to
-    // fully solid, so the punch always ends at full opacity whatever the slider.
+    // Rear arm mid-cross: sheds its recede treatment as it extends, so it reads
+    // as coming forward. Both mechanisms unwind on the same curve — the darken
+    // interpolates toward 0 and the alpha toward solid — so the punch ends at
+    // full body colour whichever of the two sliders is dialled in.
     if (rearIsPunching) {
-      drawArm(g, bodyColor, skinColor, pose.rear, rearAlpha + (1 - rearAlpha) * PUNCH_BRIGHTEN * pose.ext);
+      const b = PUNCH_BRIGHTEN * pose.ext;
+      drawArm(g, shade(
+        pal,
+        config.rearLimbDarken * (1 - b),
+        config.rearArmAlpha + (1 - config.rearArmAlpha) * b,
+      ), pose.rear);
     }
 
     // ── Head ─────────────────────────────────────────────────────────────────
@@ -612,9 +744,9 @@ export function drawRig(g, bodyColor, skinColor, punch = null, guard = 0, bob = 
     // bleed ~0) snaps only the head while a cross moves the whole upper body.
     const headX = 1 + shift * 0.9 + rk.torsoX + rk.headX;
     const headY = -50 + dip + rk.torsoY + rk.headY;
-    g.fillStyle(skinColor, 1.0);
+    g.fillStyle(leadSide.skin, 1.0);
     g.fillCircle(headX, headY, 13);
-    g.fillStyle(skinColor, 0.80);
+    g.fillStyle(leadSide.skin, 0.80);
     g.fillCircle(headX - 7, headY + 3, 5);    // ear (on the away side)
   });
 }

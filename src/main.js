@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import GUI from 'lil-gui';
-import { config, punchDamageMult, punchAudioClass } from './config.js';
+import { config, punchDamageMult, punchAudioClass, cssHex } from './config.js';
 import { initCombatAudio, playCombatSound, renderCombatSound, audioLog } from './audio.js';
 import { Fighter } from './fighter.js';
 import { Dummy } from './dummy.js';
@@ -19,6 +19,32 @@ import {
 
 const GAME_W = 960;
 const GAME_H = 640;
+
+// ── Depth sorting (Stage 14 part 4) ──────────────────────────────────────────
+// Screen Y is depth in this game's convention, so both fighter containers take a
+// depth derived from their world y every frame: whoever is lower on screen is
+// nearer the camera and draws on top. Previously these were static (player 5,
+// dummy 4), which meant the dummy was drawn behind you even when standing well
+// in front of you — an ordering error that contact shadows make obvious.
+//
+// The band sits above the shadow layer and below flashGfx (15) / debugGfx (20).
+// Its span over the ring height is what sets the depth resolution: 10 units
+// across a 500 px ring is 0.02 per px.
+const FIGHTER_DEPTH_MIN = 2;
+const FIGHTER_DEPTH_MAX = 12;
+
+// Tiebreak: a constant bias in the PLAYER's favour, worth ~1 px of world y at
+// the span above. Deterministic by construction — there is exactly one crossing
+// point, at "dummy 1 px lower", so a dead-level pair (or two fighters pinned
+// against the same rope, where both clamp to the same y) always resolves the
+// same way instead of flickering on sub-pixel jitter. Player-in-front is also
+// the answer the old static depths gave, so nothing about the common case moves.
+const FIGHTER_DEPTH_TIEBREAK = 0.02;
+
+// The contact shadows sit above every arena layer (ropes are -20, the beam sheet
+// -6) and below both fighters. Under the beams on purpose: a shadow on the mat
+// should be lit by the overhead beams like the mat is.
+const SHADOW_DEPTH = -10;
 
 // ── Flash effect helpers ──────────────────────────────────────────────────────
 // Each flash: { x, y, color, elapsed, maxTime, style: 'ring'|'burst' }
@@ -40,6 +66,12 @@ class RingScene extends Phaser.Scene {
     // light beams and the vignette. Purely visual — it reads the ring bounds
     // rect to draw around, and nothing reads it back.
     this.arena = new Arena(this, GAME_W, GAME_H);
+
+    // Contact shadows (Stage 14 part 2) — see _drawShadows(). Deliberately a
+    // scene-level layer rather than something inside the fighter containers:
+    // those rotate and vertically squash for slip and knockdown, and a shadow
+    // caught in that transform would tilt off the ground during a slip.
+    this.shadowGfx = this.add.graphics().setDepth(SHADOW_DEPTH);
 
     this.flashGfx = this.add.graphics().setDepth(15);
     this._flashes = [];
@@ -122,7 +154,7 @@ class RingScene extends Phaser.Scene {
   // them off the world camera is the whole fix — no per-object repositioning.
   _setupCameras() {
     const world = [
-      ...this.arena.displayObjects(), this.flashGfx, this.debugGfx,
+      ...this.arena.displayObjects(), this.shadowGfx, this.flashGfx, this.debugGfx,
       this.fighter.container, this.dummy.container,
     ];
     const ui = [
@@ -400,6 +432,59 @@ class RingScene extends Phaser.Scene {
     this._hitStopTimer = Math.max(this._hitStopTimer, dur);
   }
 
+  // ── Contact shadows (Stage 14 part 2) ──────────────────────────────────────
+  /**
+   * Where each fighter's shadow sits and how big it is, in world space. Split
+   * out from the draw so the verification script asserts against the geometry
+   * the renderer actually consumes rather than re-deriving it.
+   *
+   * Anchored to the fighter's world (x, y) — their FEET, via shadowOffsetY —
+   * and to nothing else. Not the hit-reaction offsets, not the slip lean, not
+   * the bob: a fighter rocked back by a cross has moved their upper body, their
+   * feet haven't gone anywhere. The dummy's stagger IS included, because that
+   * one displaces the whole body through the ring (it's baked into this.x, and
+   * the drawn rig moves with it), unlike the rig-local reaction offsets.
+   *
+   * Knockdown is the single exception to "position only": a downed fighter is
+   * lying on the canvas rather than standing on it, so the ellipse widens and
+   * flattens by config.shadowDownRadiusScale.
+   */
+  _shadowGeom() {
+    return [this.fighter, this.dummy].map((f) => {
+      const s = f.isDown ? config.shadowDownRadiusScale : 1;
+      return {
+        x:  f.x,
+        y:  f.y + config.shadowOffsetY,
+        rx: config.shadowRadiusX * s,
+        ry: config.shadowRadiusY / s,
+      };
+    });
+  }
+
+  _drawShadows() {
+    const g = this.shadowGfx;
+    g.clear();
+    if (!config.shadowEnabled) return;
+    const color = cssHex(config.shadowColor);
+    for (const s of this._shadowGeom()) {
+      g.fillStyle(color, config.shadowAlpha);
+      g.fillEllipse(s.x, s.y, s.rx * 2, s.ry * 2);
+    }
+  }
+
+  // ── Depth sorting (Stage 14 part 4) ────────────────────────────────────────
+  // See the FIGHTER_DEPTH_* constants at the top of this file for the band and
+  // the tiebreak. Runs after both fighters have stepped, so it sorts on this
+  // frame's final positions rather than trailing them by one.
+  _updateDepthSort(bounds) {
+    const span    = Math.max(1, bounds.bottom - bounds.top);
+    const depthOf = (y) => FIGHTER_DEPTH_MIN +
+      Phaser.Math.Clamp((y - bounds.top) / span, 0, 1) * (FIGHTER_DEPTH_MAX - FIGHTER_DEPTH_MIN);
+
+    this.fighter.container.setDepth(depthOf(this.fighter.y) + FIGHTER_DEPTH_TIEBREAK);
+    this.dummy.container.setDepth(depthOf(this.dummy.y));
+  }
+
   // ── Flash effect rendering ─────────────────────────────────────────────────
   _updateFlashes(dt) {
     const g = this.flashGfx;
@@ -568,6 +653,10 @@ class RingScene extends Phaser.Scene {
     this.dummy.update(dt, this.fighter, bounds);
     // AFTER both have stepped — a punch resolves against current positions.
     this._updatePendingImpacts(dt);
+    // Same reason: both the shadows and the draw order are read off this
+    // frame's final positions, not last frame's.
+    this._drawShadows();
+    this._updateDepthSort(bounds);
     this._updateFlashes(dt);
     this._drawDebugOverlays();
     this.hud.update(this.fighter, this.dummy);
@@ -668,10 +757,18 @@ fighterF.add(config, 'playerMass',   20,  200,  1).name('Mass (kg)');
 fighterF.add(config, 'acceleration', 100, 3000, 10).name('Acceleration');
 fighterF.add(config, 'friction',     100, 3000, 10).name('Friction');
 fighterF.add(config, 'fighterRadius', 10,  60,  1).name('Hit Radius');
-fighterF.addColor(config, 'fighterBodyColor').name('Body Color');
+// Body Color is currently wired to nothing — see the note on fighterBodyColor
+// in config.js. Left on the panel pending a call on what to hand back to it.
+fighterF.addColor(config, 'fighterBodyColor').name('Body Color (unused)');
 fighterF.addColor(config, 'fighterSkinColor').name('Skin Color');
+fighterF.addColor(config, 'fighterTrunksColor').name('Trunks Color');
+fighterF.addColor(config, 'fighterGloveColor').name('Glove Color');
+fighterF.add(config, 'trunksHeight',      0, 26, 1).name('Trunks Down Thigh px');
 fighterF.add(config, 'guardBobAmplitude', 0, 12, 0.5).name('Move Bob px');
 fighterF.add(config, 'guardBobFrequency', 0,  6, 0.1).name('Move Bob Hz');
+// The two rear-side depth treatments, both live so they can be compared without
+// a code change: Darken is the current one, Alpha is the old translucency.
+fighterF.add(config, 'rearLimbDarken',    0,  1, 0.01).name('Rear Limb Darken');
 fighterF.add(config, 'rearArmAlpha',    0.4,  1, 0.01).name('Rear Limb Alpha');
 fighterF.add(config, 'facingDeadband',    0, 10, 0.25).name('Facing Deadband px');
 fighterF.add(config, 'fighterSeparationDist',     0, 100, 1).name('Separation Dist');
@@ -772,9 +869,23 @@ dummyF.add(config, 'dummyDamping',      1,  50,  1).name('Damping');
 dummyF.add(config, 'dummyAttackDelayMin', 0.5, 6, 0.1).name('Attack Delay Min');
 dummyF.add(config, 'dummyAttackDelayMax', 0.5, 8, 0.1).name('Attack Delay Max');
 dummyF.add(config, 'dummyWindupDuration', 0.2, 1.5, 0.05).name('Windup Duration');
-dummyF.addColor(config, 'dummyBodyColor').name('Body Color');
+dummyF.addColor(config, 'dummyBodyColor').name('Body Color (unused)');
 dummyF.addColor(config, 'dummySkinColor').name('Skin Color');
+dummyF.addColor(config, 'dummyTrunksColor').name('Trunks Color');
+dummyF.addColor(config, 'dummyGloveColor').name('Glove Color');
 dummyF.open();
+
+// Contact shadows (Stage 14) — purely visual. Enabled is here so the whole
+// effect can be toggled off for a side-by-side comparison.
+const shadowF = gui.addFolder('Shadows');
+shadowF.add(config, 'shadowEnabled')                       .name('Enabled');
+shadowF.addColor(config, 'shadowColor')                    .name('Color');
+shadowF.add(config, 'shadowAlpha',    0,   1,    0.01)     .name('Alpha');
+shadowF.add(config, 'shadowRadiusX',  2,  80,    1)        .name('Radius X px');
+shadowF.add(config, 'shadowRadiusY',  1,  40,    0.5)      .name('Radius Y px');
+shadowF.add(config, 'shadowOffsetY', -20, 90,    1)        .name('Offset Y px');
+shadowF.add(config, 'shadowDownRadiusScale', 1, 3, 0.05)   .name('Knockdown Spread x');
+shadowF.open();
 
 const dummyAiF = gui.addFolder('Dummy AI');
 dummyAiF.add(config, 'dummyMoveSpeed',                 50, 400, 5).name('Move Speed');
