@@ -8,7 +8,7 @@ import { VirtualJoystick } from './joystick.js';
 import { PunchButtons } from './punchButtons.js';
 import { BlockButton } from './blockButton.js';
 import { Hud } from './hud.js';
-import { FollowCamera } from './camera.js';
+import { FollowCamera, arenaBounds } from './camera.js';
 import { resolveOverlap } from './movement.js';
 import { Arena } from './arena.js';
 import {
@@ -740,10 +740,20 @@ crowdF.addColor(config, 'crowdFarColor')            .name('Far Color')  .onFinis
 crowdF.addColor(config, 'crowdNearColor')           .name('Near Color') .onFinishChange(rebuildCrowd);
 crowdF.close();
 
-// Follow camera (Stage 11) — viewport only, no gameplay effect. Zoom first:
-// see the trade-off note on config.camZoom.
+// Follow camera (Stage 11, dynamic zoom in Stage 15) — viewport only, no
+// gameplay effect. Zoom is solved from the framing constraints below rather
+// than set directly; the min/max are the useful knobs.
 const cameraF = gui.addFolder('Camera');
-cameraF.add(config, 'camZoom',        1,   4, 0.05).name('Zoom');
+cameraF.add(config, 'camZoomMin',       1,   4, 0.05).name('Zoom Min (wide)');
+cameraF.add(config, 'camZoomMax',       1,   6, 0.05).name('Zoom Max (tight)');
+cameraF.add(config, 'camFramePaddingX', 0, 200,   5) .name('Frame Pad X px');
+cameraF.add(config, 'camFramePaddingY', 0, 200,   5) .name('Frame Pad Y px');
+cameraF.add(config, 'camFighterExtent', 0, 200,   5) .name('Fighter Extent px');
+cameraF.add(config, 'camZoomLerp',    0.5,  20, 0.5) .name('Zoom Rate — Out');
+cameraF.add(config, 'camZoomInLerp',  0.5,  20, 0.5) .name('Zoom Rate — In');
+cameraF.add(config, 'camZoomDeadzone',  0, 0.3, 0.01).name('Zoom Deadzone');
+cameraF.add(config, 'arenaMarginX',     0, 400,   5) .name('Arena Margin X px');
+cameraF.add(config, 'arenaMarginY',     0, 400,   5) .name('Arena Margin Y px');
 cameraF.add(config, 'camPairMix',     0,   1, 0.05).name('Player ↔ Pair Anchor');
 cameraF.add(config, 'camBiasFrac',    0, 0.3, 0.01).name('Left Bias (frac)');
 cameraF.add(config, 'camBiasFalloff', 5, 300,   5) .name('Bias Flip Ramp px');
@@ -931,9 +941,13 @@ window.__cam = () => {
     x: (p.x - main.scrollX - main.width / 2) * main.zoom + main.width / 2,
     y: (p.y - main.scrollY - main.height / 2) * main.zoom + main.height / 2,
   });
+  const ring = s._getRingBounds();
   return {
     view,
-    ring: s._getRingBounds(),
+    ring,
+    // Stage 15 — the camera's own clamp rect (ring + arenaMargin*). Camera
+    // only; fighters still clamp to `ring`.
+    arena: arenaBounds(ring),
     main: { scrollX: main.scrollX, scrollY: main.scrollY, zoom: main.zoom },
     ui:   { scrollX: ui.scrollX,   scrollY: ui.scrollY,   zoom: ui.zoom },
     player: { x: s.fighter.x, y: s.fighter.y, screen: toScreen(s.fighter) },

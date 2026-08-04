@@ -3,7 +3,12 @@
 export const config = {
   // Ring dimensions (pixels)
   ringWidth: 500,
-  ringHeight: 500,
+  // Stage 15: shallower than it is wide, on purpose. A square play area inside
+  // a 3:2 viewport forces the camera to zoom out to frame the pair; a shallow
+  // walkable band (the beat-em-up arrangement) is what gives the zoom solve
+  // room to work. GAMEPLAY-VISIBLE — fighters reach the top/bottom ropes far
+  // more often at 300 than at 500.
+  ringHeight: 300,
 
   // Ring visuals
   ringFloorColor: '#c8a060',
@@ -70,16 +75,47 @@ export const config = {
   // Viewport only — see camera.js. Nothing here affects ring bounds, hit
   // geometry or input; it is purely what the world camera scrolls/zooms to.
   //
-  // camZoom is the knob to reach for first. It trades two things off against
-  // each other in a ring this size: the ring is 500 px wide and the player's
-  // own reachable x-range is only ~450 px, so at low zoom the view is nearly as
-  // wide as the ring and the horizontal clamp pins the camera almost always
-  // (the left-bias then never gets to show). Zooming in frees horizontal travel
-  // but tightens how much of an incoming punch you see coming.
-  //   2.4 → view is 400 × 267 world px (fighters ≈ 40% of screen height,
-  //         ~100 px of horizontal camera travel, ~233 px of vertical).
-  // ASSUMPTION — first-pass framing, deliberately on the loose side per spec.
-  camZoom: 2.4,
+  // Zoom is DERIVED (Stage 15), not authored: camera.js solves each frame for
+  // the loosest framing that still holds both fighters + camFighterExtent +
+  // padding, then clamps. The old static camZoom is retired — these bound and
+  // shape that solve instead.
+  //
+  // ASSUMPTION — all six of the framing numbers below are first-pass guesses.
+  // At the ring defaults the solve lands around 1.41 (fighters at opposite
+  // ropes) to ~2.9 (clinched); a fighter is ~111 world px tall, so ~156 screen
+  // px at the wide end and ~322 at the tight end (24% → 50% of the viewport).
+  camZoomMin: 1.3,
+  camZoomMax: 3.0,
+  // Framing margin, world px, around the pair's bounding box. Padding is what
+  // the solve tries to hold; it can be eroded when a clamp (camZoomMin, or the
+  // arena-fit floor) overrides the solve.
+  camFramePaddingX: 30,
+  camFramePaddingY: 30,
+  // Half-size of a fighter, for framing only — NOT a hitbox. 70 covers the rig
+  // margins (67 above the origin, 44 below, 24 either side at rest) so the
+  // frame is sized to their drawn extent rather than to their origin point,
+  // which would put a head exactly on the frame edge.
+  camFighterExtent: 70,
+  // Zoom smoothing, 1/s. Deliberately asymmetric: widening fast (a fighter
+  // leaving frame is a real failure) and tightening slowly (a frame that stays
+  // loose for a beat costs nothing, and this is what stops every jab from
+  // snapping the camera in). See the anti-oscillation note in camera.js.
+  camZoomLerp:   6,     // widening — target below current
+  camZoomInLerp: 2,     // tightening — target above current
+  // Deadzone on the solved zoom, in zoom units: the held target only moves once
+  // the solve drifts past this. Kills the constant small hunting that reads as
+  // the camera breathing. Costs up to ~10 world px of the framing padding at
+  // the wide end, which is why the padding above is larger than the erosion.
+  camZoomDeadzone: 0.06,
+
+  // ── Arena bounds (Stage 15) — CAMERA ONLY ──────────────────────────────────
+  // The ring rect grown by these margins. The camera clamps to the ARENA, not
+  // the ring, which is what lets the ring edge sit comfortably inside the frame
+  // instead of exactly on it. Fighter movement still clamps to the ring — these
+  // do not touch gameplay. This band is where the apron/ropes/posts/crowd live.
+  // ASSUMPTION — 110 is ~1.6× the current apron deck + skirt (34 + 34).
+  arenaMarginX: 110,
+  arenaMarginY: 110,
   // 0 = anchor on the player alone (rigid left-third lock, opponent free to
   // drift off-frame), 1 = anchor on the midpoint between both fighters (always
   // symmetric, but the player drifts off-frame at big separations). Between the

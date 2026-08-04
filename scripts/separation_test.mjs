@@ -207,7 +207,7 @@ console.log('\n=== 5. fighterSeparationDist = 0 disables it ===');
 // Screenshot the fixed scenario: crowded corner, separation on.
 await page.evaluate(({ B }) => {
   window.__config.fighterSeparationDist = 38;
-  window.__config.camZoom = 1.6;
+  window.__config.camZoomMin = window.__config.camZoomMax = 1.6;   // pin the zoom for a deterministic shot
   const sc = window.__game.scene.keys.RingScene;
   sc.dummy._loco.x = B.left + 24; sc.dummy._loco.y = B.bottom - 44;
   sc.fighter.x = B.left + 200; sc.fighter.y = B.bottom - 200;

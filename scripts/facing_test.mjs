@@ -336,7 +336,7 @@ for (const r of ropeResults) {
 // would leave facing carrying over from whatever ran last, a state real play
 // cannot produce.
 const shotFacing = await page.evaluate(async ({ ringB }) => {
-  window.__config.camZoom = 1.3;
+  window.__config.camZoomMin = window.__config.camZoomMax = 1.3;   // pin the zoom for a deterministic shot
   const sc = window.__game.scene.keys.RingScene;
   const d = sc.dummy, f = sc.fighter;
   const rx = ringB.left + 24;
