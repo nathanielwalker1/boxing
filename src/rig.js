@@ -232,6 +232,20 @@ export function peakProgress(type) {
   return PUNCHES[type] ? PUNCHES[type].peakAt : 0;
 }
 
+/**
+ * This punch's phase boundaries as fractions of its own duration — the same two
+ * numbers the trajectory above is built from. Exposed (Stage 16) so the
+ * vulnerability curve is shaped off the punch's REAL animation rather than a
+ * parallel timeline of its own: re-time a punch here and its exposure profile
+ * follows automatically.
+ *
+ * @returns {{cockEnd:number, peakAt:number}|null}
+ */
+export function punchTiming(type) {
+  const def = PUNCHES[type];
+  return def ? { cockEnd: def.cockEnd, peakAt: def.peakAt } : null;
+}
+
 const lerp    = (a, b, t) => a + (b - a) * t;
 const clamp01 = v => (v < 0 ? 0 : v > 1 ? 1 : v);
 const easeOut = u => 1 - (1 - u) * (1 - u);            // snap into the strike
@@ -412,6 +426,38 @@ export function punchGeometry(type, slot) {
     reach: Math.hypot(arm.wx - arm.sx, arm.wy - arm.sy),
     angle: Math.atan2(arm.wy - arm.sy, arm.wx - arm.sx),
   };
+}
+
+/**
+ * The path the WRIST travels across a punch, in rig-local space (Stage 16 part
+ * 5). Sampled from the same pose solver the punch is drawn with, so the streak
+ * the whiff effect draws is literally the arc the fist just took rather than an
+ * approximation of it.
+ *
+ * Defaults to the cock→peak span: the recovery is the arm coming back, and
+ * trailing a streak through it would read as a second swing.
+ *
+ * @param {string} type            punch type
+ * @param {'lead'|'rear'} slot     which rig slot threw it
+ * @param {number} aim             the punch's LOCKED aim-cone bend, radians
+ * @param {number} samples         points along the path (>= 2)
+ * @param {number} bob             the thrower's current bounce, so the path sits
+ *                                 where the arm actually is
+ * @param {object} react           their current hit-reaction offsets, same reason
+ * @returns {Array<{x:number, y:number}>}  tail (cocked) first, fist last
+ */
+export function wristPath(type, slot, aim = 0, samples = 8, bob = 0, react = NO_REACT) {
+  const def = PUNCHES[type];
+  if (!def) return [];
+  const n   = Math.max(2, Math.round(samples));
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const p    = def.cockEnd + (def.peakAt - def.cockEnd) * (i / (n - 1));
+    const pose = computePose({ type, arm: slot, p, aim }, 0, bob, react);
+    const hand = slot === 'lead' ? pose.lead : pose.rear;
+    out.push({ x: hand.wx, y: hand.wy });
+  }
+  return out;
 }
 
 /** The cone's half-angle in radians (config stores it in degrees). */
@@ -624,6 +670,9 @@ function drawShin(g, sh, cx) {
  * @param {number} guard      0..1 blend toward the raised block pose
  * @param {number} bob        px of movement bounce (0 when standing still)
  * @param {{headX,headY,torsoX,torsoY,tilt}} react  hit-reaction offsets (Stage 10)
+ * @returns {ReturnType<typeof computePose>} the pose it drew, so a caller
+ *          layering an overlay on top (the glove flash below) can anchor to the
+ *          same solved joints instead of re-solving them.
  */
 export function drawRig(g, pal, punch = null, guard = 0, bob = 0, react = NO_REACT) {
   g.clear();
@@ -749,4 +798,35 @@ export function drawRig(g, pal, punch = null, guard = 0, bob = 0, react = NO_REA
     g.fillStyle(leadSide.skin, 0.80);
     g.fillCircle(headX - 7, headY + 3, 5);    // ear (on the away side)
   });
+
+  return pose;
+}
+
+/**
+ * Defensive flash, localized to the GLOVES (Stage 16 part 5).
+ *
+ * Replaces `fillRect(-14, -50, 28, 64)` — a flat coloured slab over the torso
+ * and head that survived from the debug era. A block happens at the gloves, so
+ * that is where it now reads: two brief low-alpha halos on the solved wrist
+ * positions, drawn into the fighter's own local space (and so mirrored with them
+ * for free). Deliberately understated — this is feedback that something was
+ * absorbed, not a celebration.
+ *
+ * @param {Phaser.GameObjects.Graphics} g
+ * @param {ReturnType<typeof computePose>} pose  as returned by drawRig()
+ * @param {number} color    Phaser integer colour
+ * @param {number} strength 0..1, the flash's own decay envelope
+ */
+export function drawGloveFlash(g, pose, color, strength) {
+  const a = clamp01(strength) * config.blockFlashAlpha;
+  if (a <= 0 || !pose) return;
+  const r = config.fistRadius * config.blockFlashRadiusScale;
+  g.fillStyle(color, a);
+  g.fillCircle(pose.lead.wx, pose.lead.wy, r);
+  g.fillCircle(pose.rear.wx, pose.rear.wy, r);
+  // A tighter, brighter core so the halo still reads at low alpha against a
+  // glove that is already a saturated colour.
+  g.fillStyle(color, a * 0.9);
+  g.fillCircle(pose.lead.wx, pose.lead.wy, r * 0.5);
+  g.fillCircle(pose.rear.wx, pose.rear.wy, r * 0.5);
 }

@@ -14,8 +14,9 @@ import { Arena } from './arena.js';
 import {
   drawRig, computePose, leadArm, rearArm, armSlot,
   peakProgress, hurtboxes, circleHitsCircle, circleHitsBox,
-  aimAngle, punchGeometry, maxAimAngleRad,
+  aimAngle, punchGeometry, maxAimAngleRad, punchTiming, wristPath,
 } from './rig.js';
+import { punchVulnerability, applyVulnerabilityPunish } from './vulnerability.js';
 
 const GAME_W = 960;
 const GAME_H = 640;
@@ -54,6 +55,23 @@ function makeRing(x, y, color, maxTime = 0.28) {
 function makeBurst(x, y, color, maxTime = 0.22) {
   return { x, y, color, elapsed: 0, maxTime, style: 'burst' };
 }
+/**
+ * A directional motion streak along a path (Stage 16 part 5) — what a WHIFF
+ * gets instead of the two concentric expanding rings it used to draw. A
+ * concentric ring reads as an impact radiating from a point, which is exactly
+ * wrong for a punch that hit nothing; a whiff is a movement, so it gets the arc
+ * the fist actually travelled (see wristPath() in rig.js).
+ * @param {Array<{x,y}>} pts  tail first, fist last
+ */
+function makeStreak(pts, color, maxTime = 0.2) {
+  return { pts, color, elapsed: 0, maxTime, style: 'streak' };
+}
+
+// Block flash colours. Blue = an ordinary blocked hit (unchanged intent from
+// Stage 10); white = a PERFECT block, deliberately a smaller, cleaner read than
+// a counter gets — a perfect block is a setup, not a payoff.
+const BLOCK_FLASH_COLOR   = 0x3388ff;
+const PERFECT_FLASH_COLOR = 0xffffff;
 
 class RingScene extends Phaser.Scene {
   constructor() {
@@ -79,6 +97,15 @@ class RingScene extends Phaser.Scene {
     // Dev-only hurtbox overlay (config.showHurtboxes) — the hit geometry is
     // otherwise invisible, which makes the hurtbox sliders impossible to tune.
     this.debugGfx = this.add.graphics().setDepth(20);
+
+    // Dev-only vulnerability readout (config.showVulnerability) — same class of
+    // affordance as Show Hurtboxes, and for the same reason: vulnerability is a
+    // continuous number that cannot be read off the rig, so none of the counter
+    // or perfect-block tuning is possible without seeing it move. Screen-space
+    // (it is routed to the UI camera below), so it doesn't scroll with the ring.
+    this.vulnText = this.add.text(GAME_W / 2, 4, '', {
+      fontSize: '12px', color: '#ffdd66', fontFamily: 'monospace', align: 'center',
+    }).setOrigin(0.5, 0).setDepth(30).setVisible(false);
 
     // Punches scheduled to resolve at their peak-extension frame — see
     // _resolvePunch / _updatePendingImpacts.
@@ -162,6 +189,7 @@ class RingScene extends Phaser.Scene {
       ...this.punchBtns.displayObjects(),
       ...this.blockBtn.displayObjects(),
       ...this.hud.displayObjects(),
+      this.vulnText,
     ];
 
     this.uiCam = this.cameras.add(0, 0, GAME_W, GAME_H);
@@ -204,6 +232,11 @@ class RingScene extends Phaser.Scene {
     if (this._blockHeld) return;
     // Can't throw while down (Stage 6).
     if (this.fighter.isDown) return;
+    // Can't throw again until an extended WHIFF recovery has played out (Stage
+    // 16 part 2) — this is the whole cost of missing. Note what is NOT gated
+    // here: an ordinary punch still cancels into the next one exactly as it did
+    // before, and block is never gated at all (see Fighter.update).
+    if (this.fighter.inWhiffRecovery) return;
 
     // ── Hand selection ─────────────────────────────────────────────────────
     // Resolves to an ANATOMICAL arm ('left' | 'right'); the rig maps it to its
@@ -347,10 +380,18 @@ class RingScene extends Phaser.Scene {
 
     switch (outcome) {
       case 'whiff':
-        // Orange expanding ring at fist — "I swung but hit air"
-        this._flashes.push(makeRing(fist.x, fist.y, 0xffaa00));
-        this._flashes.push(makeRing(fist.x, fist.y, 0xffdd44, 0.18));
+        // A directional streak along the arc the fist just travelled (Stage 16
+        // part 5), replacing the two concentric rings that used to spawn here.
+        // Near-white rather than the old effect's orange: the mat is a warm tan
+        // (#c8a060), so an orange streak sits within a few points of the
+        // background it is drawn on and simply doesn't read. A cool near-white
+        // separates on any surface and suits "air moving past" better anyway.
+        this._flashes.push(makeStreak(
+          attacker.getWristPath(arm, punchType), 0xeef4ff, config.whiffStreakDuration));
         playCombatSound('whiff');
+        // Stage 16 part 2 — the whiff cost. Applied HERE, at the resolution, and
+        // not predicted earlier: the outcome simply isn't known before peak.
+        attacker.extendRecovery(config.whiffRecoveryMultiplier);
         break;
 
       case 'smother':
@@ -363,10 +404,26 @@ class RingScene extends Phaser.Scene {
         // that got absorbed at zero range, so it borrows the blocked variant
         // rather than getting a fifth sound of its own.
         playCombatSound('impactBlocked');
+        // Smother is a miss too, per the brief — same recovery penalty.
+        attacker.extendRecovery(config.whiffRecoveryMultiplier);
         break;
 
       case 'land': {
         const blocked = !!defender.isBlocking;
+
+        // ── Perfect block (Stage 16 part 4) ────────────────────────────────
+        // A guard raised within perfectBlockWindow of THIS impact resolving.
+        // blockHeldTime is Infinity whenever the guard is down, so an unblocked
+        // hit can never satisfy this. A normal held block is untouched — it
+        // simply ages past the window and behaves exactly as it did before.
+        const perfect = blocked && defender.blockHeldTime <= config.perfectBlockWindow;
+
+        // ── Counter (Stage 16 part 3) ──────────────────────────────────────
+        // Read BEFORE anything else touches the defender. Both fighters have
+        // already stepped this frame, so this is the same live number the debug
+        // readout is showing. A blocking defender is at 0 by construction, so a
+        // blocked hit is never a counter and the ordering below is unambiguous.
+        const targetVuln = defender.vulnerability || 0;
 
         // Blocked hits are always the absorbed variant regardless of punch
         // type; only clean hits get the per-weight-class impact. Both attackers
@@ -379,7 +436,7 @@ class RingScene extends Phaser.Scene {
         // feedback at all: it's the readout for a distinct game state
         // (blockReduction cuts the force by 75%, so the reaction alone would be
         // near-invisible and a blocked hit would look like a whiff).
-        if (blocked) defender.flash(0x3388ff);
+        if (blocked) defender.flash(perfect ? PERFECT_FLASH_COLOR : BLOCK_FLASH_COLOR);
 
         // Force = base + momentum contribution from the attacker's approach velocity
         const d    = dist || 1;
@@ -394,6 +451,13 @@ class RingScene extends Phaser.Scene {
         // still weaker than an advancing one. Scales stagger and health damage
         // together, since damage is derived from this same force value.
         force *= punchDamageMult(punchType);
+        // Counter bonus (Stage 16 part 3) — applied to the SHARED force value
+        // every downstream system already reads, so a counter is automatically
+        // harder, pushes further and reacts bigger without three separate
+        // multipliers. Stacks multiplicatively with the momentum term above and
+        // the per-punch damage multiplier; the measured ceiling that produces is
+        // reported by scripts/counter_test.mjs.
+        force *= 1 + targetVuln * config.counterForceBonus;
         if (blocked) force *= (1 - config.blockReduction);
 
         defender.receiveImpulse(dirX * force, dirY * force);
@@ -401,12 +465,38 @@ class RingScene extends Phaser.Scene {
         // this same force value so it scales with momentum and damage rather
         // than being a flat per-type animation.
         defender.receiveHit(punchType, force);
-        // Damage reuses this same post-block-reduction force value (Stage 6)
-        // rather than a parallel damage number — see config.healthDamagePerForce.
-        defender.takeDamage(force * config.healthDamagePerForce);
-        // Hit-stop (Stage 10) — a few frames of near-frozen timescale, length
-        // scaled by the same force. Applied globally in update().
-        this._triggerHitStop(force);
+
+        if (perfect) {
+          // No chip damage — takeDamage is simply not called. (There is no
+          // per-hit stamina cost anywhere in the build for the other half of
+          // this reward to waive; see the summary.) The stagger impulse and the
+          // rig reaction ARE kept: a perfect block still absorbs a punch, it
+          // doesn't delete it.
+          //
+          // The reward proper: the ATTACKER's vulnerability spikes, which opens
+          // a counter window through the part 1 + part 3 machinery rather than
+          // introducing a separate parry system.
+          applyVulnerabilityPunish(
+            attacker,
+            config.perfectBlockPunishVulnerability,
+            config.perfectBlockPunishDuration,
+          );
+          this._triggerHitStop(0, config.perfectBlockHitStop);
+        } else {
+          // Damage reuses this same post-block-reduction force value (Stage 6)
+          // rather than a parallel damage number — see config.healthDamagePerForce.
+          defender.takeDamage(force * config.healthDamagePerForce);
+          // Hit-stop (Stage 10) — a few frames of near-frozen timescale, length
+          // scaled by the same force, plus the counter bonus (Stage 16 part 3).
+          this._triggerHitStop(force, targetVuln * config.counterHitStopBonus);
+          if (targetVuln > 0) {
+            // Counter feedback: a sting layered OVER the punch's own impact
+            // sound (see the `counter` recipe in config), and a camera shake
+            // scaled by the same vulnerability. No new VFX shapes.
+            playCombatSound('counter');
+            this._shakeCamera(targetVuln);
+          }
+        }
         break;
       }
     }
@@ -426,10 +516,42 @@ class RingScene extends Phaser.Scene {
   //
   // Overlapping hits take the longer of the two rather than stacking; stacking
   // would let a fast combo compound into a genuine hang.
-  _triggerHitStop(force) {
+  // `bonus` (Stage 16) is added ON TOP of the clamped force-derived duration
+  // rather than inside the clamp, so a counter or a perfect block genuinely
+  // extends a hit-stop that was already at hitStopMax — clamping it in would
+  // have made the bonus invisible on exactly the hardest hits, which are the
+  // ones most likely to be counters.
+  _triggerHitStop(force, bonus = 0) {
     if (!config.hitStopEnabled) return;
-    const dur = Math.min(config.hitStopMax, config.hitStopBase + force * config.hitStopPerForce);
+    const base = Math.min(config.hitStopMax, config.hitStopBase + force * config.hitStopPerForce);
+    const dur  = base + Math.max(0, bonus);
     this._hitStopTimer = Math.max(this._hitStopTimer, dur);
+  }
+
+  /**
+   * Counter camera shake (Stage 16 part 3), scaled by the target's vulnerability.
+   *
+   * Checked against the Stage 15 zoom solve before shipping: Phaser's shake
+   * effect only translates the camera's render MATRIX (Effects/Shake.preRender)
+   * — it never writes scrollX/scrollY or zoom. FollowCamera sets both of those
+   * every frame, so there is nothing for the two to fight over, and the smoothed
+   * zoom is untouched.
+   *
+   * The zoom division is not cosmetic: Phaser scales the shake offset by zoom
+   * and then applies it through a matrix that is already scaled by zoom, so a
+   * fixed intensity would shake ~5x harder at the tight end of the zoom range
+   * (3.0) than at the wide end (1.3) — and counters happen up close, so the
+   * fixed version would only ever produce the violent one. Dividing by zoom²
+   * makes the config value mean "this fraction of the viewport", at any zoom.
+   *
+   * Shakes the WORLD camera only, so the HUD and the controls stay still.
+   */
+  _shakeCamera(vulnerability) {
+    const v   = Math.max(0, Math.min(1, vulnerability));
+    const amt = config.counterShakeIntensity * v;
+    if (amt <= 0 || config.counterShakeDuration <= 0) return;
+    const zoom = Math.max(0.1, this.cameras.main.zoom);
+    this.cameras.main.shake(config.counterShakeDuration * 1000, amt / (zoom * zoom), true);
   }
 
   // ── Contact shadows (Stage 14 part 2) ──────────────────────────────────────
@@ -499,6 +621,28 @@ class RingScene extends Phaser.Scene {
         const r = 8 + t * 32;                   // expands from 8 to 40
         g.lineStyle(3, f.color, alpha * 0.9);
         g.strokeCircle(f.x, f.y, r);
+      } else if (f.style === 'streak') {
+        // A whiff is a movement, not an explosion (Stage 16 part 5). The line
+        // tapers and brightens toward the fist end, and the TAIL catches up as
+        // the effect ages — so it reads as the swing trailing off rather than as
+        // a static arc fading out on the spot.
+        const pts  = f.pts;
+        const n    = pts.length;
+        if (n < 2) continue;
+        const from = Math.min(n - 2, Math.floor(t * (n - 1) * 0.65));
+        for (let i = from + 1; i < n; i++) {
+          const u = i / (n - 1);                // 0 = tail, 1 = fist
+          // The taper floors at 0.25 rather than running to zero: a ramp
+          // straight down to nothing left the back half of the arc invisible,
+          // which is the half that carries the direction.
+          const w = 0.25 + 0.75 * u;
+          g.lineStyle(Math.max(1, config.whiffStreakWidth * w),
+                      f.color, alpha * config.whiffStreakAlpha * w);
+          g.beginPath();
+          g.moveTo(pts[i - 1].x, pts[i - 1].y);
+          g.lineTo(pts[i].x, pts[i].y);
+          g.strokePath();
+        }
       } else {
         g.fillStyle(f.color, alpha * 0.65);
         g.fillCircle(f.x, f.y, 28);
@@ -515,6 +659,30 @@ class RingScene extends Phaser.Scene {
     this.debugGfx.clear();
     this._drawHurtboxDebug();
     this._drawAimConeDebug();
+  }
+
+  // ── Vulnerability readout (dev only, off by default) ──────────────────────
+  // Both fighters' live 0..1 value, plus the state that explains it: WHIFF while
+  // an extended recovery is running, PUNISH while a perfect-block spike is held,
+  // BLOCK while the guard is up (which pins it at 0). Sits behind
+  // config.showVulnerability, alongside Show Hurtboxes / Show Aim Cone.
+  _updateVulnReadout() {
+    const t = this.vulnText;
+    if (!config.showVulnerability) {
+      if (t.visible) t.setVisible(false);
+      return;
+    }
+    t.setVisible(true);
+    const tag = (f) => {
+      if (f.isDown)          return 'DOWN';
+      if (f.isBlocking)      return 'BLOCK';
+      if (f.inWhiffRecovery) return 'WHIFF';
+      if (f._punishTimer > 0) return 'PUNISH';
+      if (f.punchTimer > 0)  return String(f.punchType || '').toUpperCase();
+      return '';
+    };
+    const line = (label, f) => `${label} ${f.vulnerability.toFixed(2)} ${tag(f).padEnd(8)}`;
+    t.setText(`VULN   ${line('YOU', this.fighter)}   ${line('DUMMY', this.dummy)}`);
   }
 
   _drawHurtboxDebug() {
@@ -659,6 +827,7 @@ class RingScene extends Phaser.Scene {
     this._updateDepthSort(bounds);
     this._updateFlashes(dt);
     this._drawDebugOverlays();
+    this._updateVulnReadout();
     this.hud.update(this.fighter, this.dummy);
 
     // Camera last — it frames this frame's final positions rather than trailing
@@ -793,6 +962,47 @@ combatF.add(config, 'smotherDist',        0,  150,  5).name('Smother Dist');
 combatF.add(config, 'blockReduction',     0,    1, 0.05).name('Block Reduction');
 combatF.open();
 
+// ── Vulnerability (Stage 16 part 1 + 2) ──────────────────────────────────────
+// The curve's shape, and the whiff penalty that stretches its decay. Show
+// Readout is not optional equipment: vulnerability is a continuous number that
+// can't be read off the rig, so nothing below it can be tuned blind.
+const vulnF = gui.addFolder('Vulnerability');
+vulnF.add(config, 'vulnerabilityPeak',       0,   1, 0.05).name('Peak (max 0..1)');
+vulnF.add(config, 'vulnerabilityCockLevel',  0,   1, 0.05).name('Level at End of Cock');
+vulnF.add(config, 'vulnerabilityRiseShape',  0.3, 5, 0.1) .name('Rise Shape (>1 = late)');
+vulnF.add(config, 'vulnerabilityDecayShape', 0.3, 5, 0.1) .name('Decay Shape (>1 = fast)');
+vulnF.add(config, 'whiffRecoveryMultiplier', 1,   5, 0.1) .name('Whiff Recovery x');
+vulnF.add(config, 'showVulnerability')                    .name('Show Readout');
+vulnF.open();
+
+// ── Counter + perfect block (Stage 16 parts 3 + 4) ───────────────────────────
+// Counter Force x multiplies the SHARED force value, so it scales damage,
+// stagger and the hit reaction together. The perfect-block numbers below feed
+// the same vulnerability the counter reads — that's the loop.
+const counterF = gui.addFolder('Counter / Perfect Block');
+counterF.add(config, 'counterForceBonus',     0,   3, 0.05) .name('Counter Force x');
+counterF.add(config, 'counterHitStopBonus',   0, 0.2, 0.005).name('Counter Hit-Stop +s');
+counterF.add(config, 'counterShakeIntensity', 0, 0.03, 0.001).name('Counter Shake');
+counterF.add(config, 'counterShakeDuration',  0, 0.6, 0.02) .name('Shake Duration (s)');
+counterF.add(config, 'perfectBlockWindow',    0, 0.5, 0.01) .name('Perfect Window (s)');
+counterF.add(config, 'perfectBlockPunishVulnerability', 0, 1, 0.05).name('Punish Vulnerability');
+counterF.add(config, 'perfectBlockPunishDuration', 0, 1.5, 0.05).name('Punish Duration (s)');
+counterF.add(config, 'perfectBlockHitStop',   0, 0.2, 0.005).name('Perfect Hit-Stop (s)');
+counterF.open();
+
+// ── Feedback VFX (Stage 16 part 5) ───────────────────────────────────────────
+// The two placeholder effects, replaced. Both are deliberately understated —
+// they get redesigned once sprite art lands.
+const fxF = gui.addFolder('Feedback VFX');
+fxF.add(config, 'blockFlashDuration',    0.02, 0.5, 0.01).name('Block Flash (s)');
+fxF.add(config, 'blockFlashAlpha',       0,      1, 0.05).name('Block Flash Alpha');
+fxF.add(config, 'blockFlashRadiusScale', 0.5,    3, 0.05).name('Block Flash Radius x');
+fxF.add(config, 'whiffStreakDuration',   0.05, 0.6, 0.01).name('Whiff Streak (s)');
+fxF.add(config, 'whiffStreakSamples',    2,     24,    1).name('Whiff Streak Points');
+fxF.add(config, 'whiffStreakWidth',      1,     16,  0.5).name('Whiff Streak Width');
+fxF.add(config, 'whiffStreakAlpha',      0,      1, 0.05).name('Whiff Streak Alpha');
+fxF.close();
+
 // Hit geometry (Stage 9) — these ARE the range gate now: reach is whatever the
 // fist circle plus these boxes happen to produce per punch type.
 const hurtboxF = gui.addFolder('Hurtboxes');
@@ -920,7 +1130,14 @@ window.__rig    = {
   // Stage 13 — so the aim checks can solve the cone angle and read a punch's
   // real peak geometry directly, instead of re-deriving either from pixels.
   aimAngle, punchGeometry, maxAimAngleRad, armSlot,
+  // Stage 16 — so the vulnerability checks can evaluate the curve directly
+  // against the punch timings it is derived from, and the whiff-streak check
+  // can compare the drawn path to the real wrist arc.
+  punchTiming, wristPath,
 };
+// Stage 16 — the vulnerability curve itself, so vulnerability_test.mjs asserts
+// against the shipped function rather than re-deriving the shape.
+window.__vuln = { curve: punchVulnerability };
 // Audio can't be asserted on by listening in a headless browser, so the checks
 // in scripts/audio_test.mjs read the bounded log of which logical sound each
 // resolved outcome asked for, and at what pitch. See audio.js.

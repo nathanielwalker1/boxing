@@ -365,6 +365,105 @@ export const config = {
   // Block — percent of incoming force absorbed while actively blocking (0 = no reduction, 1 = fully negated)
   blockReduction: 0.75,
 
+  // ── Vulnerability (Stage 16 part 1) ─────────────────────────────────────────
+  // A continuous 0..1 "how exposed is this fighter right now" value carried by
+  // both fighters (see vulnerability.js). It is NOT a parallel timeline: the
+  // curve is sampled off the punch's OWN animation progress against the cockEnd
+  // / peakAt timings already in the PUNCHES table in rig.js, so each punch type
+  // gets its own exposure profile for free and re-timing a punch re-times its
+  // vulnerability with it.
+  //
+  //   0                  at rest, and (near enough) through the early cock
+  //   → cockLevel        by the end of the wind-up
+  //   → vulnerabilityPeak at full extension — the committed moment
+  //   → 0                across the recovery
+  //
+  // Blocking forces it to 0 outright, and so does being down (see the note in
+  // vulnerability.js — that one is a judgement call, flagged in the summary).
+  // ASSUMPTION — every number below is a first-pass feel guess.
+  vulnerabilityPeak:      1.00,   // 0..1 ceiling, so max exposure can be tuned below 1
+  vulnerabilityCockLevel: 0.15,   // fraction of peak reached by the END of the cock
+  vulnerabilityRiseShape: 2.00,   // >1 back-loads the rise (flat early cock, steep into peak)
+  vulnerabilityDecayShape: 1.20,  // >1 drops off quickly after peak; <1 keeps you exposed longer
+
+  // Dev-only readout of both fighters' live vulnerability (and whiff-recovery
+  // state). Sits next to Show Hurtboxes — the number is unreadable off the rig,
+  // and none of the rest of this stage can be tuned without seeing it move.
+  showVulnerability: false,
+
+  // ── Whiff cost (Stage 16 part 2) ────────────────────────────────────────────
+  // Multiplies the POST-PEAK portion of a punch's animation when it resolves as
+  // a whiff or a smother — the cock and the extension have already happened by
+  // the time the outcome is known. Everything follows from stretching that one
+  // stretch of the timeline: the arm retracts visibly slower, the vulnerability
+  // curve decays over the longer window, and the fighter can't throw again until
+  // it ends.
+  //
+  // It does NOT lock the guard out: block stays available for the whole extended
+  // recovery and still zeroes vulnerability (locked mechanic — see CLAUDE.md and
+  // the note in Fighter.update). What it does keep is the throw lockout, so
+  // guarding up out of a whiff is a real option rather than a free reset.
+  // ASSUMPTION, and the single most important number in this stage to feel-test.
+  // MEASURED at the shipped punch durations, this is what the multiplier buys:
+  //
+  //           normal recovery    extra at 2.2x    extra at 3.5x    extra at 5x
+  //   jab          58 ms            70 ms           145 ms          232 ms
+  //   cross        53 ms            64 ms           133 ms          213 ms
+  //   hook         54 ms            65 ms           136 ms          217 ms
+  //   uppercut     60 ms            72 ms           150 ms          240 ms
+  //
+  // The first guess here was 2.2, which works out at ~4 frames — too small to
+  // change the spam behaviour this exists to fix. 3.5 costs ~9 frames, so a
+  // missed punch is a beat the opponent can actually step into, and it keeps the
+  // whole press-to-next-throw cycle for a jab at ~0.25 s. Raise toward 5 if
+  // whiffing still feels free; drop it if the lockout reads as sluggish.
+  whiffRecoveryMultiplier: 3.5,
+
+  // ── Counter (Stage 16 part 3) ───────────────────────────────────────────────
+  // A hit landed on a vulnerable target multiplies the SHARED force value by
+  // 1 + (targetVulnerability × counterForceBonus), so damage, stagger impulse and
+  // the Stage 10 hit reaction all scale together off one number rather than
+  // three. Stacks multiplicatively with the momentum term and the per-punch
+  // damage multiplier — see the measured ceiling in scripts/counter_test.mjs.
+  // ASSUMPTION — feel guess. 0.9 makes a peak-vulnerability counter nearly
+  // double-force.
+  counterForceBonus: 0.90,
+
+  // Feedback. No new VFX shapes here on purpose: hit-stop is the cheapest and
+  // most reliable "that landed" signal, and it already exists.
+  counterHitStopBonus:  0.05,   // seconds ADDED on top of the clamped hit-stop, × vulnerability
+  counterShakeIntensity: 0.006, // fraction of the viewport, × vulnerability (zoom-normalised — see _shakeCamera)
+  counterShakeDuration:  0.18,  // seconds
+
+  // ── Perfect block (Stage 16 part 4) ─────────────────────────────────────────
+  // A guard raised within perfectBlockWindow seconds of an impact resolving.
+  // The reward is not a new parry system — it spikes the ATTACKER's
+  // vulnerability, which opens a counter window through the part 1 + part 3
+  // machinery that already exists.
+  // ASSUMPTION — all four are guesses. perfectBlockWindow at 0.12 s is ~7 frames,
+  // which is tight for a human but (see the summary) far too loose to stop the
+  // dummy's zero-latency reactive block from perfect-blocking every single time.
+  perfectBlockWindow:              0.12,   // seconds after the guard goes up
+  perfectBlockPunishVulnerability: 0.85,   // 0..1 the attacker is pinned at
+  perfectBlockPunishDuration:      0.45,   // seconds the spike is held
+  perfectBlockHitStop:             0.05,   // seconds — deliberately under a counter's
+
+  // ── Defensive / whiff VFX (Stage 16 part 5) ─────────────────────────────────
+  // The block flash used to be a flat rect over the torso and head. It is now
+  // localized to the GLOVES, where the block actually happens.
+  blockFlashDuration:    0.14,   // seconds
+  blockFlashAlpha:       0.40,   // peak alpha — deliberately low, this is defensive feedback
+  blockFlashRadiusScale: 1.35,   // × fistRadius
+
+  // The whiff effect used to be two concentric expanding rings, which read as an
+  // impact radiating from a point — exactly wrong for a punch that hit nothing.
+  // It is now a directional streak along the path the wrist actually travelled
+  // (see wristPath() in rig.js), tapering and fading from the tail forward.
+  whiffStreakDuration: 0.20,   // seconds
+  whiffStreakSamples:  9,      // points sampled along the cock→peak wrist path
+  whiffStreakWidth:    6,      // px — line width at the fist end, tapering to ~1 at the tail
+  whiffStreakAlpha:    0.55,   // peak alpha at the fist end
+
   // ── Hit reaction (Stage 10) ─────────────────────────────────────────────────
   // The localized rig response to a landed punch — see reaction.js. Shared
   // spring first, then the per-punch SHAPE that decides where the impact goes.
@@ -611,6 +710,22 @@ export const config = {
         { type: 'noise', gain: 0.90, attack: 0.005, decay: 0.090, filter: { type: 'bandpass', freq: 820,  q: 1.3 } },
         { type: 'noise', gain: 0.20, attack: 0.006, decay: 0.045, filter: { type: 'bandpass', freq: 1150, q: 1.5 } },
         { type: 'noise', gain: 0.45, attack: 0.006, decay: 0.070, filter: { type: 'bandpass', freq: 520,  q: 1.4 } },
+      ],
+    },
+
+    // Counter (Stage 16) — a STING layered on top of the punch's own impact
+    // sound, not a replacement for it. Replacing would have cost the punch-type
+    // read (a countered jab should still crack like a jab) and would have
+    // collapsed the three-way spectral split the impacts are built on, which
+    // audio_test.mjs asserts. So this owns a band none of them do: a fast
+    // upward tone snap over a tight metallic ring, short enough to fuse with the
+    // impact it sits on rather than sounding like a second event.
+    counter: {
+      gain: 0.55,
+      layers: [
+        { type: 'tone',  gain: 0.70, attack: 0.001, decay: 0.110, wave: 'square',   freq: 180, freqEnd: 640 },
+        { type: 'tone',  gain: 0.45, attack: 0.001, decay: 0.190, wave: 'triangle', freq: 900, freqEnd: 1500 },
+        { type: 'noise', gain: 0.30, attack: 0.001, decay: 0.050, filter: { type: 'bandpass', freq: 2400, freqEnd: 5200, q: 2.2 } },
       ],
     },
 

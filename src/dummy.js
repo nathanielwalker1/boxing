@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import { config, dummyPalette } from './config.js';
-import { drawRig, computePose, peakProgress, armSlot, leadArm, hurtboxes, aimAngle } from './rig.js';
+import { drawRig, drawGloveFlash, computePose, peakProgress, armSlot, leadArm, hurtboxes, aimAngle, wristPath } from './rig.js';
 import { stepMovement, stepBob, stepFacing } from './movement.js';
 import { HitReaction } from './reaction.js';
+import { stepVulnerability, clearVulnerabilityPunish } from './vulnerability.js';
 
 function randRange(min, max) {
   return min + Math.random() * (max - min);
@@ -92,6 +93,10 @@ export class Dummy {
     this.punchType  = null;
     this.punchTimer = 0;
     this.punchAim   = 0;      // aim-cone bend (radians), locked when the throw commits — same rule as the player's
+    // Whiff-recovery stretch on the post-peak portion of the windup (Stage 16
+    // part 2) — identical contract to Fighter's, so the dummy pays the same
+    // price for a miss the player does.
+    this._recoveryScale = 1;
 
     // Attack cadence
     this._onAttackImpact  = onAttackImpact;
@@ -105,6 +110,14 @@ export class Dummy {
     // reads on the player, so blockReduction applies with no new plumbing.
     this.isBlocking = false;
     this.blockTimer = 0;
+    // Seconds the guard has been continuously up — same contract as Fighter's,
+    // so the perfect-block test in _resolveAttack doesn't care who is defending.
+    this.blockHeldTime = Infinity;
+
+    // Continuous 0..1 exposure (Stage 16 part 1) — see vulnerability.js.
+    this.vulnerability = 0;
+    this._punishTimer  = 0;
+    this._punishVuln   = 0;
 
     // Cached each frame for the attack gate / aggression check, and read by
     // onOpponentPunchStart (which fires earlier in the frame, so it sees the
@@ -155,13 +168,33 @@ export class Dummy {
     return {
       type: this.punchType,
       arm:  armSlot(this.stance, this.punchArm),   // anatomical → rig slot
-      p:    atPeak ? peakProgress(this.punchType) : 1 - this.punchTimer / this._windupDuration,
+      p:    atPeak ? peakProgress(this.punchType) : this.punchProgress(),
       aim:  this.punchAim,                         // locked at throw time, never re-sampled
     };
   }
 
+  /** This windup's animation progress, 0..1 — see Fighter.punchProgress(). */
+  punchProgress() {
+    if (this.punchTimer <= 0) return 0;
+    const total = this._windupDuration * this._recoveryScale;
+    return total > 0 ? 1 - this.punchTimer / total : 1;
+  }
+
+  /** Stretch what's left of this windup — see Fighter.extendRecovery(). */
+  extendRecovery(mult) {
+    const k = Math.max(1, mult || 1);
+    if (k === 1 || this.punchTimer <= 0) return;
+    this.punchTimer     *= k;
+    this._recoveryScale *= k;
+  }
+
+  /** True while paying the whiff penalty — see Fighter.inWhiffRecovery. */
+  get inWhiffRecovery() {
+    return this.punchTimer > 0 && this._recoveryScale > 1;
+  }
+
   draw() {
-    drawRig(
+    const pose = drawRig(
       this.gfx,
       dummyPalette(),
       this._punchState(),
@@ -169,6 +202,11 @@ export class Dummy {
       this._bob,
       this.reaction.pose(),
     );
+
+    // ── Block flash overlay drawn ON TOP of the rig (mirrors Fighter's) ────
+    // Stage 16 part 5: localized to the gloves. The decay happens in update(),
+    // which runs it before calling us — this is render only.
+    if (this.flashAlpha > 0) drawGloveFlash(this.gfx, pose, this.flashColor, this.flashAlpha);
 
     // ── Down pose (Stage 6) — same exaggerated rotate+squash as Fighter's,
     //    applied post-hoc to the gfx child so this.x/this.y stay authoritative.
@@ -194,6 +232,20 @@ export class Dummy {
     const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
+  }
+
+  /**
+   * The world-space arc this punch's wrist travelled — see Fighter.getWristPath().
+   * @param {'left'|'right'} arm
+   * @param {string} type
+   */
+  getWristPath(arm, type) {
+    const flip = this.facingRight ? 1 : -1;
+    const pts  = wristPath(
+      type, armSlot(this.stance, arm), this.punchAim,
+      config.whiffStreakSamples, this._bob, this.reaction.pose(),
+    );
+    return pts.map(p => ({ x: this.x + p.x * flip, y: this.y + p.y }));
   }
 
   /**
@@ -271,13 +323,16 @@ export class Dummy {
     this.punchType       = null;
     this.punchTimer      = 0;
     this.punchAim        = 0;
+    this._recoveryScale  = 1;
     this._impactPending  = false;
     this._forceAttack    = false;
     this.isBlocking      = false;
     this.blockTimer      = 0;
+    this.blockHeldTime   = Infinity;
     this.staggerVx = 0;
     this.staggerVy = 0;
     this.reaction.reset();   // the knockdown pose takes the rig over entirely
+    clearVulnerabilityPunish(this);
   }
 
   /**
@@ -295,13 +350,16 @@ export class Dummy {
    */
   onOpponentPunchStart() {
     if (this.isDown) return;
-    if (this.punchTimer > 0) return;                                  // mid-windup: punching and blocking are mutually exclusive
+    // Mid-windup: punching and blocking are mutually exclusive. An extended
+    // whiff recovery is the one exception, same as the player's (Stage 16).
+    if (this.punchTimer > 0 && !this.inWhiffRecovery) return;
     if (this.blockTimer > 0) return;                                  // guard already up — don't re-roll or extend it
     if (this._distToOpponent > config.dummyEngageDist) return;        // nothing to defend against from out of range
     if (Math.random() >= config.dummyBlockReactionChance) return;     // failed the roll — eats this one
 
-    this.blockTimer = config.dummyBlockReactionWindow;
-    this.isBlocking = true;   // set now, not in update(), so it applies to the punch that triggered it
+    this.blockTimer    = config.dummyBlockReactionWindow;
+    this.isBlocking    = true;   // set now, not in update(), so it applies to the punch that triggered it
+    this.blockHeldTime = 0;      // …and so does the perfect-block clock (Stage 16 part 4)
   }
 
   /**
@@ -346,7 +404,14 @@ export class Dummy {
     // mid-windup so the locked "blocking and punching are mutually exclusive"
     // rule holds for the dummy too.
     if (this.blockTimer > 0) this.blockTimer = Math.max(0, this.blockTimer - dt);
-    this.isBlocking = !this.isDown && this.blockTimer > 0 && this.punchTimer === 0;
+    const wasBlocking = this.isBlocking;
+    // Same guard-open rule the player has (Stage 16 part 2): a windup blocks the
+    // guard, an extended WHIFF recovery does not.
+    this.isBlocking = !this.isDown && this.blockTimer > 0 &&
+                      (this.punchTimer === 0 || this.inWhiffRecovery);
+    this.blockHeldTime = this.isBlocking
+      ? (wasBlocking ? this.blockHeldTime + dt : 0)
+      : Infinity;
 
     // ── Stamina (Stage 6) — frozen while down; per-punch cost is deducted at
     //    throw time below. Blocking drains and suppresses regen, same as the
@@ -495,6 +560,7 @@ export class Dummy {
             player.y - this.y,
           );
           this.punchTimer      = this._windupDuration;
+          this._recoveryScale  = 1;
           this._impactPending  = true;
           // Impact fires at the trajectory's own peak (Stage 9), not at a flat
           // half-windup — getFistPos() samples the peak pose, so the two have to
@@ -505,15 +571,16 @@ export class Dummy {
       }
     }
 
+    // ── Block flash decay — BEFORE the redraw, which renders it (see draw())
+    if (this.flashAlpha > 0) {
+      this.flashAlpha = Math.max(0, this.flashAlpha - dt / Math.max(0.01, config.blockFlashDuration));
+    }
+
+    // ── Vulnerability (Stage 16 part 1) ────────────────────────────────────
+    stepVulnerability(this, dt);
+
     // ── Redraw rig (clears previous frame, picks up live color config changes)
     this.draw();
-
-    // ── Hit flash overlay drawn ON TOP of the rig ────────────────────────
-    if (this.flashAlpha > 0) {
-      this.flashAlpha = Math.max(0, this.flashAlpha - dt / 0.18);
-      this.gfx.fillStyle(this.flashColor, this.flashAlpha * 0.55);
-      this.gfx.fillRect(-14, -50, 28, 64);   // covers torso + head area
-    }
 
     // ── Sync position ─────────────────────────────────────────────────────
     this.container.setPosition(this.x, this.y);

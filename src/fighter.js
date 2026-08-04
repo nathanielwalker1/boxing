@@ -1,7 +1,8 @@
 import { config, punchSpeedMult, playerPalette } from './config.js';
-import { drawRig, computePose, peakProgress, armSlot, hurtboxes } from './rig.js';
+import { drawRig, drawGloveFlash, computePose, peakProgress, armSlot, hurtboxes, wristPath } from './rig.js';
 import { stepMovement, stepBob, stepFacing } from './movement.js';
 import { HitReaction } from './reaction.js';
+import { stepVulnerability, clearVulnerabilityPunish } from './vulnerability.js';
 
 /**
  * Fighter — player-controlled boxer rig.
@@ -31,9 +32,27 @@ export class Fighter {
     this.punchTimer = 0;      // seconds remaining in current punch animation
     this.punchAim   = 0;      // aim-cone bend (radians), LOCKED at the input frame — see aimAngle() in rig.js
 
+    // Multiplies the POST-PEAK portion of the current punch's timeline. 1 =
+    // normal; config.whiffRecoveryMultiplier once this punch has resolved as a
+    // whiff or a smother (see extendRecovery). Reset on every new punch.
+    this._recoveryScale = 1;
+
     // Block state — isBlocking only goes true once any in-progress punch has
     // finished (see update()), so a held block never snaps a punch animation.
+    // The one exception is an extended whiff recovery, where the guard stays
+    // immediately available — see the locked-mechanic note in update().
     this.isBlocking = false;
+    // Seconds the guard has been continuously up; Infinity while not blocking.
+    // This is what makes a perfect block detectable (Stage 16 part 4) — a guard
+    // raised at the last instant and one held for five seconds were previously
+    // indistinguishable.
+    this.blockHeldTime = Infinity;
+
+    // Continuous 0..1 exposure (Stage 16 part 1) — see vulnerability.js. Read by
+    // the counter multiplier in _resolveAttack, and by the debug readout.
+    this.vulnerability = 0;
+    this._punishTimer  = 0;   // perfect-block punish spike (part 4)
+    this._punishVuln   = 0;
 
     // Slip/duck state (Stage 5) — see _triggerSlip() and getHitPos().
     this.slipTimer = 0;   // seconds remaining in the active slip window
@@ -105,7 +124,47 @@ export class Fighter {
     this.punchType       = type;
     this.punchAim        = aim;
     this.punchTimer      = this._punchDuration;
+    this._recoveryScale  = 1;
     this.stamina         = Math.max(0, this.stamina - config.staminaDrainPerPunch);
+  }
+
+  /**
+   * This punch's animation progress, 0..1. Divides by the EFFECTIVE duration
+   * (base × any whiff-recovery stretch) rather than the base one, so a stretched
+   * recovery plays the same pose sequence over a longer real time instead of
+   * being clipped.
+   */
+  punchProgress() {
+    if (this.punchTimer <= 0) return 0;
+    const total = this._punchDuration * this._recoveryScale;
+    return total > 0 ? 1 - this.punchTimer / total : 1;
+  }
+
+  /**
+   * Stretch what's LEFT of this punch — its recovery (Stage 16 part 2). Called
+   * by RingScene._resolveAttack the instant a punch resolves as a whiff or a
+   * smother, which is at peak extension, so by construction the cock and the
+   * extension have already happened and only the post-peak portion is affected.
+   *
+   * Scaling the remaining timer and the effective duration by the same factor
+   * keeps punchProgress() exactly continuous across the change — the arm does
+   * not jump, it just starts retracting slower — and it means the vulnerability
+   * decay (which is expressed in progress) stretches with it for free.
+   */
+  extendRecovery(mult) {
+    const k = Math.max(1, mult || 1);
+    if (k === 1 || this.punchTimer <= 0) return;
+    this.punchTimer     *= k;
+    this._recoveryScale *= k;
+  }
+
+  /**
+   * True while this fighter is paying the whiff penalty. Gates re-throwing (see
+   * RingScene._resolvePunch) — but deliberately NOT blocking, which stays
+   * immediately available throughout. See update().
+   */
+  get inWhiffRecovery() {
+    return this.punchTimer > 0 && this._recoveryScale > 1;
   }
 
   /**
@@ -130,7 +189,7 @@ export class Fighter {
     return {
       type: this.punchType,
       arm:  armSlot(this.stance, this.punchArm),   // anatomical → rig slot
-      p:    atPeak ? peakProgress(this.punchType) : 1 - this.punchTimer / this._punchDuration,
+      p:    atPeak ? peakProgress(this.punchType) : this.punchProgress(),
       aim:  this.punchAim,                         // locked at throw time, never re-sampled
     };
   }
@@ -153,8 +212,11 @@ export class Fighter {
     this.punchType      = null;
     this.punchTimer     = 0;
     this.punchAim       = 0;
+    this._recoveryScale = 1;
     this.isBlocking     = false;
+    this.blockHeldTime  = Infinity;
     this.slipTimer      = 0;
+    clearVulnerabilityPunish(this);   // the knockdown supersedes any punish window
     this.vx = 0;
     this.vy = 0;
     this.reaction.reset();   // the knockdown pose takes the rig over entirely
@@ -175,6 +237,25 @@ export class Fighter {
     const hand = armSlot(this.stance, arm) === 'lead' ? pose.lead : pose.rear;
     const flip = this.facingRight ? 1 : -1;
     return { x: this.x + hand.wx * flip, y: this.y + hand.wy };
+  }
+
+  /**
+   * The world-space arc this punch's wrist travelled from its cocked pose to
+   * full extension (Stage 16 part 5) — what the whiff streak is drawn along.
+   * Same mirror/anchor conversion getFistPos() uses, so the streak's head lands
+   * exactly on the fist position the resolver tested with.
+   * @param {'left'|'right'} arm  anatomical arm
+   * @param {string} type         punch type (passed in rather than read off
+   *        this.punchType, so a resolution can't be misattributed if the punch
+   *        state has already been cleared)
+   */
+  getWristPath(arm, type) {
+    const flip = this.facingRight ? 1 : -1;
+    const pts  = wristPath(
+      type, armSlot(this.stance, arm), this.punchAim,
+      config.whiffStreakSamples, this._bob, this.reaction.pose(),
+    );
+    return pts.map(p => ({ x: this.x + p.x * flip, y: this.y + p.y }));
   }
 
   /**
@@ -278,7 +359,7 @@ export class Fighter {
     // rig.js owns the punch trajectory now — this just hands it the current
     // punch type/arm and normalized progress (see _punchState()).
     const react = this.reaction.pose();
-    drawRig(
+    const pose  = drawRig(
       this.gfx,
       playerPalette(),
       this._punchState(),
@@ -287,11 +368,10 @@ export class Fighter {
       react,
     );
 
-    // ── Hit flash overlay drawn ON TOP of the rig (mirrors Dummy's) ────────
-    if (this.flashAlpha > 0) {
-      this.gfx.fillStyle(this.flashColor, this.flashAlpha * 0.55);
-      this.gfx.fillRect(-14, -50, 28, 64);   // covers torso + head area
-    }
+    // ── Block flash overlay drawn ON TOP of the rig (mirrors Dummy's) ──────
+    // Stage 16 part 5: localized to the gloves, where the block happens. Was a
+    // flat fillRect(-14, -50, 28, 64) slab over the torso and head.
+    if (this.flashAlpha > 0) drawGloveFlash(this.gfx, pose, this.flashColor, this.flashAlpha);
 
     // ── Slip/duck visual lean, or down pose (Stage 6) ───────────────────────
     // Purely cosmetic — offsets/rotates/scales the gfx child within the
@@ -361,7 +441,25 @@ export class Fighter {
     // an in-progress punch is left to finish rather than snapping its animation.
     // Also mutually exclusive with an active slip (assumption — see summary),
     // and disabled entirely while down (Stage 6).
-    this.isBlocking = !this.isDown && blockHeld && this.punchTimer === 0 && this.slipTimer === 0;
+    //
+    // LOCKED MECHANIC (CLAUDE.md): blocking and punching are mutually exclusive,
+    // but switching between them must feel instant. Stage 16 part 2 stretches
+    // the recovery of a whiffed punch, and that penalty must NOT read as the
+    // controls going dead — so the guard is available for the whole extended
+    // window. What the penalty still costs is the throw: _resolvePunch refuses
+    // while inWhiffRecovery, and the punch timer keeps running underneath the
+    // raised guard rather than being cancelled by it. Getting punished for a
+    // whiff means "you were caught out of position", not "input stopped".
+    const wasBlocking = this.isBlocking;
+    const guardOpen   = this.punchTimer === 0 || this.inWhiffRecovery;
+    this.isBlocking   = !this.isDown && blockHeld && guardOpen && this.slipTimer === 0;
+
+    // How long the guard has been up, for the perfect-block test (part 4).
+    // Zeroed on the rising edge only, so a held guard ages out of the window and
+    // a re-raise starts a fresh one.
+    this.blockHeldTime = this.isBlocking
+      ? (wasBlocking ? this.blockHeldTime + dt : 0)
+      : Infinity;
 
     // ── Slip/duck: flick-vs-hold detector — suspended entirely while down ──
     // Watches the same merged inputX/inputY everything else reads — a pure
@@ -392,10 +490,18 @@ export class Fighter {
     if (this.slipTimer > 0) this.slipTimer = Math.max(0, this.slipTimer - dt);
 
     // ── Hit flash decay ────────────────────────────────────────────────────
-    if (this.flashAlpha > 0) this.flashAlpha = Math.max(0, this.flashAlpha - dt / 0.18);
+    if (this.flashAlpha > 0) {
+      this.flashAlpha = Math.max(0, this.flashAlpha - dt / Math.max(0.01, config.blockFlashDuration));
+    }
 
     // ── Hit reaction springs (Stage 10) ────────────────────────────────────
     this.reaction.update(dt);
+
+    // ── Vulnerability (Stage 16 part 1) ────────────────────────────────────
+    // AFTER the punch timer and the block state above, so it reads this frame's
+    // settled values — a punch resolving later this frame sees the same number
+    // the player is looking at in the debug readout.
+    stepVulnerability(this, dt);
 
     // ── Stamina drain/regen (Stage 6) — frozen while down ───────────────────
     // Punch cost is deducted once at throw time (see startPunch()); this only
