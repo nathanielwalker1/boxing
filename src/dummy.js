@@ -130,6 +130,21 @@ export class Dummy {
     this.stamina        = config.staminaMax;
     this.isDown         = false;
     this.knockdownTimer = 0;
+    // Seconds of stamina-regen suppression left after taking a hit (Stage 17
+    // part 0d) — see receiveStaminaChip(). Mirrors Fighter's.
+    this._hitRegenDelay = 0;
+
+    // Monotonic count of punches this dummy has COMMITTED to, written on the
+    // frame the throw actually starts (see update()), alongside the gate
+    // distance that commit was made at. Exists because a throw's 0→n punchTimer
+    // edge is not observable from outside: when the dummy is armed, the same
+    // update() that ends one windup starts the next, so punchTimer is never
+    // seen at exactly 0 in between. Inferring a throw from punchTimer
+    // INCREASING used to work, but extendRecovery() (Stage 16) now raises it
+    // mid-punch on a whiff, so one whiffed jab read as several throws. This is
+    // the commit observed at the source instead of reconstructed from a timer.
+    this.throwCount    = 0;
+    this.lastThrowDist = Infinity;
 
     // Container + graphics (same pattern as Fighter)
     this.container = scene.add.container(x, y);
@@ -297,6 +312,20 @@ export class Dummy {
   }
 
   /**
+   * Stamina chip damage from being hit (Stage 17 part 0d) — mirrors
+   * Fighter.receiveStaminaChip() line for line, same as receiveHit/takeDamage
+   * do, so the fight stays symmetric without a shared base class.
+   * @param {number}  force    post-block impact force
+   * @param {boolean} blocked
+   */
+  receiveStaminaChip(force, blocked) {
+    const mult = blocked ? config.staminaDrainBlockedMult : 1;
+    const cost = Math.max(0, force) * config.staminaDrainPerHitForce * mult;
+    this.stamina = Math.max(0, this.stamina - cost);
+    this._hitRegenDelay = Math.max(this._hitRegenDelay, config.staminaRegenDelayAfterHit);
+  }
+
+  /**
    * Trigger a brief color flash on the dummy's torso.
    * @param {number} color  Phaser integer color
    */
@@ -416,10 +445,12 @@ export class Dummy {
     // ── Stamina (Stage 6) — frozen while down; per-punch cost is deducted at
     //    throw time below. Blocking drains and suppresses regen, same as the
     //    player's, so the dummy's guard isn't free either.
+    // Post-hit regen pause (Stage 17 part 0d) — mirrors Fighter's.
+    if (this._hitRegenDelay > 0) this._hitRegenDelay = Math.max(0, this._hitRegenDelay - dt);
     if (!this.isDown) {
       if (this.isBlocking) {
         this.stamina = Math.max(0, this.stamina - config.staminaDrainPerSecondBlocking * dt);
-      } else if (this.punchTimer === 0) {
+      } else if (this.punchTimer === 0 && this._hitRegenDelay === 0) {
         this.stamina = Math.min(config.staminaMax, this.stamina + config.staminaRegenPerSecond * dt);
       }
     }
@@ -567,6 +598,12 @@ export class Dummy {
           // refer to the same instant for the geometric check to mean anything.
           this._impactTimer    = peakProgress(this.punchType) * this._windupDuration;
           this.stamina         = Math.max(0, this.stamina - config.staminaDrainPerPunch);
+          // The throw COMMIT, recorded at the source — see the note on
+          // throwCount in the constructor. Distance is the gate's own cached
+          // value, so it is exactly the number the inLandingBand test above
+          // just made its decision on rather than a re-measure a frame later.
+          this.throwCount++;
+          this.lastThrowDist = this._distToOpponent;
         }
       }
     }

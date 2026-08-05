@@ -33,10 +33,23 @@ const check = (label, pass, detail) => {
 
 /**
  * Reload and install the per-frame instrumentation:
- *  - window.__throws  : one entry per dummy throw, with the gate distance.
- *      A new throw is detected by punchTimer INCREASING, not by a 0→n edge:
- *      when the dummy is armed, the same update() that ends one windup starts
- *      the next, so punchTimer is never observable at exactly 0 in between.
+ *  - window.__throws  : one entry per dummy throw COMMIT, with the gate distance
+ *      that commit was made at.
+ *
+ *      This reads Dummy.throwCount / Dummy.lastThrowDist — an explicit counter
+ *      the dummy increments on the frame it actually initiates a punch (Stage 17
+ *      part 0a). It used to be INFERRED from punchTimer increasing, because a
+ *      throw's 0→n edge isn't observable: when the dummy is armed, the same
+ *      update() that ends one windup starts the next, so punchTimer is never
+ *      seen at exactly 0 in between. That inference stopped being valid at Stage
+ *      16 — extendRecovery() raises punchTimer mid-punch on a whiff, so a single
+ *      whiffed jab registered as several throws and the "debug T forces exactly
+ *      one throw" check failed deterministically. Observing the commit at the
+ *      source has no such failure mode, and it also reports the distance the
+ *      range gate itself used rather than a re-measure a frame later.
+ *
+ *      The rAF loop is still how the counter is polled, so it accumulates one
+ *      entry per commit even if several land between samples.
  *  - window.__resolves: one entry per resolved attack, recording whether the
  *      defender was blocking — this is the ground truth for the block test,
  *      taken from inside _resolveAttack itself.
@@ -50,13 +63,13 @@ async function freshLoad() {
     window.__throws   = [];
     window.__resolves = [];
 
-    let prev = 0;
+    let seen = d.throwCount;
     const t0 = performance.now();
     const tick = () => {
-      if (d.punchTimer > prev) {
-        window.__throws.push({ t: (performance.now() - t0) / 1000, dist: d._distToOpponent });
+      while (seen < d.throwCount) {
+        seen++;
+        window.__throws.push({ t: (performance.now() - t0) / 1000, dist: d.lastThrowDist });
       }
-      prev = d.punchTimer;
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -229,8 +242,31 @@ await page.screenshot({ path: `${OUT}/07_down_no_throw.png` });
 
 // ─── 3. Reactive blocking ────────────────────────────────────────────────────
 console.log('\n=== 3. Reactive blocking ===');
-// Jabs are spaced wider than the block window so each one gets its own roll
-// (the guard does not re-roll or extend while already up).
+// Each jab must get its OWN reaction roll — onOpponentPunchStart() deliberately
+// refuses to re-roll or extend a guard that is already up, so a jab thrown while
+// the previous guard is still live is simply eaten.
+//
+// The old spacing was a flat 600 ms of WALL CLOCK against a 450 ms block window,
+// which looks like 150 ms of slack and isn't: dummyBlockReactionWindow counts
+// down in GAME time, and every blocked hit fires hit-stop, which scales dt to
+// 0.05 for up to 100 ms. MEASURED across 6 runs, the third jab of the series
+// arrived with 0.02–0.12 s still on blockTimer in 4 of them, was refused a roll,
+// and then resolved ~90 ms later against a guard that had just dropped — which
+// is exactly the intermittent "chance 1.0 didn't block every punch" failure.
+// The dummy's behaviour was correct throughout; the test's setup was not.
+//
+// So the gap is now a CONDITION, not a duration: keep the 600 ms floor for the
+// punch to resolve and the rig to settle, then additionally wait until the guard
+// is genuinely down and the player is free to throw again. Immune to hit-stop,
+// to frame rate, and to the whiff-recovery lockout.
+async function readyForNextJab() {
+  await page.waitForTimeout(600);
+  await page.waitForFunction(() => {
+    const sc = window.__game.scene.keys.RingScene;
+    return sc.dummy.blockTimer === 0 && sc.fighter.punchTimer === 0;
+  }, null, { timeout: 6000 });
+}
+
 async function jabSeries(chance, count) {
   await freshLoad();
   await peek(c => {
@@ -241,10 +277,20 @@ async function jabSeries(chance, count) {
     window.__game.scene.keys.RingScene.dummy.attackTimer = 999;
   }, chance);
   // Let the movement AI settle into range first so the jabs actually reach.
-  await page.waitForTimeout(2200);
+  // Waited on as a CONDITION rather than as a fixed 2200 ms, for the same reason
+  // the inter-jab gap below is: the dummy closes at dummyMoveSpeed in GAME time,
+  // and under CPU contention 2200 ms of wall clock isn't enough of it. When that
+  // happened, every jab in the series resolved out of range, the in-range filter
+  // matched nothing, and the check failed with "0/0 blocked" — a setup that
+  // never ran, reported as a behavioural failure.
+  await page.waitForFunction(() => {
+    const d = window.__game.scene.keys.RingScene.dummy;
+    return d._distToOpponent <= window.__config.dummyEngageDist;
+  }, null, { timeout: 15000 });
+  await page.waitForTimeout(300);   // let the standoff hysteresis settle before throwing
   for (let i = 0; i < count; i++) {
     await tap('KeyJ', 60);
-    await page.waitForTimeout(600);   // > dummyBlockReactionWindow (0.45 s)
+    await readyForNextJab();
   }
   return sample();
 }
@@ -308,7 +354,14 @@ async function cadence({ lowStamina, blocking }, seconds) {
     window.__config.healthDamagePerForce = 0;
     window.__config.dummyBlockReactionChance = 0;   // keep the dummy's own guard out of it
   });
-  await page.waitForTimeout(2000);                  // settle into range
+  // Settle into range — a condition, not a duration, same as jabSeries above.
+  // Every check in this section reads _aggression, and the unguarded-in-range
+  // term only engages once the dummy has actually closed the distance.
+  await page.waitForFunction(() => {
+    const d = window.__game.scene.keys.RingScene.dummy;
+    return d._distToOpponent <= window.__config.dummyEngageDist;
+  }, null, { timeout: 15000 });
+  await page.waitForTimeout(300);
   if (lowStamina) {
     await peek(() => { window.__config.staminaRegenPerSecond = 0;
                        window.__game.scene.keys.RingScene.fighter.stamina = 10; });

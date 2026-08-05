@@ -13,6 +13,12 @@ mkdirSync('scripts/output', { recursive: true });
 const browser = await chromium.launch();
 const errors  = [];
 
+const results = [];
+const check = (label, pass, detail) => {
+  results.push({ label, pass });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${label}${detail ? `  — ${detail}` : ''}`);
+};
+
 async function setGuiNumber(page, label, value) {
   const input = page.locator('.controller', { hasText: label }).locator('input[type=text]');
   await input.fill(String(value));
@@ -127,7 +133,183 @@ const JAB_RANGE = 65;
   await page.close();
 }
 
+// ── (d) Stamina chip damage on being hit (Stage 17 part 0d) ─────────────────
+// Before this stage stamina only drained from THROWING and from HOLDING the
+// guard, so being hit was free and turtling cost nothing. The chip is derived
+// from the same post-block-reduction `force` value health damage uses, so these
+// checks all read that force directly (through the receiveStaminaChip call the
+// resolver makes) rather than asserting a flat per-hit number that doesn't exist.
+console.log('\n=== (d) Stamina chip damage on being hit ===');
+{
+  const page = await newPage();
+  const cfg = await page.evaluate(() => ({
+    perHitForce: window.__config.staminaDrainPerHitForce,
+    blockedMult: window.__config.staminaDrainBlockedMult,
+    regenDelay:  window.__config.staminaRegenDelayAfterHit,
+  }));
+
+  // Instrument the dummy's chip so each case can read the exact (force, blocked)
+  // pair the resolver handed it — the ground truth, taken at the call site.
+  await page.evaluate(() => {
+    const sc = window.__game.scene.keys.RingScene;
+    window.__config.healthDamagePerForce = 0;   // no knockdowns mid-section
+    window.__chips = [];
+    const orig = sc.dummy.receiveStaminaChip.bind(sc.dummy);
+    sc.dummy.receiveStaminaChip = (force, blocked) => {
+      window.__chips.push({ force, blocked });
+      return orig(force, blocked);
+    };
+  });
+
+  // Land one punch and report the stamina delta it cost.
+  async function chipCase({ key = 'KeyM', dist = 55, guard = null, perfectWindow = 0 } = {}) {
+    await pinAt(page, dist);
+    await page.evaluate(g => {
+      const sc = window.__game.scene.keys.RingScene;
+      sc.dummy.stamina = 100;
+      sc.dummy._hitRegenDelay = 0;
+      sc.dummy.blockTimer = 0; sc.dummy.isBlocking = false; sc.dummy.blockHeldTime = Infinity;
+      if (g) {
+        // Raise the guard NOW, on the press frame. Whether that counts as a
+        // perfect block is decided by perfectBlockWindow, which each case sets
+        // explicitly — so the branch under test is chosen deterministically
+        // rather than by whether the ~90 ms flight beat a 0.12 s clock.
+        sc.dummy.blockTimer = 2.0;
+        sc.dummy.isBlocking = true;
+        sc.dummy.blockHeldTime = 0;
+      }
+      window.__chips.length = 0;
+    }, guard);
+    await page.evaluate(w => { window.__config.perfectBlockWindow = w; }, perfectWindow);
+    await page.keyboard.down(key);
+    await page.waitForTimeout(70);
+    await page.keyboard.up(key);
+    await page.waitForTimeout(280);
+    return page.evaluate(() => ({
+      chips:   window.__chips.slice(),
+      stamina: window.__game.scene.keys.RingScene.dummy.stamina,
+      delay:   window.__game.scene.keys.RingScene.dummy._hitRegenDelay,
+    }));
+  }
+
+  const clean = await chipCase();
+  check('an unblocked hit costs stamina, scaled off the shared force value',
+    clean.chips.length === 1 && clean.stamina < 100 &&
+    Math.abs((100 - clean.stamina) - clean.chips[0].force * cfg.perHitForce) < 0.5,
+    `force ${clean.chips[0]?.force.toFixed(0)} × ${cfg.perHitForce} = ` +
+    `${(clean.chips[0]?.force * cfg.perHitForce).toFixed(2)}, stamina 100 → ${clean.stamina.toFixed(2)}`);
+
+  const blocked = await chipCase({ guard: true, perfectWindow: 0 });
+  check('a blocked hit costs less — blockReduction has already cut the force',
+    blocked.chips.length === 1 && blocked.chips[0].blocked &&
+    blocked.chips[0].force < clean.chips[0].force,
+    `clean force ${clean.chips[0]?.force.toFixed(0)} → blocked ${blocked.chips[0]?.force.toFixed(0)} ` +
+    `(stamina cost ${(100 - clean.stamina).toFixed(2)} → ${(100 - blocked.stamina).toFixed(2)}, ` +
+    `blocked mult ${cfg.blockedMult})`);
+
+  const perfect = await chipCase({ guard: true, perfectWindow: 0.5 });
+  // Asserted on the chip and the regen pause, NOT on stamina landing exactly at
+  // 100: the guard is held throughout these cases and staminaDrainPerSecondBlocking
+  // keeps draining it (~0.7 over the case), which is the pre-existing continuous
+  // block cost and is deliberately not waived.
+  check('a PERFECT block waives the chip entirely — and its regen pause with it',
+    perfect.chips.length === 0 && perfect.delay === 0,
+    `${perfect.chips.length} chips applied, regen delay ${perfect.delay.toFixed(2)}s ` +
+    `(a normal blocked hit costs ${(100 - blocked.stamina).toFixed(2)} stamina); ` +
+    `residual ${(100 - perfect.stamina).toFixed(2)} is the continuous guard drain, not a chip`);
+
+  // Regen suppression. Without it the chip is close to a no-op: at
+  // staminaRegenPerSecond 20 a worst-case ~6-point chip is repaid in ~300 ms.
+  await chipCase();
+  const t0 = await page.evaluate(() => ({
+    s: window.__game.scene.keys.RingScene.dummy.stamina,
+    d: window.__game.scene.keys.RingScene.dummy._hitRegenDelay,
+  }));
+  await page.waitForTimeout(140);
+  const during = await page.evaluate(() => window.__game.scene.keys.RingScene.dummy.stamina);
+  await page.waitForTimeout(1200);
+  const after  = await page.evaluate(() => window.__game.scene.keys.RingScene.dummy.stamina);
+  check('regen is suppressed for staminaRegenDelayAfterHit, then resumes',
+    during <= t0.s + 0.01 && after > during + 1,
+    `${cfg.regenDelay}s delay: ${t0.s.toFixed(2)} → ${during.toFixed(2)} still suppressed ` +
+    `(${t0.d.toFixed(2)}s left at sample) → ${after.toFixed(2)} once it lapsed`);
+
+  // ── Spiral check ────────────────────────────────────────────────────────
+  // Chip damage can now push a fighter into the lowStaminaThreshold telegraph
+  // mid-exchange, which is intended. What must NOT happen is a runaway: being
+  // hit once making the next hit a near-certainty because the telegraph slowed
+  // your punches, which draws more hits, which drains more stamina.
+  //
+  // The guard against that is arithmetic, not a special case — one worst-case
+  // chip has to be small next to the distance from full stamina down to the
+  // threshold, so getting clipped once costs a fraction of the gap rather than
+  // crossing it. MEASURED separately: 8 unanswered clean uppercuts take a
+  // fighter from 100 to 62.8, never reaching 25.
+  const worst = await page.evaluate(() => {
+    const c = window.__config;
+    // The heaviest force this build produces: an advancing uppercut countering a
+    // fully-exposed target. Momentum + per-punch damage + counter bonus.
+    const force = (c.punchForceBase + c.playerMass * c.punchMomentumScale)
+                  * c.uppercutDamage * (1 + c.counterForceBonus);
+    return {
+      force,
+      chip: force * c.staminaDrainPerHitForce,
+      gap:  c.staminaMax - c.lowStaminaThreshold,
+      repayS: (force * c.staminaDrainPerHitForce) / c.staminaRegenPerSecond,
+      delay: c.staminaRegenDelayAfterHit,
+    };
+  });
+  check('one worst-case hit cannot push a healthy fighter into the low-stamina telegraph',
+    worst.chip < worst.gap / 4,
+    `heaviest chip ${worst.chip.toFixed(1)} vs ${worst.gap} of headroom above the threshold ` +
+    `(${(worst.gap / worst.chip).toFixed(1)} such hits would be needed), ` +
+    `and it is repaid ${worst.repayS.toFixed(2)}s after the ${worst.delay}s pause lapses`);
+
+  // Getting hit at 0 stamina must clamp, not go negative and not throw.
+  const zero = await page.evaluate(() => {
+    const d = window.__game.scene.keys.RingScene.dummy;
+    d.stamina = 0;
+    d.receiveStaminaChip(9999, false);
+    return d.stamina;
+  });
+  check('getting hit at 0 stamina clamps rather than erroring', zero === 0, `stamina ${zero}`);
+
+  // Symmetry — the player pays it too, from the dummy's own jab. Mirrored on
+  // Fighter rather than shared through a base class, per the existing convention.
+  const mirrored = await page.evaluate(async () => {
+    const sc = window.__game.scene.keys.RingScene;
+    sc.fighter.stamina = 100;
+    sc.fighter._hitRegenDelay = 0;
+    window.__config.staminaRegenPerSecond = 0;   // isolate the chip from regen
+    const before = sc.fighter.stamina;
+    sc.dummy._loco.x = sc.fighter.x + 60;
+    sc.dummy._loco.y = sc.fighter.y;
+    sc.dummy.forceAttack();
+    await new Promise(r => setTimeout(r, 1400));
+    return { before, after: sc.fighter.stamina, delay: sc.fighter._hitRegenDelay };
+  });
+  check('the player pays the same chip from the dummy\'s punches (mirrored, not inherited)',
+    mirrored.after < mirrored.before,
+    `player stamina ${mirrored.before.toFixed(2)} → ${mirrored.after.toFixed(2)}`);
+
+  await page.screenshot({ path: 'scripts/output/stamina_chip.png' });
+  await page.close();
+}
+
 await browser.close();
+
+// ─── Report ──────────────────────────────────────────────────────────────────
+// This file used to be screenshots-only: it collected page errors and then never
+// looked at them, and always exited 0. Both are reported now, so a regression in
+// here actually fails the suite instead of being found by eye.
+const failed = results.filter(r => !r.pass);
+console.log('\nScreenshots → scripts/output/');
+console.log('Page errors:', errors.length ? errors : 'none');
+console.log(`${results.length - failed.length}/${results.length} checks passed.`);
+if (failed.length || errors.length) {
+  failed.forEach(f => console.error(`  FAILED: ${f.label}`));
+  process.exit(1);
+}
 
 console.log('Page errors:', errors.length ? errors : 'none');
 console.log('Screenshots saved to scripts/output/');

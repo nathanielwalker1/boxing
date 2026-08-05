@@ -417,7 +417,39 @@ export const config = {
   // missed punch is a beat the opponent can actually step into, and it keeps the
   // whole press-to-next-throw cycle for a jab at ~0.25 s. Raise toward 5 if
   // whiffing still feels free; drop it if the lockout reads as sluggish.
+  //
+  // Stage 17 (0c): this is now the GLOBAL SCALAR of a per-type gradient rather
+  // than the multiplier itself — see punchWhiffRecoveryMult() below and the
+  // per-type weights immediately after. Dragging this one slider still dials the
+  // whole whiff cost up or down; 1 disables it everywhere at once.
   whiffRecoveryMultiplier: 3.5,
+
+  // ── Per-punch whiff cost (Stage 17 part 0c) ─────────────────────────────────
+  // A flat multiplier gave the four punches effectively identical penalties
+  // (measured: 145 / 133 / 136 / 150 ms), because their base recoveries are all
+  // within 7 ms of each other. The punch diamond had damage variety and no RISK
+  // variety, so there was no mechanical reason to prefer a jab.
+  //
+  // WHY A TABLE AND NOT A DERIVATION. The intended approach was to scale off
+  // each punch's PEAK vulnerability, the way the vulnerability curve itself
+  // derives from the PUNCHES timings. Measured, that is a dead end: the curve is
+  // normalised so every punch reaches exactly config.vulnerabilityPeak at its own
+  // peakAt frame, so all four peak at 1.000 — see punchVulnerability()'s middle
+  // branch, where k = 1 at u = peakAt regardless of type. Zero spread, so there
+  // is nothing to derive a gradient from. Peak vulnerability says "how exposed
+  // you are AT full extension"; whiff cost is "how long you stay there", which is
+  // genuinely independent information and has to be authored.
+  //
+  // These are WEIGHTS on the global scalar's excess over 1, not multipliers in
+  // their own right:  effective = 1 + (whiffRecoveryMultiplier - 1) × weight.
+  // So the global still means what it always did (it is the ~1.0-weight punch's
+  // multiplier) and a weight of 0 makes that punch's whiff free.
+  // ASSUMPTION — the ORDERING is the spec (jab safest → uppercut scariest,
+  // mirroring the damage ordering it pays for), the spacing is for the sliders.
+  jabWhiffScale:      0.55,
+  crossWhiffScale:    0.85,
+  hookWhiffScale:     1.15,
+  uppercutWhiffScale: 1.45,
 
   // ── Counter (Stage 16 part 3) ───────────────────────────────────────────────
   // A hit landed on a vulnerable target multiplies the SHARED force value by
@@ -624,6 +656,40 @@ export const config = {
   staminaDrainPerSecondBlocking:   2,    // continuous drain while block is held
   staminaRegenPerSecond:          20,    // regen while neither punching nor blocking
 
+  // ── Chip damage on being hit (Stage 17 part 0d) ─────────────────────────────
+  // Before this, stamina only ever drained from THROWING and from HOLDING the
+  // guard — being hit cost nothing, which made turtling free and left the
+  // perfect block with nothing to negate.
+  //
+  // Derived from the same post-block-reduction `force` value receiveImpulse /
+  // takeDamage / receiveHit already share, exactly the way healthDamagePerForce
+  // is. So there is no flat per-hit constant: a weak retreating jab and a hard
+  // advancing counter differ for free, and the counter bonus and per-punch
+  // damage multiplier both flow through without a second lookup.
+  // MEASURED at the shipped defaults, a clean unblocked hit carries 125 units of
+  // force (retreating jab) to 511 (advancing uppercut), rising to ~970 for an
+  // advancing uppercut landed on a fully-exposed target at peak vulnerability.
+  // So 0.012 costs 1.5 stamina on the lightest touch, ~6 on a solid one and ~12
+  // on the worst counter in the build — against staminaDrainPerPunch of 4, i.e.
+  // eating a good shot costs roughly what throwing one or two punches does.
+  // ASSUMPTION — the ratio to the throw cost is the thing to feel-test.
+  staminaDrainPerHitForce: 0.012,
+  // Applied on top of blockReduction having ALREADY cut the force by 75%.
+  // Absorbing shots on the guard is tiring in a way reduced force doesn't
+  // capture, so this slider decides whether blocked hits cost proportionally
+  // more than their reduced force implies. 1.0 = they cost exactly in
+  // proportion. ASSUMPTION — left at the neutral default deliberately, so the
+  // feature can be judged on the force derivation alone first.
+  staminaDrainBlockedMult: 1.0,
+  // Seconds of regen suppression after taking a hit. FLAGGED — not asked for.
+  // At staminaRegenPerSecond 20, any chip drain is fully repaid in well under a
+  // second, so without a pause the chip is close to a no-op in live play: the
+  // number moves and then immediately un-moves. Set to 0 to disable it and see
+  // the difference. ASSUMPTION — 0.6 s is roughly the gap between punches in an
+  // exchange, so it suppresses regen for the duration of a flurry but not past
+  // the end of one.
+  staminaRegenDelayAfterHit: 0.6,
+
   // Low-stamina telegraph (Stage 6) — soft penalty, punches still fire.
   lowStaminaThreshold:        25,    // stamina below this = telegraphed
   lowStaminaWindupMultiplier: 2.5,   // multiplies punch/windup duration when gassed
@@ -820,6 +886,23 @@ function num(key, fallback) {
   const v = config[key];
   return typeof v === 'number' ? v : fallback;
 }
+/**
+ * The recovery-stretch multiplier a whiffed (or smothered) punch of this type
+ * pays — Stage 17 part 0c. Same read-through-a-lookup convention as the damage
+ * and speed multipliers, so _resolveAttack never names a punch type inline.
+ *
+ * Composed as 1 + (global − 1) × weight rather than as a bare per-type value so
+ * that the single global slider still scales the whole gradient (and still
+ * disables it outright at 1), while the weights only ever decide the SHAPE.
+ * Clamped at 1 so a negative weight can't shorten a recovery — extendRecovery()
+ * would ignore it anyway, but that would be a silent no-op rather than a floor.
+ */
+export function punchWhiffRecoveryMult(type) {
+  const weight = Math.max(0, num(`${type}WhiffScale`, 1));
+  const excess = Math.max(0, config.whiffRecoveryMultiplier - 1);
+  return 1 + excess * weight;
+}
+
 export function punchReaction(type) {
   return {
     back:  num(`${type}ReactBack`,  1),

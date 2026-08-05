@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import GUI from 'lil-gui';
-import { config, punchDamageMult, punchAudioClass, cssHex } from './config.js';
+import { config, punchDamageMult, punchAudioClass, punchWhiffRecoveryMult, cssHex } from './config.js';
 import { initCombatAudio, playCombatSound, renderCombatSound, audioLog } from './audio.js';
 import { Fighter } from './fighter.js';
 import { Dummy } from './dummy.js';
@@ -391,7 +391,9 @@ class RingScene extends Phaser.Scene {
         playCombatSound('whiff');
         // Stage 16 part 2 — the whiff cost. Applied HERE, at the resolution, and
         // not predicted earlier: the outcome simply isn't known before peak.
-        attacker.extendRecovery(config.whiffRecoveryMultiplier);
+        // Stage 17 part 0c — the multiplier is now per punch type, so missing a
+        // jab is cheap and missing an uppercut is the opening it should be.
+        attacker.extendRecovery(punchWhiffRecoveryMult(punchType));
         break;
 
       case 'smother':
@@ -404,8 +406,9 @@ class RingScene extends Phaser.Scene {
         // that got absorbed at zero range, so it borrows the blocked variant
         // rather than getting a fifth sound of its own.
         playCombatSound('impactBlocked');
-        // Smother is a miss too, per the brief — same recovery penalty.
-        attacker.extendRecovery(config.whiffRecoveryMultiplier);
+        // Smother is a miss too, per the brief — same recovery penalty, and
+        // since Stage 17 that means the same PER-TYPE penalty.
+        attacker.extendRecovery(punchWhiffRecoveryMult(punchType));
         break;
 
       case 'land': {
@@ -467,11 +470,12 @@ class RingScene extends Phaser.Scene {
         defender.receiveHit(punchType, force);
 
         if (perfect) {
-          // No chip damage — takeDamage is simply not called. (There is no
-          // per-hit stamina cost anywhere in the build for the other half of
-          // this reward to waive; see the summary.) The stagger impulse and the
-          // rig reaction ARE kept: a perfect block still absorbs a punch, it
-          // doesn't delete it.
+          // No chip damage — takeDamage is simply not called, and since Stage 17
+          // part 0d neither is receiveStaminaChip: a perfect block now waives
+          // BOTH halves of the cost of absorbing a punch, which is the thing the
+          // Stage 16 note said this reward had nothing to negate. The stagger
+          // impulse and the rig reaction ARE kept: a perfect block still absorbs
+          // a punch, it doesn't delete it.
           //
           // The reward proper: the ATTACKER's vulnerability spikes, which opens
           // a counter window through the part 1 + part 3 machinery rather than
@@ -486,6 +490,11 @@ class RingScene extends Phaser.Scene {
           // Damage reuses this same post-block-reduction force value (Stage 6)
           // rather than a parallel damage number — see config.healthDamagePerForce.
           defender.takeDamage(force * config.healthDamagePerForce);
+          // …and so does stamina chip damage (Stage 17 part 0d), off the exact
+          // same `force`, so being hit finally costs something and turtling
+          // isn't free. `blocked` only picks the multiplier — blockReduction has
+          // already been applied to force above.
+          defender.receiveStaminaChip(force, blocked);
           // Hit-stop (Stage 10) — a few frames of near-frozen timescale, length
           // scaled by the same force, plus the counter bonus (Stage 16 part 3).
           this._triggerHitStop(force, targetVuln * config.counterHitStopBonus);
@@ -971,7 +980,14 @@ vulnF.add(config, 'vulnerabilityPeak',       0,   1, 0.05).name('Peak (max 0..1)
 vulnF.add(config, 'vulnerabilityCockLevel',  0,   1, 0.05).name('Level at End of Cock');
 vulnF.add(config, 'vulnerabilityRiseShape',  0.3, 5, 0.1) .name('Rise Shape (>1 = late)');
 vulnF.add(config, 'vulnerabilityDecayShape', 0.3, 5, 0.1) .name('Decay Shape (>1 = fast)');
-vulnF.add(config, 'whiffRecoveryMultiplier', 1,   5, 0.1) .name('Whiff Recovery x');
+// The global scalar first, then the per-type WEIGHTS it multiplies (Stage 17
+// part 0c). Drag the global to move the whole gradient; drag a weight to change
+// only that punch's share of it. See punchWhiffRecoveryMult() in config.js.
+vulnF.add(config, 'whiffRecoveryMultiplier', 1,   5, 0.1) .name('Whiff Recovery x (global)');
+vulnF.add(config, 'jabWhiffScale',           0,   2, 0.05).name('· jab weight');
+vulnF.add(config, 'crossWhiffScale',         0,   2, 0.05).name('· cross weight');
+vulnF.add(config, 'hookWhiffScale',          0,   2, 0.05).name('· hook weight');
+vulnF.add(config, 'uppercutWhiffScale',      0,   2, 0.05).name('· uppercut weight');
 vulnF.add(config, 'showVulnerability')                    .name('Show Readout');
 vulnF.open();
 
@@ -1137,7 +1153,10 @@ window.__rig    = {
 };
 // Stage 16 — the vulnerability curve itself, so vulnerability_test.mjs asserts
 // against the shipped function rather than re-deriving the shape.
-window.__vuln = { curve: punchVulnerability };
+// Stage 17 — and the per-type whiff-recovery lookup next to it, so the checks
+// assert against the shipped composition rule (global × per-type weight) rather
+// than re-deriving it from the two config values.
+window.__vuln = { curve: punchVulnerability, whiffMult: punchWhiffRecoveryMult };
 // Audio can't be asserted on by listening in a headless browser, so the checks
 // in scripts/audio_test.mjs read the bounded log of which logical sound each
 // resolved outcome asked for, and at what pitch. See audio.js.
@@ -1188,6 +1207,11 @@ healthF.add(config, 'staminaMax',                20, 300, 5).name('Stamina Max')
 healthF.add(config, 'staminaDrainPerPunch',       0,  30, 1).name('Drain / Punch');
 healthF.add(config, 'staminaDrainPerSecondBlocking', 0, 60, 1).name('Drain / s Blocking');
 healthF.add(config, 'staminaRegenPerSecond',      0,  60, 1).name('Regen / s');
+// Chip damage on being hit (Stage 17 part 0d). Derived from the same force
+// value as health damage, so the slider above it is the direct comparison.
+healthF.add(config, 'staminaDrainPerHitForce', 0, 0.06, 0.001).name('Drain / Hit Force');
+healthF.add(config, 'staminaDrainBlockedMult', 0,    3, 0.05) .name('Blocked Drain x');
+healthF.add(config, 'staminaRegenDelayAfterHit', 0,  3, 0.05) .name('Regen Delay / Hit (s)');
 healthF.add(config, 'lowStaminaThreshold',       0, 100, 1).name('Low Stamina Threshold');
 healthF.add(config, 'lowStaminaWindupMultiplier', 1,   5, 0.1).name('Low Stamina Windup x');
 healthF.add(config, 'knockdownRecoveryDuration', 0.5, 8, 0.1).name('Knockdown Duration (s)');

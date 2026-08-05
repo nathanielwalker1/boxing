@@ -86,6 +86,9 @@ export class Fighter {
     this.isDown       = false;
     this.knockdownTimer = 0;
     this._punchDuration = config.punchDuration;   // this punch's actual duration (may be stretched by low stamina)
+    // Seconds of stamina-regen suppression left after taking a hit (Stage 17
+    // part 0d) — see receiveStaminaChip(). Mirrored on Dummy.
+    this._hitRegenDelay = 0;
 
     this.container = scene.add.container(x, y);
     this.gfx       = scene.add.graphics();
@@ -345,6 +348,34 @@ export class Fighter {
   }
 
   /**
+   * Stamina chip damage from being hit (Stage 17 part 0d) — mirrored verbatim on
+   * Dummy, so both fighters tire from absorbing punches on the same terms.
+   *
+   * Takes the SAME post-block-reduction force value receiveImpulse/receiveHit/
+   * takeDamage are handed, so there is no flat per-hit constant and no parallel
+   * damage number: the counter bonus, the momentum term and the per-punch damage
+   * multiplier all reach this for free.
+   *
+   * `blocked` layers staminaDrainBlockedMult ON TOP of blockReduction having
+   * already cut the force — the guard soaking a punch is its own kind of tiring.
+   * The regen pause is what stops staminaRegenPerSecond repaying the chip before
+   * the next punch of an exchange arrives.
+   *
+   * Not called at all on a PERFECT block — see the note in _resolveAttack; that
+   * waiver is now half of what a perfect block is worth.
+   * @param {number}  force    post-block impact force
+   * @param {boolean} blocked
+   */
+  receiveStaminaChip(force, blocked) {
+    const mult = blocked ? config.staminaDrainBlockedMult : 1;
+    const cost = Math.max(0, force) * config.staminaDrainPerHitForce * mult;
+    // Clamped at 0, never negative — getting hit at 0 stamina is a no-op, not an
+    // error and not a debt carried into the next regen tick.
+    this.stamina = Math.max(0, this.stamina - cost);
+    this._hitRegenDelay = Math.max(this._hitRegenDelay, config.staminaRegenDelayAfterHit);
+  }
+
+  /**
    * Trigger a brief color flash on the fighter's torso (mirrors Dummy.flash).
    * @param {number} color  Phaser integer color
    */
@@ -507,10 +538,13 @@ export class Fighter {
     // Punch cost is deducted once at throw time (see startPunch()); this only
     // handles the continuous block drain and the neither-punching-nor-blocking
     // regen case.
+    // The post-hit regen pause (Stage 17 part 0d) ticks down on the same clock
+    // whatever else is happening — it suppresses regen, it doesn't gate drain.
+    if (this._hitRegenDelay > 0) this._hitRegenDelay = Math.max(0, this._hitRegenDelay - dt);
     if (!this.isDown) {
       if (this.isBlocking) {
         this.stamina = Math.max(0, this.stamina - config.staminaDrainPerSecondBlocking * dt);
-      } else if (this.punchTimer === 0) {
+      } else if (this.punchTimer === 0 && this._hitRegenDelay === 0) {
         this.stamina = Math.min(config.staminaMax, this.stamina + config.staminaRegenPerSecond * dt);
       }
     }
