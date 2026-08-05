@@ -21,6 +21,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, until, soft } from './waits.js';
 
 const URL = DEV_URL;
 
@@ -51,7 +52,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(URL, { waitUntil: 'networkidle', timeout: 15000 });
-await page.waitForTimeout(1200);
+await gameTime(page, 1.2);
 
 // Freeze everything that could perturb the matrix: no dummy movement, no dummy
 // attacks, no damage (so nothing gets knocked down mid-run).
@@ -80,7 +81,7 @@ for (const stance of STANCES) {
       sc.dummy._loco.vx = 0; sc.dummy._loco.vy = 0;
       sc.dummy.x = place.dummyX; sc.dummy.y = 320;
     }, { stance, place });
-    await page.waitForTimeout(120);
+    await gameTime(page, 0.12);
 
     for (const hold of HOLDS) {
       for (const punch of PUNCHES) {

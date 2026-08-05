@@ -8,6 +8,7 @@ import { writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { DEV_URL } from './devUrl.js';
+import { bootReady } from './waits.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dirname, 'output');
@@ -30,8 +31,11 @@ page.on('pageerror', err => {
 
 await page.goto(URL, { waitUntil: 'networkidle', timeout: 15_000 });
 
-// Give Phaser time to initialise and paint at least one frame
-await page.waitForTimeout(2500);
+// Wait for Phaser to have initialised and painted real frames, rather than
+// sleeping 2.5 s and hoping. bootReady polls the frame counter the scene
+// increments, so this returns as soon as the game is genuinely running — and
+// still waits if a loaded machine needs longer than 2.5 s.
+await bootReady(page, { frames: 30 });
 
 const screenshotPath = `${OUT}/screenshot.png`;
 const consolePath    = `${OUT}/console.json`;

@@ -15,6 +15,7 @@
 import { chromium } from 'playwright';
 import { mkdirSync } from 'fs';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, punchIdle, soft } from './waits.js';
 
 mkdirSync('scripts/output', { recursive: true });
 
@@ -26,7 +27,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console',   m => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-await page.waitForTimeout(1200);
+await bootReady(page);
 
 // Pin the dummy: no approach, no attacks of its own, no reactive block, so
 // nothing but the case under test can produce a sound.
@@ -63,12 +64,14 @@ async function standOff(px, { dummyBlocks = false } = {}) {
     // blocked hit — the reactive-block roll is disabled above.
     sc.dummy.blockTimer = dummyBlocks ? 5 : 0;
   }, { d: px, dummyBlocks });
-  await page.waitForTimeout(120);
+  await gameTime(page, 0.12);
 }
 
-async function tap(key, ms = 70) {
+// Frames, not milliseconds — see waits.js. Phaser samples JustDown once per
+// tick, so a 70 ms press can fall entirely inside one slow frame and be missed.
+async function tap(key, ticks = 3) {
   await page.keyboard.down(key);
-  await page.waitForTimeout(ms);
+  await frames(page, ticks);
   await page.keyboard.up(key);
 }
 
@@ -87,14 +90,17 @@ async function throwPunch(key, distance, opts = {}) {
   });
   if (opts.holdDir) await page.keyboard.down(opts.holdDir);
   await tap(key);
-  await page.waitForTimeout(220);
+  // Wait for the punch to RESOLVE — the sound log is written by the resolver at
+  // peak extension, so a fixed settle read back an empty log under load and
+  // every 'X lands → impactY' case failed with no sound recorded.
+  await soft(page, () => window.__lastOutcome !== null && window.__audio.log.length > 0);
   if (opts.holdDir) await page.keyboard.up(opts.holdDir);
   const r = await page.evaluate(() => ({
     outcome: window.__lastOutcome,
     sounds:  window.__audio.log.map(e => e.name),
     pitches: window.__audio.log.map(e => e.pitch),
   }));
-  await page.waitForTimeout(280);   // let the animation finish before the next case
+  await punchIdle(page);   // let the animation finish before the next case
   return r;
 }
 

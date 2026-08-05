@@ -18,6 +18,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, until, soft } from './waits.js';
 
 const browser = await chromium.launch();
 const page    = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -27,7 +28,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-await page.waitForTimeout(1200);
+await bootReady(page);
 
 const failures = [];
 const pass = (name, detail) => console.log(`  [PASS] ${name.padEnd(46)} — ${detail}`);
@@ -75,9 +76,9 @@ const dist = () => page.evaluate(() => {
 
 const drive = async (keys, ms) => {
   for (const k of keys) await page.keyboard.down(k);
-  await page.waitForTimeout(ms);
+  await gameTime(page, ms / 1000);   // travel is integrated on the game clock, not wall clock
   for (const k of keys) await page.keyboard.up(k);
-  await page.waitForTimeout(120);
+  await gameTime(page, 0.12);
 };
 
 // ── 1. Crowding into every corner and against every rope ────────────────────
@@ -170,7 +171,7 @@ console.log('\n=== 4. Stagger does not drive separation ===');
   const cx = (B.left + B.right) / 2, cy = (B.top + B.bottom) / 2;
   // Park them exactly at the rest distance, then stagger the dummy hard.
   await setup(cx, cy, cx - CFG.sepDist, cy);
-  await page.waitForTimeout(200);
+  await gameTime(page, 0.2);
   const before = await dist();
   const after = await page.evaluate(async () => {
     const sc = window.__game.scene.keys.RingScene;

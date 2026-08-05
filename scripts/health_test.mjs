@@ -6,6 +6,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, soft, punchIdle } from './waits.js';
 import { mkdirSync } from 'fs';
 
 mkdirSync('scripts/output', { recursive: true });
@@ -30,7 +31,7 @@ async function newPage() {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console',   m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-  await page.waitForTimeout(1500);
+  await bootReady(page);
   return page;
 }
 
@@ -54,7 +55,7 @@ async function pinAt(page, dist) {
     sc.fighter.y = sc.dummy.y;
     sc.fighter.vx = sc.fighter.vy = 0;
   }, dist);
-  await page.waitForTimeout(150);
+  await frames(page, 3);
 }
 
 // Comfortably inside the jab's measured geometric reach (~85 px) and clear of
@@ -68,9 +69,9 @@ const JAB_RANGE = 65;
   const page = await newPage();
   await pinAt(page, JAB_RANGE);
   await page.keyboard.down('J');
-  await page.waitForTimeout(50);
+  await frames(page, 3);
   await page.keyboard.up('J');
-  await page.waitForTimeout(300);
+  await punchIdle(page);
   await page.screenshot({ path: 'scripts/output/health_bars_changing.png' });
   await page.close();
 }
@@ -91,17 +92,17 @@ const JAB_RANGE = 65;
   // be fully retracted well before 200ms. Measuring from keydown (not keyup)
   // for a precise, comparable elapsed time between the two punches.
   await page.keyboard.down('J');
-  await page.waitForTimeout(200);
+  await gameTime(page, 0.2);   // the comparison mark — on the clock the windup runs on
   await page.keyboard.up('J');
   await page.screenshot({ path: 'scripts/output/punch_normal_stamina.png' });
-  await page.waitForTimeout(100);
+  await punchIdle(page);
 
   // Second jab: stamina now ~10 (<25 threshold) → windup stretched by
   // lowStaminaWindupMultiplier (2.5x, ~0.375s) — should still be visibly
   // extended at the same 200ms mark where the normal punch had already
   // finished.
   await page.keyboard.down('J');
-  await page.waitForTimeout(200);
+  await gameTime(page, 0.2);   // the comparison mark — on the clock the windup runs on
   await page.keyboard.up('J');
   await page.screenshot({ path: 'scripts/output/punch_low_stamina_telegraph.png' });
   await page.close();
@@ -121,14 +122,18 @@ const JAB_RANGE = 65;
   for (let i = 0; i < 2; i++) {
     await pinAt(page, JAB_RANGE);
     await page.keyboard.down('J');
-    await page.waitForTimeout(50);
+    await frames(page, 3);
     await page.keyboard.up('J');
-    await page.waitForTimeout(300);
+    await punchIdle(page);
   }
   await page.screenshot({ path: 'scripts/output/knockdown_down_pose.png' });
 
-  // knockdownRecoveryDuration defaults to 2.5s — wait it out, then confirm recovery.
-  await page.waitForTimeout(2600);
+  // Wait for the knockdown to actually END rather than sleeping past its
+  // nominal 2.5 s: knockdownTimer burns GAME time, so a wall-clock sleep
+  // screenshots a fighter still on the canvas whenever frames are slow.
+  await soft(page, () => !window.__game.scene.keys.RingScene.dummy.isDown,
+    undefined, { timeout: 15000 });
+  await frames(page, 3);
   await page.screenshot({ path: 'scripts/output/knockdown_recovered.png' });
   await page.close();
 }
@@ -182,14 +187,24 @@ console.log('\n=== (d) Stamina chip damage on being hit ===');
     }, guard);
     await page.evaluate(w => { window.__config.perfectBlockWindow = w; }, perfectWindow);
     await page.keyboard.down(key);
-    await page.waitForTimeout(70);
+    await frames(page, 3);
     await page.keyboard.up(key);
-    await page.waitForTimeout(280);
-    return page.evaluate(() => ({
+    // Wait for the chip to actually be handed over. A fixed 280 ms did not
+    // contain the punch's flight under load, so every case read back zero chips
+    // and reported 'force undefined'.
+    await soft(page, () => window.__chips.length > 0);
+    await frames(page, 2);
+    const out = await page.evaluate(() => ({
       chips:   window.__chips.slice(),
       stamina: window.__game.scene.keys.RingScene.dummy.stamina,
       delay:   window.__game.scene.keys.RingScene.dummy._hitRegenDelay,
     }));
+    // Let the punch unwind before the next case presses. The chip lands at peak
+    // extension, i.e. MID-punch, so returning as soon as it arrives leaves the
+    // fighter still swinging — and the next case's press is then refused
+    // outright, which read back as "the blocked hit produced no chip".
+    await punchIdle(page);
+    return out;
   }
 
   const clean = await chipCase();
@@ -225,14 +240,34 @@ console.log('\n=== (d) Stamina chip damage on being hit ===');
     s: window.__game.scene.keys.RingScene.dummy.stamina,
     d: window.__game.scene.keys.RingScene.dummy._hitRegenDelay,
   }));
-  await page.waitForTimeout(140);
-  const during = await page.evaluate(() => window.__game.scene.keys.RingScene.dummy.stamina);
-  await page.waitForTimeout(1200);
-  const after  = await page.evaluate(() => window.__game.scene.keys.RingScene.dummy.stamina);
+  // Sample INSIDE the suppression window, then again after it has lapsed —
+  // both on the game clock the delay itself counts down on. As wall-clock
+  // sleeps these sampled the wrong side of the boundary under load.
+  // Sampled entirely IN THE PAGE, frame by frame, rather than by round-tripping
+  // between sleeps. The suppression window is 0.6 s of game time and a single
+  // Playwright round trip can burn a third of it on a loaded machine — so the
+  // old three-sleep version routinely took its "still suppressed" sample after
+  // the delay had already lapsed, and read a stamina bar that had started
+  // climbing again. The assertion is the same; only the sampling moved.
+  const regen = await page.evaluate(async () => {
+    const d = window.__game.scene.keys.RingScene.dummy;
+    const step = () => new Promise(r => requestAnimationFrame(r));
+    const start = d.stamina;
+    let peakWhileSuppressed = d.stamina;
+    while (d._hitRegenDelay > 0) {
+      peakWhileSuppressed = Math.max(peakWhileSuppressed, d.stamina);
+      await step();
+    }
+    const atLapse = d.stamina;
+    const until = window.__tick.gameTime + 0.4;   // enough regen to be unambiguous
+    while (window.__tick.gameTime < until) await step();
+    return { start, peakWhileSuppressed, atLapse, after: d.stamina };
+  });
   check('regen is suppressed for staminaRegenDelayAfterHit, then resumes',
-    during <= t0.s + 0.01 && after > during + 1,
-    `${cfg.regenDelay}s delay: ${t0.s.toFixed(2)} → ${during.toFixed(2)} still suppressed ` +
-    `(${t0.d.toFixed(2)}s left at sample) → ${after.toFixed(2)} once it lapsed`);
+    regen.peakWhileSuppressed <= regen.start + 0.01 && regen.after > regen.atLapse + 1,
+    `${cfg.regenDelay}s delay: ${t0.s.toFixed(2)} → held at ${regen.peakWhileSuppressed.toFixed(2)} ` +
+    `for the whole window (${t0.d.toFixed(2)}s of it left when sampling started) → ` +
+    `${regen.after.toFixed(2)} once it lapsed`);
 
   // ── Spiral check ────────────────────────────────────────────────────────
   // Chip damage can now push a fighter into the lowStaminaThreshold telegraph
@@ -285,7 +320,13 @@ console.log('\n=== (d) Stamina chip damage on being hit ===');
     sc.dummy._loco.x = sc.fighter.x + 60;
     sc.dummy._loco.y = sc.fighter.y;
     sc.dummy.forceAttack();
-    await new Promise(r => setTimeout(r, 1400));
+    // Wait on GAME time for the windup to reach impact, not on a 1.4 s
+    // setTimeout: dummyWindupDuration is 0.8 s of game time, and a loaded
+    // headless page runs the sim at roughly half wall speed — so the old sleep
+    // sampled the player's stamina before the punch had ever landed.
+    const step = () => new Promise(r => requestAnimationFrame(r));
+    const deadline = window.__tick.gameTime + 3;
+    while (sc.fighter.stamina >= before && window.__tick.gameTime < deadline) await step();
     return { before, after: sc.fighter.stamina, delay: sc.fighter._hitRegenDelay };
   });
   check('the player pays the same chip from the dummy\'s punches (mirrored, not inherited)',

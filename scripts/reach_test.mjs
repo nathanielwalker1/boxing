@@ -21,6 +21,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, punchIdle, resolved, soft } from './waits.js';
 import { mkdirSync } from 'fs';
 
 mkdirSync('scripts/output', { recursive: true });
@@ -35,7 +36,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console',   m => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-await page.waitForTimeout(1200);
+await bootReady(page);
 
 await page.evaluate(() => {
   const sc = window.__game.scene.keys.RingScene;
@@ -126,7 +127,9 @@ async function fire(o) {
 
   await setup();
   if (opts.holdKey) await page.keyboard.down(opts.holdKey);
-  await page.waitForTimeout(opts.holdKey ? 260 : 60);   // long enough to reach top speed
+  // Long enough to reach top speed — in GAME time, so a loaded page doesn't
+  // press the punch before the fighter has accelerated.
+  await gameTime(page, opts.holdKey ? 0.26 : 0.06);
 
   // Re-assert the geometry on the press frame — the settle above will have
   // moved the player if a key is held, and bled velocity off if one isn't.
@@ -147,20 +150,42 @@ async function fire(o) {
   });
 
   if (opts.teleportDx !== undefined || opts.teleportDy !== undefined) {
-    await page.waitForTimeout(40);
-    await page.evaluate(p => {
+    // Done IN THE PAGE, gated on the punch's own progress, because "mid-windup"
+    // is a position on the punch timeline and nothing else. Driving it from
+    // Node meant the shove landed wherever two Playwright round trips plus a
+    // 40 ms sleep happened to put it — and once punchDuration is stretched to
+    // 0.6 s for these cases, that could be either side of peak extension. Past
+    // peak the punch has already resolved against the OLD position and lands,
+    // which is precisely the outcome the case exists to rule out.
+    await page.evaluate(async p => {
       const sc = window.__game.scene.keys.RingScene;
-      if (p.teleportDx !== undefined) sc.dummy._loco.x = sc.fighter.x + p.teleportDx;
-      if (p.teleportDy !== undefined) sc.dummy._loco.y = sc.fighter.y + p.teleportDy;
+      const f  = sc.fighter;
+      const step = () => new Promise(r => requestAnimationFrame(r));
+      const total = f._punchDuration || window.__config.punchDuration;
+      // 20% in: after the aim has locked at the press, comfortably before the
+      // earliest peak (jab peaks at 0.42).
+      while (f.punchTimer > 0 && 1 - f.punchTimer / total < 0.2) await step();
+      if (p.teleportDx !== undefined) sc.dummy._loco.x = f.x + p.teleportDx;
+      if (p.teleportDy !== undefined) sc.dummy._loco.y = f.y + p.teleportDy;
       sc.dummy.x = sc.dummy._loco.x;
       sc.dummy.y = sc.dummy._loco.y;
     }, opts);
   }
 
-  await page.waitForTimeout(opts.settleMs);
+  // Wait for the punch to RESOLVE, not for a hand-tuned settle budget. This is
+  // the fix for 'shrinking hurtboxes turns a landed jab into a whiff' failing
+  // under CPU load: a whiff still records an outcome, but only once peak
+  // extension is reached, and 250 ms of wall clock stopped containing that once
+  // the suite began running scripts in parallel. The case then read back an
+  // empty array and reported outcome 'none', which is not 'whiff'.
+  await resolved(page, '__out', 1, { timeout: Math.max(6000, opts.settleMs * 8) });
   if (opts.holdKey) await page.keyboard.up(opts.holdKey);
   const got = await page.evaluate(() => window.__out.splice(0));
-  await page.waitForTimeout(200);   // let the animation unwind before the next case
+  // Let the punch fully unwind before the next case. This has to be the real
+  // condition, not a fixed budget: several sections raise punchDuration to
+  // 0.6 s, and a 200 ms unwind left the previous punch still in flight — its
+  // late resolution then landed in __out and the NEXT case read it as its own.
+  await punchIdle(page);
   return { aim, ...(got.find(g => g.byPlayer) ?? { outcome: 'none' }) };
 }
 
@@ -296,7 +321,7 @@ check('shrinking hurtboxes turns a landed jab into a whiff',
   `jab at ${DIFF} px: default=${jabAt80.outcome}, tiny hurtboxes=${shrunk.outcome}`);
 
 await page.evaluate(() => { window.__config.showHurtboxes = true; });
-await page.waitForTimeout(300);
+await gameTime(page, 0.3);
 await page.screenshot({ path: 'scripts/output/reach_hurtboxes.png' });
 await page.evaluate(() => { window.__config.showHurtboxes = false; });
 
@@ -493,7 +518,9 @@ const locked = await page.evaluate(async () => {
   sc.fighter.x = cx - 35; sc.fighter.y = cy; sc.fighter.vx = sc.fighter.vy = 0;
   sc.dummy._loco.x = cx + 35; sc.dummy._loco.y = cy;
   sc.dummy.x = sc.dummy._loco.x; sc.dummy.y = sc.dummy._loco.y;
-  await new Promise(r => setTimeout(r, 80));
+  // Frames, not wall clock — the setup only needs the sim to observe the new
+  // positions, and one slow frame can exceed an 80 ms sleep entirely.
+  for (let i = 0; i < 4; i++) await new Promise(r => requestAnimationFrame(r));
 
   sc._lastInputX = 1;
   sc._resolvePunch('jab');
@@ -503,7 +530,7 @@ const locked = await page.evaluate(async () => {
   for (let i = 0; i < 18; i++) {
     sc.dummy._loco.y = cy + (i % 2 ? 70 : -70);
     sc.dummy.y = sc.dummy._loco.y;
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise(r => requestAnimationFrame(r));
     if (sc.fighter.punchArm) samples.push(sc.fighter.punchAim);
   }
   return samples;
@@ -588,17 +615,17 @@ for (const s of SHOTS) {
     sc.dummy._loco.x = cx + p.dx / 2; sc.dummy._loco.y = cy + p.dy / 2;
     sc.dummy.x = sc.dummy._loco.x; sc.dummy.y = sc.dummy._loco.y;
   }, s);
-  await page.waitForTimeout(120);
+  await gameTime(page, 0.12);
   await page.evaluate(p => {
     const sc = window.__game.scene.keys.RingScene;
     sc._lastInputX = p.inputX;
     sc._resolvePunch(p.type);
   }, s);
   // peakAt is 0.42-0.62 of the duration depending on the punch; land in that band.
-  await page.waitForTimeout(620);
+  await gameTime(page, 0.62);
   await page.screenshot({ path: `scripts/output/aim_${s.name}.png` });
   console.log(`     scripts/output/aim_${s.name}.png`);
-  await page.waitForTimeout(700);
+  await gameTime(page, 0.7);
 }
 await page.evaluate(() => {
   window.__config.showAimCone   = false;

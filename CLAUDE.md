@@ -38,6 +38,18 @@ Before reporting any task as done, you must self-check it — do not rely on me 
 7. **Parameter sweeps and repeated test cases go inside the debug script as a loop, not as a bash loop wrapping script regeneration.** A bash `for` loop that rewrites `scripts/_debug.mjs` via heredoc each iteration trips the shell's expansion-obfuscation guard. If you need to test multiple values (a duration sweep, a range of config overrides, repeated trials), write one `scripts/_debug.mjs` with the loop in plain JS (a `for` loop or `.forEach` over the values, one browser launch, reused or reloaded pages as needed) and run it once with `node scripts/_debug.mjs`.
 8. **Never use glob patterns in bash `rm`/delete commands** — this trips a separate built-in guard against glob-pattern deletes. Either enumerate exact filenames (`rm -f scripts/output/a.png scripts/output/b.png`), or if genuinely pattern-based, do it inside a Node script (`fs.readdirSync()` + `.filter()` + `fs.unlinkSync()`) instead of a shell glob passed to `rm`.
 9. **Debugging budget when verification fails.** Spend at most 2 diagnostic steps before reporting back with what you found and what you'd try next. Never run the same test more than twice in a row. Ask before starting any investigation that needs more than 3 shell commands.
+10. **Use the test runner, never a loop of individual invocations.**
+    `npm run test:quick <names>` while iterating on the systems you touched;
+    `npm test` once at the end before reporting. Never run the full suite to
+    check a single assertion, and never chain individual `node scripts/*.mjs`
+    calls when the runner can do it in one.
+    The runner starts and stops its own Vite (or reuses one already on 5173),
+    prints one line per script when it passes and the full output only when it
+    fails, and runs 3 scripts at a time (`TEST_CONCURRENCY` to change that).
+    New waits go through `scripts/waits.js` — `gameTime`/`until`/`settled`/
+    `frames`, never `waitForTimeout`. A fixed sleep standing in for "the sim
+    advanced N ms" is the single most common source of flakes in this suite, and
+    parallel execution turns those flakes into reliable failures.
 11. **Confirmation runs are budgeted like diagnostics.** Rule 9 bounds work when verification fails; this bounds work confirming it succeeded. Derive trial counts from the observed failure rate, don't pick a round number: ~95% confidence that a 1-in-N intermittent failure is fixed needs roughly 3N consecutive passes, so a 1-in-4 flake needs ~10 and a 1-in-7 flake needs ~20. Because that many full-suite runs is unaffordable, isolate the single assertion into `scripts/_debug.mjs` as a loop in ONE browser session (rule 7) and run the trials there. **Hard cap: if confirmation will exceed 5 minutes of wall clock, stop, report the trial count you achieved and the confidence it implies, and let me decide whether to spend more.**
 12. **Never block a shell on a sleep-poll.** Constructs like `until [ ... ]; do sleep 30; done` burn wall clock in 30-second quanta and occupy a shell doing nothing. Run background work in the background, then check its status once. If it isn't finished, say so and report what you have — do not wait for it.
 13. **Read narrowly.** `src/` is ~6,000 lines (`main.js` 1,195, `rig.js` 832, `config.js` 831). Reading those three whole costs ~35k tokens and is almost never necessary. Grep for the symbol or config key first, then read only the surrounding range. Never re-read a file you just edited.

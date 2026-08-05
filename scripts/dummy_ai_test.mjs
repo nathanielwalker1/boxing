@@ -14,6 +14,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, until, soft } from './waits.js';
 import { mkdirSync } from 'fs';
 
 const OUT = 'scripts/output/dummy_ai';
@@ -56,7 +57,7 @@ const check = (label, pass, detail) => {
  */
 async function freshLoad() {
   await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-  await page.waitForTimeout(800);
+  await bootReady(page);
   await page.evaluate(() => {
     const sc = window.__game.scene.keys.RingScene;
     const d  = sc.dummy;
@@ -110,9 +111,9 @@ const sample = () => peek(() => {
 
 // Hold each key across at least one frame — a bare press() can land entirely
 // between frames, and Phaser's JustDown() only samples once per update tick.
-async function tap(key, ms = 80) {
+async function tap(key, ticks = 4) {
   await page.keyboard.down(key);
-  await page.waitForTimeout(ms);
+  await frames(page, ticks);
   await page.keyboard.up(key);
 }
 
@@ -132,14 +133,14 @@ await peek(() => { window.__config.dummyAttackDelayMin = 999; window.__config.du
                    window.__game.scene.keys.RingScene.dummy.attackTimer = 999; });
 
 const startDist = (await sample()).dist;
-await page.waitForTimeout(1300);
+await gameTime(page, 1.3);
 await page.screenshot({ path: `${OUT}/01_advancing.png` });
 const midDist = (await sample()).dist;
 check('advances when out of range', midDist < startDist - 50,
   `dist ${startDist.toFixed(0)} → ${midDist.toFixed(0)} px`);
 
 const trace = [];
-for (let i = 0; i < 30; i++) { await page.waitForTimeout(100); trace.push(await sample()); }
+for (let i = 0; i < 30; i++) { await gameTime(page, 0.1); trace.push(await sample()); }
 await page.screenshot({ path: `${OUT}/02_settled.png` });
 
 const dists = trace.map(s => s.dist);
@@ -165,9 +166,9 @@ check('holds inside the landing band', hold > cfg.smother && hold < cfg.engage,
 // long settle first: the dummy has to travel around the pinned player to find
 // its standoff, and that transit is drift, not jitter.
 await page.keyboard.down('ArrowRight'); await page.keyboard.down('ArrowDown');
-await page.waitForTimeout(4500);
+await gameTime(page, 4.5);
 const corner = [];
-for (let i = 0; i < 20; i++) { await page.waitForTimeout(100); corner.push(await sample()); }
+for (let i = 0; i < 20; i++) { await gameTime(page, 0.1); corner.push(await sample()); }
 await page.keyboard.up('ArrowRight'); await page.keyboard.up('ArrowDown');
 await page.screenshot({ path: `${OUT}/03_cornered.png` });
 let cflips = 0;
@@ -189,7 +190,7 @@ await peek(() => {
   window.__config.healthDamagePerForce = 0;    // no knockdowns polluting the run
   window.__game.scene.keys.RingScene.dummy.attackTimer = 0.1;
 });
-await page.waitForTimeout(4000);
+await gameTime(page, 4);
 let s = await sample();
 check('does not throw while out of range', s.throws === 0,
   `dist ${s.dist.toFixed(0)} > engage dist ${cfg.engage}, ${s.throws} throws`);
@@ -197,7 +198,7 @@ check('timer holds armed at 0 waiting for range', s.atk === 0, `attackTimer=${s.
 await page.screenshot({ path: `${OUT}/04_armed_out_of_range.png` });
 
 await peek(() => { window.__config.dummyMoveSpeed = 170; });
-await page.waitForTimeout(5000);
+await gameTime(page, 5);
 s = await sample();
 const outOfBand = s.throwDists.filter(d => d > cfg.engage + 5 || d < cfg.smother - 5);
 check('throws once it has closed into range', s.throws > 0, `${s.throws} throws`);
@@ -219,7 +220,7 @@ await peek(() => {
 await page.waitForFunction(() => window.__game.scene.keys.RingScene.dummy.punchTimer === 0, null, { timeout: 5000 });
 const before = await sample();
 await tap('KeyT');
-await page.waitForTimeout(300);
+await gameTime(page, 0.3);
 s = await sample();
 check('debug T forces a throw from out of range', s.throws === before.throws + 1,
   `dist ${before.dist.toFixed(0)}, throws ${before.throws} → ${s.throws}`);
@@ -231,10 +232,10 @@ await peek(() => {
   window.__config.healthDamagePerForce = 0.01;
   window.__game.scene.keys.RingScene.dummy.takeDamage(9999);
 });
-await page.waitForTimeout(150);
+await gameTime(page, 0.15);
 const downBefore = await sample();
 await tap('KeyT');
-await page.waitForTimeout(300);
+await gameTime(page, 0.3);
 s = await sample();
 check('debug T no-ops while the dummy is down', downBefore.down && s.throws === downBefore.throws,
   `isDown=${downBefore.down}, throws ${downBefore.throws} → ${s.throws}`);
@@ -260,7 +261,7 @@ console.log('\n=== 3. Reactive blocking ===');
 // is genuinely down and the player is free to throw again. Immune to hit-stop,
 // to frame rate, and to the whiff-recovery lockout.
 async function readyForNextJab() {
-  await page.waitForTimeout(600);
+  await gameTime(page, 0.6);
   await page.waitForFunction(() => {
     const sc = window.__game.scene.keys.RingScene;
     return sc.dummy.blockTimer === 0 && sc.fighter.punchTimer === 0;
@@ -287,9 +288,9 @@ async function jabSeries(chance, count) {
     const d = window.__game.scene.keys.RingScene.dummy;
     return d._distToOpponent <= window.__config.dummyEngageDist;
   }, null, { timeout: 15000 });
-  await page.waitForTimeout(300);   // let the standoff hysteresis settle before throwing
+  await gameTime(page, 0.3);   // let the standoff hysteresis settle before throwing
   for (let i = 0; i < count; i++) {
-    await tap('KeyJ', 60);
+    await tap('KeyJ');
     await readyForNextJab();
   }
   return sample();
@@ -303,12 +304,12 @@ check('chance 1.0 blocks every player punch', always.playerBlocked === always.pl
 // Capture the guard pose INSIDE the reaction window — it lasts only
 // dummyBlockReactionWindow seconds, so shoot right after the jab, not after
 // the inter-jab pause.
-await tap('KeyJ', 60);
-await page.waitForTimeout(40);
+await tap('KeyJ');
+await gameTime(page, 0.04);
 const guardState = await sample();
 check('guard pose is up during the reaction window', guardState.blocking, `isBlocking=${guardState.blocking}`);
 await page.screenshot({ path: `${OUT}/08_guard_up.png`, clip: { x: 380, y: 260, width: 340, height: 220 } });
-await page.waitForTimeout(600);
+await gameTime(page, 0.6);
 const expiredState = await sample();
 check('guard drops when the window expires', !expiredState.blocking, `isBlocking=${expiredState.blocking}`);
 await page.screenshot({ path: `${OUT}/08b_guard_expired.png`, clip: { x: 380, y: 260, width: 340, height: 220 } });
@@ -318,7 +319,7 @@ await peek(() => {
   const d = window.__game.scene.keys.RingScene.dummy;
   d.forceAttack();
 });
-await page.waitForTimeout(120);
+await gameTime(page, 0.12);
 const midWindup = await peek(() => {
   const d = window.__game.scene.keys.RingScene.dummy;
   d.onOpponentPunchStart();          // try to raise the guard mid-windup
@@ -330,8 +331,8 @@ check('cannot guard while its own windup is in flight', midWindup.pt > 0 && !mid
 const never = await jabSeries(0.0, 6);
 check('chance 0.0 never blocks', never.playerBlocked === 0,
   `${never.playerBlocked}/${never.playerBlocks} blocked`);
-await tap('KeyJ', 60);
-await page.waitForTimeout(40);
+await tap('KeyJ');
+await gameTime(page, 0.04);
 await page.screenshot({ path: `${OUT}/09_guard_never.png`, clip: { x: 380, y: 260, width: 340, height: 220 } });
 
 const defaultChance = cfg.blockChance;
@@ -361,14 +362,17 @@ async function cadence({ lowStamina, blocking }, seconds) {
     const d = window.__game.scene.keys.RingScene.dummy;
     return d._distToOpponent <= window.__config.dummyEngageDist;
   }, null, { timeout: 15000 });
-  await page.waitForTimeout(300);
+  await gameTime(page, 0.3);
   if (lowStamina) {
     await peek(() => { window.__config.staminaRegenPerSecond = 0;
                        window.__game.scene.keys.RingScene.fighter.stamina = 10; });
   }
   if (blocking) await page.keyboard.down('ShiftLeft');
   const t0 = (await sample()).throws;
-  await page.waitForTimeout(seconds * 1000);
+  // GAME seconds. This window counts the dummy's throws, and its attack timer
+  // burns game time — so measuring it in wall clock let hit-stop and dropped
+  // frames eat the window, which is what made the 'chance 1.0' case flaky.
+  await gameTime(page, seconds);
   const end = await sample();
   if (blocking) await page.keyboard.up('ShiftLeft');
   return { throws: end.throws - t0, agg: end.agg };

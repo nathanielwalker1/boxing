@@ -16,6 +16,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, soft, punchIdle } from './waits.js';
 import { mkdirSync } from 'fs';
 
 const OUT = 'scripts/output';
@@ -42,7 +43,7 @@ const peek = (fn, ...args) => page.evaluate(fn, ...args);
  */
 async function freshLoad() {
   await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-  await page.waitForTimeout(1200);
+  await bootReady(page);
   await peek(() => {
     const sc = window.__game.scene.keys.RingScene;
     window.__res = [];
@@ -91,7 +92,7 @@ async function pin(dist, opts = {}) {
       f.stamina = window.__config.staminaMax;
     }
   }, { d: dist, o: opts });
-  await page.waitForTimeout(140);
+  await frames(page, 3);
 }
 
 /** Pin the dummy's vulnerability at `v` via the punish-spike channel. */
@@ -103,9 +104,11 @@ async function pinDummyVuln(v) {
   }, v);
 }
 
-async function tap(key, ms = 70) {
+// Frames, not milliseconds — see waits.js. A 70 ms press can fall inside a
+// single tick on a loaded page and never be sampled by JustDown.
+async function tap(key, ticks = 3) {
   await page.keyboard.down(key);
-  await page.waitForTimeout(ms);
+  await frames(page, ticks);
   await page.keyboard.up(key);
 }
 
@@ -137,8 +140,10 @@ for (const v of [0, 0.4, 0.8]) {
   await pin(65);
   await pinDummyVuln(v);
   await clearRes();
-  await tap('KeyJ', 60);
-  await page.waitForTimeout(400);
+  await tap('KeyJ');
+  // Wait for the resolver to record the punch, not for 400 ms of wall clock —
+  // impact lands at peak extension, which is a GAME-time offset from the press.
+  await soft(page, () => window.__res.some(r => r.fromPlayer));
   const r = (await takeRes()).find(x => x.fromPlayer);
   forceAt[v] = r;
   console.log(`     target vulnerability ${v.toFixed(2)} → ${r?.outcome} force ${r?.force?.toFixed(1)} ` +
@@ -178,8 +183,11 @@ await pinDummyVuln(1.0);
 await clearRes();
 await page.keyboard.down('ArrowRight');
 for (let i = 0; i < 14; i++) {
-  await tap('KeyM', 50);
-  await page.waitForTimeout(220);
+  await tap('KeyM');
+  // Let the uppercut fully resolve and unwind before the next press: a fixed
+  // 220 ms did not contain the punch under load, so the whole 14-press sweep
+  // came back empty and the reduce below crashed on undefined.
+  await punchIdle(page);
   await peek(() => {
     // Hold the target still and re-arm its vulnerability: the point of this
     // measurement is the force ceiling, not a chase.
@@ -192,7 +200,14 @@ for (let i = 0; i < 14; i++) {
 }
 await page.keyboard.up('ArrowRight');
 const sweep  = (await takeRes()).filter(r => r.fromPlayer && r.outcome === 'land' && r.force);
-const worst  = sweep.reduce((a, b) => (b.force > a.force ? b : a), sweep[0]);
+// An empty sweep is a FAILURE to report, not a crash: this used to throw
+// `Cannot read properties of undefined` and take the remaining sections with it,
+// which hid what had actually gone wrong.
+if (!sweep.length) {
+  check('the closing uppercut sweep landed at least one punch', false,
+    'no landed uppercuts recorded — nothing to measure a force ceiling from');
+}
+const worst  = sweep.reduce((a, b) => (b.force > a.force ? b : a), sweep[0]) ?? { force: 0, attSpeed: 0, defVuln: 0 };
 const maxDmg = worst.force * cfg.dmgPerForce;
 
 // The arithmetic the measurement should be landing near, stated so the two can
@@ -243,7 +258,7 @@ async function blockedJab(kind, punishDuration = null) {
   await pin(65);
   await clearRes();
 
-  await tap('KeyT', 60);                       // force the dummy to throw
+  await tap('KeyT');                       // force the dummy to throw
   if (kind === 'late') {
     // Wait until the impact is imminent, THEN guard: the guard is younger than
     // perfectBlockWindow when the resolver reads it.
@@ -327,12 +342,20 @@ await peek(() => {
   window.__config.healthDamagePerForce = 0;      // no knockdowns mid-series
   window.__game.scene.keys.RingScene.dummy.attackTimer = 999;
 });
-await page.waitForTimeout(2200);                 // let the AI settle into its own range
+// Wait for the AI to actually BE in its own range rather than assuming 2.2 s of
+// wall clock got it there — closing is driven by game time, which a loaded
+// headless page runs at roughly half wall speed.
+await soft(page, () => {
+  const d = window.__game.scene.keys.RingScene.dummy;
+  return d._distToOpponent <= window.__config.dummyEngageDist;
+}, undefined, { timeout: 12000 });
 
 const N = 24;
 for (let i = 0; i < N; i++) {
-  await tap('KeyJ', 60);
-  await page.waitForTimeout(700);                // > dummyBlockReactionWindow, so each jab gets its own roll
+  await tap('KeyJ');
+  // dummyBlockReactionWindow is a GAME-time window, so the gap between jabs has
+  // to be measured on the same clock or successive jabs share one guard roll.
+  await gameTime(page, 0.7);
 }
 const series  = (await takeRes()).filter(r => r.fromPlayer && r.outcome === 'land');
 const guarded = series.filter(r => Number.isFinite(r.defBlockHeld));

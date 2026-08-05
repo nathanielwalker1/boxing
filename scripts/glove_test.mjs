@@ -24,6 +24,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, until, soft } from './waits.js';
 import { mkdirSync } from 'fs';
 
 mkdirSync('scripts/output', { recursive: true });
@@ -38,7 +39,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console',   m => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-await page.waitForTimeout(1200);
+await bootReady(page);
 
 // Silence everything that would move a fighter or deform its pose underneath
 // the probe — this file is about where the glove is drawn, nothing else.

@@ -24,6 +24,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, resolved, punchIdle } from './waits.js';
 import { mkdirSync } from 'fs';
 
 mkdirSync('scripts/output', { recursive: true });
@@ -36,7 +37,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console',   m => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-await page.waitForTimeout(1200);
+await bootReady(page);
 
 // Freeze the dummy: no approach/retreat, no attacks of its own, no reactive
 // block — so the only variable in each case is the player's distance.
@@ -87,14 +88,17 @@ async function standOff(px) {
       f.stamina = window.__config.staminaMax;
     }
   }, px);
-  await page.waitForTimeout(120);
+  await frames(page, 3);
 }
 
 // Hold each key across at least one frame — Phaser's JustDown() samples once per
-// update tick, so a sub-frame press can be missed entirely.
-async function tap(key, ms = 70) {
+// update tick, so a sub-frame press can be missed entirely. Counting FRAMES
+// rather than sleeping ~70 ms is what makes that guarantee hold under load: a
+// loaded headless page can take longer than 70 ms to render one frame, and the
+// press then lands and lifts inside a single tick and is never sampled.
+async function tap(key, ticks = 3) {
   await page.keyboard.down(key);
-  await page.waitForTimeout(ms);
+  await frames(page, ticks);
   await page.keyboard.up(key);
 }
 
@@ -103,13 +107,26 @@ async function step(name, expected, distance, key, shot, holdDir) {
   await standOff(distance);
   if (holdDir) await page.keyboard.down(holdDir);
   await tap(key);
-  // Impact resolves at peak extension (Stage 9), not on the press frame, so the
-  // outcome is only readable after the punch has had time to arrive.
-  await page.waitForTimeout(200);
+  // Holding a direction to pick the hand also DRAGS the player during the punch.
+  // Re-pin on the press frame so the case resolves at the distance it claims to
+  // be testing: the hold is still down, so the fighter re-accelerates from rest
+  // and the residual drift is a few px instead of 12–20.
+  if (holdDir) {
+    await page.evaluate(d => {
+      const sc = window.__game.scene.keys.RingScene;
+      sc.fighter.x  = sc.dummy.x - d;
+      sc.fighter.y  = sc.dummy.y;
+      sc.fighter.vx = sc.fighter.vy = 0;
+    }, distance);
+  }
+  // Impact resolves at peak extension (Stage 9), not on the press frame — so
+  // wait for the resolver to actually record something rather than betting that
+  // 200 ms of wall clock contained enough rendered frames to get there.
+  await resolved(page, '__out');
   if (holdDir) await page.keyboard.up(holdDir);
   const got = await page.evaluate(() => window.__out.splice(0));
   await page.screenshot({ path: `scripts/output/${shot}.png` });
-  await page.waitForTimeout(300);   // let the punch animation finish before the next case
+  await punchIdle(page);   // let the punch animation finish before the next case
 
   const r    = got[0];
   const pass = !!r && r.outcome === expected;
@@ -128,22 +145,22 @@ const CLOSE = cfg.smother - 20;   // 30 px — inside the smother radius
 const MID   = 65;                 // comfortably inside every punch's reach
 
 // The two hand-selection cases below hold a direction for the whole punch, and
-// that hold DRAGS THE PLAYER during the ~90 ms between the press and peak
-// extension — so the distance a case is SET UP at is not the distance it
-// RESOLVES at. Measured over 10 runs each: 12–20 px, in whichever direction is
-// held.
+// that hold used to DRAG THE PLAYER 12–20 px during the window between the
+// press and peak extension — so the distance a case was SET UP at was not the
+// distance it RESOLVED at.
 //
-// That is what made "hook holding left" fail roughly 1 run in 4. Holding left
-// pulls the player AWAY from the dummy, so a case set up at 65 px was resolving
-// at 77–85 px against a lead hook whose measured reach is 87 px (see
-// reach_test.mjs) — 2 px of margin, and a slower frame drifts past it and
-// whiffs. Nothing was wrong with the hook; the case was being fired from the
-// edge of the reach envelope while claiming to be at mid range.
+// That is what made "hook holding left" fail roughly 1 run in 4: holding left
+// pulls the player AWAY from the dummy, so a case set up at 65 px resolved at
+// 77–85 px against a lead hook whose measured reach is 87 px (see
+// reach_test.mjs). Two px of margin, and a slow frame drifted past it and
+// whiffed. Nothing was wrong with the hook; the case was firing from the edge
+// of the reach envelope while claiming to be at mid range.
 //
-// Pre-compensating puts BOTH holds' IMPACT near MID instead: the left case
-// starts nearer and drifts out to ~65, the right case starts further and drifts
-// in to ~65. The printed impact distance in each row is the check on that.
-const HOLD_DRIFT = 17;   // px travelled between press and impact while a direction is held
+// `step` now re-pins on the press frame instead of pre-compensating with a
+// measured constant, because the constant was itself a wall-clock artefact —
+// it grew with load, which is what turned a flake into a guaranteed failure
+// when the suite started running scripts in parallel. The printed impact
+// distance in each row is the check on that.
 
 // ── 1. WHIFF — beyond every punch's reach (longest is the cross at ~90 px) ──
 await step('jab, far outside reach',  'whiff',   220, 'KeyJ', 'punch_whiff');
@@ -161,9 +178,9 @@ await step('hook, inside smother',    'land',    CLOSE, 'KeyI', 'punch_hook_clos
 await step('uppercut, inside smother','land',    CLOSE, 'KeyM', 'punch_uppercut_close');
 
 // ── 5. Hook hand selection at mid range ─────────────────────────────────────
-// Set up at MID ∓ HOLD_DRIFT so each resolves at ~MID — see the note above.
-const left = await step('hook holding left',  'land', MID - HOLD_DRIFT, 'KeyI', 'punch_hook_left',  'ArrowLeft');
-const right= await step('hook holding right', 'land', MID + HOLD_DRIFT, 'KeyI', 'punch_hook_right', 'ArrowRight');
+// Both resolve at ~MID now — see the note above.
+const left = await step('hook holding left',  'land', MID, 'KeyI', 'punch_hook_left',  'ArrowLeft');
+const right= await step('hook holding right', 'land', MID, 'KeyI', 'punch_hook_right', 'ArrowRight');
 
 // Arms are named anatomically now ('left'/'right'), not by rig slot
 // ('lead'/'rear') — the slot a hand occupies depends on stance. Hook/uppercut

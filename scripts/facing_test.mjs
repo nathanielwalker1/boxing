@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, until, soft } from './waits.js';
 
 const browser = await chromium.launch();
 const page    = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -9,7 +10,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-await page.waitForTimeout(1500);
+await bootReady(page);
 
 // 1. Initial state — fighter left of dummy, should face right (toward dummy)
 await page.screenshot({ path: 'scripts/output/facing_01_initial.png' });
@@ -18,17 +19,17 @@ await page.screenshot({ path: 'scripts/output/facing_01_initial.png' });
 //    facing to left here because vx < 0. Correct: dummy still to the right,
 //    so fighter should keep facing right.
 await page.keyboard.down('ArrowLeft');
-await page.waitForTimeout(1200);
+await gameTime(page, 1.2);
 await page.keyboard.up('ArrowLeft');
-await page.waitForTimeout(300);
+await gameTime(page, 0.3);
 await page.screenshot({ path: 'scripts/output/facing_02_sidestep_left.png' });
 
 // 3. Move RIGHT, all the way past the dummy's x position, to end up
 //    behind/past the opponent. Fighter should now face LEFT (dummy behind him).
 await page.keyboard.down('ArrowRight');
-await page.waitForTimeout(4000);
+await gameTime(page, 4);
 await page.keyboard.up('ArrowRight');
-await page.waitForTimeout(300);
+await gameTime(page, 0.3);
 await page.screenshot({ path: 'scripts/output/facing_03_past_dummy.png' });
 
 // 4. Sidestep further RIGHT (away from dummy again, now moving away while
@@ -36,16 +37,16 @@ await page.screenshot({ path: 'scripts/output/facing_03_past_dummy.png' });
 //    (facing right), but correct behavior: dummy is now to the LEFT, so
 //    fighter should face left.
 await page.keyboard.down('ArrowRight');
-await page.waitForTimeout(800);
+await gameTime(page, 0.8);
 await page.keyboard.up('ArrowRight');
-await page.waitForTimeout(300);
+await gameTime(page, 0.3);
 await page.screenshot({ path: 'scripts/output/facing_04_sidestep_right_past.png' });
 
 // 5. Move back LEFT across the dummy again — should flip back to facing right.
 await page.keyboard.down('ArrowLeft');
-await page.waitForTimeout(4000);
+await gameTime(page, 4);
 await page.keyboard.up('ArrowLeft');
-await page.waitForTimeout(300);
+await gameTime(page, 0.3);
 await page.screenshot({ path: 'scripts/output/facing_05_back_left.png' });
 
 // ── 6. Facing while BLOCKING ────────────────────────────────────────────────
@@ -102,7 +103,7 @@ for (const [label, px, dx] of [['dummy right', 400, 620], ['dummy left', 620, 40
   await page.keyboard.down('Shift');
   // Sample repeatedly across the whole hold, not just once at the end.
   for (let i = 0; i < 6; i++) {
-    await page.waitForTimeout(120);
+    await gameTime(page, 0.12);
     await pin(px, dx);
     const s = await sample();
     if (!s.blocking) { failures.push(`[${label}] block never engaged`); break; }
@@ -122,7 +123,7 @@ for (const [label, px, dx] of [['dummy right', 400, 620], ['dummy left', 620, 40
     clip: { x: 160 + px - 95, y: 80 + 320 - 115, width: 190, height: 200 },
   });
   await page.keyboard.up('Shift');
-  await page.waitForTimeout(150);
+  await gameTime(page, 0.15);
 }
 
 // ── 7. Rapid block toggling while circling ──────────────────────────────────
@@ -133,7 +134,7 @@ for (let i = 0; i < 10; i++) {
   await pin(past ? 700 : 400, 620);
   if (i % 2 === 0) await page.keyboard.down('Shift');
   else             await page.keyboard.up('Shift');
-  await page.waitForTimeout(100);
+  await gameTime(page, 0.1);
   await pin(past ? 700 : 620 - 220, 620);
   const s = await sample();
   if (s.facingRight !== s.expectRight) {
@@ -361,7 +362,7 @@ const shotFacing = await page.evaluate(async ({ ringB }) => {
   const fist = d.getFistPos(d.punchArm);
   return { facingRight: d.facingRight, fistX: fist.x, dX: d.x, pX: f.x };
 }, { ringB });
-await page.waitForTimeout(60);
+await gameTime(page, 0.06);
 await page.screenshot({ path: 'scripts/output/facing_08_rope_attack.png' });
 if (shotFacing.fistX < ringB.left || shotFacing.fistX > ringB.right) {
   failures.push(`[reported scenario] fist at x=${shotFacing.fistX.toFixed(1)} is outside the ring`);
@@ -373,8 +374,11 @@ console.log('Page errors:', errors.length ? errors : 'none');
 console.log('Facing test screenshots saved to scripts/output/facing_*.png');
 console.log(`Rope/corner facing cases checked: ${ropeResults.length}`);
 
-if (failures.length) {
-  console.error('FACING FAILURES:\n  ' + failures.join('\n  '));
+// `errors` is now part of the exit condition. It was collected and printed but
+// never read, so facing had never actually been checked for console errors.
+if (failures.length || errors.length) {
+  if (failures.length) console.error('FACING FAILURES:\n  ' + failures.join('\n  '));
+  if (errors.length)   console.error(`PAGE ERRORS (${errors.length}):\n  ` + errors.join('\n  '));
   process.exit(1);
 }
 console.log('Block-facing checks: PASS');

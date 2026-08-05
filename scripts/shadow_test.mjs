@@ -26,6 +26,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, until, soft } from './waits.js';
 import { mkdirSync } from 'fs';
 
 mkdirSync('scripts/output', { recursive: true });
@@ -40,7 +41,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console',   m => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-await page.waitForTimeout(1200);
+await bootReady(page);
 
 // Nothing may wander during the probes: no dummy AI, no attacks, no separation
 // shove, and a health floor so a test impulse can't trigger a real knockdown.
@@ -105,7 +106,7 @@ function assertAnchored(p, tag) {
 // ── 1. Tracks world position ────────────────────────────────────────────────
 for (const [px, py, dx, dy] of [[300, 300, 620, 300], [420, 200, 560, 470], [250, 480, 700, 180]]) {
   await page.evaluate(a => window.__place(...a), [px, py, dx, dy]);
-  await page.waitForTimeout(120);
+  await gameTime(page, 0.12);
   assertAnchored(await page.evaluate(() => window.__probe()), `placed (${px},${py})/(${dx},${dy})`);
 }
 
@@ -116,7 +117,7 @@ await page.evaluate(() => {
   window.__config.slipInvincibilityDuration = 6;   // hold the window open
   sc.fighter._triggerSlip(-1, -1);
 });
-await page.waitForTimeout(500);
+await gameTime(page, 0.5);
 {
   const p = await page.evaluate(() => window.__probe());
   check(p.player.slip > 0, `slip is active (${p.player.slip.toFixed(2)}s left)`);
@@ -136,7 +137,7 @@ await page.evaluate(() => {
   sc.fighter.slipTimer = 0;
   window.__config.slipInvincibilityDuration = 0.25;
 });
-await page.waitForTimeout(120);
+await gameTime(page, 0.12);
 
 // ── 3. An active HIT REACTION must not move it ──────────────────────────────
 // A fighter rocked back by a cross has moved their upper body, not their feet.
@@ -145,7 +146,7 @@ await page.evaluate(() => {
   window.__place(360, 320, 640, 320);
   sc.fighter.receiveHit('cross', 600);
 });
-await page.waitForTimeout(90);
+await gameTime(page, 0.09);
 {
   const p = await page.evaluate(() => window.__probe());
   const r = p.player.react;
@@ -166,14 +167,14 @@ await page.evaluate(() => {
   sc.fighter._bobPhase = 0;
 });
 await page.keyboard.down('ArrowLeft');
-await page.waitForTimeout(400);
+await gameTime(page, 0.4);
 {
   const p = await page.evaluate(() => window.__probe());
   check(Math.abs(p.player.bob) > 0.2, `movement bob is active (${p.player.bob.toFixed(2)} px)`);
   assertAnchored(p, 'mid-bob');
 }
 await page.keyboard.up('ArrowLeft');
-await page.waitForTimeout(300);
+await gameTime(page, 0.3);
 
 // ── 5. Knockdown — the one intended shape change ────────────────────────────
 await page.evaluate(() => {
@@ -182,7 +183,7 @@ await page.evaluate(() => {
   window.__place(360, 320, 640, 320);
   sc.dummy._triggerKnockdown();
 });
-await page.waitForTimeout(150);
+await gameTime(page, 0.15);
 {
   const p = await page.evaluate(() => window.__probe());
   const [ps, ds] = p.shadows;
@@ -200,16 +201,16 @@ await page.evaluate(() => {
   sc.dummy.health = window.__config.healthMax;
   window.__config.knockdownRecoveryDuration = 2.5;
 });
-await page.waitForTimeout(120);
+await gameTime(page, 0.12);
 
 // ── 6. The enable toggle actually stops the draw ────────────────────────────
 {
   await page.evaluate(() => { window.__config.shadowEnabled = false; });
-  await page.waitForTimeout(120);
+  await gameTime(page, 0.12);
   const off = await page.evaluate(() => window.__probe());
   check(off.drawn === 0, `shadowEnabled false → nothing drawn (buffer ${off.drawn})`);
   await page.evaluate(() => { window.__config.shadowEnabled = true; });
-  await page.waitForTimeout(120);
+  await gameTime(page, 0.12);
   const on = await page.evaluate(() => window.__probe());
   check(on.drawn > 0, `shadowEnabled true → shadows drawn (buffer ${on.drawn})`);
 }
@@ -237,7 +238,7 @@ await page.waitForTimeout(120);
 // Lower on screen = nearer the camera = drawn on top, both ways round.
 for (const [dy, who] of [[-40, 'player'], [40, 'dummy']]) {
   await page.evaluate(d => window.__place(460, 320, 500, 320 + d), dy);
-  await page.waitForTimeout(120);
+  await gameTime(page, 0.12);
   const p = await page.evaluate(() => window.__probe());
   const front = p.player.depth > p.dummy.depth ? 'player' : 'dummy';
   check(front === who,
@@ -249,7 +250,7 @@ for (const [dy, who] of [[-40, 'player'], [40, 'dummy']]) {
   const samples = [];
   for (let i = 0; i < 6; i++) {
     await page.evaluate(() => window.__place(460, 320, 500, 320));
-    await page.waitForTimeout(70);
+    await gameTime(page, 0.07);
     const p = await page.evaluate(() => window.__probe());
     samples.push(p.player.depth > p.dummy.depth ? 'player' : 'dummy');
   }

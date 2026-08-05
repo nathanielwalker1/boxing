@@ -25,6 +25,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
+import { bootReady, frames, gameTime, until, soft } from './waits.js';
 
 const browser = await chromium.launch();
 const page    = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -34,7 +35,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-await page.waitForTimeout(1200);
+await bootReady(page);
 
 const failures = [];
 const pass = (name, detail) => console.log(`  [PASS] ${name.padEnd(50)} — ${detail}`);
@@ -300,7 +301,7 @@ await page.evaluate(() => {
   sc.dummy._loco.x = 520; sc.dummy._loco.y = 320;
   sc.dummy.takeDamage(window.__config.healthMax);
 });
-await page.waitForTimeout(900);
+await gameTime(page, 0.9);
 await page.screenshot({ path: 'scripts/output/camera_knockdown.png' });
 
 await browser.close();

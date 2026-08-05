@@ -789,6 +789,14 @@ class RingScene extends Phaser.Scene {
       dt = realDt * config.hitStopScale;
     }
 
+    // Dev hook (Stage 18a): frame count and accumulated GAME time, so the
+    // Playwright checks can wait on "the sim advanced N seconds" instead of
+    // sleeping N seconds of wall clock. Game time is the hit-stop-scaled dt —
+    // the same clock the systems under test run on — which is what makes these
+    // waits immune to both CPU load and hit-stop eating the window.
+    window.__tick.frames++;
+    window.__tick.gameTime += dt;
+
     // Movement input
     let kx = 0, ky = 0;
     if (this.cursors.left.isDown  || this.wasd.left.isDown)  kx -= 1;
@@ -853,6 +861,10 @@ class RingScene extends Phaser.Scene {
 }
 
 // ── Phaser game ───────────────────────────────────────────────────────────────
+// Dev hook: declared before the game exists so the very first update() tick can
+// increment it. See the write site in RingScene.update().
+window.__tick = { frames: 0, gameTime: 0 };
+
 const game = new Phaser.Game({
   type:            Phaser.AUTO,
   width:           GAME_W,

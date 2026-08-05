@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node scripts/run_tests.mjs",
+    "test:quick": "node scripts/run_tests.mjs"
   },
   "dependencies": {
     "lil-gui": "^0.19.2",
