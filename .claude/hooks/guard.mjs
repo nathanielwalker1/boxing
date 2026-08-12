@@ -37,6 +37,18 @@ const RULES = [
   },
 ];
 
+// Prose that MENTIONS a dangerous command is not a dangerous command. A commit
+// message or doc edit describing `rm -rf` must not trip the guard. Strip the
+// spans that carry human text — heredoc bodies and -m/--message arguments —
+// before matching. Everything else stays scannable, so `bash -c "rm -rf /"` is
+// still caught: in a real invocation the verb and its flags are never quoted,
+// only the arguments are.
+function stripProse(cmd) {
+  return cmd
+    .replace(/<<-?\s*(['"]?)(\w+)\1[\s\S]*?^\s*\2\s*$/gm, ' <<HEREDOC ')
+    .replace(/(^|\s)(-m|-F|--message)(=|\s+)('[\s\S]*?'|"[\s\S]*?"|\S+)/g, '$1$2 MSG');
+}
+
 let raw = '';
 process.stdin.on('data', (c) => (raw += c));
 process.stdin.on('end', () => {
@@ -47,7 +59,7 @@ process.stdin.on('end', () => {
     process.exit(0); // unparseable payload: never block on a guard bug
   }
 
-  const hit = RULES.find((r) => r.re.test(cmd));
+  const hit = RULES.find((r) => r.re.test(stripProse(cmd)));
   if (!hit) process.exit(0);
 
   process.stdout.write(
