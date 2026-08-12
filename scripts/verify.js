@@ -9,6 +9,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { DEV_URL } from './devUrl.js';
 import { bootReady } from './waits.js';
+import { greyscaleCopy } from './greyscale.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(__dirname, 'output');
@@ -43,10 +44,16 @@ const consolePath    = `${OUT}/console.json`;
 await page.screenshot({ path: screenshotPath, fullPage: false });
 writeFileSync(consolePath, JSON.stringify(consoleLogs, null, 2));
 
+// VISUALS.md protocol step 4 — the value check. Free to produce and it is the
+// only way to tell a silhouette problem from a colour problem, so it is emitted
+// on every capture rather than on request.
+const greyPath = await greyscaleCopy(page, screenshotPath);
+
 await browser.close();
 
 // ── Report ──────────────────────────────────────────────────────────────────
 console.log(`\nScreenshot → ${screenshotPath}`);
+console.log(`Greyscale  → ${greyPath}`);
 console.log(`Console log → ${consolePath}\n`);
 
 const errors = consoleLogs.filter(m => m.type === 'error' || m.type === 'pageerror');

@@ -72,16 +72,36 @@ await page.evaluate(() => {
     18: 1,  // ROTATE       radians
   };
 
-  /** Every filled circle in a Graphics buffer, with the fill colour in force. */
+  /**
+   * Every filled circle in a Graphics buffer, with the fill colour in force and
+   * its position resolved through the TRANSLATE/SAVE/RESTORE stack.
+   *
+   * Tracking the translate is not optional bookkeeping: drawRig() paints the
+   * whole rig three times — a contact copy, a rim copy, then the real one — and
+   * the two silhouette passes differ from the real one ONLY by a translate (see
+   * lightOffsetLocal in rig.js). Read raw, all three gloves report the same
+   * coordinate and the first match wins, which is the contact copy. Resolving
+   * the transform is what keeps "the glove is drawn at the wrist in the glove
+   * colour" a statement about the glove and not about its shadow.
+   *
+   * Rotation is deliberately NOT tracked: no arc in the rig is ever drawn inside
+   * a rotate (seg() rotates, but it only fills rects, and the tilt wrapper emits
+   * nothing at all when the reaction is at rest, which the probe guarantees). If
+   * that changes this must grow a real 2×3 matrix rather than quietly drift.
+   */
   const readArcs = (buf) => {
     const out = [];
-    let color = 0, alpha = 1;
+    let color = 0, alpha = 1, tx = 0, ty = 0;
+    const stack = [];
     for (let i = 0; i < buf.length;) {
       const op = buf[i];
       const n  = ARGS[op];
       if (n === undefined) break;                     // unknown opcode — stop rather than misparse
-      if (op === 7) { color = buf[i + 1]; alpha = buf[i + 2]; }
-      if (op === 0) out.push({ x: buf[i + 1], y: buf[i + 2], r: buf[i + 3], color, alpha });
+      if (op === 7)  { color = buf[i + 1]; alpha = buf[i + 2]; }
+      if (op === 14) stack.push([tx, ty, color, alpha]);
+      if (op === 15 && stack.length) [tx, ty, color, alpha] = stack.pop();
+      if (op === 16) { tx += buf[i + 1]; ty += buf[i + 2]; }
+      if (op === 0)  out.push({ x: buf[i + 1] + tx, y: buf[i + 2] + ty, r: buf[i + 3], color, alpha });
       i += 1 + n;
     }
     return out;

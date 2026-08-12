@@ -418,7 +418,8 @@ export class Fighter {
     // guard blend, step bob, hit reaction, the slip/knockdown transforms below
     // — is held at rest so the only thing moving is the trajectory itself.
     if (poseDebugActive('player')) {
-      const pose = drawRig(this.gfx, playerPalette(), poseDebugPunchState(), 0, 0, NO_REACT);
+      const pose = drawRig(this.gfx, playerPalette(), poseDebugPunchState(), 0, 0, NO_REACT,
+                           poseDebugFacingRight() ? 1 : -1);
       if (config.poseDebugJoints) drawJointMarkers(this.gfx, pose);
       this.gfx.setPosition(0, 0);
       this.gfx.setRotation(0);
@@ -436,6 +437,9 @@ export class Fighter {
       this.isBlocking ? 1 : 0,
       this._bob,
       react,
+      // The rim is a WORLD-space light direction, so it has to be told which way
+      // the container's mirror is pointing — see lightOffsetLocal() in rig.js.
+      this.facingRight ? 1 : -1,
     );
 
     // ── Block flash overlay drawn ON TOP of the rig (mirrors Dummy's) ──────

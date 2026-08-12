@@ -26,7 +26,7 @@
  *   Angle 0 = segment hanging straight down; positive = rotating toward +x.
  */
 
-import { config, punchAimPointY, punchPhases } from './config.js';
+import { config, punchAimPointY, punchPhases, cssHex } from './config.js';
 
 // Visual extent of the rig from the container origin, derived from the layout
 // below. Lives here (with the geometry it's derived from) so the player and the
@@ -647,17 +647,17 @@ function shade(pal, darken, alpha) {
  * apart (the hit circle existed, nothing was drawn there), so dragging the Fist
  * Radius slider now visibly resizes the glove.
  */
-function drawGlove(g, sh, arm) {
-  g.fillStyle(sh.glove, sh.alpha);
+function drawGlove(g, fs, sh, arm) {
+  fs(sh.glove, sh.alpha);
   g.fillCircle(arm.wx, arm.wy, config.fistRadius);
 }
 
 /** Upper arm + forearm + glove, all on one side's shaded palette. */
-function drawArm(g, sh, arm) {
-  g.fillStyle(sh.skin, sh.alpha);
+function drawArm(g, fs, sh, arm) {
+  fs(sh.skin, sh.alpha);
   seg(g, arm.sx, arm.sy, arm.a1, UPPER_LEN, UPPER_W);   // upper arm
   seg(g, arm.ex, arm.ey, arm.af, FORE_LEN, FORE_W);     // forearm
-  drawGlove(g, sh, arm);
+  drawGlove(g, fs, sh, arm);
 }
 
 /**
@@ -666,23 +666,57 @@ function drawArm(g, sh, arm) {
  * placed it at that hip's rotated x), so the trunks rotate with the leg they
  * are worn on instead of detaching from it.
  */
-function drawThigh(g, sh, cx, cy) {
+function drawThigh(g, fs, sh, cx, cy) {
   const top = cy - THIGH_H / 2;
   const tH  = Math.min(Math.max(config.trunksHeight, 0), THIGH_H);
   if (tH > 0) {
-    g.fillStyle(sh.trunks, sh.alpha);
+    fs(sh.trunks, sh.alpha);
     cr(g, cx, top + tH / 2, THIGH_W, tH);
   }
   if (tH < THIGH_H) {
-    g.fillStyle(sh.skin, sh.alpha);
+    fs(sh.skin, sh.alpha);
     cr(g, cx, top + tH + (THIGH_H - tH) / 2, THIGH_W, THIGH_H - tH);
   }
 }
 
 /** One shin — planted, so it takes no hip rotation and no dip. */
-function drawShin(g, sh, cx) {
-  g.fillStyle(sh.skin, sh.alpha);
+function drawShin(g, fs, sh, cx) {
+  fs(sh.skin, sh.alpha);
   cr(g, cx, SHIN_CY, SHIN_W, SHIN_H);
+}
+
+// ── Rim / contact separation (L1) ────────────────────────────────────────────
+
+/**
+ * The key light's offset vector, in the rig's LOCAL draw space.
+ *
+ * config.rigLightAngle is a WORLD-space direction (0° = straight overhead,
+ * positive rotating the source toward world +x). The container mirrors local x
+ * with scaleX = ±1 for facing, so a world offset has to be pre-flipped by that
+ * sign to survive the mirror — otherwise the rim would swap to the other side of
+ * the body every time a fighter turned around, which is the exact failure
+ * VISUALS.md's mirroring constraint warns about. y is never mirrored.
+ *
+ * @param {number} dist        px
+ * @param {number} facingSign  the container's scaleX: +1 facing right, -1 left
+ * @returns {[number, number]} local (dx, dy) pointing TOWARD the light
+ */
+function lightOffsetLocal(dist, facingSign) {
+  const a = (config.rigLightAngle || 0) * Math.PI / 180;
+  return [Math.sin(a) * dist * (facingSign < 0 ? -1 : 1), -Math.cos(a) * dist];
+}
+
+/**
+ * Build the fill-style setter the body painter uses.
+ *
+ * In flat mode every part of the rig takes ONE colour, which is the whole trick
+ * behind the rim/contact passes: the same draw code that paints the fighter
+ * paints its silhouette, so the two can never drift apart the way a
+ * hand-maintained outline path would.
+ */
+function fillStyler(g, flat) {
+  return flat ? () => g.fillStyle(flat.color, flat.alpha)
+              : (c, a) => g.fillStyle(c, a);
 }
 
 /**
@@ -694,14 +728,52 @@ function drawShin(g, sh, cx) {
  * @param {number} guard      0..1 blend toward the raised block pose
  * @param {number} bob        px of movement bounce (0 when standing still)
  * @param {{headX,headY,torsoX,torsoY,tilt}} react  hit-reaction offsets (Stage 10)
+ * @param {number} facingSign the container's scaleX (+1 right, -1 left). Needed
+ *        ONLY by the directional rim — see lightOffsetLocal(). Defaults to +1,
+ *        which is the pre-L1 behaviour for any caller that doesn't pass it.
  * @returns {ReturnType<typeof computePose>} the pose it drew, so a caller
  *          layering an overlay on top (the glove flash below) can anchor to the
  *          same solved joints instead of re-solving them.
  */
-export function drawRig(g, pal, punch = null, guard = 0, bob = 0, react = NO_REACT) {
+export function drawRig(g, pal, punch = null, guard = 0, bob = 0, react = NO_REACT,
+                        facingSign = 1) {
   g.clear();
 
-  const pose      = computePose(punch, guard, bob, react);
+  const pose = computePose(punch, guard, bob, react);
+
+  // Contact edge first (furthest back), then the rim, then the fighter. Each is
+  // ONE offset pass, so its alpha lands evenly across the whole edge.
+  const cA = clamp01(config.rigContactAlpha), cD = config.rigContactOffset;
+  if (cA > 0 && cD > 0) {
+    const [dx, dy] = lightOffsetLocal(cD, facingSign);
+    g.save();
+    g.translateCanvas(-dx, -dy);           // away from the light
+    paintBody(g, pal, pose, { color: cssHex(config.rigContactColor), alpha: cA });
+    g.restore();
+  }
+
+  const rA = clamp01(config.rigRimAlpha), rD = config.rigRimOffset;
+  if (rA > 0 && rD > 0) {
+    const [dx, dy] = lightOffsetLocal(rD, facingSign);
+    g.save();
+    g.translateCanvas(dx, dy);             // toward the light
+    paintBody(g, pal, pose, { color: cssHex(config.rigRimColor), alpha: rA });
+    g.restore();
+  }
+
+  paintBody(g, pal, pose, null);
+  return pose;
+}
+
+/**
+ * Paint the solved pose. Called up to three times per frame by drawRig() — twice
+ * as a flat silhouette at an offset (the contact edge and the rim), then once for
+ * real.
+ *
+ * @param {{color:number, alpha:number}|null} flat  non-null = silhouette pass
+ */
+function paintBody(g, pal, pose, flat) {
+  const fs        = fillStyler(g, flat);
   const shift     = pose.torsoShift;
   const dip       = pose.dip;
   const turn      = pose.turn;
@@ -754,15 +826,15 @@ export function drawRig(g, pal, punch = null, guard = 0, bob = 0, react = NO_REA
   const rearSide = shade(pal, config.rearLimbDarken, config.rearArmAlpha);
 
   // ── Rear side (behind — drawn first, receded for depth) ────────────────────
-  drawThigh(g, rearSide, rearHipX, THIGH_CY + dip + hipY);
-  drawShin(g, rearSide, -HIP_X);
+  drawThigh(g, fs, rearSide, rearHipX, THIGH_CY + dip + hipY);
+  drawShin(g, fs, rearSide, -HIP_X);
 
   // A punching rear arm is deferred: it swings ACROSS the front of the body, so
   // it has to be drawn on top of the torso, not behind it.
   // Everything from here that belongs to the UPPER body goes inside tilted() —
   // in three groups rather than one, because the legs are drawn interleaved
   // between them and the draw order is what produces the depth layering.
-  if (!rearIsPunching) tilted(() => drawArm(g, rearSide, pose.rear));
+  if (!rearIsPunching) tilted(() => drawArm(g, fs, rearSide, pose.rear));
 
   // ── Torso ──────────────────────────────────────────────────────────────────
   // Widens with the turn: a rotating fighter presents more chest to the camera.
@@ -776,28 +848,28 @@ export function drawRig(g, pal, punch = null, guard = 0, bob = 0, react = NO_REA
     const trunksW = torsoW + TRUNK_FLARE * 2;
 
     // Bare torso.
-    g.fillStyle(leadSide.skin, 1.0);
+    fs(leadSide.skin, 1.0);
     cr(g, torsoX, torsoY, torsoW, TORSO_H);
 
     // The torso's share of the trunks — its lower edge, so the waistline is
     // continuous with each thigh's own trunk segment below it.
-    g.fillStyle(leadSide.trunks, 1.0);
+    fs(leadSide.trunks, 1.0);
     cr(g, torsoX, waistY + TRUNK_TORSO_H / 2, trunksW, TRUNK_TORSO_H);
 
     // Waistband highlight, sitting on the top edge of the trunks. This is the
     // old shorts stripe in a new role, kept because it is the visual anchor that
     // makes the hip rotation readable — a job that matters MORE now that the
     // torso above it is a single flat skin tone with no other landmark.
-    g.fillStyle(0xffffff, 0.22);
+    fs(0xffffff, 0.22);
     cr(g, torsoX, waistY + WAISTBAND_H / 2, trunksW, WAISTBAND_H);
   });
 
   // ── Lead side (front — drawn on top) ───────────────────────────────────────
-  drawThigh(g, leadSide, leadHipX, THIGH_CY + dip + hipY);
-  drawShin(g, leadSide, HIP_X);
+  drawThigh(g, fs, leadSide, leadHipX, THIGH_CY + dip + hipY);
+  drawShin(g, fs, leadSide, HIP_X);
 
   tilted(() => {
-    drawArm(g, leadSide, pose.lead);
+    drawArm(g, fs, leadSide, pose.lead);
 
     // Rear arm mid-cross: sheds its recede treatment as it extends, so it reads
     // as coming forward. Both mechanisms unwind on the same curve — the darken
@@ -805,7 +877,7 @@ export function drawRig(g, pal, punch = null, guard = 0, bob = 0, react = NO_REA
     // full body colour whichever of the two sliders is dialled in.
     if (rearIsPunching) {
       const b = PUNCH_BRIGHTEN * pose.ext;
-      drawArm(g, shade(
+      drawArm(g, fs, shade(
         pal,
         config.rearLimbDarken * (1 - b),
         config.rearArmAlpha + (1 - config.rearArmAlpha) * b,
@@ -817,13 +889,11 @@ export function drawRig(g, pal, punch = null, guard = 0, bob = 0, react = NO_REA
     // bleed ~0) snaps only the head while a cross moves the whole upper body.
     const headX = 1 + shift * 0.9 + rk.torsoX + rk.headX;
     const headY = -50 + dip + rk.torsoY + rk.headY;
-    g.fillStyle(leadSide.skin, 1.0);
+    fs(leadSide.skin, 1.0);
     g.fillCircle(headX, headY, 13);
-    g.fillStyle(leadSide.skin, 0.80);
+    fs(leadSide.skin, 0.80);
     g.fillCircle(headX - 7, headY + 3, 5);    // ear (on the away side)
   });
-
-  return pose;
 }
 
 /**

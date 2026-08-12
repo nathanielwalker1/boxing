@@ -11,7 +11,17 @@ export const config = {
   ringHeight: 300,
 
   // Ring visuals
-  ringFloorColor: '#c8a060',
+  //
+  // L1 RE-VALUE (silhouette pass): the mat used to be '#c8a060', a light warm
+  // tan whose relative luminance (0.383) sat essentially ON TOP of the fighters'
+  // skin (0.463) — a 1.18:1 contrast ratio, i.e. invisible in greyscale. Under
+  // the light pool it was worse still: matGlowAlpha 0.22 lifted the mat centre
+  // to 0.720, BRIGHTER than skin, so a fighter standing mid-ring was a dark
+  // shape on a light field on one frame and the reverse two steps later.
+  // The mat is now the darkest large surface in frame and the fighters are the
+  // lightest things on it. See matShadeAlpha/matGlowAlpha/vignetteStrength —
+  // those four are one coordinated setting, not four independent knobs.
+  ringFloorColor: '#4a3826',
   ringRopeColor:  '#cc2222',
   ringPostColor:  '#e9e9f2',
   ringRopeCount:  3,          // strands PER SIDE (was: lines drawn across the mat)
@@ -46,12 +56,31 @@ export const config = {
   apronStripeColor: '#c9a24a',
 
   // Canvas mat surface.
+  //
+  // The three alphas below plus ringFloorColor and vignetteStrength are ONE
+  // setting. The mat is composited base → grain → edge shade → light pool, so
+  // the value a fighter actually stands on is not ringFloorColor: it is that
+  // colour plus up to matGlowAlpha × (255,250,235) at the pool centre, minus up
+  // to matShadeAlpha of black at the mat corners. Both were tuned to keep the
+  // WHOLE mat below the fighters:
+  //   pool centre  L 0.074  → skin 4.1:1, rear-side skin 1.8:1
+  //   base mat     L 0.044  → skin 5.5:1, rear-side skin 2.4:1
+  //   mat corner   L 0.028  → skin 6.6:1, rear-side skin 2.9:1
+  // Raising matGlowAlpha is the fastest way to break this again — at 0.22 on
+  // the old mat the pool centre was L 0.72 and the fighters read as holes.
+  // ASSUMPTION — 0.22 / 0.07 are the pair that held that spread while leaving
+  // the pool a 1.6:1 lift over the mat corner, i.e. still a pool.
   matGrainAlpha:  0.10,      // fabric speckle
-  matShadeAlpha:  0.30,      // darkening toward the mat's own edges
-  matGlowAlpha:   0.22,      // overhead pool of light on the mat
+  matShadeAlpha:  0.22,      // darkening toward the mat's own edges
+  matGlowAlpha:   0.07,      // overhead pool of light on the mat
   matTrimColor:   '#f0e6d2',
-  matEmblemAlpha: 0.09,      // 0 = no centre mark
-  matEmblemColor: '#7a5628',
+  // The emblem used to be a MID-value mark ('#7a5628' at 0.09) sitting directly
+  // behind the band the fighters walk in — a second thing at fighter-adjacent
+  // value competing with the silhouette. It is now DARKER than the mat rather
+  // than lighter, so it is out of the fighters' value band entirely and can only
+  // ever recede. ASSUMPTION — both numbers are look guesses.
+  matEmblemAlpha: 0.18,      // 0 = no centre mark
+  matEmblemColor: '#1d150c',
 
   // Crowd. Baked once at boot into a RenderTexture; changing these needs a
   // reload (or Arena.rebuildCrowd()) rather than taking effect live.
@@ -67,7 +96,11 @@ export const config = {
   arenaVoidColor:   '#06060d',
   arenaHazeColor:   '#3a3f7a',   // dim lift centred on the ring
   arenaHazeAlpha:   0.28,
-  vignetteStrength: 0.70,        // 0 = off
+  // Lowered from 0.70 with the L1 mat re-value: the vignette multiplies the mat
+  // it sits over, and 0.70 over the new dark mat crushed the frame corners to
+  // black — which reads as the ring running out rather than as focus, and takes
+  // the rope line with it. The mat's own edge shade now does most of that job.
+  vignetteStrength: 0.45,        // 0 = off
   beamAlpha:        0.24,        // per-beam additive strength
   beamCount:        3,           // 0-3
 
@@ -226,6 +259,35 @@ export const config = {
   // default is a first guess, not derived from anything.
   trunksHeight: 14,
 
+  // ── Rig rim / contact separation (L1) ───────────────────────────────────────
+  // The mat re-value fixes the fighters' MASS against the floor. It cannot fix
+  // the EDGE: a fighter crossing the light pool, another fighter, or their own
+  // dark rear-side limbs still has stretches of silhouette running against a
+  // similar value. This is the edge treatment for that.
+  //
+  // Mechanism: the whole rig is painted three times into the same Graphics —
+  // a dark copy offset AWAY from the light, a bright copy offset TOWARD it, then
+  // the real one on top. Because each is a single flat-coloured pass at one
+  // offset (rather than a dilate built from several overlapping copies), the
+  // alphas below composite evenly instead of doubling up at convex corners.
+  //
+  // MIRRORING (see VISUALS.md): this is directional, so the offsets are resolved
+  // in WORLD space and pre-flipped by the fighter's facing before they reach the
+  // rig's local draw space. A rim baked local-space would swap sides every time
+  // a fighter turned around. drawRig() takes a facingSign for exactly this.
+  //
+  // All four alphas/offsets go to zero cleanly: 0 on either alpha skips that
+  // pass entirely, so the pre-L1 look is one drag away.
+  // ASSUMPTION — every number here is a first-pass look guess.
+  rigLightAngle:     35,          // deg, WORLD space. 0 = light straight overhead,
+                                  // positive rotates the source toward world +x.
+  rigRimColor:       '#fff2d8',   // key light: warm, matches the overhead beams
+  rigRimAlpha:       0.45,        // 0 = no rim
+  rigRimOffset:      2.0,         // px the bright copy sits toward the light
+  rigContactColor:   '#150e07',   // shadow side: near-black, warm-biased
+  rigContactAlpha:   0.50,        // 0 = no contact edge
+  rigContactOffset:  2.5,         // px the dark copy sits away from the light
+
   // ── Contact shadows (Stage 14 part 2) ───────────────────────────────────────
   // A soft ellipse on the canvas under each fighter. Drawn by RingScene into its
   // own layer, NOT inside the fighter containers — those rotate and squash for
@@ -236,7 +298,12 @@ export const config = {
   // ASSUMPTION — every number here is a first-pass look guess.
   shadowEnabled:     true,
   shadowColor:       '#000000',
-  shadowAlpha:       0.30,
+  // Raised 0.30 → 0.40 with the L1 mat re-value. The shadow is black multiplied
+  // over the mat, so darkening the mat shrank the range it had to work in: at
+  // 0.30 over the new pool centre it was a 1.47:1 darkening (it read as a smudge
+  // rather than as contact). 0.40 puts it back to ~1.7:1, which is still nowhere
+  // near a black hole — the mat under it is L 0.031, not 0. Geometry unchanged.
+  shadowAlpha:       0.40,
   shadowRadiusX:     26,     // px — half-width of the ellipse
   shadowRadiusY:     8,      // px — half-height
   shadowOffsetY:     40,     // px below the torso origin; the shins bottom out at +40 local

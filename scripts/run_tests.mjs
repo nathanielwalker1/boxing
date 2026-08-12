@@ -63,7 +63,12 @@ const SUITE = [
 // Guard against a script being added to /scripts and silently never run.
 // pose_grid.mjs is a capture tool, not an assertion suite — it is run by hand
 // when the punch trajectories are being authored against, and takes ~2 minutes.
-const KNOWN_NON_TESTS = new Set(['run_tests.mjs', 'devUrl.js', 'waits.js', '_debug.mjs', 'pose_grid.mjs']);
+const KNOWN_NON_TESTS = new Set([
+  'run_tests.mjs', 'devUrl.js', 'waits.js', '_debug.mjs', 'pose_grid.mjs',
+  // greyscale.js is a helper the capture scripts import (VISUALS.md protocol
+  // step 4), not a standalone check — it asserts nothing on its own.
+  'greyscale.js',
+]);
 const onDisk = readdirSync(SCRIPTS_DIR)
   .filter(f => (f.endsWith('.mjs') || f.endsWith('.js')) && !KNOWN_NON_TESTS.has(f));
 const missing = onDisk.filter(f => !SUITE.some(s => s.file === f));

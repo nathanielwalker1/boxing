@@ -219,7 +219,8 @@ export class Dummy {
   draw() {
     // ── Pose scrubber (Stage 18b part 1) — see Fighter._draw for the reasoning.
     if (poseDebugActive('dummy')) {
-      const p = drawRig(this.gfx, dummyPalette(), poseDebugPunchState(), 0, 0, NO_REACT);
+      const p = drawRig(this.gfx, dummyPalette(), poseDebugPunchState(), 0, 0, NO_REACT,
+                        poseDebugFacingRight() ? 1 : -1);
       if (config.poseDebugJoints) drawJointMarkers(this.gfx, p);
       this.gfx.setPosition(0, 0);
       this.gfx.setRotation(0);
@@ -235,6 +236,9 @@ export class Dummy {
       this.isBlocking ? 1 : 0,   // same block pose the player's block uses
       this._bob,
       this.reaction.pose(),
+      // World-space rim direction, pre-flipped for the container mirror — see
+      // lightOffsetLocal() in rig.js.
+      this.facingRight ? 1 : -1,
     );
 
     // ── Block flash overlay drawn ON TOP of the rig (mirrors Fighter's) ────

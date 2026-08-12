@@ -3,8 +3,9 @@
 Companion to `CLAUDE.md`. That file governs mechanics and workflow. This one governs
 how things **look and move**. Read both.
 
-> **State-of-the-code stamp.** Every "current state" block below was re-verified against
-> commit `6723bdf` (2026-08-11, clean working tree). The ladder's *rules* are permanent;
+> **State-of-the-code stamp.** L1's block was rewritten for the L1 re-value pass
+> (2026-08-11); every other "current state" block below was re-verified against commit
+> `6723bdf` (2026-08-11, clean working tree). The ladder's *rules* are permanent;
 > the *current state* notes are a snapshot and go stale every time a visual stage ships.
 > Re-check before trusting one, and update it in the same commit that changes it.
 
@@ -28,29 +29,68 @@ treated as fixed.
 desaturated to greyscale. Colour differences do not create readability; *value*
 differences do.
 
-**Current state: failing, badly.** `ringFloorColor: '#c8a060'` against
-`fighterSkinColor: '#e8a86a'` is a **1.18:1** contrast ratio. That is effectively
-invisible in value terms — the fighters are the same brightness as the mat they stand on.
-Trunks manage 2.61:1, gloves 1.41:1. The dummy is no better: it shares the player's skin
-colour exactly (`dummySkinColor` is deliberately the same value — trunks and gloves carry
-the whole identity read), so its skin is 1.18:1 too, its trunks 2.49:1, its glove 1.66:1.
+**Current state: passed once (the L1 re-value), with one known soft spot.** The mat was
+`'#c8a060'` against `fighterSkinColor: '#e8a86a'` — a **1.18:1** ratio, i.e. no value
+difference at all — and under the light pool it was worse than that, because
+`matGlowAlpha: 0.22` lifted the mat centre ABOVE skin value and inverted the figure.
 
-Two things partly offset this and should not be re-invented:
-- **The rear-side depth cue already doubles as contrast.** `rearLimbDarken: 0.35` pulls
-  the away-side limbs to 1.89:1 (skin) / 2.84:1 (glove) / 4.41:1 (trunks). The rear half
-  of the fighter reads; the near half does not.
-- **Contact shadows shipped** (`shadowEnabled/shadowAlpha: 0.30/shadowRadiusX/Y`), so the
-  figure is at least anchored to the mat rather than floating on it.
+The mat is now `'#4a3826'` with `matShadeAlpha 0.22 / matGlowAlpha 0.07 /
+vignetteStrength 0.45`. Those five are **one setting, not five knobs** — the value a
+fighter stands on is the composite (base + grain + edge shade + light pool + additive
+beams), so changing any one of them alone re-breaks the layer. Measured off real captures
+across the framing envelope (opposite ropes → clinched, both facings, pool centre and mat
+edge):
 
-There is still **no stroke anywhere in `rig.js`** — no `lineStyle`, no outline, no rim.
-Every part is a bare fill.
+| against the mat | before | now |
+| --- | --- | --- |
+| lead skin (torso/head/lead limbs) | 1.18:1 | **4.9 – 7.1:1** |
+| rear skin (`rearLimbDarken 0.35`) | 1.89:1 | **2.2 – 3.2:1** |
+| lead trunks | 2.61:1 | 1.6 – 2.3:1 |
+| rear trunks | 4.41:1 | **1.0 – 1.8:1** ← the soft spot |
 
-**How to check:** screenshot, desaturate, squint. If the figure dissolves into the floor,
-this layer is still broken and nothing above it matters. Note that no script produces a
-desaturated capture today — that step is currently manual.
+The lead/rear split is intact at a flat **2.23:1** — it is a property of `rearLimbDarken`
+and the mat cannot touch it.
+
+**The soft spot is structural, not a tuning miss.** The palette spans skin (L 0.463) down
+to rear trunks (L 0.048). A mat can sit below all of it or above all of it, and "fighters
+are the lightest things in frame" picks below — which necessarily pushes the darkest
+element, the rear-side trunks, close to the mat's own value. It is a 10×14 px patch on the
+receding side, bounded by lighter parts, and the rim below carries its outer edge. If it
+ever reads as a hole, the fix is a lighter `fighterTrunksColor`, not a lighter mat.
+
+Three things now carry this layer and should not be re-invented:
+- **The rear-side depth cue doubles as contrast.** `rearLimbDarken: 0.35`. The rear half
+  is dimmer than the lead half by design and that gap is load-bearing depth information.
+- **Contact shadows** (`shadowEnabled` / `shadowAlpha: 0.40` / `shadowRadiusX/Y`). The
+  alpha went 0.30 → 0.40 with the re-value: black over a dark mat has less range to work
+  in, and at 0.30 the ellipse had stopped reading as contact.
+- **Rim + contact separation on the rig** (`rigLightAngle`, `rigRimColor/Alpha/Offset`,
+  `rigContactColor/Alpha/Offset`). `drawRig()` paints the body three times: a flat dark
+  copy offset away from the light, a flat bright copy offset toward it, then the real one.
+  Single-offset passes, not a multi-copy dilate, so the alphas composite evenly. Both
+  alphas go to zero cleanly.
+  **This is the directional treatment the mirroring constraint below is about** — the
+  offsets are resolved in world space and pre-flipped by the fighter's `scaleX` inside
+  `lightOffsetLocal()`, which is why `drawRig()` takes a `facingSign`.
+
+There is still **no stroke anywhere in `rig.js`** — no `lineStyle`. The rim is offset
+fills, not an outline.
+
+**Not yet addressed, and it will fight the next visual pass:** the ropes, the mat trim
+(`matTrimColor` `'#f0e6d2'`) and the apron deck are now the brightest things in frame,
+brighter than the fighters. They sit at the ring boundary rather than behind the walkable
+band, so they do not break the silhouette today, but "fighters are the lightest things in
+frame" is only true of the mat.
+
+**How to check:** capture, then read the `_grey` sibling — `scripts/greyscale.js` emits
+one automatically alongside every `verify.js` and `pose_grid.mjs` capture. If the figure
+dissolves into the floor, this layer is broken again and nothing above it matters.
 
 **Levers:** `ringFloorColor`, `matShadeAlpha`, `matGlowAlpha`, `vignetteStrength`,
-`matEmblemAlpha`, plus a dark contact outline or rim on the rig.
+`matEmblemAlpha`, and the rim/contact keys above. In order of how much they move the
+number: `ringFloorColor` first (it sets the whole range), `matGlowAlpha` second (it is
+what re-brightens the exact patch of mat the fighters stand on), then `matShadeAlpha` and
+`vignetteStrength`, which only shape the edges.
 
 ---
 
@@ -217,7 +257,8 @@ existing verify step:
 3. **Both facings.** Every capture must be taken facing left *and* facing right (see the
    mirroring constraint below). Asymmetry bugs only appear in one of them.
 4. **Value check for anything touching L1–L3.** Produce a desaturated copy of the
-   screenshot alongside the colour one.
+   screenshot alongside the colour one. Judge the silhouette from *that* copy, not from
+   the colour one with your eyes half shut.
 5. **Report what the capture shows, and flag anything that looks wrong**, rather than
    reporting "rendered successfully." If the grid shows a limb passing through the torso,
    say so — do not leave it for the feel-test.
@@ -226,9 +267,15 @@ existing verify step:
 `src/poseDebug.js`). It captures 4 punch types × 2 rig slots × 2 facings × 7 progress
 values plus an assembled labelled grid per type, at a pinned zoom and a frozen opponent,
 and it drives the shipped `drawRig()`/`computePose()`/`punchKey()` path rather than
-re-deriving poses. Extend it rather than writing a second capture harness. **Step 4 has no
-tooling** — nothing in the repo produces a greyscale copy today; whoever needs it first
-should add it to the capture path, not do it by eye.
+re-deriving poses. Extend it rather than writing a second capture harness.
+
+**Step 4 is `scripts/greyscale.js`.** `greyscaleCopy(page, path)` drops a `_grey` sibling
+next to a PNG some other script already wrote, using a 2D canvas on a page you already
+have open — no image library, no second capture path. `verify.js` and `pose_grid.mjs` call
+it on every capture; an ad-hoc `_debug.mjs` run gets the value check by importing it. The
+conversion is linear-light Rec.709 luminance (sRGB decode → weight → re-encode), which is
+the same quantity the contrast ratios in this file are computed from, so a pixel read off
+a grey capture and a ratio computed from config are comparable.
 
 Captures go to `scripts/output/` (gitignored).
 

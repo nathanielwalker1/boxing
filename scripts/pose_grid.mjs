@@ -17,6 +17,7 @@
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
 import { bootReady, frames, settled } from './waits.js';
+import { greyscaleCopy } from './greyscale.js';
 import { mkdirSync, writeFileSync, readFileSync } from 'fs';
 
 const OUT   = 'scripts/output/pose_grid';
@@ -196,7 +197,10 @@ for (const type of TYPES) {
   }, { rows, progress: PROGRESS, title: `${type.toUpperCase()} — pose progress`, cw: clip.width, ch: clip.height });
 
   writeFileSync(`${OUT}/${type}.png`, Buffer.from(dataUrl.split(',')[1], 'base64'));
-  console.log(`  grid → ${OUT}/${type}.png`);
+  // VISUALS.md protocol step 4. The grey sibling is produced for the assembled
+  // sheet only, not per cell — 112 extra files nobody opens is not a value check.
+  const grey = await greyscaleCopy(sheet, `${OUT}/${type}.png`);
+  console.log(`  grid → ${OUT}/${type}.png  (+ ${grey.split('/').pop()})`);
 }
 
 // Turning the scrubber off must leave nothing stuck: the fighter goes back to

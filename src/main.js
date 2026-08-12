@@ -1099,6 +1099,15 @@ fighterF.add(config, 'guardBobFrequency', 0,  6, 0.1).name('Move Bob Hz');
 // a code change: Darken is the current one, Alpha is the old translucency.
 fighterF.add(config, 'rearLimbDarken',    0,  1, 0.01).name('Rear Limb Darken');
 fighterF.add(config, 'rearArmAlpha',    0.4,  1, 0.01).name('Rear Limb Alpha');
+// Rim / contact separation (L1). Directional, resolved in world space — drag
+// Light Angle and watch BOTH fighters' rims stay on the same side of the frame.
+fighterF.add(config, 'rigLightAngle',  -180, 180, 1)   .name('Light Angle °');
+fighterF.addColor(config, 'rigRimColor')               .name('Rim Color');
+fighterF.add(config, 'rigRimAlpha',       0,  1, 0.01) .name('Rim Alpha');
+fighterF.add(config, 'rigRimOffset',      0,  6, 0.1)  .name('Rim Offset px');
+fighterF.addColor(config, 'rigContactColor')           .name('Contact Color');
+fighterF.add(config, 'rigContactAlpha',   0,  1, 0.01) .name('Contact Alpha');
+fighterF.add(config, 'rigContactOffset',  0,  6, 0.1)  .name('Contact Offset px');
 fighterF.add(config, 'facingDeadband',    0, 10, 0.25).name('Facing Deadband px');
 fighterF.add(config, 'fighterSeparationDist',     0, 100, 1).name('Separation Dist');
 fighterF.add(config, 'fighterSeparationStrength', 0,   1, 0.05).name('Separation Strength');
