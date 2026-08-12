@@ -3,6 +3,8 @@
 ## What this is
 A physics-driven 2D boxing game, browser-based, mobile-first eventually. Retro-styled but built with procedurally rigged fighters (simple jointed shapes/limbs animated in code) — NOT hand-drawn pixel art sprites. No external art/asset files.
 
+**`VISUALS.md` is the companion to this file** — it governs how things look and move (the L1–L7 layer ladder, the capture/validation protocol, and the mirroring constraint). This file governs mechanics and workflow. Read it before any task that changes what's on screen.
+
 ## Locked mechanics (do not redesign these — ask before changing)
 - **Movement**: virtual joystick, free 2D movement inside the ring bounds (forward/back/side-to-side). Not a fixed-distance system.
 - **Punch diamond**: 4 buttons — jab, cross, hook, uppercut — arranged in a diamond.
