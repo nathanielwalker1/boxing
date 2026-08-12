@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { config, dummyPalette } from './config.js';
-import { drawRig, drawGloveFlash, computePose, peakProgress, armSlot, leadArm, hurtboxes, aimAngle, wristPath } from './rig.js';
+import { drawRig, drawGloveFlash, computePose, peakProgress, armSlot, leadArm, hurtboxes, aimAngle, wristPath, NO_REACT } from './rig.js';
+import { poseDebugActive, poseDebugPunchState, poseDebugFacingRight, drawJointMarkers } from './poseDebug.js';
 import { stepMovement, stepBob, stepFacing } from './movement.js';
 import { HitReaction } from './reaction.js';
 import { stepVulnerability, clearVulnerabilityPunish } from './vulnerability.js';
@@ -174,9 +175,16 @@ export class Dummy {
   /**
    * Current punch animation state in the form rig.js consumes, or null when
    * idle. The trajectory is the shared per-type one, but stretched over
-   * this._windupDuration (NOT the player's punchDuration/speed multipliers) so
-   * the dummy's telegraph stays deliberately slow and readable — see the note
-   * on config.dummyWindupDuration.
+   * this._windupDuration (NOT the player's per-phase millisecond table) so the
+   * dummy's telegraph stays deliberately slow and readable — see the note on
+   * config.dummyWindupDuration.
+   *
+   * No windupMult is passed (Stage 18b part 2): the dummy authors ONE duration
+   * for the whole punch rather than three phases, and its low-stamina stretch
+   * multiplies that single number — so its phase FRACTIONS are unchanged by
+   * being gassed, and the base cockEnd/peakAt are the correct ones to pose it
+   * against. The player's stretch moves those fractions because it lengthens the
+   * cock alone; this one doesn't because it lengthens everything equally.
    */
   _punchState(atPeak = false) {
     if (this.punchTimer <= 0 || !this.punchArm) return null;
@@ -209,6 +217,17 @@ export class Dummy {
   }
 
   draw() {
+    // ── Pose scrubber (Stage 18b part 1) — see Fighter._draw for the reasoning.
+    if (poseDebugActive('dummy')) {
+      const p = drawRig(this.gfx, dummyPalette(), poseDebugPunchState(), 0, 0, NO_REACT);
+      if (config.poseDebugJoints) drawJointMarkers(this.gfx, p);
+      this.gfx.setPosition(0, 0);
+      this.gfx.setRotation(0);
+      this.gfx.setScale(1, 1);
+      this.container.setScale(poseDebugFacingRight() ? 1 : -1, 1);
+      return;
+    }
+
     const pose = drawRig(
       this.gfx,
       dummyPalette(),
@@ -297,6 +316,9 @@ export class Dummy {
    * vx/vy are in world-space px/s.
    */
   receiveImpulse(vx, vy) {
+    // Frozen by the scrubber: the stagger spring displaces the whole rig, which
+    // would slide the pose being inspected out from under the joint markers.
+    if (poseDebugActive('dummy')) return;
     this.staggerVx += vx;
     this.staggerVy += vy;
   }
@@ -308,6 +330,8 @@ export class Dummy {
    * @param {number} force    post-block impact force
    */
   receiveHit(punchType, force) {
+    // Frozen by the scrubber — see Fighter.receiveHit.
+    if (poseDebugActive('dummy')) return;
     this.reaction.apply(punchType, force);
   }
 
@@ -539,8 +563,10 @@ export class Dummy {
     }
 
     // ── 2 + 4. Attack cadence: range-gated trigger + opening punish ────────
-    // Suspended entirely while down (Stage 6) — a downed dummy can't throw.
-    if (!this.isDown) {
+    // Suspended entirely while down (Stage 6) — a downed dummy can't throw —
+    // and while the pose scrubber owns this fighter, which would otherwise
+    // overwrite the frozen punch state with a jab of its own.
+    if (!this.isDown && !poseDebugActive('dummy')) {
       // 4. Aggression drains the timer FASTER rather than re-rolling a shorter
       // delay, so the punish tracks an opening appearing or closing mid-wait
       // instead of being locked in at the moment the last punch landed. The two

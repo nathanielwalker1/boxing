@@ -43,12 +43,23 @@ export async function until(page, fn, arg = undefined, { label = 'condition', ti
  * Use this when the thing being waited on is the thing under test: if a punch
  * never resolves, the check should report FAIL with its own message, not die
  * with a wait error and take the rest of the script's cases down with it.
+ *
+ * It returns rather than throws, but it is NOT silent. Every call site in the
+ * suite ignores the return value and relies on the following assertion to catch
+ * the missed precondition — which it does, but it then reports the wrong thing
+ * ("expected whiff, got none" instead of "the punch never resolved"). The
+ * warning below is what keeps a timeout from being invisible in the output;
+ * without it this is the same shape as the silent scripts 18a part 3 removed.
  */
-export async function soft(page, fn, arg = undefined, { timeout = 4000 } = {}) {
+export async function soft(page, fn, arg = undefined, { timeout = 4000, label = 'condition' } = {}) {
   try {
     await page.waitForFunction(fn, arg, { timeout, polling: 'raf' });
     return true;
-  } catch { return false; }
+  } catch {
+    console.warn(`  ⚠  waits.soft timed out after ${timeout}ms waiting for: ${label} ` +
+                 `— the assertion below ran WITHOUT its precondition`);
+    return false;
+  }
 }
 
 /**
@@ -63,7 +74,8 @@ export async function soft(page, fn, arg = undefined, { timeout = 4000 } = {}) {
  * Returns false rather than throwing: an empty read is a legitimate FAIL.
  */
 export async function resolved(page, arrayName = '__out', n = 1, opts = {}) {
-  return soft(page, ({ a, k }) => (window[a]?.length ?? 0) >= k, { a: arrayName, k: n }, opts);
+  return soft(page, ({ a, k }) => (window[a]?.length ?? 0) >= k, { a: arrayName, k: n },
+    { label: `${n} entr${n === 1 ? 'y' : 'ies'} in window.${arrayName}`, ...opts });
 }
 
 /**

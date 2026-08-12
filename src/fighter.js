@@ -1,5 +1,6 @@
-import { config, punchSpeedMult, playerPalette } from './config.js';
-import { drawRig, drawGloveFlash, computePose, peakProgress, armSlot, hurtboxes, wristPath } from './rig.js';
+import { config, punchTotalSeconds, playerPalette } from './config.js';
+import { drawRig, drawGloveFlash, computePose, peakProgress, armSlot, hurtboxes, wristPath, NO_REACT } from './rig.js';
+import { poseDebugActive, poseDebugPunchState, poseDebugFacingRight, drawJointMarkers } from './poseDebug.js';
 import { stepMovement, stepBob, stepFacing } from './movement.js';
 import { HitReaction } from './reaction.js';
 import { stepVulnerability, clearVulnerabilityPunish } from './vulnerability.js';
@@ -85,7 +86,8 @@ export class Fighter {
     this.stamina      = config.staminaMax;
     this.isDown       = false;
     this.knockdownTimer = 0;
-    this._punchDuration = config.punchDuration;   // this punch's actual duration (may be stretched by low stamina)
+    this._punchDuration = 0;   // this punch's total duration, summed from its phases at throw time
+    this._windupMult    = 1;   // low-stamina cock stretch locked in at throw time (see startPunch)
     // Seconds of stamina-regen suppression left after taking a hit (Stage 17
     // part 0d) — see receiveStaminaChip(). Mirrored on Dummy.
     this._hitRegenDelay = 0;
@@ -105,13 +107,17 @@ export class Fighter {
 
   /**
    * Trigger a punch animation.  Interrupts any in-progress punch. Drains a
-   * flat stamina cost regardless of outcome, and — reusing the existing
-   * windup/telegraph timing rather than a new system — stretches the punch
-   * duration when stamina is low, so a gassed fighter is visibly slower to
-   * react to instead of being locked out of throwing at all.
-   * Duration is the shared config.punchDuration divided by the punch type's own
-   * speed multiplier (Stage 8), so the four punches differ in snappiness while
-   * still tracking the one shared base value and the low-stamina stretch.
+   * flat stamina cost regardless of outcome, and stretches the WIND-UP when
+   * stamina is low, so a gassed fighter is visibly slower to react to instead of
+   * being locked out of throwing at all.
+   *
+   * Duration is the sum of this punch's own three authored phases (Stage 18b
+   * part 2 — cockMs + extendMs + recoverMs, times the global punchTimeScale), so
+   * the four punches differ in both total length and internal shape. Low stamina
+   * multiplies cockMs ALONE: "telegraphed when gassed" means a slower pull-back,
+   * not a strike thrown in slow motion. The multiplier is stored because it also
+   * moves cockEnd/peakAt, and the pose, the impact schedule and the vulnerability
+   * curve all have to be derived from the same stretched boundaries.
    * @param {'left'|'right'} arm  which ANATOMICAL arm throws (stance decides
    *        whether that is the lead or rear slot in the rig — see armSlot())
    * @param {string} type         'jab' | 'cross' | 'hook' | 'uppercut'
@@ -120,9 +126,12 @@ export class Fighter {
    *        never re-sampled (see aimAngle() in rig.js for why)
    */
   startPunch(arm, type, aim = 0) {
-    const lowStamina    = this.stamina < config.lowStaminaThreshold;
-    this._punchDuration = config.punchDuration / punchSpeedMult(type)
-                          * (lowStamina ? config.lowStaminaWindupMultiplier : 1);
+    // Refused outright while the scrubber owns this fighter — a live punch would
+    // advance punchTimer under a pose the panel is holding at a fixed progress.
+    if (poseDebugActive('player')) return;
+    const lowStamina     = this.stamina < config.lowStaminaThreshold;
+    this._windupMult     = lowStamina ? config.lowStaminaWindupMultiplier : 1;
+    this._punchDuration  = punchTotalSeconds(type, this._windupMult);
     this.punchArm        = arm;
     this.punchType       = type;
     this.punchAim        = aim;
@@ -192,8 +201,11 @@ export class Fighter {
     return {
       type: this.punchType,
       arm:  armSlot(this.stance, this.punchArm),   // anatomical → rig slot
-      p:    atPeak ? peakProgress(this.punchType) : this.punchProgress(),
+      p:    atPeak ? peakProgress(this.punchType, this._windupMult) : this.punchProgress(),
       aim:  this.punchAim,                         // locked at throw time, never re-sampled
+      // The cock stretch this punch committed to, so the pose derives its phase
+      // boundaries from the same milliseconds punchTimer was seeded from.
+      windupMult: this._windupMult,
     };
   }
 
@@ -283,10 +295,18 @@ export class Fighter {
    * getHitPos() rather than (x, y), which is what keeps a slip working: the slip
    * displaces the anchor, so the whole hurtbox set moves out of the incoming
    * punch's way. Still no bypass flag.
+   *
+   * `base` exists so the SAME solve can be asked about a different anchor
+   * (Stage 19 part 1): _resolveAttack re-runs its one overlap test against the
+   * fighter's un-displaced (x, y) to tell a punch that was slipped apart from a
+   * punch that was simply out of range. It is an argument rather than a second
+   * method precisely so there is only ever one hit-geometry path.
+   *
+   * @param {{x:number,y:number}} [base]  anchor to hang the boxes off; defaults
+   *        to the live, slip-displaced getHitPos()
    * @returns {{ head: {x,y,r}, body: {x,y,hw,hh} }}
    */
-  getHurtboxes() {
-    const base = this.getHitPos();
+  getHurtboxes(base = this.getHitPos()) {
     const pose = computePose(this._punchState(), this.isBlocking ? 1 : 0, this._bob, this.reaction.pose());
     const hb   = hurtboxes(pose);
     const flip = this.facingRight ? 1 : -1;
@@ -331,6 +351,8 @@ export class Fighter {
    * decays via friction — no separate stagger state needed.
    */
   receiveImpulse(vx, vy) {
+    // Frozen by the scrubber — see Dummy.receiveImpulse.
+    if (poseDebugActive('player')) return;
     this.vx += vx;
     this.vy += vy;
   }
@@ -344,6 +366,9 @@ export class Fighter {
    * @param {number} force    post-block impact force
    */
   receiveHit(punchType, force) {
+    // A frozen fighter absorbs nothing: a reaction spring running underneath the
+    // scrubber would drag the shoulders it is trying to hold still.
+    if (poseDebugActive('player')) return;
     this.reaction.apply(punchType, force);
   }
 
@@ -387,6 +412,20 @@ export class Fighter {
   // ── Internal ────────────────────────────────────────────────────────────────
 
   _draw() {
+    // ── Pose scrubber (Stage 18b part 1) ────────────────────────────────────
+    // Same drawRig() call, different inputs: the punch state comes from the
+    // tuning panel instead of punchTimer, and everything that would fight it —
+    // guard blend, step bob, hit reaction, the slip/knockdown transforms below
+    // — is held at rest so the only thing moving is the trajectory itself.
+    if (poseDebugActive('player')) {
+      const pose = drawRig(this.gfx, playerPalette(), poseDebugPunchState(), 0, 0, NO_REACT);
+      if (config.poseDebugJoints) drawJointMarkers(this.gfx, pose);
+      this.gfx.setPosition(0, 0);
+      this.gfx.setRotation(0);
+      this.gfx.setScale(1, 1);
+      return;
+    }
+
     // rig.js owns the punch trajectory now — this just hands it the current
     // punch type/arm and normalized progress (see _punchState()).
     const react = this.reaction.pose();
@@ -574,8 +613,12 @@ export class Fighter {
     }
 
     // ── Sync container ─────────────────────────────────────────────────────
+    // While the scrubber owns this fighter, facing comes from the panel rather
+    // than from the opponent's position — the mirror is one of the things being
+    // inspected, and flipping it should not require walking across the ring.
     this.container.setPosition(this.x, this.y);
-    this.container.setScale(this.facingRight ? 1 : -1, 1);
+    this.container.setScale(
+      (poseDebugActive('player') ? poseDebugFacingRight() : this.facingRight) ? 1 : -1, 1);
 
     this._draw();
   }

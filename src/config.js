@@ -245,31 +245,90 @@ export const config = {
   // this factor and flattens by the same factor.
   shadowDownRadiusScale: 1.7,
 
-  // Punch execution
-  punchDuration:      0.15,   // BASE arm animation duration (seconds); divided by the per-punch speed below
+  // ── Punch execution: per-phase timing (Stage 18b part 2) ────────────────────
+  // Each punch authors its three phases in ABSOLUTE MILLISECONDS. The single
+  // `punchDuration` this replaces scaled wind-up, extension and recovery
+  // together, which is why making a punch readable also made its recovery
+  // linger — the two were welded. They are separate knobs now:
+  //
+  //   cockMs     the TELEGRAPH. This is the part that should be long: it is
+  //              what lets a hook be seen coming and a jab not be.
+  //   extendMs   cock → full extension. Deliberately SHORT; this is what makes
+  //              a punch feel like a punch rather than a reach.
+  //   recoverMs  peak → back to guard.
+  //
+  // cockEnd/peakAt (the fractions rig.js animates against and the vulnerability
+  // curve is shaped from) are DERIVED from these — see punchPhases() below.
+  // Nothing authors a fraction any more.
+  //
+  // ASSUMPTION — all twelve numbers are first-pass. Their TOTALS are seeded to
+  // land near what punchDuration 0.35 gave each punch (jab 233, cross 259,
+  // hook 333, uppercut 350 ms) so the change is felt as a redistribution rather
+  // than as everything getting faster or slower; the split WITHIN each total is
+  // the new thing, pushed toward a long cock and a short extension. The
+  // ordering (jab shortest telegraph → uppercut longest) is the spec; the exact
+  // spacing is for the sliders to settle.
+  jabCockMs:         80,  jabExtendMs:      45,  jabRecoverMs:      108,  // 233 total
+  crossCockMs:      105,  crossExtendMs:    50,  crossRecoverMs:    104,  // 259
+  hookCockMs:       160,  hookExtendMs:     60,  hookRecoverMs:     113,  // 333
+  uppercutCockMs:   170,  uppercutExtendMs: 62,  uppercutRecoverMs: 118,  // 350
+
+  // One global multiplier over all three phases of every punch, so the whole
+  // system still dials up and down from a single control. 1.0 = the authored
+  // milliseconds above, exactly.
+  punchTimeScale:     1.0,
 
   // Punch force — scales with player momentum per the physics philosophy
   punchForceBase:      250,   // base stagger impulse (px/s added to dummy stagger velocity)
   punchMomentumScale:  1.0,   // multiplier on (approachSpeed/moveSpeed * playerMass); 0 = flat force
 
-  // ── Per-punch damage / speed (Stage 8) ──────────────────────────────────────
-  // Both are MULTIPLIERS on the existing shared systems, not replacements:
-  //   damage — scales the momentum-based force computed in _resolveAttack, so it
-  //            scales stagger impulse and health damage together (damage is still
-  //            derived from force via healthDamagePerForce). 1.0 = the old value.
-  //   speed  — rate multiplier on config.punchDuration (duration = punchDuration
-  //            / speed). Higher = faster. 1.0 = the old duration.
+  // ── Per-punch damage (Stage 8) ──────────────────────────────────────────────
+  // A MULTIPLIER on the existing shared system, not a replacement: it scales the
+  // momentum-based force computed in _resolveAttack, so it scales stagger
+  // impulse and health damage together (damage is still derived from force via
+  // healthDamagePerForce). 1.0 = the old value.
   // ASSUMPTION — first-pass feel numbers, not derived from anything; the intended
-  // ordering (jab weakest/fastest → hook & uppercut heaviest/slowest) is the spec,
-  // the exact spacing is for the sliders to settle.
+  // ordering (jab weakest → hook & uppercut heaviest) is the spec, the exact
+  // spacing is for the sliders to settle.
   jabDamage:        0.70,
-  jabSpeed:         1.50,
   crossDamage:      0.95,
-  crossSpeed:       1.35,
   hookDamage:       1.45,
-  hookSpeed:        1.05,
   uppercutDamage:   1.55,
+
+  // RETIRED (Stage 18b part 2) — the per-punch speed multipliers. A punch's
+  // duration is no longer `punchDuration / speed`; each punch authors its three
+  // phases in milliseconds above, which subsumes these entirely. NOTHING in src/
+  // reads them. They survive only because scripts/vulnerability_test.mjs section
+  // 3b still computes its whiff-cost gradient from `punchDuration / <type>Speed`,
+  // and that section is re-authored in part 3 (the whiff penalty stops being a
+  // multiplier on recovery). Delete these four with it.
+  jabSpeed:         1.50,
+  crossSpeed:       1.35,
+  hookSpeed:        1.05,
   uppercutSpeed:    1.00,
+
+  // ── Pose scrubber (Stage 18b part 1) ────────────────────────────────────────
+  // Dev-only. Freezes ONE fighter's punch animation and drives its pose from
+  // these values instead of from punchTimer, so an intermediate frame can be
+  // held still and looked at. It drives the SAME computePose()/punchKey() path
+  // the renderer uses — there is deliberately no second pose evaluator, because
+  // a scrubber that agrees with itself and disagrees with the game is worthless.
+  //
+  // While enabled, everything that would fight it is gated on the frozen
+  // fighter: hit reactions, stagger, step bob, its own throws, and (for the
+  // dummy) the AI's attack scheduling. Facing is driven by poseDebugFacing
+  // rather than by the opponent's position, so the mirror can be flipped
+  // without walking anyone across the ring.
+  poseDebugEnabled:  false,
+  poseDebugTarget:   'player',   // 'player' | 'dummy'
+  poseDebugPunch:    'jab',      // 'jab' | 'cross' | 'hook' | 'uppercut'
+  poseDebugArm:      'lead',     // rig SLOT, not an anatomical arm — see armSlot()
+  poseDebugProgress: 0,          // 0..1 — the punch progress to render
+  poseDebugFacing:   'right',    // 'right' | 'left'
+  poseDebugAim:      0,          // radians of aim-cone bend, positive = downward
+  // Joint dots (shoulder/elbow/wrist) drawn over the frozen rig, so an inverted
+  // elbow is unambiguous rather than a judgement call.
+  poseDebugJoints:   true,
 
   // ── Hit geometry (Stage 9) ──────────────────────────────────────────────────
   // Landing is no longer a distance band — a punch lands when the FIST (sampled
@@ -461,11 +520,33 @@ export const config = {
   // double-force.
   counterForceBonus: 0.90,
 
-  // Feedback. No new VFX shapes here on purpose: hit-stop is the cheapest and
-  // most reliable "that landed" signal, and it already exists.
+  // Feedback.
   counterHitStopBonus:  0.05,   // seconds ADDED on top of the clamped hit-stop, × vulnerability
-  counterShakeIntensity: 0.006, // fraction of the viewport, × vulnerability (zoom-normalised — see _shakeCamera)
+  // Stage 19 part 3 — was 0.006, which is ~5 px on an 800 px viewport and then
+  // multiplied by a vulnerability that is usually well under 1. That is below
+  // the threshold where it reads as anything at all. ASSUMPTION — feel guess:
+  // 0.018 is ~23 px of horizontal throw at peak vulnerability, ~10 px at the
+  // 0.4-ish exposure an ordinary counter catches.
+  counterShakeIntensity: 0.018, // fraction of the viewport, × vulnerability (zoom-normalised — see _shakeCamera)
   counterShakeDuration:  0.18,  // seconds
+
+  // ── Counter impact VFX (Stage 19 part 3) ────────────────────────────────────
+  // A counter now gets its OWN shape, not a scaled-up ordinary one. Everything
+  // else in the vocabulary is round (the smother burst + ring) or a single arc
+  // (the whiff streak), so radial SPOKES read as a different kind of event
+  // rather than as a bigger version of an existing one — which is exactly the
+  // distinction a counter needs to carry. Colour is the other half: hot amber,
+  // against a near-white whiff, a grey smother and a blue block.
+  //
+  // Every magnitude below is multiplied by the target's vulnerability at the
+  // moment of impact, so a weak counter draws a small version of the same
+  // shape rather than reading as a normal hit.
+  // ASSUMPTION — all five are feel guesses.
+  counterFlashColor:    '#ffcc44',
+  counterFlashRadius:   72,     // px at vulnerability 1.0 — spoke length
+  counterFlashWidth:    5,      // px at vulnerability 1.0 — spoke thickness
+  counterFlashSpokes:   8,      // alternating long/short, so it reads as a star not a wheel
+  counterFlashDuration: 0.26,   // seconds
 
   // ── Perfect block (Stage 16 part 4) ─────────────────────────────────────────
   // A guard raised within perfectBlockWindow seconds of an impact resolving.
@@ -479,6 +560,28 @@ export const config = {
   perfectBlockPunishVulnerability: 0.85,   // 0..1 the attacker is pinned at
   perfectBlockPunishDuration:      0.45,   // seconds the spike is held
   perfectBlockHitStop:             0.05,   // seconds — deliberately under a counter's
+
+  // ── Slip punish (Stage 19 part 2) ───────────────────────────────────────────
+  // Deliberately parked next to the perfect-block pair above so the two are
+  // comparable at a glance, on the panel as well as here.
+  //
+  // Before this, a slip earned nothing but the whiff recovery every miss gets.
+  // Vulnerability is sampled off the attacker's own punch curve and peaks at
+  // peakAt — the same instant the slip resolves the punch as a miss — so a
+  // counter thrown after a slip only ever met the DECAYING side of that curve.
+  // A perfect block got a spike; a slip got the tail. This is the same
+  // applyVulnerabilityPunish channel the perfect block uses, aimed at the
+  // attacker of a punch that was read rather than out-ranged.
+  //
+  // Set HIGHER than the perfect-block punish on both axes, and that ordering is
+  // the point: a block is a held button that also absorbs the hit if it comes,
+  // whereas a slip is a timed flick that commits the head and pays full price if
+  // it is early or late. Harder to execute, riskier when wrong, better payoff.
+  // ASSUMPTION — both are guesses, and the DURATION is the one to argue with
+  // first: 0.70 s is long enough to walk in and throw a counter after the slip
+  // has fully unwound, which may prove too generous once it is felt.
+  slipPunishVulnerability: 1.00,   // 0..1 the attacker is pinned at (vs 0.85 for a perfect block)
+  slipPunishDuration:      0.70,   // seconds the spike is held  (vs 0.45)
 
   // ── Defensive / whiff VFX (Stage 16 part 5) ─────────────────────────────────
   // The block flash used to be a flat rect over the torso and head. It is now
@@ -853,10 +956,73 @@ export function punchDamageMult(type) {
   const v = config[`${type}Damage`];
   return typeof v === 'number' ? v : 1;
 }
+// ── Per-phase punch timing (Stage 18b part 2) ────────────────────────────────
+
+/** Non-negative finite config read. (`num` below is the looser shared one.) */
+const msNum = (k, fallback) => {
+  const v = config[k];
+  return typeof v === 'number' && isFinite(v) && v >= 0 ? v : fallback;
+};
+
+/**
+ * This punch's three phases in SECONDS, plus the derived phase boundaries as
+ * fractions of its own total. The single place milliseconds become fractions.
+ *
+ * `windupMult` stretches the COCK ONLY (the low-stamina telegraph — see
+ * config.lowStaminaWindupMultiplier). That is what "telegraphed when gassed"
+ * actually means: a tired fighter pulls back slower and more visibly, they do
+ * not throw the strike itself in slow motion. Because it changes the cock's
+ * share of the total, it also moves cockEnd/peakAt — so every consumer of those
+ * fractions has to be handed the same multiplier or the pose and the timer
+ * disagree. That is why it is a parameter here rather than applied at the call
+ * site: there is exactly one derivation.
+ *
+ * @param {string} type
+ * @param {number} [windupMult]  multiplier on cockMs only (default 1)
+ * @returns {{cock,extend,recover,total,cockEnd,peakAt}|null}  seconds + fractions
+ */
+export function punchPhases(type, windupMult = 1) {
+  if (typeof config[`${type}CockMs`] !== 'number') return null;
+  const scale   = Math.max(0.01, msNum('punchTimeScale', 1)) / 1000;
+  const cock    = msNum(`${type}CockMs`,    0) * Math.max(0, windupMult) * scale;
+  const extend  = msNum(`${type}ExtendMs`,  0) * scale;
+  const recover = msNum(`${type}RecoverMs`, 0) * scale;
+  const total   = cock + extend + recover;
+  if (total <= 0) return null;
+  return { cock, extend, recover, total, cockEnd: cock / total, peakAt: (cock + extend) / total };
+}
+
+/** This punch's whole duration in seconds — what punchTimer is seeded with. */
+export function punchTotalSeconds(type, windupMult = 1) {
+  const p = punchPhases(type, windupMult);
+  return p ? p.total : 0;
+}
+
+// RETIRED (Stage 18b part 2) — see the note on the *Speed config keys. Kept as a
+// lookup only so nothing that still names it breaks at import time; no code in
+// src/ calls it.
 export function punchSpeedMult(type) {
   const v = config[`${type}Speed`];
   return typeof v === 'number' && v > 0 ? v : 1;
 }
+
+// ── config.punchDuration — DEPRECATION SHIM ──────────────────────────────────
+// The old single knob. It is no longer stored: reading it reports the global
+// time scale expressed in the units it used to have, and writing it sets that
+// scale. This exists so the verification scripts that stretch punches by setting
+// `punchDuration = 0.6` keep meaning what they meant — the whole system slows
+// down — without every one of them being rewritten in the same commit that
+// changes the timing model. New code must use config.punchTimeScale.
+const LEGACY_PUNCH_DURATION_BASELINE = 0.35;   // what scale 1.0 used to be worth
+Object.defineProperty(config, 'punchDuration', {
+  enumerable: true,
+  configurable: true,
+  get() { return LEGACY_PUNCH_DURATION_BASELINE * config.punchTimeScale; },
+  set(v) {
+    const n = Number(v);
+    if (isFinite(n) && n > 0) config.punchTimeScale = n / LEGACY_PUNCH_DURATION_BASELINE;
+  },
+});
 
 /**
  * The y offset (from the opponent's torso center) this punch type tracks — see

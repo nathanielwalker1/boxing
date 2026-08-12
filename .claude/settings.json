@@ -5,23 +5,64 @@
       "Edit",
       "Write(scripts/**)",
       "Write(src/**)",
-      "Bash(cat > scripts/*)",
-      "Bash(node scripts/*)",
-      "Bash(npm run *)",
-      "Bash(git status*)",
-      "Bash(git diff*)",
-      "Bash(git log*)",
-      "Bash(git add*)",
-      "Bash(lsof *)",
-      "Bash(ps aux*)",
-      "Bash(tail *)"
+
+      "Bash(node:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(file:*)",
+      "Bash(which:*)",
+      "Bash(open:*)",
+      "Bash(sips:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git branch:*)",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+
+      "Bash(lsof:*)",
+      "Bash(ps:*)",
+      "Bash(pkill:*)",
+      "Bash(kill:*)",
+      "Bash(curl -s http://localhost:*)",
+      "Bash(curl -s -o /dev/null:*)"
     ],
     "deny": [
-      "Bash(rm -rf*)",
-      "Bash(git push*)"
+      "Bash(rm -rf:*)",
+      "Bash(git push:*)",
+      "Bash(sed -i:*)"
     ],
     "ask": [
-      "Bash(git commit*)"
+      "Bash(git commit:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

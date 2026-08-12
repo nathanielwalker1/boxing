@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import GUI from 'lil-gui';
-import { config, punchDamageMult, punchAudioClass, punchWhiffRecoveryMult, cssHex } from './config.js';
+import { config, punchDamageMult, punchAudioClass, punchWhiffRecoveryMult, cssHex,
+         punchPhases, punchTotalSeconds } from './config.js';
 import { initCombatAudio, playCombatSound, renderCombatSound, audioLog } from './audio.js';
 import { Fighter } from './fighter.js';
 import { Dummy } from './dummy.js';
@@ -66,6 +67,31 @@ function makeBurst(x, y, color, maxTime = 0.22) {
 function makeStreak(pts, color, maxTime = 0.2) {
   return { pts, color, elapsed: 0, maxTime, style: 'streak' };
 }
+/**
+ * A COUNTER's impact (Stage 19 part 3) — radial spokes from the contact point.
+ *
+ * The point is that this is not a scaled-up version of anything else. A clean
+ * land draws no flash at all (the rig reaction is its feedback), a smother
+ * draws a grey circle, a block a blue glove flash, a whiff a single arc. Spokes
+ * are a shape none of those use, so a counter is legible as a different KIND of
+ * event before any of the numbers are read.
+ *
+ * @param {number} strength  the target's vulnerability, 0..1. Scales spoke
+ *        length and thickness together, so a weak counter draws a small version
+ *        of the same star rather than something that reads as an ordinary hit.
+ */
+function makeSpark(x, y, color, maxTime, strength) {
+  return { x, y, color, elapsed: 0, maxTime, strength, style: 'spark' };
+}
+// A fixed tilt off the axes, so the spokes never line up with the horizon or
+// the fighter's vertical. Constant rather than random: the checks assert on the
+// drawn geometry, and a counter should look the same every time anyway.
+const SPARK_PHASE = Math.PI / 8;
+
+// How long the dev readout keeps flagging a slip after one resolves. Long
+// enough to catch out of the corner of your eye while playing; the running
+// count next to it is the part that survives.
+const SLIP_READOUT_HOLD = 1.2;   // seconds of game time
 
 // Block flash colours. Blue = an ordinary blocked hit (unchanged intent from
 // Stage 10); white = a PERFECT block, deliberately a smaller, cleaner read than
@@ -113,6 +139,13 @@ class RingScene extends Phaser.Scene {
 
     // Seconds of hit-stop remaining — see _triggerHitStop / update().
     this._hitStopTimer = 0;
+
+    // Slip bookkeeping (Stage 19 part 1) — how many incoming punches have been
+    // classified as slipped rather than merely missed, and a short hold so the
+    // dev readout can say one JUST happened. Read by the readout and by
+    // scripts/slip_test.mjs; no gameplay reads either.
+    this._slipCount        = 0;
+    this._slipReadoutTimer = 0;
 
     // ── Keyboard: movement ─────────────────────────────────────────────────
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -302,7 +335,10 @@ class RingScene extends Phaser.Scene {
       defender: this.dummy,
       arm,
       punchType,
-      timer: peakProgress(punchType) * this.fighter._punchDuration,
+      // Peak is a fraction of THIS punch's duration, and a low-stamina cock
+      // stretch moves that fraction — so it is sampled with the same multiplier
+      // the throw locked in, not the base one.
+      timer: peakProgress(punchType, this.fighter._windupMult) * this.fighter._punchDuration,
     });
   }
 
@@ -366,16 +402,45 @@ class RingScene extends Phaser.Scene {
     // the head geometrically, so geometry alone can never produce a smother.
     const smotherable = punchType !== 'hook' && punchType !== 'uppercut';
 
+    // The overlap test, named rather than inlined so it can be asked the same
+    // question about a DIFFERENT defender anchor below. This is the only hit
+    // geometry in the build and it stays that way — `anchor` is passed straight
+    // through to getHurtboxes(), which solves the identical pose either way.
+    const r = config.fistRadius;
+    const hits = (anchor) => {
+      const hb = defender.getHurtboxes(anchor);
+      return circleHitsCircle(fist.x, fist.y, r, hb.head) ||
+             circleHitsBox(fist.x, fist.y, r, hb.body);
+    };
+
     let outcome;
     if (dist < config.smotherDist && smotherable) {
       outcome = 'smother';
     } else {
-      const hb = defender.getHurtboxes();
-      const r  = config.fistRadius;
-      outcome = (circleHitsCircle(fist.x, fist.y, r, hb.head) ||
-                 circleHitsBox(fist.x, fist.y, r, hb.body))
-        ? 'land'
-        : 'whiff';
+      outcome = hits(defPos) ? 'land' : 'whiff';
+    }
+
+    // ── Slip classification (Stage 19 part 1) ─────────────────────────────────
+    // A punch that missed because the defender READ it and a punch that missed
+    // because the attacker was out of range are the same 'whiff' to every
+    // existing system, and they must not be rewarded the same way — otherwise
+    // standing out of range buys the same punish window as a correct read,
+    // which inverts the point of slipping.
+    //
+    // The test is the one above, run once more against the defender's TRUE
+    // position: if the fist would have connected there, the slip displacement
+    // is the only thing that took the punch away. Out of range fails both
+    // anchors and is unaffected. Dummies have no slipTimer, so this is false
+    // for them by construction.
+    //
+    // This is a classification LAYERED ON, not a replacement outcome — a
+    // slipped punch is still a whiff for recovery, SFX and stamina.
+    const slipped = outcome === 'whiff' &&
+                    defender.slipTimer > 0 &&
+                    hits({ x: defender.x, y: defender.y });
+    if (slipped) {
+      this._slipCount += 1;
+      this._slipReadoutTimer = SLIP_READOUT_HOLD;
     }
 
     switch (outcome) {
@@ -394,6 +459,22 @@ class RingScene extends Phaser.Scene {
         // Stage 17 part 0c — the multiplier is now per punch type, so missing a
         // jab is cheap and missing an uppercut is the opening it should be.
         attacker.extendRecovery(punchWhiffRecoveryMult(punchType));
+        // Stage 19 part 2 — the slip punish. Same channel the perfect block
+        // uses, so no new parry/stun system: the attacker is simply pinned
+        // exposed and the counter machinery does the rest.
+        //
+        // Ordering with the recovery stretch above is deliberate and safe in
+        // both directions: applyVulnerabilityPunish takes the max of any spike
+        // already in flight, and stepVulnerability re-applies _punishVuln as a
+        // FLOOR every frame independently of punchTimer. So the spike is not
+        // clobbered when the attacker's stretched whiff timer expires — at that
+        // point the curve term simply drops to 0 and the floor is all that's
+        // left, which is the intended behaviour. Nothing clears _punishTimer
+        // except its own countdown and a knockdown.
+        if (slipped) {
+          applyVulnerabilityPunish(
+            attacker, config.slipPunishVulnerability, config.slipPunishDuration);
+        }
         break;
 
       case 'smother':
@@ -501,9 +582,17 @@ class RingScene extends Phaser.Scene {
           if (targetVuln > 0) {
             // Counter feedback: a sting layered OVER the punch's own impact
             // sound (see the `counter` recipe in config), and a camera shake
-            // scaled by the same vulnerability. No new VFX shapes.
+            // scaled by the same vulnerability.
             playCombatSound('counter');
             this._shakeCamera(targetVuln);
+            // Stage 19 part 3 — and its own impact shape, drawn at the FIST
+            // where contact actually happened rather than at the target's
+            // center. Scaled by the same vulnerability everything else here
+            // reads, so all four channels (force, hit-stop, shake, VFX) grow
+            // off one number.
+            this._flashes.push(makeSpark(
+              fist.x, fist.y, cssHex(config.counterFlashColor),
+              config.counterFlashDuration, Math.min(1, targetVuln)));
           }
         }
         break;
@@ -652,6 +741,33 @@ class RingScene extends Phaser.Scene {
           g.lineTo(pts[i].x, pts[i].y);
           g.strokePath();
         }
+      } else if (f.style === 'spark') {
+        // A counter (Stage 19 part 3). The spokes shoot OUTWARD: the inner end
+        // accelerates after the outer one, so the star hollows out as it goes
+        // rather than simply scaling up — the difference between "something
+        // burst out of the contact point" and "a circle got bigger".
+        //
+        // Every magnitude is × strength (the target's vulnerability), so this
+        // is the same shape at every size and a marginal counter reads as a
+        // small one rather than as a normal hit.
+        const R     = Math.max(0, config.counterFlashRadius) * f.strength;
+        const n     = Math.max(3, Math.round(config.counterFlashSpokes));
+        const outer = R * (0.35 + 0.65 * t);
+        const inner = R * 0.9 * t * t;
+        const w     = Math.max(1, config.counterFlashWidth * f.strength * (1 - 0.7 * t));
+        g.lineStyle(w, f.color, alpha);
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2 + SPARK_PHASE;
+          const c = Math.cos(a), s = Math.sin(a);
+          // Alternating long/short. A ring of equal spokes reads as a wheel;
+          // the uneven one reads as an impact star.
+          const len = (i % 2 === 0) ? outer : outer * 0.58;
+          if (len <= inner) continue;
+          g.beginPath();
+          g.moveTo(f.x + c * inner, f.y + s * inner);
+          g.lineTo(f.x + c * len,   f.y + s * len);
+          g.strokePath();
+        }
       } else {
         g.fillStyle(f.color, alpha * 0.65);
         g.fillCircle(f.x, f.y, 28);
@@ -675,7 +791,15 @@ class RingScene extends Phaser.Scene {
   // an extended recovery is running, PUNISH while a perfect-block spike is held,
   // BLOCK while the guard is up (which pins it at 0). Sits behind
   // config.showVulnerability, alongside Show Hurtboxes / Show Aim Cone.
-  _updateVulnReadout() {
+  _updateVulnReadout(dt) {
+    // Stage 19 part 1 — the "did a slip actually register?" hold. Ticked here
+    // rather than in update() so it lives next to the only thing that reads it,
+    // and on game time so it survives a hit-stop the same way everything else
+    // in this file does.
+    if (this._slipReadoutTimer > 0) {
+      this._slipReadoutTimer = Math.max(0, this._slipReadoutTimer - dt);
+    }
+
     const t = this.vulnText;
     if (!config.showVulnerability) {
       if (t.visible) t.setVisible(false);
@@ -691,7 +815,12 @@ class RingScene extends Phaser.Scene {
       return '';
     };
     const line = (label, f) => `${label} ${f.vulnerability.toFixed(2)} ${tag(f).padEnd(8)}`;
-    t.setText(`VULN   ${line('YOU', this.fighter)}   ${line('DUMMY', this.dummy)}`);
+    // Stage 19 part 1 — the slip counter. Without it there is no way to tell a
+    // slip that fired and displaced the head from simply having moved out of
+    // the way, which made the whole mechanic unverifiable by feel. SLIPPED! is
+    // the recency flag; the count is the cumulative one.
+    const slips = `SLIPS ${this._slipCount}${this._slipReadoutTimer > 0 ? '  SLIPPED!' : ''}`;
+    t.setText(`VULN   ${line('YOU', this.fighter)}   ${line('DUMMY', this.dummy)}   ${slips}`);
   }
 
   _drawHurtboxDebug() {
@@ -844,7 +973,7 @@ class RingScene extends Phaser.Scene {
     this._updateDepthSort(bounds);
     this._updateFlashes(dt);
     this._drawDebugOverlays();
-    this._updateVulnReadout();
+    this._updateVulnReadout(dt);
     this.hud.update(this.fighter, this.dummy);
 
     // Camera last — it frames this frame's final positions rather than trailing
@@ -978,7 +1107,7 @@ fighterF.close();
 const combatF = gui.addFolder('Combat');
 combatF.add(config, 'punchForceBase',     50, 800,  5).name('Base Force');
 combatF.add(config, 'punchMomentumScale',  0,   5, 0.1).name('Momentum Scale');
-combatF.add(config, 'punchDuration',     0.05, 0.5, 0.01).name('Punch Duration (base)');
+combatF.add(config, 'punchTimeScale',    0.25,   3, 0.05).name('Punch Time Scale x');
 combatF.add(config, 'smotherDist',        0,  150,  5).name('Smother Dist');
 combatF.add(config, 'blockReduction',     0,    1, 0.05).name('Block Reduction');
 combatF.open();
@@ -1010,12 +1139,24 @@ vulnF.open();
 const counterF = gui.addFolder('Counter / Perfect Block');
 counterF.add(config, 'counterForceBonus',     0,   3, 0.05) .name('Counter Force x');
 counterF.add(config, 'counterHitStopBonus',   0, 0.2, 0.005).name('Counter Hit-Stop +s');
-counterF.add(config, 'counterShakeIntensity', 0, 0.03, 0.001).name('Counter Shake');
+// Range raised to 0.06 in Stage 19: the old 0.03 ceiling was only twice the old
+// default, so the slider couldn't reach a value you could actually see.
+counterF.add(config, 'counterShakeIntensity', 0, 0.06, 0.001).name('Counter Shake');
 counterF.add(config, 'counterShakeDuration',  0, 0.6, 0.02) .name('Shake Duration (s)');
+// Stage 19 part 3 — the counter's own impact shape. See makeSpark().
+counterF.addColor(config, 'counterFlashColor')             .name('Counter Flash Color');
+counterF.add(config, 'counterFlashRadius',    0, 200,   2) .name('Counter Flash Radius');
+counterF.add(config, 'counterFlashWidth',     1,  20, 0.5) .name('Counter Flash Width');
+counterF.add(config, 'counterFlashSpokes',    3,  16,   1) .name('Counter Flash Spokes');
+counterF.add(config, 'counterFlashDuration',  0.05, 1, 0.01).name('Counter Flash (s)');
 counterF.add(config, 'perfectBlockWindow',    0, 0.5, 0.01) .name('Perfect Window (s)');
 counterF.add(config, 'perfectBlockPunishVulnerability', 0, 1, 0.05).name('Punish Vulnerability');
 counterF.add(config, 'perfectBlockPunishDuration', 0, 1.5, 0.05).name('Punish Duration (s)');
 counterF.add(config, 'perfectBlockHitStop',   0, 0.2, 0.005).name('Perfect Hit-Stop (s)');
+// Stage 19 part 2 — deliberately adjacent to the perfect-block punish pair
+// above, since the whole design question is how the two compare.
+counterF.add(config, 'slipPunishVulnerability', 0, 1, 0.05) .name('Slip Punish Vulnerability');
+counterF.add(config, 'slipPunishDuration',    0, 1.5, 0.05) .name('Slip Punish Duration (s)');
 counterF.open();
 
 // ── Feedback VFX (Stage 16 part 5) ───────────────────────────────────────────
@@ -1058,18 +1199,42 @@ aimF.add(config, 'uppercutAimPointY', -80, 20, 1).name('Uppercut Aim Point Y');
 aimF.add(config, 'showAimCone')                  .name('Show Aim Cone');
 aimF.open();
 
-// Per-punch identity (Stage 8). Damage multiplies the momentum-based force;
-// speed divides config.punchDuration (higher = snappier).
+// Per-punch identity (Stage 8 damage + Stage 18b timing). Damage multiplies the
+// momentum-based force. The three millisecond values ARE the punch's timing —
+// there is no per-punch speed multiplier any more, because wind-up, extension
+// and recovery are no longer welded to one number. Punch Time Scale in Combat
+// multiplies all twelve at once.
+//
+// Reading these while tuning: cock is the TELEGRAPH (long = seen coming),
+// extend is the strike (short = it lands like a punch), recover is how long the
+// arm is out of position afterwards.
 const punchTypeF = gui.addFolder('Punch Types');
-punchTypeF.add(config, 'jabDamage',       0.1, 3, 0.05).name('Jab Damage x');
-punchTypeF.add(config, 'jabSpeed',        0.3, 3, 0.05).name('Jab Speed x');
-punchTypeF.add(config, 'crossDamage',     0.1, 3, 0.05).name('Cross Damage x');
-punchTypeF.add(config, 'crossSpeed',      0.3, 3, 0.05).name('Cross Speed x');
-punchTypeF.add(config, 'hookDamage',      0.1, 3, 0.05).name('Hook Damage x');
-punchTypeF.add(config, 'hookSpeed',       0.3, 3, 0.05).name('Hook Speed x');
-punchTypeF.add(config, 'uppercutDamage',  0.1, 3, 0.05).name('Uppercut Damage x');
-punchTypeF.add(config, 'uppercutSpeed',   0.3, 3, 0.05).name('Uppercut Speed x');
+for (const t of ['jab', 'cross', 'hook', 'uppercut']) {
+  const f = punchTypeF.addFolder(t[0].toUpperCase() + t.slice(1));
+  f.add(config, `${t}Damage`,    0.1,   3, 0.05).name('Damage x');
+  f.add(config, `${t}CockMs`,     10, 500,    5).name('· cock ms');
+  f.add(config, `${t}ExtendMs`,   10, 300,    5).name('· extend ms');
+  f.add(config, `${t}RecoverMs`,  10, 500,    5).name('· recover ms');
+  f.open();
+}
 punchTypeF.open();
+
+// ── Pose Debug (Stage 18b part 1) ────────────────────────────────────────────
+// The scrubber. Freezes one fighter and renders whatever punch/progress/facing
+// is dialled in here, through the SAME computePose() path the game renders —
+// see poseDebug.js. This is the tool the punch trajectories get re-authored
+// against in 18c; at 8 frames per punch the intermediate poses were invisible,
+// and holding one still is the only way to tell a bent elbow from an inverted one.
+const poseF = gui.addFolder('Pose Debug');
+poseF.add(config, 'poseDebugEnabled')                            .name('Enabled');
+poseF.add(config, 'poseDebugTarget',  ['player', 'dummy'])       .name('Target');
+poseF.add(config, 'poseDebugPunch',   ['jab', 'cross', 'hook', 'uppercut']).name('Punch');
+poseF.add(config, 'poseDebugArm',     ['lead', 'rear'])          .name('Arm (rig slot)');
+poseF.add(config, 'poseDebugProgress', 0, 1, 0.005)              .name('Progress');
+poseF.add(config, 'poseDebugFacing',  ['right', 'left'])         .name('Facing');
+poseF.add(config, 'poseDebugAim',    -0.7, 0.7, 0.01)            .name('Aim Bend (rad)');
+poseF.add(config, 'poseDebugJoints')                             .name('Show Joints');
+poseF.close();
 
 // Combat audio. Master volume is the knob that matters; the jitter pair is here
 // because config rules say no gameplay constant gets hardcoded, and "how robotic
@@ -1162,6 +1327,10 @@ window.__rig    = {
   // against the punch timings it is derived from, and the whiff-streak check
   // can compare the drawn path to the real wrist arc.
   punchTiming, wristPath,
+  // Stage 18b part 2 — the millisecond phase table the fractions above are now
+  // DERIVED from, so the checks can assert the derivation itself rather than
+  // trusting that cockEnd/peakAt still mean what they used to.
+  punchPhases, punchTotalSeconds,
 };
 // Stage 16 — the vulnerability curve itself, so vulnerability_test.mjs asserts
 // against the shipped function rather than re-deriving the shape.

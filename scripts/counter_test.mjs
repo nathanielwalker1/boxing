@@ -376,6 +376,78 @@ console.log(`     younger than any humane perfect-block window — see the summa
 check('reactive blocks are being observed at all (sanity)', guarded.length > 0,
   `${guarded.length}/${series.length} landed jabs met a guard at ${cfg.blockChance} block chance`);
 
+// ─── 5. A post-slip counter vs a cold one (Stage 19) ─────────────────────────
+// Section 1 measures the counter bonus against a vulnerability PINNED by hand.
+// This one measures it through the loop a player actually plays: read the
+// punch → slip it → the attacker is punished → counter into the window. Before
+// Stage 19 the two runs below produced the same force, because a slip opened no
+// window at all and the counter only ever met the decaying tail of the
+// attacker's own curve.
+console.log('\n=== 5. Post-slip counter vs a counter on an untouched opponent ===');
+await freshLoad();
+await peek(() => {
+  window.__config.healthDamagePerForce = 0;    // no knockdown mid-measurement
+  window.__config.dummyBlockReactionChance = 0;
+});
+
+/** One player jab at a pinned dummy; returns the resolution carrying `force`. */
+async function playerJab() {
+  await soft(page, () => window.__res.some(r => r.fromPlayer && r.force != null),
+    undefined, { timeout: 8000, label: 'the player jab to resolve' });
+  return (await takeRes()).find(r => r.fromPlayer && r.force != null);
+}
+
+// (a) COLD — same distance, same punch, an untouched standing target.
+await pin(65);
+await clearRes();
+await tap('KeyJ');
+const coldCounter = await playerJab();
+await punchIdle(page);
+
+// (b) POST-SLIP — the dummy throws, the player slips it, the player counters.
+await pin(65);
+await clearRes();
+const slipsBefore = await peek(() => window.__game.scene.keys.RingScene._slipCount);
+await tap('KeyT');                       // force the dummy to throw
+// Flick off the dummy's own impact countdown, not wall clock — the slip window
+// is 0.25 s of GAME time and headless Chromium runs the sim at about half speed.
+await soft(page, () => {
+  const d = window.__game.scene.keys.RingScene.dummy;
+  return d._impactPending && d._impactTimer < 0.12;
+}, undefined, { timeout: 8000, label: 'dummy impact imminent' });
+await tap('ArrowDown', 2);               // flick; the slip fires on RELEASE
+await soft(page, () => window.__res.some(r => !r.fromPlayer), undefined,
+  { timeout: 8000, label: 'the dummy punch to resolve' });
+const slipRes = (await takeRes()).find(r => !r.fromPlayer);
+const slipsAfter = await peek(() => window.__game.scene.keys.RingScene._slipCount);
+
+await tap('KeyJ');                       // the counter, into the punish window
+const hotCounter = await playerJab();
+// The counter's own impact shape (Stage 19 part 3) — captured while the flash is
+// still alive; counterFlashDuration is 0.26 s and soft() returns within a frame
+// or two of the resolution.
+await page.screenshot({ path: `${OUT}/counter_impact_vfx.png` });
+
+const mult = hotCounter && coldCounter ? hotCounter.force / coldCounter.force : 0;
+console.log(`     slip registered: ${slipsAfter - slipsBefore} (dummy punch outcome ` +
+            `'${slipRes?.outcome}', its punish window ${slipRes?.attPunish?.toFixed(2)}s)`);
+console.log(`     cold  counter: force ${coldCounter?.force?.toFixed(1)} ` +
+            `(target v=${coldCounter?.defVuln?.toFixed(2)}, approach ${coldCounter?.attSpeed?.toFixed(0)} px/s)`);
+console.log(`     post-slip    : force ${hotCounter?.force?.toFixed(1)} ` +
+            `(target v=${hotCounter?.defVuln?.toFixed(2)}, approach ${hotCounter?.attSpeed?.toFixed(0)} px/s)`);
+console.log(`     → measured multiplier ${mult.toFixed(3)}x ` +
+            `(arithmetic ceiling at v=1 is ${(1 + cfg.bonus).toFixed(2)}x)`);
+
+check('the slip was classified as a slip, not an ordinary whiff',
+  slipsAfter - slipsBefore === 1 && slipRes?.outcome === 'whiff',
+  `slip count +${slipsAfter - slipsBefore}, dummy punch resolved '${slipRes?.outcome}'`);
+check('a cold counter finds an unvulnerable target',
+  !!coldCounter && coldCounter.outcome === 'land' && coldCounter.defVuln === 0,
+  `outcome ${coldCounter?.outcome}, target v=${coldCounter?.defVuln}`);
+check('a post-slip counter is MEANINGFULLY harder than a cold one',
+  !!hotCounter && hotCounter.outcome === 'land' && mult > 1.5,
+  `${mult.toFixed(3)}x — ${hotCounter?.force?.toFixed(1)} vs ${coldCounter?.force?.toFixed(1)}`);
+
 // ─── Report ──────────────────────────────────────────────────────────────────
 await browser.close();
 const failed = results.filter(r => !r.pass);

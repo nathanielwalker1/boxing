@@ -26,7 +26,7 @@
  *   Angle 0 = segment hanging straight down; positive = rotating toward +x.
  */
 
-import { config, punchAimPointY } from './config.js';
+import { config, punchAimPointY, punchPhases } from './config.js';
 
 // Visual extent of the rig from the container origin, derived from the layout
 // below. Lives here (with the geometry it's derived from) so the player and the
@@ -174,10 +174,13 @@ const slotGuard = slot => (slot === 'lead' ? LEAD_GUARD : REAR_GUARD);
 const restKey   = slot => ({ ...slotGuard(slot), dip: 0, turn: 0 });
 
 /**
- * Per-punch trajectory table. Each punch runs rest → cock → peak → rest across
- * its animation progress p (0..1):
- *   cockEnd — p at which the wind-up pose is reached
- *   peakAt  — p at which full extension is reached
+ * Per-punch trajectory table — the SHAPE of each punch. Its TIMING now lives in
+ * config (cockMs/extendMs/recoverMs per type, Stage 18b part 2); the cockEnd and
+ * peakAt fractions this table used to carry are derived from those milliseconds
+ * by punchTiming() and handed to punchKey(). Shape here, duration there.
+ *
+ * Each punch runs rest → cock → peak → rest across its animation progress
+ * p (0..1):
  *   turn    — hip/shoulder rotation at peak (0 = square on, 1 = full torque)
  *   dip     — px the body drops during the wind-up (leg drive for the uppercut)
  *
@@ -192,58 +195,69 @@ const restKey   = slot => ({ ...slotGuard(slot), dip: 0, turn: 0 });
  * arms-at-the-waist: held absolute, their old values would drop the hand to the
  * hip for the one frame the wind-up lasts before the arm shot out.
  *
- * These are pose/animation shape, not gameplay tunables — damage and speed live
- * in config.js. Timings are fractions of the punch's duration, so they stay
- * proportional when a punch's speed multiplier or low stamina stretches it.
+ * These are pose/animation shape, not gameplay tunables — damage and the phase
+ * durations live in config.js.
  */
 const PUNCHES = {
   // Straight, minimal rotation, snaps back fast.
   jab: {
     cockRel: { a1: -0.15, a2: -0.30 },
     peak:    { a1:  1.50, a2:  0.05 },
-    cockEnd: 0.12, peakAt: 0.42, turn: 0.15, dip: 0,
+    turn: 0.15, dip: 0,
   },
   // Straight, but the rear shoulder/hip rotate all the way through — longest reach.
   cross: {
     cockRel: { a1: -0.35, a2: -0.55 },
     peak:    { a1:  1.48, a2:  0.10 },
-    cockEnd: 0.20, peakAt: 0.52, turn: 1.00, dip: 0,
+    turn: 1.00, dip: 0,
   },
   // Wound back across the body, then a wide lateral sweep with the elbow bent
   // and raised — the fist travels ~65 px horizontally at head height.
   hook: {
     cock: { a1: -0.55, a2: -1.45 },
     peak: { a1:  2.05, a2: -1.15 },
-    cockEnd: 0.28, peakAt: 0.62, turn: 0.70, dip: 0,
+    turn: 0.70, dip: 0,
   },
   // Drops to the hip, then the forearm whips upward: the fist rises ~37 px and
   // finishes at chin height clear of the chest, with the elbow staying low.
   uppercut: {
     cock: { a1:  0.65, a2: -1.60 },
     peak: { a1:  0.79, a2: -4.38 },
-    cockEnd: 0.26, peakAt: 0.60, turn: 0.70, dip: 6,
+    turn: 0.70, dip: 6,
   },
 };
 
 /** Animation progress at which a punch reaches full extension. Used to sample
  *  the pose for flash placement, so effects spawn where the punch ARRIVES
- *  rather than where the fist happens to be on the frame it resolves. */
-export function peakProgress(type) {
-  return PUNCHES[type] ? PUNCHES[type].peakAt : 0;
+ *  rather than where the fist happens to be on the frame it resolves.
+ *  @param {number} [windupMult] low-stamina cock stretch — see punchPhases() */
+export function peakProgress(type, windupMult = 1) {
+  const t = punchTiming(type, windupMult);
+  return t ? t.peakAt : 0;
 }
 
 /**
- * This punch's phase boundaries as fractions of its own duration — the same two
- * numbers the trajectory above is built from. Exposed (Stage 16) so the
- * vulnerability curve is shaped off the punch's REAL animation rather than a
- * parallel timeline of its own: re-time a punch here and its exposure profile
- * follows automatically.
+ * This punch's phase boundaries as fractions of its own duration. Exposed
+ * (Stage 16) so the vulnerability curve is shaped off the punch's REAL
+ * animation rather than a parallel timeline of its own: re-time a punch and its
+ * exposure profile follows automatically.
  *
+ * Since Stage 18b part 2 these are DERIVED, not authored: each punch declares
+ * cockMs/extendMs/recoverMs in config, and
+ *     cockEnd = cock / total,  peakAt = (cock + extend) / total
+ * falls out of them. The shape of this return value is deliberately unchanged —
+ * vulnerability.js and the checks that read it never learn that the underlying
+ * numbers moved from fractions to milliseconds.
+ *
+ * @param {string} type
+ * @param {number} [windupMult]  stretches the cock only (low stamina), which
+ *        also moves both boundaries — see punchPhases() in config.js.
  * @returns {{cockEnd:number, peakAt:number}|null}
  */
-export function punchTiming(type) {
-  const def = PUNCHES[type];
-  return def ? { cockEnd: def.cockEnd, peakAt: def.peakAt } : null;
+export function punchTiming(type, windupMult = 1) {
+  if (!PUNCHES[type]) return null;
+  const p = punchPhases(type, windupMult);
+  return p ? { cockEnd: p.cockEnd, peakAt: p.peakAt } : null;
 }
 
 const lerp    = (a, b, t) => a + (b - a) * t;
@@ -269,8 +283,12 @@ function keyLerp(A, B, t) {
  * untouched — only the endpoints moved off the old arms-down rest.
  *
  * @param {'lead'|'rear'} slot  which guard the arm returns to
+ * @param {{cockEnd:number, peakAt:number}} timing  DERIVED phase boundaries —
+ *        see punchTiming(). Passed in rather than read off `def` so the pose and
+ *        the punch timer are guaranteed to be working from the same two numbers,
+ *        including when a low-stamina cock stretch has moved them.
  */
-function punchKey(def, p, slot) {
+function punchKey(def, p, slot, timing) {
   const rest = restKey(slot);
   // Absolute wind-up pose, or a wind-back relative to the guard — see PUNCHES.
   const cockA = def.cockRel
@@ -279,12 +297,13 @@ function punchKey(def, p, slot) {
   const cockK = { a1: cockA.a1,    a2: cockA.a2,    dip:  def.dip,        turn: def.turn * 0.2 };
   const peakK = { a1: def.peak.a1, a2: def.peak.a2, dip: -def.dip * 0.4,  turn: def.turn };
 
-  if (p < def.cockEnd) {
-    const u = easeOut(p / def.cockEnd);
+  const { cockEnd, peakAt } = timing;
+  if (p < cockEnd) {
+    const u = easeOut(p / cockEnd);
     return { key: keyLerp(rest, cockK, u), ext: 0 };
   }
-  if (p < def.peakAt) {
-    const u = easeOut((p - def.cockEnd) / (def.peakAt - def.cockEnd));
+  if (p < peakAt) {
+    const u = easeOut((p - cockEnd) / (peakAt - cockEnd));
     return { key: keyLerp(cockK, peakK, u), ext: u };
   }
   // Recovery unwinds by the SHORT way round: a2 is an angle, so the guard's
@@ -294,7 +313,7 @@ function punchKey(def, p, slot) {
   // ends at a2 = -4.38, and the lead guard's +1.75 resolves to -4.53 here, so
   // the forearm still finishes its rotation the way it was already going.)
   const restK = { ...rest, a2: nearestAngle(rest.a2, def.peak.a2) };
-  const u = easeIO((p - def.peakAt) / (1 - def.peakAt));
+  const u = easeIO((p - peakAt) / (1 - peakAt));
   return { key: keyLerp(peakK, restK, u), ext: 1 - u };
 }
 
@@ -344,7 +363,12 @@ export function computePose(punch, guard = 0, bob = 0, react = NO_REACT) {
   const punchingArm = def ? punch.arm : null;
 
   let key = { a1: 0, a2: 0, dip: 0, turn: 0 }, ext = 0;
-  if (def) ({ key, ext } = punchKey(def, clamp01(punch.p), punchingArm));
+  if (def) {
+    // Phase boundaries come from the punch's authored milliseconds, including
+    // any low-stamina cock stretch the thrower locked in — see punchPhases().
+    const timing = punchTiming(punch.type, punch.windupMult || 1);
+    ({ key, ext } = punchKey(def, clamp01(punch.p), punchingArm, timing));
+  }
 
   // The block pose is square-on: rotation/dip fade out as the guard comes up.
   const g          = clamp01(guard);
@@ -418,7 +442,7 @@ export function computePose(punch, guard = 0, bob = 0, react = NO_REACT) {
 export function punchGeometry(type, slot) {
   const def = PUNCHES[type];
   if (!def) return null;
-  const pose = computePose({ type, arm: slot, p: def.peakAt }, 0, 0);
+  const pose = computePose({ type, arm: slot, p: peakProgress(type) }, 0, 0);
   const arm  = slot === 'lead' ? pose.lead : pose.rear;
   return {
     sx: arm.sx, sy: arm.sy,
@@ -447,12 +471,12 @@ export function punchGeometry(type, slot) {
  * @returns {Array<{x:number, y:number}>}  tail (cocked) first, fist last
  */
 export function wristPath(type, slot, aim = 0, samples = 8, bob = 0, react = NO_REACT) {
-  const def = PUNCHES[type];
-  if (!def) return [];
+  const t = punchTiming(type);
+  if (!t) return [];
   const n   = Math.max(2, Math.round(samples));
   const out = [];
   for (let i = 0; i < n; i++) {
-    const p    = def.cockEnd + (def.peakAt - def.cockEnd) * (i / (n - 1));
+    const p    = t.cockEnd + (t.peakAt - t.cockEnd) * (i / (n - 1));
     const pose = computePose({ type, arm: slot, p, aim }, 0, bob, react);
     const hand = slot === 'lead' ? pose.lead : pose.rear;
     out.push({ x: hand.wx, y: hand.wy });

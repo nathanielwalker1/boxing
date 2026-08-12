@@ -39,7 +39,9 @@ const ROOT        = dirname(SCRIPTS_DIR);
 // serial; a serial script costs its full wall time with no overlap.
 const SUITE = [
   { name: 'verify',        file: 'verify.js' },
+  { name: 'waits',         file: 'waits_test.mjs' },
   { name: 'punch',         file: 'punch_test.mjs' },
+  { name: 'timing',        file: 'timing_test.mjs' },
   { name: 'reach',         file: 'reach_test.mjs' },
   { name: 'vulnerability', file: 'vulnerability_test.mjs' },
   { name: 'counter',       file: 'counter_test.mjs' },
@@ -59,7 +61,9 @@ const SUITE = [
 ];
 
 // Guard against a script being added to /scripts and silently never run.
-const KNOWN_NON_TESTS = new Set(['run_tests.mjs', 'devUrl.js', 'waits.js', '_debug.mjs']);
+// pose_grid.mjs is a capture tool, not an assertion suite — it is run by hand
+// when the punch trajectories are being authored against, and takes ~2 minutes.
+const KNOWN_NON_TESTS = new Set(['run_tests.mjs', 'devUrl.js', 'waits.js', '_debug.mjs', 'pose_grid.mjs']);
 const onDisk = readdirSync(SCRIPTS_DIR)
   .filter(f => (f.endsWith('.mjs') || f.endsWith('.js')) && !KNOWN_NON_TESTS.has(f));
 const missing = onDisk.filter(f => !SUITE.some(s => s.file === f));
