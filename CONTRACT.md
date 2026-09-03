@@ -319,8 +319,9 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   What you see hit is what hit (refines §5 and §6 step 2).
 - 2026-09-02 — **Behavioural tests run in Node, not a browser.** Every port of a
   `legacy/scripts/*_test.mjs` assertion is a Node script that calls `createState`/`step`
-  directly. Playwright is used only for render verification (`verify.mjs`,
-  `pose_grid.mjs`) and input. The full suite must finish in under 60 s.
+  directly. Playwright is used only for render verification (`verify_check.mjs`,
+  `pose_grid.mjs`) and input. Naming: `*_test.mjs` = Node, `*_check.mjs` = browser; the
+  runner discovers both. The full suite must finish in under 60 s.
 - 2026-09-02 — **Art direction: low-poly toy figure** (§6 as written). Outlines are a
   toggleable material layer so an ink look can be tried without a rebuild.
 - 2026-09-02 — **Core freeze, refined.** `src/core/types.ts`, `math.ts`, `rng.ts`, `body.ts`,

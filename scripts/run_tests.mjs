@@ -26,23 +26,19 @@ import { dirname, join } from 'path';
 const SCRIPTS_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT        = dirname(SCRIPTS_DIR);
 
+// The suite is discovered by filename convention so parallel workstreams never
+// edit this file:
+//   *_test.mjs   → Node (sim/core behavioural tests via load.mjs)
+//   *_check.mjs  → browser (Playwright against the dev server)
+// Everything else in scripts/ is a helper or a hand-run capture tool.
+const onDisk = readdirSync(SCRIPTS_DIR).sort();
 const SUITE = [
-  { name: 'rng',    file: 'rng_test.mjs',    node: true },
-  { name: 'math',   file: 'math_test.mjs',   node: true },
-  { name: 'config', file: 'config_test.mjs', node: true },
-  { name: 'body',   file: 'body_test.mjs',   node: true },
-  { name: 'verify', file: 'verify.mjs' },
+  ...onDisk.filter(f => f.endsWith('_test.mjs') && !f.startsWith('_')).map(f => ({ name: f.replace(/_test\.mjs$/, ''), file: f, node: true })),
+  ...onDisk.filter(f => f.endsWith('_check.mjs') && !f.startsWith('_')).map(f => ({ name: f.replace(/_check\.mjs$/, ''), file: f })),
 ];
-
-// Guard against a script being added and silently never run. Capture tools
-// and helpers are listed here; anything else on disk must be in SUITE.
-const KNOWN_NON_TESTS = new Set([
-  'run_tests.mjs', 'devUrl.js', 'waits.js', 'check.js', 'load.mjs', 'greyscale.js',
-  '_debug.mjs', 'pose_grid.mjs',
-]);
-const onDisk = readdirSync(SCRIPTS_DIR).filter(f => (f.endsWith('.mjs') || f.endsWith('.js')) && !KNOWN_NON_TESTS.has(f));
-const missing = onDisk.filter(f => !SUITE.some(s => s.file === f));
-if (missing.length) console.error(`\n  ⚠  Not in the suite (add to SUITE in run_tests.mjs): ${missing.join(', ')}\n`);
+const KNOWN_NON_TESTS = new Set(['run_tests.mjs', 'devUrl.js', 'waits.js', 'check.js', 'load.mjs', 'greyscale.js', '_debug.mjs', 'pose_grid.mjs']);
+const stray = onDisk.filter(f => (f.endsWith('.mjs') || f.endsWith('.js')) && !KNOWN_NON_TESTS.has(f) && !SUITE.some(s => s.file === f));
+if (stray.length) console.error(`\n  ⚠  Not a test by convention (rename to *_test.mjs or *_check.mjs, or list in KNOWN_NON_TESTS): ${stray.join(', ')}\n`);
 
 // ── Args ─────────────────────────────────────────────────────────────────────
 const requested = process.argv.slice(2).filter(a => !a.startsWith('-'));

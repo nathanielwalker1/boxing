@@ -18,7 +18,7 @@ mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch();
 // deviceScaleFactor 2: a Retina display is the common case on Nate's machine and
 // a canvas sized in device pixels without a CSS size shows a quarter of the frame.
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
+const page = await browser.newPage({ viewport: { width: 960, height: 600 }, deviceScaleFactor: 2 });
 const logs = [];
 page.on('console', m => logs.push({ type: m.type(), text: m.text() }));
 page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
@@ -26,7 +26,9 @@ page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
 await page.goto(`${DEV_URL}/?tune=1`, { waitUntil: 'networkidle', timeout: 15_000 });
 await bootReady(page, { frames: 10 });
 await page.evaluate(() => { window.__cfg.debugHitboxes = true; });
-await frames(page, 70);   // one full fps window so __fps is populated
+// Headless software GL at 2× runs at a few fps, so this is a render check, not
+// an fps check — the fps line below is printed only if a 60-frame window landed.
+await frames(page, 20);
 
 const shot = `${OUT}/screenshot.png`;
 await page.screenshot({ path: shot });

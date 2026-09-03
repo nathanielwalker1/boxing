@@ -57,7 +57,7 @@ theory. He is the judge of *feel* and *look* — you are the judge of *does it r
 
 ## Self-verification (mandatory, every change)
 1. **Match the check to the change.** If it can alter what's on screen (`src/rig`,
-   `src/render`, `src/ui`, any config feeding a draw), run `scripts/verify.mjs` and look
+   `src/render`, `src/ui`, any config feeding a draw), run `scripts/verify_check.mjs` and look
    at the screenshot and its `_grey` sibling. If it provably cannot (sim logic, tests,
    comments), verify via console output plus the relevant behavioural test. One capture
    per verified state, never per iteration.
@@ -76,7 +76,10 @@ theory. He is the judge of *feel* and *look* — you are the judge of *does it r
 7. **Ad-hoc scripts** go in `scripts/_debug.mjs`, overwritten in place (gitignored).
    Never a new uniquely-named file per experiment.
 8. **Use the runner.** `npm run test:quick <names>` while iterating, `npm test` once at
-   the end. Waits go through `scripts/waits.js` (`gameTime`/`until`/`settled`/`frames`),
+   the end. The runner discovers tests by name: `scripts/*_test.mjs` run in Node against
+   the sim (`load.mjs` + `check.js`, no browser — this is where ported assertions go);
+   `scripts/*_check.mjs` run in Playwright against the dev server (render only).
+   Waits go through `scripts/waits.js` (`gameTime`/`until`/`settled`/`frames`),
    never fixed sleeps — fixed sleeps are the #1 source of flakes and parallel runs turn
    flakes into failures.
 9. **Frame-time is a test.** Any render/rig change reports fps from the overlay on the
