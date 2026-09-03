@@ -3,7 +3,7 @@
  * rigs, and the fixed-step loop: input → sim.step → events → views.
  *
  * Test hooks on window (read by scripts/): __tick, __cfg, __fps, __sim,
- * __pose/__focus (pose grid), __states.
+ * __pose/__focus (pose grid), __states, __input (ui/input.ts).
  */
 import {
   SIM_DT, NULL_INPUT, EventBus, createConfig, cloneInput, punchFixture, restFighterState, ROSTER, v2dist,
@@ -14,6 +14,7 @@ import { createFighterView } from './rig';
 import { Stage } from './render/stage';
 import { mountTuningPanel } from './ui/tune';
 import { FpsOverlay } from './ui/fps';
+import { InputManager, wantsTouch } from './ui/input';
 
 declare global {
   interface Window {
@@ -51,10 +52,11 @@ const views = [
   createFighterView(1, specs[1], cfg, stage.scene),
 ] as const;
 
-// Inputs: side 0 is the player (InputManager lands here in Stage 1), side 1 is
-// the frozen-guard dummy. Tests can override either side via window.__sim.input.
+// Inputs: side 0 is the player (InputManager → liveInput[0] each frame), side 1
+// is the frozen-guard dummy. Tests can override either side via window.__sim.input.
 const liveInput: [FrameInput, FrameInput] = [cloneInput(NULL_INPUT), cloneInput(NULL_INPUT)];
 const overrideInput: [FrameInput | null, FrameInput | null] = [null, null];
+const input = new InputManager(cfg, { yaw: () => next.fighters[0].yaw, touch: wantsTouch(params) });
 
 window.__sim = {
   state: () => next,
@@ -87,6 +89,7 @@ function loop(nowMs: number): void {
   lastMs = nowMs;
   const paused = posed[0] !== null || posed[1] !== null;
   frameEvents.length = 0;
+  liveInput[0] = input.current();
 
   if (!paused) {
     acc += dt;
@@ -130,4 +133,4 @@ function loop(nowMs: number): void {
 addEventListener('resize', () => stage.resize());
 requestAnimationFrame(t => { lastMs = t; loop(t); });
 
-export { bus, liveInput };
+export { bus, liveInput, input };

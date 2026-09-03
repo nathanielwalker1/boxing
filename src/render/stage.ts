@@ -1,15 +1,19 @@
 /**
- * render/stage.ts — the three.js scene: renderer, ring, lights, broadcast
- * camera. Stage 0 placeholder for the RENDER workstream: enough ring to judge
- * framing and frame-time, rebuilt live from config. RENDER replaces the
- * geometry; the `Stage` interface (create / resize / frame / hitbox debug) is
- * what main.ts relies on.
+ * render/stage.ts — the three.js scene: renderer, ring, arena, lights,
+ * broadcast camera, optional post pass. The `Stage` surface main.ts relies on:
+ * constructor(container, cfg), `scene`, `resize()`, `drawHitboxes(states)`,
+ * `handleEvents(events)`, `frame(a, b, closeness, t, dt)`, `info`.
+ *
+ * Geometry lives in ring.ts / arena.ts and is rebuilt whole when one of its
+ * config keys changes (dev sliders); per-frame work here is lights, fog,
+ * camera and the flash sparkles.
  */
 import * as THREE from 'three';
-import { RING_HALF, APRON_W, TAU, type Config, type FighterState, type SimEvent, type Vec2 } from '../core';
-
-const RING_KEYS = ['ropeCount', 'ropeTopY', 'ropeSag', 'postR', 'matColor', 'matLineColor', 'apronColor',
-  'ropeColorA', 'ropeColorB', 'ropeColorC', 'padColorRed', 'padColorBlue'] as const;
+import { TAU, type Config, type FighterState, type SimEvent, type Vec2 } from '../core';
+import { buildRing, ringKey } from './ring';
+import { Arena, arenaKey } from './arena';
+import { PostPass } from './post';
+import { disposeTree } from './util';
 
 export class Stage {
   readonly renderer: THREE.WebGLRenderer;
@@ -17,6 +21,9 @@ export class Stage {
   readonly camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
   private ring = new THREE.Group();
   private ringKey = '';
+  private arena: Arena;
+  private arenaKey = '';
+  private fog: THREE.Fog;
   private key: THREE.SpotLight;
   private fill: THREE.HemisphereLight;
   private rim: THREE.DirectionalLight;
@@ -24,28 +31,36 @@ export class Stage {
   private hitboxMat = new THREE.MeshBasicMaterial({ color: 0x33ff88, wireframe: true });
   private look = new THREE.Vector3(0, 1, 0);
   private lookTarget = new THREE.Vector3(0, 1, 0);
+  private post: PostPass | null = null;
+  private aniso: number;
+
+  // camera state (smoothed dolly/FOV + impact punch-in)
+  private dist = -1;
+  private fov = -1;
+  private punchAmp = 0;
+  private punchT = 0;
+  private punchDur = 1;
 
   constructor(container: HTMLElement, private cfg: Config) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // The post pass issues several render() calls per frame; count the whole frame ourselves.
+    this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
+    this.aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
 
-    this.scene.background = new THREE.Color(0x0a0a0c);
-    this.scene.fog = new THREE.Fog(0x0a0a0c, 12, 30);
-
-    // Arena floor far below the ring, so the platform reads as raised.
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x141418, roughness: 1 }));
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -1.0;
-    floor.receiveShadow = true;
-    this.scene.add(floor);
+    this.fog = new THREE.Fog(new THREE.Color(cfg.fogColor), cfg.fogNear, cfg.fogFar);
+    this.scene.fog = this.fog;
+    this.scene.background = this.fog.color;
 
     this.key = new THREE.SpotLight(0xffffff, cfg.keyIntensity, 0, 1, 0.5, 1);
     this.key.castShadow = true;
     this.key.shadow.mapSize.set(cfg.shadowMapSize, cfg.shadowMapSize);
     this.key.shadow.bias = -0.0005;
+    this.key.shadow.camera.near = 1;
+    this.key.shadow.camera.far = 20;
     this.key.target.position.set(0, 0, 0);
     this.scene.add(this.key, this.key.target);
 
@@ -55,93 +70,32 @@ export class Stage {
     this.rim = new THREE.DirectionalLight(0xdfe8ff, cfg.rimIntensity);
     this.scene.add(this.rim, this.rim.target);
 
-    this.scene.add(this.ring, this.hitboxes);
+    this.arena = new Arena(cfg);
+    this.arenaKey = arenaKey(cfg);
+    this.scene.add(this.arena.group, this.ring, this.hitboxes);
     this.rebuildRing();
     this.resize();
   }
 
+  private get size(): [number, number] {
+    const el = this.renderer.domElement.parentElement;
+    return [el?.clientWidth ?? innerWidth, el?.clientHeight ?? innerHeight];
+  }
+
   resize(): void {
-    const w = this.renderer.domElement.parentElement?.clientWidth ?? innerWidth;
-    const h = this.renderer.domElement.parentElement?.clientHeight ?? innerHeight;
+    const [w, h] = this.size;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.post?.setSize(w * this.renderer.getPixelRatio(), h * this.renderer.getPixelRatio());
   }
 
   // ── Ring ────────────────────────────────────────────────────────────────────
 
   private rebuildRing(): void {
-    const c = this.cfg;
-    this.ringKey = RING_KEYS.map(k => String(c[k])).join('|');
-    this.ring.clear();
-
-    const outer = RING_HALF + APRON_W;
-    const platform = new THREE.Mesh(
-      new THREE.BoxGeometry(outer * 2, 1.0, outer * 2),
-      new THREE.MeshStandardMaterial({ color: new THREE.Color(c.apronColor), roughness: 0.95 }),
-    );
-    platform.position.y = -0.5;
-    platform.receiveShadow = true;
-    this.ring.add(platform);
-
-    const mat = new THREE.Mesh(
-      new THREE.PlaneGeometry(RING_HALF * 2, RING_HALF * 2),
-      new THREE.MeshStandardMaterial({ color: new THREE.Color(c.matColor), roughness: 1 }),
-    );
-    mat.rotation.x = -Math.PI / 2;
-    mat.position.y = 0.004;
-    mat.receiveShadow = true;
-    this.ring.add(mat);
-
-    // Canvas trim: a thin square line just inside the ropes.
-    const trim = new THREE.LineLoop(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-RING_HALF, 0.006, -RING_HALF), new THREE.Vector3(RING_HALF, 0.006, -RING_HALF),
-        new THREE.Vector3(RING_HALF, 0.006, RING_HALF), new THREE.Vector3(-RING_HALF, 0.006, RING_HALF),
-      ]),
-      new THREE.LineBasicMaterial({ color: new THREE.Color(c.matLineColor) }),
-    );
-    this.ring.add(trim);
-
-    // Posts + pads. Red corner (+x,+z), blue corner (-x,-z); the other two neutral.
-    const postH = c.ropeTopY + 0.25;
-    const postGeo = new THREE.CylinderGeometry(c.postR, c.postR, postH, 12);
-    const postMat = new THREE.MeshStandardMaterial({ color: 0xe9e9f2, roughness: 0.4, metalness: 0.3 });
-    const padGeo = new THREE.BoxGeometry(c.postR * 4, c.ropeTopY * 0.9, c.postR * 4);
-    const corners: [number, number, string][] = [
-      [1, 1, c.padColorRed], [-1, -1, c.padColorBlue], [1, -1, '#e9e9f2'], [-1, 1, '#e9e9f2'],
-    ];
-    const pOff = RING_HALF + c.postR + 0.05;
-    for (const [sx, sz, padCol] of corners) {
-      const post = new THREE.Mesh(postGeo, postMat);
-      post.position.set(sx * pOff, postH / 2, sz * pOff);
-      post.castShadow = true;
-      this.ring.add(post);
-      const pad = new THREE.Mesh(padGeo, new THREE.MeshStandardMaterial({ color: new THREE.Color(padCol), roughness: 0.8 }));
-      pad.position.set(sx * pOff, c.ropeTopY * 0.55, sz * pOff);
-      this.ring.add(pad);
-    }
-
-    // Ropes: `ropeCount` strands per side, evenly spaced up to ropeTopY, with sag.
-    const ropeCols = [c.ropeColorA, c.ropeColorB, c.ropeColorC, c.ropeColorA];
-    const ropeR = 0.022;
-    for (let i = 0; i < c.ropeCount; i++) {
-      const y = c.ropeTopY * (i + 1) / c.ropeCount;
-      const rmat = new THREE.MeshStandardMaterial({ color: new THREE.Color(ropeCols[i % ropeCols.length]), roughness: 0.7 });
-      for (const side of [0, 1, 2, 3]) {
-        const a = new THREE.Vector3(), b = new THREE.Vector3();
-        const h = RING_HALF + c.postR;
-        if (side === 0) { a.set(-h, y, -h); b.set(h, y, -h); }
-        else if (side === 1) { a.set(h, y, -h); b.set(h, y, h); }
-        else if (side === 2) { a.set(h, y, h); b.set(-h, y, h); }
-        else { a.set(-h, y, h); b.set(-h, y, -h); }
-        const mid = a.clone().lerp(b, 0.5); mid.y -= c.ropeSag;
-        const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
-        const rope = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, ropeR, 6, false), rmat);
-        rope.castShadow = true;
-        this.ring.add(rope);
-      }
-    }
+    this.ringKey = ringKey(this.cfg);
+    disposeTree(this.ring);
+    this.ring.add(buildRing(this.cfg, this.aniso));
   }
 
   // ── Hitbox debug (CONTRACT §5: what the sim tests against, drawn exactly) ───
@@ -176,9 +130,40 @@ export class Stage {
     }
   }
 
-  /** Sim events since the last frame (main.ts calls this before `frame`). RENDER
-   *  reacts here: camera punch-in on punchLand, flash sparkles, etc. */
-  handleEvents(_events: readonly SimEvent[]): void {}
+  // ── Events ──────────────────────────────────────────────────────────────────
+
+  /** Sim events since the last frame (main.ts calls this before `frame`).
+   *  punchLand → dolly punch-in scaled by |impulse|; knockdown/ko/tko → a
+   *  longer one. Never a hard cut: the punch-in is a smooth envelope on top
+   *  of the tracked dolly distance. */
+  handleEvents(events: readonly SimEvent[]): void {
+    const c = this.cfg;
+    for (const e of events) {
+      if (e.type === 'punchLand') {
+        const mag = Math.hypot(e.impulse.x, e.impulse.y, e.impulse.z);
+        this.pushPunchIn(Math.min(c.camPunchInMax, mag * c.camPunchIn), c.camPunchRecover);
+      } else if (e.type === 'knockdown' || e.type === 'ko' || e.type === 'tko') {
+        this.pushPunchIn(c.camKoPunchIn, c.camKoRecover);
+      }
+    }
+  }
+
+  private pushPunchIn(amp: number, dur: number): void {
+    if (amp <= 0) return;
+    const remaining = this.punchAmp * this.envelope();
+    if (amp < remaining) return;          // a smaller hit inside a bigger one's recovery: keep the bigger
+    this.punchAmp = amp; this.punchT = 0; this.punchDur = Math.max(0.02, dur);
+  }
+
+  /** 0..1: snaps in over the first 8% of the recovery, then eases back out. */
+  private envelope(): number {
+    const u = this.punchT / this.punchDur;
+    if (u >= 1) return 0;
+    return Math.min(1, u / 0.08) * (1 - u) * (1 - u);
+  }
+
+  /** Current punch-in dolly offset, metres (tests / the fps overlay may read it). */
+  get punchIn(): number { return this.punchAmp * this.envelope(); }
 
   // ── Per-frame ───────────────────────────────────────────────────────────────
 
@@ -189,8 +174,13 @@ export class Stage {
    */
   frame(a: Vec2, b: Vec2, closeness: number, t: number, dt: number): void {
     const c = this.cfg;
-    const k = RING_KEYS.map(k => String(c[k])).join('|');
-    if (k !== this.ringKey) this.rebuildRing();
+    this.renderer.info.reset();
+    if (ringKey(c) !== this.ringKey) this.rebuildRing();
+    if (arenaKey(c) !== this.arenaKey) { this.arena.rebuild(c); this.arenaKey = arenaKey(c); }
+
+    this.fog.color.set(c.fogColor);
+    this.fog.near = c.fogNear;
+    this.fog.far = c.fogFar;
 
     this.key.intensity = c.keyIntensity;
     this.key.position.set(0, c.keyHeight, 0);
@@ -205,10 +195,18 @@ export class Stage {
     this.rim.intensity = c.rimIntensity;
 
     // Broadcast camera: orbit at azimuth/elevation around the fighters' midpoint.
+    // Dolly and FOV chase `closeness`; the punch-in envelope rides on the dolly.
     const az = c.camAzimuthDeg * Math.PI / 180;
     const el = c.camElevationDeg * Math.PI / 180;
-    const dist = c.camDistMax + (c.camDistMin - c.camDistMax) * closeness;
-    const fov = c.camFovMax + (c.camFovMin - c.camFovMax) * closeness;
+    const distTarget = c.camDistMax + (c.camDistMin - c.camDistMax) * closeness;
+    const fovTarget = c.camFovMax + (c.camFovMin - c.camFovMax) * closeness;
+    if (this.dist < 0) { this.dist = distTarget; this.fov = fovTarget; }
+    const dl = 1 - Math.exp(-c.camDollyLambda * dt);
+    this.dist += (distTarget - this.dist) * dl;
+    this.fov += (fovTarget - this.fov) * dl;
+    this.punchT += dt;
+    const dist = Math.max(1, this.dist - this.punchIn);
+
     this.lookTarget.set((a.x + b.x) / 2, c.camLookY, (a.z + b.z) / 2);
     const lam = 1 - Math.exp(-c.camFollowLambda * dt);
     this.look.lerp(this.lookTarget, lam);
@@ -221,13 +219,24 @@ export class Stage {
       this.look.z + dist * Math.cos(el) * Math.sin(az),
     );
     this.camera.lookAt(this.look);
-    if (Math.abs(this.camera.fov - fov) > 1e-3) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
+    if (Math.abs(this.camera.fov - this.fov) > 1e-3) { this.camera.fov = this.fov; this.camera.updateProjectionMatrix(); }
 
     // Rim comes from behind the far ropes relative to the camera.
     this.rim.position.set(-Math.cos(az) * 6, 3.5, -Math.sin(az) * 6);
     this.rim.target.position.copy(this.look);
 
-    this.renderer.render(this.scene, this.camera);
+    this.arena.update(c, t, this.camera);
+
+    if (c.postEnabled) {
+      if (!this.post) {
+        const [w, h] = this.size;
+        const pr = this.renderer.getPixelRatio();
+        this.post = new PostPass(this.renderer, this.scene, this.camera, w * pr, h * pr);
+      }
+      this.post.render(c);
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   get info(): { calls: number; triangles: number } {
