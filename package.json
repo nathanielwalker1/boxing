@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "gym": "vite spike/gym --port 5174",
+    "legacy": "vite legacy --port 5175",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node scripts/run_tests.mjs",
