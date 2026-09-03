@@ -323,3 +323,17 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   `pose_grid.mjs`) and input. The full suite must finish in under 60 s.
 - 2026-09-02 — **Art direction: low-poly toy figure** (§6 as written). Outlines are a
   toggleable material layer so an ink look can be tried without a rebuild.
+- 2026-09-02 — **Core freeze, refined.** `src/core/types.ts`, `math.ts`, `rng.ts`, `body.ts`,
+  `events.ts` are frozen; changes go through the orchestrator. `config.ts` is append-only
+  and each workstream appends only inside its own `group`. `roster.ts` is data and exempt.
+  `fixtures.ts` is a stand-in for the sim and may be replaced by SIM's real trajectories.
+- 2026-09-02 — **Determinism is same-engine** until NET. Sim code calls `core/math`
+  wrappers (`sin`, `cos`, `atan2`), never `Math.*` directly, so the swap to polynomial
+  approximations is one file. Refines §3.
+- 2026-09-02 — **Hit-stop** is a global `SimState.hitStop` timer; while it runs the sim
+  advances at `hitStopScale` × real rate (events, punches and the round clock all slow
+  together); inputs are still sampled every tick. Port of v1's `hitStopTimeScale`.
+- 2026-09-02 — **The fps gate is measured in a real browser** (the overlay), not headless.
+  Headless numbers with the GPU path are reported for trend only.
+- 2026-09-02 — **Root files** (`package.json`, `tsconfig.json`, `vite.config.ts`,
+  `index.html`, `docs/`) are orchestrator-owned. Sub-agents never touch them.
