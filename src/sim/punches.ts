@@ -43,7 +43,7 @@ function phases(cock: number, extend: number, recover: number, scale: number, ho
 
 export const PUNCHES: Partial<Record<PunchType, PunchDef>> = {
   jab: {
-    hand: 'lead', smotherable: true, turn: 0.15, cockBack: 0.15,
+    hand: 'lead', smotherable: true, turn: 0.45, cockBack: 0.15,   // turn raised from v1's 0.15: the lead shoulder drives the jab (feel-test 2026-09-03)
     phases: cfg => phases(cfg.jabCock, cfg.jabExtend, cfg.jabRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.jabImpulseMult,
     react: cfg => ({ back: cfg.jabReactBack, lift: cfg.jabReactLift, twist: cfg.jabReactTwist, torso: cfg.jabReactTorso, snap: cfg.jabReactSnap }),
