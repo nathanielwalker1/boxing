@@ -17,7 +17,9 @@ theory. He is the judge of *feel* and *look* — you are the judge of *does it r
 - **Punch diamond:** jab, cross, hook, uppercut.
 - **Hand selection:** jab/cross ignore joystick direction; hook/uppercut use the sign of
   the joystick's x at press to pick the hand.
-- **Range gating:** too far = whiff; too close = smothered, except hooks and uppercuts.
+- **Range gating:** too far = whiff; too close = a straight punch still lands but loses
+  power (ramping down to a floor at body contact); hooks and uppercuts keep full power.
+  (Changed 2026-09-03 from v1's no-contact smother, Nate's call.)
 - **Block:** held button, full block while held, mutually exclusive with punching,
   instant to switch.
 - **Head movement:** joystick FLICK = slip (brief head-hitbox offset + invincibility);

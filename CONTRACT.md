@@ -338,3 +338,14 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   Headless numbers with the GPU path are reported for trend only.
 - 2026-09-02 — **Root files** (`package.json`, `tsconfig.json`, `vite.config.ts`,
   `index.html`, `docs/`) are orchestrator-owned. Sub-agents never touch them.
+- 2026-09-03 — **Close range: straights land, cramped.** Inside `smotherDist` a jab or
+  cross still hits; its impulse scales from 1 at `smotherDist` down to
+  `smotherPowerFloor` at `separationDist`. `punchSmother` is no longer emitted (the
+  event type stays in the union for now). Supersedes v1's no-contact smother; the
+  v1 `punch_test` smother assertions are replaced by reduced-power assertions.
+- 2026-09-03 — **The glove stops at the body.** On a land or block the sim records
+  the contact point (`PunchState.contact`) and holds the glove there through the
+  punch's hold phase, sunk by `contactSquash` × glove radius. Hit geometry is
+  unchanged; this is where the L6 contact squash hangs.
+- 2026-09-03 — **Pose grid runs the sim** for ported punches (`__pose` steps a fresh
+  state to the requested progress). Fixtures remain only for unported punches.

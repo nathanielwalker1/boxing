@@ -138,7 +138,7 @@ export const SCHEMA = {
   moveAccel:        num(11.25, 2, 40, 0.25, 'movement', 'approach rate toward the input velocity at moveMassRef, 1/s (v1: acceleration / playerMass)', 'acceleration'),
   moveFriction:     num(15, 1, 30, 0.5, 'movement', 'velocity decay rate with no input at moveMassRef, 1/s (v1: friction / playerMass)', 'friction'),
   turnRate:         num(9, 1, 30, 0.5, 'movement', 'max yaw turn rate toward the opponent, rad/s'),
-  separationDist:   num(0.46, 0.3, 1, 0.01, 'movement', 'minimum centre-to-centre distance, m (v1: 38 px)', 'fighterSeparationDist'),
+  separationDist:   num(0.55, 0.3, 1, 0.01, 'movement', 'minimum centre-to-centre distance, m (v1: 38 px = 0.46; raised so resting gloves sit clear of the other chest)', 'fighterSeparationDist'),
   moveMassRef:      num(80, 50, 120, 1, 'movement', 'mass at which moveAccel/moveFriction apply as written, kg; heavier = sluggier', 'playerMass'),
   moveStopSpeed:    num(0.006, 0, 0.05, 0.001, 'movement', 'speed below which a coasting fighter snaps to rest, m/s (v1: 0.5 px/s)', 'stepMovement'),
   separationStrength: num(0.5, 0.05, 1, 0.05, 'movement', 'fraction of a body overlap corrected per tick; 1 = rigid', 'fighterSeparationStrength'),
@@ -158,9 +158,11 @@ export const SCHEMA = {
   jabImpulseMult:   num(0.7, 0.2, 2, 0.05, 'punch', 'jab impulse multiplier', 'jabDamage'),
   crossImpulseMult: num(0.95, 0.2, 2, 0.05, 'punch', 'cross impulse multiplier', 'crossDamage'),
   rangeMax:         num(1.2, 0.6, 2, 0.01, 'punch', 'centre-to-centre distance beyond which a punch whiffs without a hit test, m', 'rangeMax'),
-  smotherDist:      num(0.61, 0.3, 1, 0.01, 'punch', 'centre-to-centre distance inside which a straight punch is smothered, m (v1: 50 px)', 'smotherDist'),
+  smotherDist:      num(0.61, 0.3, 1, 0.01, 'punch', 'centre-to-centre distance inside which a straight punch starts losing power, m (v1: 50 px, where it was a no-contact smother)', 'smotherDist'),
+  smotherPowerFloor: num(0.35, 0, 1, 0.05, 'punch', 'power multiplier of a straight punch thrown at the body-separation distance; ramps to 1 at smotherDist'),
+  contactSquash:    num(0.35, 0, 0.9, 0.05, 'punch', 'how far the glove sinks into what it hit during the hold, as a fraction of its radius'),
   punchLean:        num(0.5, 0, 1, 0.05, 'punch', 'forward lean at full extension, 0..1'),
-  punchHoldFrac:    num(0.45, 0, 0.9, 0.05, 'punch', 'fraction of the recover phase the fist holds at full extension before returning (visible straight arm; timing and hit tick unchanged)'),
+  punchHoldFrac:    num(0.6, 0, 0.9, 0.05, 'punch', 'fraction of the recover phase the fist holds at full extension before returning (visible straight arm; timing and hit tick unchanged)'),
 
   // ── sim: block (SIM) ──
   blockReduction:   num(0.75, 0, 1, 0.05, 'block', 'fraction of an incoming impulse absorbed by a held block', 'blockReduction'),

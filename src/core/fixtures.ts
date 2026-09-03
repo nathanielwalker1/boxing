@@ -45,7 +45,7 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
     block: false,
     blockT: 0,
     guard: 'rest',
-    punch: { type: null, hand: 'lead', phase: 'idle', t: 0, progress: 0, resolved: false },
+    punch: { type: null, hand: 'lead', phase: 'idle', t: 0, progress: 0, resolved: false, contact: null },
     slip: { active: false, dir: 0, t: 0, offset: 0 },
     moveHist: [],
     vuln: 0,
@@ -123,7 +123,7 @@ export function punchFixture(spec: FighterSpec, cfg: Config, pos: Vec2, yaw: num
   const g = s.gloves[hand === 'lead' ? 0 : 1];
   g.pos = localToWorld(pos, f, fwd, up, lat);
   g.target = v3copy(g.pos);
-  s.punch = { type, hand, phase: progress < 0.25 ? 'cock' : progress < 0.6 ? 'extend' : 'recover', t: 0, progress, resolved: false };
+  s.punch = { type, hand, phase: progress < 0.25 ? 'cock' : progress < 0.6 ? 'extend' : 'recover', t: 0, progress, resolved: false, contact: null };
   s.lean.fwd = 0.5 * ext;
   s.torsoTwist = (hand === 'lead' ? 1 : -1) * handLateralSign('lead', spec.stance) * 0.5 * ext;
   return s;

@@ -100,6 +100,8 @@ export interface PunchState {
   t: number;          // seconds into the current phase
   progress: number;   // 0..1 across the whole punch (cock→recover)
   resolved: boolean;  // hit test already run for this punch
+  /** World point the glove is held at after it hit something (its centre, resting on the surface). null = swung free. */
+  contact: Vec3 | null;
 }
 
 export interface SlipState {

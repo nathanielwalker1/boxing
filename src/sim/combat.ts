@@ -4,7 +4,7 @@
  * timer in fighter.js, in SI.
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
-import { clamp, frameOf, sphereCapsuleOverlap, sphereOverlap, triangle, v2dist, v2dot, handLateralSign } from '../core';
+import { clamp, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, triangle, v2dist, v2dot, handLateralSign } from '../core';
 import { PUNCHES } from './punches';
 import { MASK_CROSS, MASK_JAB, prevPunchMask, punchMask, setPrevPunchMask } from './state';
 import { applyReaction } from './reaction';
@@ -31,7 +31,7 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
   if (type === null) return;
   const def = PUNCHES[type];
   if (!def) return;
-  f.punch = { type, hand: def.hand, phase: 'cock', t: 0, progress: 0, resolved: false };
+  f.punch = { type, hand: def.hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
   events.push({ type: 'punchStart', side, punch: type, hand: def.hand });
 }
 
@@ -43,7 +43,7 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   const p = f.punch;
   if (p.type === null) return false;
   const def = PUNCHES[p.type];
-  if (!def) { f.punch = { type: null, hand: p.hand, phase: 'idle', t: 0, progress: 0, resolved: false }; return false; }
+  if (!def) { f.punch = { type: null, hand: p.hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null }; return false; }
   const ph = def.phases(cfg);
   const elapsed = Math.min(ph.total, p.progress * ph.total + dt);
   p.progress = elapsed / ph.total;
@@ -58,7 +58,7 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   let peak = false;
   if (!p.resolved && p.progress >= ph.peakAt) { p.resolved = true; peak = true; }
   if (elapsed >= ph.total) {
-    f.punch = { type: null, hand: p.hand, phase: 'idle', t: 0, progress: 0, resolved: false };
+    f.punch = { type: null, hand: p.hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null };
     f.lean.fwd = 0;
     f.torsoTwist = 0;
   }
@@ -67,9 +67,12 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
 
 /**
  * The hit test, run once at the resolve moment against the defender's
- * current boxes. Outcomes: too close (straight punches) = smother; beyond
- * rangeMax = whiff; otherwise the attacking glove sphere against head then
- * body — a miss is a whiff, a hit is a land or, if the guard is up, a block.
+ * current boxes. Outcomes: beyond rangeMax = whiff; otherwise the attacking
+ * glove sphere against head then body — a miss is a whiff, a hit is a land
+ * or, if the guard is up, a block. A straight punch thrown inside smotherDist
+ * still lands (a cramped jab is still a jab) but loses power, sliding to
+ * smotherPowerFloor at the body-separation distance (Stage-1 feel-test,
+ * 2026-09-03; supersedes v1's no-contact smother).
  */
 export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Config, events: SimEvent[]): void {
   const def = PUNCHES[type];
@@ -79,7 +82,6 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   if (d.down) return;
 
   const dist = v2dist(a.pos, d.pos);
-  if (def.smotherable && dist < cfg.smotherDist) { events.push({ type: 'punchSmother', side, target, punch: type }); return; }
   if (dist > cfg.rangeMax) { events.push({ type: 'punchWhiff', side, punch: type }); return; }
 
   const g = a.gloves[a.punch.hand === 'lead' ? 0 : 1];
@@ -97,6 +99,23 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   mag = Math.max(cfg.punchImpulseBase * cfg.punchImpulseFloor, mag);
   mag *= 1 + a.lean.fwd * cfg.punchLeanScale;
   mag *= def.impulseMult(cfg);
+  if (def.smotherable && dist < cfg.smotherDist) {
+    const span = Math.max(1e-6, cfg.smotherDist - cfg.separationDist);
+    mag *= lerp(cfg.smotherPowerFloor, 1, clamp((dist - cfg.separationDist) / span, 0, 1));
+  }
+
+  // The glove stops at what it hit: for the rest of the hold its centre rests
+  // one glove radius (less the contact squash) off the struck surface, along
+  // the punch line. Bodies are flesh and bone, not empty (feel-test 2026-09-03).
+  const sink = a.body.gloveR * cfg.contactSquash;
+  if (part === 'head') {
+    const r = d.headBox.r + a.body.gloveR - sink;
+    a.punch.contact = { x: d.headBox.x - dirX * r, y: g.pos.y, z: d.headBox.z - dirZ * r };
+  } else {
+    const bb = d.bodyBox;
+    const r = bb.r + a.body.gloveR - sink;
+    a.punch.contact = { x: bb.a.x - dirX * r, y: clamp(g.pos.y, Math.min(bb.a.y, bb.b.y), Math.max(bb.a.y, bb.b.y)), z: bb.a.z - dirZ * r };
+  }
   const blocked = d.block;
   if (blocked) mag *= 1 - cfg.blockReduction;
   const power = mag / cfg.punchImpulseBase;

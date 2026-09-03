@@ -8,7 +8,7 @@
  * cock + extend so the fist arrives when the timing table says it does, then
  * relaxes for the recovery and overshoots on the way back.
  */
-import type { Config, FighterState, Hand, Side } from '../core';
+import type { Config, FighterState, Hand, Side, Vec3 } from '../core';
 import { TAU, frameOf, localToWorld, sin, sqrt } from '../core';
 import { PUNCHES, blockLocal, guardLocal, punchLocal, type LocalPose } from './punches';
 
@@ -24,17 +24,21 @@ const CHAIN_SUBSTEPS = 4;
 const BOB_PHASE_HAND = [0, 1.9];
 const BOB_PHASE_SIDE = [0, 2.6];
 
-function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPose; kMul: number } {
+function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPose; kMul: number; contact: Vec3 | null } {
   const p = f.punch;
   if (p.type !== null && p.hand === hand) {
     const def = PUNCHES[p.type];
     if (def) {
       const ph = def.phases(cfg);
       const kMul = p.phase === 'recover' ? cfg.chainRecoverK : cfg.chainPunchK;
-      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph), kMul };
+      // A glove that hit something rests on it through the hold instead of
+      // driving on to the free-air peak.
+      const rt = (p.progress * ph.total - ph.cock - ph.extend) / ph.recover;
+      const contact = p.contact && p.phase === 'recover' && rt < ph.hold ? p.contact : null;
+      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph), kMul, contact };
     }
   }
-  return { pose: f.block ? blockLocal(f.body, hand, f.stance) : guardLocal(f.body, hand, f.stance), kMul: 1 };
+  return { pose: f.block ? blockLocal(f.body, hand, f.stance) : guardLocal(f.body, hand, f.stance), kMul: 1, contact: null };
 }
 
 /** Compute this tick's targets and advance the springs by dt. */
@@ -42,11 +46,11 @@ export function stepGloves(f: FighterState, side: Side, time: number, cfg: Confi
   const fr = frameOf(f.yaw);
   for (let i = 0; i < 2; i++) {
     const hand = HANDS[i]!;
-    const { pose, kMul } = targetLocal(f, hand, cfg);
+    const { pose, kMul, contact } = targetLocal(f, hand, cfg);
     const bob = sin(time * TAU * cfg.chainBobHz + BOB_PHASE_HAND[i]! + BOB_PHASE_SIDE[side]!) * cfg.chainBobAmp;
-    const t = localToWorld(f.pos, fr, pose.fwd, pose.up + bob, pose.lat);
+    const t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, pose.fwd, pose.up + bob, pose.lat);
     // The gloves ride the torso's reaction offset, so they travel with the body.
-    t.x += f.reaction.torso.x; t.y += f.reaction.torso.y; t.z += f.reaction.torso.z;
+    if (!contact) { t.x += f.reaction.torso.x; t.y += f.reaction.torso.y; t.z += f.reaction.torso.z; }
     const g = f.gloves[i]!;
     g.target = t;
 

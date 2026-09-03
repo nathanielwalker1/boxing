@@ -62,12 +62,28 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
   check('events come in order punchStart → punchLand → hurt', evs.map(e => e.type).filter(t => t.startsWith('punch') || t === 'hurt').join(',') === 'punchStart,punchLand,hurt', evs.map(e => e.type).join(','));
 }
 {
+  // Close range (CONTRACT 2026-09-03): a cramped straight still lands, at reduced
+  // power. v1's no-contact smother is gone.
+  const midJab = outcome(run(fresh(MID), 40, tapThen('jab')).evs);
+  const midCross = outcome(run(fresh(MID), 40, tapThen('cross')).evs);
   const { evs } = run(fresh(CLOSE), 40, tapThen('jab'));
   const o = outcome(evs);
-  check('jab inside smotherDist → punchSmother', o?.type === 'punchSmother', o?.type);
-  check('smother carries side, target, punch', o?.side === 0 && o?.target === 1 && o?.punch === 'jab');
+  check('jab inside smotherDist still lands (a cramped jab is still a jab)', o?.type === 'punchLand', o?.type);
+  check('…at reduced power', o?.power < midJab?.power * 0.9, `${o?.power?.toFixed(3)} vs ${midJab?.power?.toFixed(3)} at MID`);
+  check('…and still hurts the defender', evs.some(e => e.type === 'hurt' && e.side === 1));
   const c = outcome(run(fresh(CLOSE), 40, tapThen('cross')).evs);
-  check('cross inside smotherDist → punchSmother too', c?.type === 'punchSmother', c?.type);
+  check('cross inside smotherDist lands too, reduced', c?.type === 'punchLand' && c?.power < midCross?.power * 0.9, `${c?.type} ${c?.power?.toFixed(3)} vs ${midCross?.power?.toFixed(3)}`);
+  check('no punchSmother is emitted any more', !evs.some(e => e.type === 'punchSmother'));
+}
+{
+  // The glove stops at what it hit: through the hold its target is the contact point, not the free-air peak.
+  const first = run(fresh(MID), 40, tapThen('jab'));
+  const landTick = outcome(first.evs).tick;
+  const held = run(fresh(MID), landTick + 3, tapThen('jab')).s.fighters[0];
+  check('a landed punch records its contact point', held.punch.contact !== null && held.punch.type === 'jab');
+  check('…and the glove is held there, not driven on to full extension', held.punch.contact && v3dist(held.gloves[0].target, held.punch.contact) < 1e-9, `target ${JSON.stringify(held.gloves[0].target)} contact ${JSON.stringify(held.punch.contact)}`);
+  const whiffed = run(fresh(FAR), 40, tapThen('jab')).s.fighters[0];
+  check('a whiffed punch has no contact point', whiffed.punch.contact === null);
 }
 
 // ── 2. Hand selection ───────────────────────────────────────────────────────
