@@ -103,6 +103,12 @@ function loop(nowMs: number): void {
       window.__tick.gameTime = next.time;
       acc -= SIM_DT;
     }
+    // Stage-1 sparring shell: once the round clock expires the sim ignores
+    // input, so restart after a beat. Stage 3 replaces this with the real
+    // between-round flow.
+    if (next.round.phase === 'over' && cfg.sparRestartSeconds > 0 && next.round.phaseT >= cfg.sparRestartSeconds) {
+      prev = next = createState([specs[0], specs[1]], cfg, next.seed);
+    }
   }
   if (frameEvents.length) { bus.emit(frameEvents); stage.handleEvents(frameEvents); }
 
