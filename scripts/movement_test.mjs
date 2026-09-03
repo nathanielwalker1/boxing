@@ -83,8 +83,13 @@ for (const [name, move] of [['forward', { x: 0, y: 1 }], ['back', { x: 0, y: -1 
   check('crowding a cornered dummy does not stack', minD > 0.24, `min ${minD.toFixed(3)}`);
 }
 {
+  // Same shape as legacy §5: dummy pinned in the corner, player walks in with
+  // the push off. The corner clamp holds both, so they end up stacked. (On open
+  // floor they pass through each other and then oscillate, because "forward"
+  // is opponent-relative and flips on every overshoot.)
   const off = { ...cfg, separationDist: 0 };
   let s = fresh();
+  s.fighters[1].pos = { x: B, z: B }; s.fighters[0].pos = { x: B - 0.6, z: B - 0.6 }; s.fighters[0].yaw = Math.PI / 4;
   for (let i = 0; i < 240; i++) s = sim.step(s, [inp({ move: { x: 0, y: 1 } }), NONE], off).state;
   check('separationDist = 0 disables the push', v2dist(s.fighters[0].pos, s.fighters[1].pos) < 0.05, `${v2dist(s.fighters[0].pos, s.fighters[1].pos).toFixed(3)}`);
 }

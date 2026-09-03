@@ -123,7 +123,9 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
 // ── 4. Momentum: an advancing jab hits harder ───────────────────────────────
 {
   const standing = outcome(run(fresh(MID), 40, tapThen('jab')).evs);
-  let s = fresh(1.0);
+  // 6 ticks of run-up + 8 ticks to the jab's peak closes ~0.4 m, so start at
+  // 1.2 m to arrive at MID on the resolve tick (from 1.0 m it is a smother).
+  let s = fresh(1.2);
   for (let i = 0; i < 6; i++) s = sim.step(s, [inp({ move: { x: 0, y: 1 } }), NONE], cfg).state;
   const advancing = outcome(run(s, 40, i => [inp({ move: { x: 0, y: 1 }, jab: i === 0 }), NONE]).evs);
   check('an advancing jab lands', advancing?.type === 'punchLand', advancing?.type);

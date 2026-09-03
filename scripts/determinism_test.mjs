@@ -12,7 +12,9 @@ const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 function script(i) {
   const a = inp();
   const b = inp();
-  if (i < 90) a.move = { x: 0, y: 1 };
+  // 40 ticks of walking + coast leaves ~0.83 m: in the jab's landing band. Any
+  // longer and the pair hits the separation floor, where the jab smothers.
+  if (i < 40) a.move = { x: 0, y: 1 };
   if (i === 100) a.jab = true;
   if (i >= 130 && i < 160) a.cross = true;             // held: fires once
   if (i >= 200 && i < 260) a.block = true;
