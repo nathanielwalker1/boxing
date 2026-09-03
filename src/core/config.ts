@@ -211,6 +211,7 @@ export const SCHEMA = {
   debugHitboxes:    bool(false, 'debug', 'draw sim hit spheres and capsules'),
   debugSkeleton:    bool(false, 'debug', 'draw rig joints and bones'),
   debugFps:         bool(true, 'debug', 'show the frame-time overlay'),
+  sparRestartSeconds: num(2, 0, 10, 0.5, 'debug', 'Stage-1 sparring shell: seconds after the bell before the round restarts (0 = never; Stage 3 replaces this)'),
 
   // ── input (UI) — touch joystick, touch buttons, gamepad. src/ui/input.ts ──
   joyRadius:        num(70, 30, 160, 1, 'input', 'floating joystick max knob travel, px (full deflection = 1)'),
@@ -237,9 +238,9 @@ export const SCHEMA = {
   rigKneePoleFwd:          num(1.0, 0, 2, 0.05, 'rig', 'knee pole vector forward weight'),
   rigKneePoleOut:          num(0.35, 0, 2, 0.05, 'rig', 'knee pole vector outward weight'),
   rigElbowPoleDown:        num(1.0, 0, 2, 0.05, 'rig', 'elbow pole vector downward weight'),
-  rigElbowPoleOut:         num(0.9, 0, 2, 0.05, 'rig', 'elbow pole vector outward (away from torso) weight'),
-  rigElbowPoleBack:        num(0.35, 0, 2, 0.05, 'rig', 'elbow pole vector backward weight'),
-  rigElbowClearance:       num(1.15, 1, 1.6, 0.01, 'rig', 'min elbow distance from the torso axis as a multiple of bodyR + forearm radius'),
+  rigElbowPoleOut:         num(0.4, 0, 2, 0.05, 'rig', 'elbow pole vector outward (away from torso) weight'),
+  rigElbowPoleBack:        num(-0.6, -2, 2, 0.05, 'rig', 'elbow pole vector backward weight; negative = forward, which tucks the elbow in front of the ribs when the glove is up'),
+  rigElbowClearance:       num(1.02, 1, 1.6, 0.01, 'rig', 'min elbow distance from the torso axis as a multiple of bodyR + forearm radius (1 = elbow may rest on the ribs)'),
   rigArmStretchMax:        num(1.15, 1, 1.5, 0.01, 'rig', 'forearm may stretch to this × its length to reach the glove'),
   rigUpperArmR:            num(0.42, 0.2, 0.8, 0.01, 'rig', 'upper arm radius / bodyR'),
   rigForearmR:             num(0.36, 0.2, 0.8, 0.01, 'rig', 'forearm radius / bodyR'),
@@ -282,6 +283,9 @@ export const SCHEMA = {
   rigEyeColor:             color('#14101a', 'rig', 'eyes and brow'),
   rigCuffColor:            color('#f2f2f2', 'rig', 'glove wrist cuff'),
   rigOutlineColor:         color('#0a0a0e', 'rig', 'inverted-hull outline colour'),
+  rigElbowFlareBias:       num(0.1, 0, 1, 0.05, 'rig', 'elbow flare at shoulder height (0 = elbows tucked down at guard, higher = winged out)'),
+  rigBlockTiltDeg:         num(10, 0, 30, 0.5, 'rig', 'chest pitches forward this much while blocking (the hunch), degrees'),
+  rigBlockShrug:           num(0.03, 0, 0.1, 0.005, 'rig', 'shoulders rise this much while blocking, m'),
 } satisfies Record<string, Entry>;
 
 export type Schema = typeof SCHEMA;

@@ -82,6 +82,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const spineBend = spring3();
   const shoulderYaw = spring1(leadSign * cfg.rigStanceShoulderYawDeg * DEG);
   const elbowFlare = [spring1(0), spring1(0)] as const;
+  const blockAmt = spring1(0);   // 0 = open guard, 1 = hunched into the block
   const feet = [new FootPlanter(), new FootPlanter()] as const;
   const squashHead = new Squash();
   const squashTorso = new Squash();
@@ -222,6 +223,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const leanF = lerp(prev.lean.fwd, next.lean.fwd, alpha);
     const leanL = lerp(prev.lean.lat, next.lean.lat, alpha);
     const twist = lerp(prev.torsoTwist, next.torsoTwist, alpha);
+    // Block hunch: chest pitch + shoulder shrug, chased so it eases in and out.
+    // Non-hitbox only — the sim's head sphere is untouched.
+    const blk = chase1(blockAmt, next.block ? 1 : 0, c.rigSpineK, c.rigSpineZeta, dt);
 
     onEvents(events, body);
 
@@ -248,7 +252,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // shoulder line, pitched by lean and the sim's tilt (positive = leaning back).
     S.copy(shoulderL).add(torsoOffL).add(spineBend as unknown as THREE.Vector3Like);
     qChest.setFromAxisAngle(YAXIS, yawS);
-    qTmp.setFromAxisAngle(ZAXIS, tilt - leanF * c.rigLeanTiltDeg * DEG);
+    qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg) * DEG);
     qChest.multiply(qTmp);
     const bChest = bone(BONE.chest);
     bChest.position.copy(S);
@@ -259,10 +263,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     bChest.scale.copy(scl);
 
     // Shoulder joints and neck base ride on the chest.
+    const shrug = blk * c.rigBlockShrug;
     for (let i = 0; i < 2; i++) {
-      shoulderJ[i]!.set(0, 0, latSign[i]! * body.shoulderW / 2).applyQuaternion(qChest).add(S);
+      shoulderJ[i]!.set(0, shrug, latSign[i]! * body.shoulderW / 2).applyQuaternion(qChest).add(S);
     }
-    neckBase.set(0, body.chestLen * 0.05, 0).applyQuaternion(qChest).add(S);
+    neckBase.set(0, body.chestLen * 0.05 + shrug, 0).applyQuaternion(qChest).add(S);
     const bNeck = bone(BONE.neck);
     bNeck.position.copy(neckBase);
     v.subVectors(headL, neckBase);
@@ -287,7 +292,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const clearance = (body.bodyR + d.forearmR) * c.rigElbowClearance;
     for (let i = 0; i < 2; i++) {
       const sh = shoulderJ[i]!, gl = gloveL[i]!;
-      const flareTarget = Math.min(1, Math.max(0, 0.5 + (gl.y - sh.y) / body.upperArm));
+      const flareTarget = Math.min(1, Math.max(0, c.rigElbowFlareBias + (gl.y - sh.y) / body.upperArm));
       const kMul = i === 1 ? 1 + c.rigTwinSkew : 1;
       const flare = chase1(elbowFlare[i]!, flareTarget, c.rigElbowK * kMul, c.rigElbowZeta, dt);
       v2.set(0, 0, latSign[i]!).applyQuaternion(qChest);   // outward, in the chest's frame
@@ -295,7 +300,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
         .addScaledVector(v2, c.rigElbowPoleOut * (0.6 + flare * 0.6));
       solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
       if (v3dist(closestOnSegment(H, S, ik.mid), ik.mid) < clearance) {
-        pole.copy(v2).addScaledVector(DOWN, 0.25);
+        // Forearm would enter the torso: push the elbow out, but keep it hanging
+        // down so a tucked guard reads as tucked, not as a chicken wing.
+        pole.copy(v2).addScaledVector(DOWN, c.rigElbowPoleDown);
         solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
       }
       placeLimb(i === 0 ? BONE.upperArm0 : BONE.upperArm1, sh, ik.mid);

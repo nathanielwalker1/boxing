@@ -64,23 +64,27 @@ export function punchPhases(cfg: Config, type: PunchType): PunchPhases | null {
 
 export interface LocalPose { fwd: number; up: number; lat: number }
 
-/** Guard: lead glove a little forward at chin height, rear glove by the cheek. */
+/**
+ * Guard: lead glove a little forward at chin height, rear glove by the cheek.
+ * Kept close to the body so the elbows hang down over the ribs rather than
+ * winging out (Stage-1 feel-test).
+ */
 export function guardLocal(body: BodyDims, hand: Hand, stance: Stance): LocalPose {
   const lead = hand === 'lead';
   return {
-    fwd: body.upperArm * (lead ? 0.9 : 0.45),
+    fwd: body.upperArm * (lead ? 0.6 : 0.35),
     up: body.headY - body.headR * (lead ? 0.6 : 0.2),
-    lat: handLateralSign(hand, stance) * body.shoulderW * 0.38,
+    lat: handLateralSign(hand, stance) * body.shoulderW * 0.32,
   };
 }
 
-/** Block: both gloves raised and pulled in tight in front of the face. */
+/** Block: both gloves raised to the brow and pulled in tight in front of the face. */
 export function blockLocal(body: BodyDims, hand: Hand, stance: Stance): LocalPose {
   const lead = hand === 'lead';
   return {
-    fwd: body.upperArm * (lead ? 0.55 : 0.4),
-    up: body.headY - body.headR * 0.1,
-    lat: handLateralSign(hand, stance) * body.shoulderW * 0.22,
+    fwd: body.upperArm * (lead ? 0.5 : 0.4),
+    up: body.headY + body.headR * 0.15,
+    lat: handLateralSign(hand, stance) * body.shoulderW * 0.2,
   };
 }
 

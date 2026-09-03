@@ -15,9 +15,9 @@ import { frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spri
  *  chin height, rear glove tucked by the cheek. */
 function guardLocal(body: BodyDims, hand: Hand, stance: FighterSpec['stance']) {
   return {
-    fwd: hand === 'lead' ? body.upperArm * 0.9 : body.upperArm * 0.45,
+    fwd: hand === 'lead' ? body.upperArm * 0.6 : body.upperArm * 0.35,   // mirrors sim/punches.ts guardLocal
     up: body.headY - body.headR * (hand === 'lead' ? 0.6 : 0.2),
-    lat: handLateralSign(hand, stance) * body.shoulderW * 0.38,
+    lat: handLateralSign(hand, stance) * body.shoulderW * 0.32,
   };
 }
 
