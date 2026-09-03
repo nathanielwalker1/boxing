@@ -6,7 +6,7 @@
  * __pose/__focus (pose grid), __states, __input (ui/input.ts).
  */
 import {
-  SIM_DT, NULL_INPUT, EventBus, createConfig, cloneInput, punchFixture, restFighterState, ROSTER, v2dist,
+  SIM_DT, NULL_INPUT, EventBus, createConfig, cloneInput, frameOf, punchFixture, restFighterState, ROSTER, v2dist,
   type Config, type FighterState, type FrameInput, type Hand, type PunchType, type Side, type SimEvent, type SimState,
 } from './core';
 import { createState, step } from './sim';
@@ -65,14 +65,37 @@ window.__sim = {
 };
 
 // Pose override (pose grid): while any side is posed the sim is paused and the
-// views draw the fixture instead of sim state.
+// views draw a frozen state instead of the live one. Punches the sim knows
+// (jab, cross) are posed by running the real sim — a fresh state, this fighter
+// at its current spot, the punch held until `progress` — so the sheet shows the
+// kinetic chain that actually plays. Punches not yet ported fall back to the
+// hand-authored fixture; the `hand` argument only matters on that path.
 const posed: [FighterState | null, FighterState | null] = [null, null];
+function simPunchPose(side: Side, pos: { x: number; z: number }, yaw: number, punch: PunchType, progress: number): FighterState | null {
+  const fr = frameOf(yaw);
+  let s = createState([specs[0], specs[1]], cfg, 1);
+  const me = s.fighters[side], opp = s.fighters[side === 0 ? 1 : 0];
+  me.pos = { x: pos.x, z: pos.z }; me.yaw = yaw;
+  opp.pos = { x: pos.x + fr.fwd.x * 1.6, z: pos.z + fr.fwd.z * 1.6 }; opp.yaw = yaw + Math.PI;   // out of range: pure motion
+  const idle = cloneInput(NULL_INPUT);
+  for (let i = 0; i < 30; i++) s = step(s, [idle, idle], cfg).state;                          // gloves settle on the guard
+  const press = cloneInput(NULL_INPUT); press[punch] = true;
+  const inputs: [FrameInput, FrameInput] = side === 0 ? [press, idle] : [idle, press];
+  let last: FighterState | null = null;
+  for (let i = 0; i < 120; i++) {
+    s = step(s, inputs, cfg).state;
+    const f = s.fighters[side];
+    if (f.punch.type === null) return last;            // not in the table (null) or just finished (the last frame)
+    last = f;
+    if (f.punch.progress >= progress) return f;
+  }
+  return last;
+}
 window.__pose = (side, punch, hand, progress) => {
   const spec = specs[side];
   const f = next.fighters[side];
-  posed[side] = punch === 'rest'
-    ? restFighterState(spec, cfg, f.pos, f.yaw)
-    : punchFixture(spec, cfg, f.pos, f.yaw, punch, hand, progress);
+  if (punch === 'rest') { posed[side] = restFighterState(spec, cfg, f.pos, f.yaw); return; }
+  posed[side] = simPunchPose(side, f.pos, f.yaw, punch, progress) ?? punchFixture(spec, cfg, f.pos, f.yaw, punch, hand, progress);
 };
 window.__focus = -1;
 window.__states = () => [posed[0] ?? next.fighters[0], posed[1] ?? next.fighters[1]];

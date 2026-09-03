@@ -8,8 +8,10 @@
  * lead/rear; columns = progress 0, .15, .30, .45, .60, .75, .90. Plus a
  * greyscale sibling. Cells go to scripts/output/pose_grid/cells/.
  *
- * Drives the page through window.__pose (main.ts). Until RIG lands this shows
- * the hitbox debug spheres — which is still the geometry the sim tests.
+ * Drives the page through window.__pose (main.ts). Punches the sim has (jab,
+ * cross) are posed by running the real sim, so those sheets show the kinetic
+ * chain as it plays and only the punch's natural hand is a row. Unported
+ * punches (hook, uppercut) draw the hand-authored fixture, both hands.
  */
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync, readFileSync } from 'fs';
@@ -27,6 +29,8 @@ const wanted = process.argv.slice(2).filter(a => PUNCHES.includes(a));
 const punches = wanted.length ? wanted : PUNCHES;
 const PROGRESS = [0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90];
 const ROWS = [[0, 'lead'], [0, 'rear'], [1, 'lead'], [1, 'rear']];
+const NATURAL_HAND = { jab: 'lead', cross: 'rear' };   // sim-posed punches: the sim picks the hand
+const rowsFor = punch => NATURAL_HAND[punch] ? ROWS.filter(([, h]) => h === NATURAL_HAND[punch]) : ROWS;
 const CELL = 320;
 
 const browser = await chromium.launch();
@@ -49,7 +53,8 @@ await page.evaluate(() => {
 
 for (const punch of punches) {
   const cells = [];
-  for (const [side, hand] of ROWS) {
+  const rows = rowsFor(punch);
+  for (const [side, hand] of rows) {
     const row = [];
     for (const p of PROGRESS) {
       await page.evaluate(([s, pu, h, pr]) => {
@@ -82,7 +87,7 @@ for (const punch of punches) {
     return canvas.toDataURL('image/png');
   }, {
     rows: cells.map(r => r.map(f => 'data:image/png;base64,' + readFileSync(f).toString('base64'))),
-    cell: CELL, cols: PROGRESS, labels: ROWS.map(([s, h]) => `s${s} ${h}`),
+    cell: CELL, cols: PROGRESS, labels: rows.map(([s, h]) => `s${s} ${h}`),
   }).catch(e => { logs.push(`sheet assembly: ${e.message}`); return null; });
   if (sheet) {
     const path = `${OUT}/${punch}.png`;
