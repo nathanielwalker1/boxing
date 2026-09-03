@@ -10,8 +10,8 @@
  * floating joystick; dragging right gives move.y > 0.5; a second finger on the
  * jab button sets jab while the stick is still held; releasing clears both.
  *
- * With the stub sim nothing moves, so every assertion is on window.__input,
- * never on fighter motion.
+ * Side 0's sim input is pinned to idle so nothing moves; every assertion is on
+ * window.__input, never on fighter motion.
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
@@ -34,6 +34,10 @@ const idle = i => !i.jab && !i.cross && !i.hook && !i.uppercut && !i.block && ne
   attach(page);
   await page.goto(`${DEV_URL}/?touch=0`, { waitUntil: 'networkidle', timeout: 15_000 });
   await bootReady(page);
+  // The mapping is yaw-relative and the real sim walks the player on every held
+  // key, so pin side 0's sim input to idle: window.__input still reports the
+  // keyboard, but the fighter stands still and the yaw stays at 0.
+  await page.evaluate(() => window.__sim.input(0, { move: { x: 0, y: 0 }, jab: false, cross: false, hook: false, uppercut: false, block: false }));
 
   const yaw = await page.evaluate(() => window.__sim.state().fighters[0].yaw);
   check('player starts at yaw 0 (faces +x)', near(yaw, 0, EPS), `yaw=${yaw}`);
