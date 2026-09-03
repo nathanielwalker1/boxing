@@ -101,7 +101,7 @@ function loop(nowMs: number): void {
       acc -= SIM_DT;
     }
   }
-  if (frameEvents.length) bus.emit(frameEvents);
+  if (frameEvents.length) { bus.emit(frameEvents); stage.handleEvents(frameEvents); }
 
   const alpha = paused ? 1 : acc / SIM_DT;
   const shown = window.__states();

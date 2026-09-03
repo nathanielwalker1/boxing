@@ -6,7 +6,7 @@
  * what main.ts relies on.
  */
 import * as THREE from 'three';
-import { RING_HALF, APRON_W, TAU, type Config, type FighterState, type Vec2 } from '../core';
+import { RING_HALF, APRON_W, TAU, type Config, type FighterState, type SimEvent, type Vec2 } from '../core';
 
 const RING_KEYS = ['ropeCount', 'ropeTopY', 'ropeSag', 'postR', 'matColor', 'matLineColor', 'apronColor',
   'ropeColorA', 'ropeColorB', 'ropeColorC', 'padColorRed', 'padColorBlue'] as const;
@@ -175,6 +175,10 @@ export class Stage {
       }
     }
   }
+
+  /** Sim events since the last frame (main.ts calls this before `frame`). RENDER
+   *  reacts here: camera punch-in on punchLand, flash sparkles, etc. */
+  handleEvents(_events: readonly SimEvent[]): void {}
 
   // ── Per-frame ───────────────────────────────────────────────────────────────
 
