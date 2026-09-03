@@ -160,6 +160,7 @@ export const SCHEMA = {
   rangeMax:         num(1.2, 0.6, 2, 0.01, 'punch', 'centre-to-centre distance beyond which a punch whiffs without a hit test, m', 'rangeMax'),
   smotherDist:      num(0.61, 0.3, 1, 0.01, 'punch', 'centre-to-centre distance inside which a straight punch is smothered, m (v1: 50 px)', 'smotherDist'),
   punchLean:        num(0.5, 0, 1, 0.05, 'punch', 'forward lean at full extension, 0..1'),
+  punchHoldFrac:    num(0.45, 0, 0.9, 0.05, 'punch', 'fraction of the recover phase the fist holds at full extension before returning (visible straight arm; timing and hit tick unchanged)'),
 
   // ── sim: block (SIM) ──
   blockReduction:   num(0.75, 0, 1, 0.05, 'block', 'fraction of an incoming impulse absorbed by a held block', 'blockReduction'),
@@ -190,7 +191,8 @@ export const SCHEMA = {
   // ── sim: chain (SIM) — the kinetic chain that carries each glove to its target ──
   chainK:           num(2500, 200, 8000, 50, 'chain', 'glove spring stiffness at guard, 1/s²'),
   chainC:           num(80, 10, 300, 1, 'chain', 'glove spring damping at guard, 1/s'),
-  chainPunchK:      num(4, 1, 10, 0.25, 'chain', 'stiffness multiplier on the punching hand through cock + extend (damping scales by its root)'),
+  chainPunchK:      num(6, 1, 10, 0.25, 'chain', 'stiffness multiplier on the punching hand through cock + extend (damping scales by its root)'),
+  chainRecoverK:    num(1.5, 1, 10, 0.25, 'chain', 'stiffness multiplier on the punching hand through recovery; >1 lets the fist reach full extension before it is pulled home'),
   chainRearK:       num(1.1, 0.7, 1.5, 0.01, 'chain', 'rear-hand stiffness multiplier so the hands never twin'),
   chainRearC:       num(1.05, 0.7, 1.5, 0.01, 'chain', 'rear-hand damping multiplier'),
   chainBobAmp:      num(0.012, 0, 0.05, 0.001, 'chain', 'idle guard bob amplitude, m', 'guardBobAmplitude'),
@@ -260,7 +262,7 @@ export const SCHEMA = {
   rigElbowK:               num(110, 20, 1200, 10, 'rig', 'elbow pole spring stiffness (loosest link)'),
   rigElbowZeta:            num(0.5, 0.1, 1.5, 0.01, 'rig', 'elbow pole damping ratio'),
   rigTwinSkew:             num(0.12, 0, 0.5, 0.01, 'rig', 'right-side springs are this fraction stiffer than left so limbs never twin'),
-  rigLeanHip:              num(0.05, 0, 0.3, 0.005, 'rig', 'hip forward shift per unit lean.fwd, m'),
+  rigLeanHip:              num(0.08, 0, 0.3, 0.005, 'rig', 'hip forward shift per unit lean.fwd, m (weight onto the front foot)'),
   rigLeanChest:            num(0.10, 0, 0.3, 0.005, 'rig', 'chest forward shift per unit lean.fwd, m'),
   rigLeanLat:              num(0.05, 0, 0.3, 0.005, 'rig', 'hip lateral shift per unit lean.lat, m'),
   rigLeanTiltDeg:          num(10, 0, 30, 0.5, 'rig', 'chest pitch per unit lean.fwd, degrees'),
@@ -286,6 +288,10 @@ export const SCHEMA = {
   rigElbowFlareBias:       num(0.1, 0, 1, 0.05, 'rig', 'elbow flare at shoulder height (0 = elbows tucked down at guard, higher = winged out)'),
   rigBlockTiltDeg:         num(10, 0, 30, 0.5, 'rig', 'chest pitches forward this much while blocking (the hunch), degrees'),
   rigBlockShrug:           num(0.03, 0, 0.1, 0.005, 'rig', 'shoulders rise this much while blocking, m'),
+  rigPunchHipFollow:       num(0.45, 0, 1, 0.05, 'rig', 'hips turn this fraction of the sim torso twist (through the hip spring, so they lead the shoulders)'),
+  rigPunchFootPivot:       num(0.9, 0, 2, 0.05, 'rig', 'rear foot pivots this multiple of the hip turn (heel pivot; knee follows)'),
+  rigPunchLeadFootPivot:   num(0.3, 0, 2, 0.05, 'rig', 'lead foot pivots this multiple of the hip turn'),
+  rigPunchHeelLift:        num(0.05, 0, 0.15, 0.005, 'rig', 'rear heel rises this much at full torso twist, m (toe stays down)'),
 } satisfies Record<string, Entry>;
 
 export type Schema = typeof SCHEMA;

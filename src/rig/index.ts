@@ -83,6 +83,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const shoulderYaw = spring1(leadSign * cfg.rigStanceShoulderYawDeg * DEG);
   const elbowFlare = [spring1(0), spring1(0)] as const;
   const blockAmt = spring1(0);   // 0 = open guard, 1 = hunched into the block
+  const hipYaw = spring1(0);     // hips follow a fraction of the sim's torso twist (stiffest link, so they lead)
   const feet = [new FootPlanter(), new FootPlanter()] as const;
   const squashHead = new Squash();
   const squashTorso = new Squash();
@@ -226,6 +227,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // Block hunch: chest pitch + shoulder shrug, chased so it eases in and out.
     // Non-hitbox only — the sim's head sphere is untouched.
     const blk = chase1(blockAmt, next.block ? 1 : 0, c.rigSpineK, c.rigSpineZeta, dt);
+    // Whole-body drive on a punch: hips turn with the twist (hip spring, so
+    // they arrive before the shoulders), the feet pivot with the hips, and the
+    // rear heel comes up. All non-hitbox.
+    const hipYawS = chase1(hipYaw, twist * c.rigPunchHipFollow, c.rigHipK, c.rigHipZeta, dt);
 
     onEvents(events, body);
 
@@ -242,7 +247,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
 
     // Hips.
     H.copy(hipL).add(hipSway as unknown as THREE.Vector3Like);
-    qHips.setFromAxisAngle(YAXIS, leadSign * c.rigStanceHipYawDeg * DEG);
+    qHips.setFromAxisAngle(YAXIS, leadSign * c.rigStanceHipYawDeg * DEG + hipYawS);
     const bHips = bone(BONE.hips);
     bHips.position.copy(H);
     bHips.quaternion.copy(qHips);
@@ -330,8 +335,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       footDesired.rotY = -yaw + footYawLocal;
       const fp = feet[i]!.update(footDesired, dt, c, feet[1 - i]!);
       toLocal({ x: fp.x, y: fp.y, z: fp.z }, ankle);
-      ankle.y += body.bootH;
-      const yawL = fp.rotY + yaw;
+      // Rear heel lifts with the torso twist; the boot pitches about the ankle so the toe stays down.
+      const lift = i === 1 ? c.rigPunchHeelLift * Math.min(1, Math.abs(twist)) : 0;
+      ankle.y += body.bootH + lift;
+      const yawL = fp.rotY + yaw + hipYawS * (i === 0 ? c.rigPunchLeadFootPivot : c.rigPunchFootPivot);
 
       hipJ[i]!.set(0, 0, s * body.hipW / 2).applyQuaternion(qHips).add(H);
       // No hyperextension: pull the ankle in horizontally, then up if it must.
@@ -356,6 +363,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const bBoot = bone(i === 0 ? BONE.boot0 : BONE.boot1);
       bBoot.position.copy(ankle);
       bBoot.quaternion.setFromAxisAngle(YAXIS, yawL);
+      if (lift > 0) bBoot.quaternion.multiply(qTmp.setFromAxisAngle(ZAXIS, -Math.asin(Math.min(1, lift / (d.footLen * 0.72)))));
       bBoot.scale.set(1, 1, 1);
       if (i === 0) { dbgPts[J.hp0]!.copy(hipJ[0]!); dbgPts[J.kn0]!.copy(ik.mid); dbgPts[J.an0]!.copy(ankle); }
       else { dbgPts[J.hp1]!.copy(hipJ[1]!); dbgPts[J.kn1]!.copy(ik.mid); dbgPts[J.an1]!.copy(ankle); }

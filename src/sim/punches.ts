@@ -17,6 +17,7 @@ export interface PunchPhases {
   cock: number; extend: number; recover: number; total: number;
   cockEnd: number;   // progress at which the extension starts
   peakAt: number;    // progress at which the hit test runs
+  hold: number;      // fraction of `recover` the fist stays at full extension before returning
 }
 
 export interface PunchDef {
@@ -33,23 +34,23 @@ export interface PunchDef {
   react(cfg: Config): ReactShape;
 }
 
-function phases(cock: number, extend: number, recover: number, scale: number): PunchPhases {
+function phases(cock: number, extend: number, recover: number, scale: number, hold: number): PunchPhases {
   const s = Math.max(0.01, scale);
   const c = cock * s, e = extend * s, r = recover * s;
   const total = c + e + r;
-  return { cock: c, extend: e, recover: r, total, cockEnd: c / total, peakAt: (c + e) / total };
+  return { cock: c, extend: e, recover: r, total, cockEnd: c / total, peakAt: (c + e) / total, hold: Math.min(0.95, Math.max(0, hold)) };
 }
 
 export const PUNCHES: Partial<Record<PunchType, PunchDef>> = {
   jab: {
     hand: 'lead', smotherable: true, turn: 0.15, cockBack: 0.15,
-    phases: cfg => phases(cfg.jabCock, cfg.jabExtend, cfg.jabRecover, cfg.punchTimeScale),
+    phases: cfg => phases(cfg.jabCock, cfg.jabExtend, cfg.jabRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.jabImpulseMult,
     react: cfg => ({ back: cfg.jabReactBack, lift: cfg.jabReactLift, twist: cfg.jabReactTwist, torso: cfg.jabReactTorso, snap: cfg.jabReactSnap }),
   },
   cross: {
     hand: 'rear', smotherable: true, turn: 1.0, cockBack: 0.35,
-    phases: cfg => phases(cfg.crossCock, cfg.crossExtend, cfg.crossRecover, cfg.punchTimeScale),
+    phases: cfg => phases(cfg.crossCock, cfg.crossExtend, cfg.crossRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.crossImpulseMult,
     react: cfg => ({ back: cfg.crossReactBack, lift: cfg.crossReactLift, twist: cfg.crossReactTwist, torso: cfg.crossReactTorso, snap: cfg.crossReactSnap }),
   },
@@ -100,8 +101,10 @@ function mix(a: LocalPose, b: LocalPose, t: number): LocalPose {
 
 /**
  * Where the punching glove is being pulled `elapsed` seconds into a straight
- * punch: guard → wind-back (cock) → full extension (extend) → guard (recover).
- * Each phase is a smoothstep so the target never jumps.
+ * punch: guard → wind-back (cock) → full extension (extend) → hold → guard
+ * (recover). Each phase is a smoothstep so the target never jumps. The hold is
+ * the first `ph.hold` of the recover phase: the fist sits at full extension so
+ * the straight arm is actually on screen, then snaps home in what is left.
  */
 export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: Hand, elapsed: number, ph: PunchPhases): LocalPose {
   const g = guardLocal(body, hand, stance);
@@ -109,5 +112,6 @@ export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: 
   const peak = peakLocal(body, g);
   if (elapsed < ph.cock) return mix(g, cocked, smoothstep(elapsed / ph.cock));
   if (elapsed < ph.cock + ph.extend) return mix(cocked, peak, smoothstep((elapsed - ph.cock) / ph.extend));
-  return mix(peak, g, smoothstep((elapsed - ph.cock - ph.extend) / ph.recover));
+  const rt = (elapsed - ph.cock - ph.extend) / ph.recover;
+  return mix(peak, g, smoothstep(Math.max(0, (rt - ph.hold) / (1 - ph.hold))));
 }

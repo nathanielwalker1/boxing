@@ -24,16 +24,17 @@ const CHAIN_SUBSTEPS = 4;
 const BOB_PHASE_HAND = [0, 1.9];
 const BOB_PHASE_SIDE = [0, 2.6];
 
-function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPose; punching: boolean } {
+function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPose; kMul: number } {
   const p = f.punch;
   if (p.type !== null && p.hand === hand) {
     const def = PUNCHES[p.type];
     if (def) {
       const ph = def.phases(cfg);
-      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph), punching: p.phase === 'cock' || p.phase === 'extend' };
+      const kMul = p.phase === 'recover' ? cfg.chainRecoverK : cfg.chainPunchK;
+      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph), kMul };
     }
   }
-  return { pose: f.block ? blockLocal(f.body, hand, f.stance) : guardLocal(f.body, hand, f.stance), punching: false };
+  return { pose: f.block ? blockLocal(f.body, hand, f.stance) : guardLocal(f.body, hand, f.stance), kMul: 1 };
 }
 
 /** Compute this tick's targets and advance the springs by dt. */
@@ -41,7 +42,7 @@ export function stepGloves(f: FighterState, side: Side, time: number, cfg: Confi
   const fr = frameOf(f.yaw);
   for (let i = 0; i < 2; i++) {
     const hand = HANDS[i]!;
-    const { pose, punching } = targetLocal(f, hand, cfg);
+    const { pose, kMul } = targetLocal(f, hand, cfg);
     const bob = sin(time * TAU * cfg.chainBobHz + BOB_PHASE_HAND[i]! + BOB_PHASE_SIDE[side]!) * cfg.chainBobAmp;
     const t = localToWorld(f.pos, fr, pose.fwd, pose.up + bob, pose.lat);
     // The gloves ride the torso's reaction offset, so they travel with the body.
@@ -51,7 +52,7 @@ export function stepGloves(f: FighterState, side: Side, time: number, cfg: Confi
 
     let k = cfg.chainK * (i === 1 ? cfg.chainRearK : 1);
     let c = cfg.chainC * (i === 1 ? cfg.chainRearC : 1);
-    if (punching) { k *= cfg.chainPunchK; c *= sqrt(cfg.chainPunchK); }
+    if (kMul !== 1) { k *= kMul; c *= sqrt(kMul); }
     const h = dt / CHAIN_SUBSTEPS;
     for (let n = 0; n < CHAIN_SUBSTEPS; n++) {
       g.vel.x += (k * (t.x - g.pos.x) - c * g.vel.x) * h;
