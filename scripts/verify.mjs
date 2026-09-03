@@ -16,7 +16,9 @@ const OUT = resolve(dirname(fileURLToPath(import.meta.url)), 'output');
 mkdirSync(OUT, { recursive: true });
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+// deviceScaleFactor 2: a Retina display is the common case on Nate's machine and
+// a canvas sized in device pixels without a CSS size shows a quarter of the frame.
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
 const logs = [];
 page.on('console', m => logs.push({ type: m.type(), text: m.text() }));
 page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));

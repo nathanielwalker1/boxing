@@ -8,7 +8,9 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; background: #0a0a0c; overflow: hidden; touch-action: none; }
     #app { position: fixed; inset: 0; }
-    canvas { display: block; }
+    /* The renderer sets the canvas's pixel size (× devicePixelRatio); CSS pins its
+       layout size to the window so a 2× display doesn't show a quarter of the frame. */
+    #app > canvas { display: block; width: 100% !important; height: 100% !important; }
     #fps {
       position: fixed; left: 8px; bottom: 8px; z-index: 20;
       font: 12px/1.3 ui-monospace, Menlo, monospace; color: #9fd; opacity: .85;

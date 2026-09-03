@@ -26,6 +26,9 @@ export class FpsOverlay {
     const now = performance.now();
     const ms = now - this.last;
     this.last = now;
+    // A frame over a second is page load, a tab switch, or a debugger pause —
+    // not a render cost. Dropping it keeps "max" meaning the worst real frame.
+    if (ms > 1000) return;
     this.times.push(ms);
     if (ms > this.maxMs) this.maxMs = ms;
     if (this.times.length >= 60) {
