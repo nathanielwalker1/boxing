@@ -311,6 +311,8 @@ export const SCHEMA = {
   rigOutlineColor:         color('#0a0a0e', 'rig', 'inverted-hull outline colour'),
   rigElbowFlareBias:       num(0.1, 0, 1, 0.05, 'rig', 'elbow flare at shoulder height (0 = elbows tucked down at guard, higher = winged out)'),
   rigHookElbowLevel:       num(1, 0, 1, 0.05, 'rig', 'during a hook the punching elbow rises to the glove line and the pole goes level: 1 = arm flat to the floor, 0 = the guard\'s dropped elbow'),
+  rigHookDrive:            num(1.6, 1, 3, 0.05, 'rig', 'during a hook, hips, head and the punching-side foot follow the twist this much harder than on a straight'),
+  rigUppercutElbowBack:    num(0.8, 0, 2, 0.05, 'rig', 'during an uppercut the punching elbow pole points this far BACK, so the arm folds with the fist up by the ribs instead of the forearm aiming at the body'),
   rigBlockTiltDeg:         num(10, 0, 30, 0.5, 'rig', 'chest pitches forward this much while blocking (the hunch), degrees'),
   rigBlockShrug:           num(0.03, 0, 0.1, 0.005, 'rig', 'shoulders rise this much while blocking, m'),
   rigPunchHipFollow:       num(0.45, 0, 1, 0.05, 'rig', 'hips turn this fraction of the sim torso twist (through the hip spring, so they lead the shoulders)'),

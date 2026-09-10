@@ -101,7 +101,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // the centreline with the elbow at ~90°. Turn raised from v1's 0.70 to the
   // cross's 1.0 — the hook IS the hip turn — and the weight goes across.
   hook: {
-    hand: 'input', smotherable: false, turn: 1.0, coil: 0.3, swing: 0.85, lean: 0.6, sway: -0.5, dip: 0.05,
+    hand: 'input', smotherable: false, turn: 1.3, coil: 0.3, swing: 0.85, lean: 0.6, sway: -0.5, dip: 0.05,   // turn 1.3: past the cross — the shoulders come right round (feel-test 2026-09-09)
     path: hookPath,
     phases: cfg => phases(cfg.hookCock, cfg.hookExtend, cfg.hookRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.hookImpulseMult,
@@ -214,22 +214,21 @@ function hookPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): Punc
 }
 
 /**
- * Uppercut. Wind-up: the fist drops beside the hip, OUTSIDE the torso — a
- * glove sphere clear of the body capsule, so the arm never passes through
- * the ribs — with the elbow tucked back; the body sits down over that hip.
- * Extend: drives forward low (through `via`) and rises up through the chin
- * line, finishing just above it with the elbow low and bent (~75°), glove
- * pointing up. Reach is the shortest of the four (~0.44 m out; lands inside
- * ~0.66 m centre-to-centre). `uppercutReachScale` (config) trades the elbow
- * for range.
+ * Uppercut. Wind-up: the arm FOLDS — the elbow drops back toward the hip and
+ * the fist stays up by the lower ribs, outside the torso, pointing forward
+ * (the rig's uppercut elbow pole puts the elbow behind the fist). It is the
+ * body that dips, not the hand. Extend: drives forward low (through `via`)
+ * and rises up through the chin line, finishing just above it with the
+ * elbow low and bent (~75°), glove pointing up. Reach is the shortest of the
+ * four (~0.44 m out; lands inside ~0.66 m centre-to-centre).
+ * `uppercutReachScale` (config) trades the elbow for range.
  */
 function uppercutPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath {
   const g = guardLocal(body, hand, stance);
   const side = handLateralSign(hand, stance);
   const torso = body.shoulderY - body.hipY;
-  const clear = body.bodyR + body.gloveR * 1.1;   // glove centre this far off the torso axis stays outside the body
   return {
-    cocked: { fwd: clear * 0.55, up: body.hipY + torso * 0.45, lat: side * Math.max(body.shoulderW / 2, clear * 0.85) },
+    cocked: { fwd: body.upperArm * 0.25, up: body.shoulderY - torso * 0.3, lat: side * (body.shoulderW / 2 + body.gloveR * 0.6) },
     via: { fwd: body.upperArm * 0.9, up: body.shoulderY - torso * 0.15, lat: g.lat * 0.9 },
     peak: { fwd: body.upperArm * 1.3 * cfg.uppercutReachScale, up: body.headY + body.headR * 0.15, lat: g.lat * 0.5 },
   };

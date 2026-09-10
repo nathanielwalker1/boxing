@@ -83,6 +83,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const shoulderYaw = spring1(leadSign * cfg.rigStanceShoulderYawDeg * DEG);
   const elbowFlare = [spring1(0), spring1(0)] as const;
   const hookLevel = [spring1(0), spring1(0)] as const;   // 1 while this arm throws a hook: the elbow pole goes level, so the arm lies flat
+  const upBack = [spring1(0), spring1(0)] as const;      // 1 while this arm throws an uppercut: the elbow pole goes back, so the fist folds up by the ribs
+  const hookDrive = spring1(0);   // 1 while a hook is in flight: hips, head and the punching-side foot turn harder with it
   const blockAmt = spring1(0);   // 0 = open guard, 1 = hunched into the block
   const hipYaw = spring1(0);     // hips follow a fraction of the sim's torso twist (stiffest link, so they lead)
   const feet = [new FootPlanter(), new FootPlanter()] as const;
@@ -231,7 +233,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // Whole-body drive on a punch: hips turn with the twist (hip spring, so
     // they arrive before the shoulders), the feet pivot with the hips, and the
     // rear heel comes up. All non-hitbox.
-    const hipYawS = chase1(hipYaw, twist * c.rigPunchHipFollow, c.rigHipK, c.rigHipZeta, dt);
+    // A hook is the whole body turning: hips, head and the punching-side
+    // foot follow the twist harder than on a straight (rigHookDrive).
+    const hookAmt = chase1(hookDrive, next.punch.type === 'hook' ? 1 : 0, c.rigHipK, c.rigHipZeta, dt);
+    const drive = 1 + hookAmt * (c.rigHookDrive - 1);
+    const hipYawS = chase1(hipYaw, twist * c.rigPunchHipFollow * drive, c.rigHipK, c.rigHipZeta, dt);
 
     onEvents(events, body);
 
@@ -285,7 +291,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // Head: exactly on the sim's head sphere.
     const bHead = bone(BONE.head);
     bHead.position.copy(headL);
-    bHead.quaternion.setFromAxisAngle(YAXIS, yawS * c.rigHeadFollow);
+    bHead.quaternion.setFromAxisAngle(YAXIS, yawS * Math.min(1, c.rigHeadFollow * drive));
     qTmp.setFromAxisAngle(ZAXIS, tilt * 0.5);
     bHead.quaternion.multiply(qTmp);
     scl.set(1, 1, 1);
@@ -300,13 +306,20 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const sh = shoulderJ[i]!, gl = gloveL[i]!;
       // A hooking arm lies flat: elbow up to the glove line, pole level, so the
       // forearm is parallel to the floor and the glove leads the elbow.
-      const hooking = next.punch.type === 'hook' && (next.punch.hand === 'lead') === (i === 0) ? c.rigHookElbowLevel : 0;
+      const mine = (next.punch.hand === 'lead') === (i === 0);
+      const hooking = next.punch.type === 'hook' && mine ? c.rigHookElbowLevel : 0;
+      // An uppercutting arm folds with the elbow BEHIND the fist (the guard's
+      // pole points the elbow forward, which would aim the forearm back at
+      // the body when the fist is low by the ribs).
+      const uppercutting = next.punch.type === 'uppercut' && mine ? 1 : 0;
       const kMul = i === 1 ? 1 + c.rigTwinSkew : 1;
       const level = chase1(hookLevel[i]!, hooking, c.rigElbowK * kMul * 2, c.rigElbowZeta, dt);
+      const back = chase1(upBack[i]!, uppercutting, c.rigElbowK * kMul * 2, c.rigElbowZeta, dt);
       const flareTarget = Math.max(level, Math.min(1, Math.max(0, c.rigElbowFlareBias + (gl.y - sh.y) / body.upperArm)));
       const flare = chase1(elbowFlare[i]!, flareTarget, c.rigElbowK * kMul, c.rigElbowZeta, dt);
       v2.set(0, 0, latSign[i]!).applyQuaternion(qChest);   // outward, in the chest's frame
-      pole.set(-c.rigElbowPoleBack, -c.rigElbowPoleDown * (1 - flare * 0.8) * (1 - level), 0)
+      const poleFwd = lerp(-c.rigElbowPoleBack, -c.rigUppercutElbowBack, back);
+      pole.set(poleFwd, -c.rigElbowPoleDown * (1 - flare * 0.8) * (1 - level), 0)
         .addScaledVector(v2, c.rigElbowPoleOut * (0.6 + flare * 0.6 + level * 0.8));
       solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
       if (v3dist(closestOnSegment(H, S, ik.mid), ik.mid) < clearance) {
@@ -343,7 +356,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       // Rear heel lifts with the torso twist; the boot pitches about the ankle so the toe stays down.
       const lift = i === 1 ? c.rigPunchHeelLift * Math.min(1, Math.abs(twist)) : 0;
       ankle.y += body.bootH + lift;
-      const yawL = fp.rotY + yaw + hipYawS * (i === 0 ? c.rigPunchLeadFootPivot : c.rigPunchFootPivot);
+      // The foot under the punching hand of a hook pivots like the rear foot
+      // on a cross (toe turns in, heel out); otherwise lead/rear as authored.
+      const hookFoot = hookAmt * ((next.punch.hand === 'lead') === (i === 0) ? 1 : 0);
+      const pivot = i === 0 ? lerp(c.rigPunchLeadFootPivot, c.rigPunchFootPivot, hookFoot) : c.rigPunchFootPivot;
+      const yawL = fp.rotY + yaw + hipYawS * pivot;
 
       hipJ[i]!.set(0, 0, s * body.hipW / 2).applyQuaternion(qHips).add(H);
       // No hyperextension: pull the ankle in horizontally, then up if it must.
