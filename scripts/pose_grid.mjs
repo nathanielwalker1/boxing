@@ -8,10 +8,10 @@
  * lead/rear; columns = progress 0, .15, .30, .45, .60, .75, .90. Plus a
  * greyscale sibling. Cells go to scripts/output/pose_grid/cells/.
  *
- * Drives the page through window.__pose (main.ts). Punches the sim has (jab,
- * cross) are posed by running the real sim, so those sheets show the kinetic
- * chain as it plays and only the punch's natural hand is a row. Unported
- * punches (hook, uppercut) draw the hand-authored fixture, both hands.
+ * Drives the page through window.__pose (main.ts). Every punch is posed by
+ * running the real sim, so the sheets show the kinetic chain as it plays.
+ * Jab and cross have one hand each, so one row per side; hook and uppercut
+ * take their hand from the joystick, so both hands are rows.
  */
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync, readFileSync } from 'fs';
@@ -29,7 +29,7 @@ const wanted = process.argv.slice(2).filter(a => PUNCHES.includes(a));
 const punches = wanted.length ? wanted : PUNCHES;
 const PROGRESS = [0, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90];
 const ROWS = [[0, 'lead'], [0, 'rear'], [1, 'lead'], [1, 'rear']];
-const NATURAL_HAND = { jab: 'lead', cross: 'rear' };   // sim-posed punches: the sim picks the hand
+const NATURAL_HAND = { jab: 'lead', cross: 'rear' };   // fixed-hand punches; hook/uppercut get both rows
 const rowsFor = punch => NATURAL_HAND[punch] ? ROWS.filter(([, h]) => h === NATURAL_HAND[punch]) : ROWS;
 const CELL = 320;
 

@@ -27,6 +27,13 @@ declare global {
       reset: (seed?: number) => void;
     };
     __pose: (side: Side, punch: PunchType | 'rest', hand: Hand, progress: number) => void;
+    /**
+     * Replay (filmstrips): run a fresh sim with the fighters `dist` apart, side 0
+     * fed `script[i]` (merged over NULL_INPUT) each tick, side 1 idle, for
+     * `ticks` ticks, and freeze both fighters there. Deterministic, so a landing
+     * and the reaction that follows can be captured frame by frame.
+     */
+    __replay: (dist: number, script: readonly Partial<FrameInput>[], ticks: number) => void;
     /** -1 = frame both fighters (default); 0/1 = centre the camera on that fighter (pose grid). */
     __focus: -1 | Side;
     __states: () => readonly FighterState[];
@@ -65,13 +72,13 @@ window.__sim = {
 };
 
 // Pose override (pose grid): while any side is posed the sim is paused and the
-// views draw a frozen state instead of the live one. Punches the sim knows
-// (jab, cross) are posed by running the real sim — a fresh state, this fighter
-// at its current spot, the punch held until `progress` — so the sheet shows the
-// kinetic chain that actually plays. Punches not yet ported fall back to the
-// hand-authored fixture; the `hand` argument only matters on that path.
+// views draw a frozen state instead of the live one. Every punch is posed by
+// running the real sim — a fresh state, this fighter at its current spot, the
+// punch held until `progress` — so the sheet shows the kinetic chain that
+// actually plays. `hand` is delivered the way the game does it: the joystick
+// held to that side at the press (hook/uppercut listen; jab/cross ignore it).
 const posed: [FighterState | null, FighterState | null] = [null, null];
-function simPunchPose(side: Side, pos: { x: number; z: number }, yaw: number, punch: PunchType, progress: number): FighterState | null {
+function simPunchPose(side: Side, pos: { x: number; z: number }, yaw: number, punch: PunchType, hand: Hand, progress: number): FighterState | null {
   const fr = frameOf(yaw);
   let s = createState([specs[0], specs[1]], cfg, 1);
   const me = s.fighters[side], opp = s.fighters[side === 0 ? 1 : 0];
@@ -79,10 +86,14 @@ function simPunchPose(side: Side, pos: { x: number; z: number }, yaw: number, pu
   opp.pos = { x: pos.x + fr.fwd.x * 1.6, z: pos.z + fr.fwd.z * 1.6 }; opp.yaw = yaw + Math.PI;   // out of range: pure motion
   const idle = cloneInput(NULL_INPUT);
   for (let i = 0; i < 30; i++) s = step(s, [idle, idle], cfg).state;                          // gloves settle on the guard
-  const press = cloneInput(NULL_INPUT); press[punch] = true;
-  const inputs: [FrameInput, FrameInput] = side === 0 ? [press, idle] : [idle, press];
+  // One tick of press with the stick held to the hand's side, then idle: a
+  // held stick would walk the fighter sideways through its own punch.
+  const press = cloneInput(NULL_INPUT); press[punch] = true; press.move.x = hand === 'lead' ? -1 : 1;
+  const held = cloneInput(NULL_INPUT); held[punch] = true;
   let last: FighterState | null = null;
   for (let i = 0; i < 120; i++) {
+    const mine = i === 0 ? press : held;
+    const inputs: [FrameInput, FrameInput] = side === 0 ? [mine, idle] : [idle, mine];
     s = step(s, inputs, cfg).state;
     const f = s.fighters[side];
     if (f.punch.type === null) return last;            // not in the table (null) or just finished (the last frame)
@@ -95,7 +106,18 @@ window.__pose = (side, punch, hand, progress) => {
   const spec = specs[side];
   const f = next.fighters[side];
   if (punch === 'rest') { posed[side] = restFighterState(spec, cfg, f.pos, f.yaw); return; }
-  posed[side] = simPunchPose(side, f.pos, f.yaw, punch, progress) ?? punchFixture(spec, cfg, f.pos, f.yaw, punch, hand, progress);
+  posed[side] = simPunchPose(side, f.pos, f.yaw, punch, hand, progress) ?? punchFixture(spec, cfg, f.pos, f.yaw, punch, hand, progress);
+};
+window.__replay = (dist, script, ticks) => {
+  let s = createState([specs[0], specs[1]], cfg, 1);
+  s.fighters[0].pos = { x: -dist / 2, z: 0 }; s.fighters[1].pos = { x: dist / 2, z: 0 };
+  const idle = cloneInput(NULL_INPUT);
+  for (let i = 0; i < 30; i++) s = step(s, [idle, idle], cfg).state;
+  for (let i = 0; i < ticks; i++) {
+    const a: FrameInput = { ...cloneInput(NULL_INPUT), ...(script[i] ?? {}) };
+    s = step(s, [a, idle], cfg).state;
+  }
+  posed[0] = s.fighters[0]; posed[1] = s.fighters[1];
 };
 window.__focus = -1;
 window.__states = () => [posed[0] ?? next.fighters[0], posed[1] ?? next.fighters[1]];
