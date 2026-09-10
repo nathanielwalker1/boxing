@@ -5,7 +5,7 @@
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, triangle, v2dist, v2dot, handLateralSign } from '../core';
-import { PUNCHES, punchCrouch, punchHand } from './punches';
+import { PUNCHES, punchCrouch, punchHand, punchTwist } from './punches';
 import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, prevPunchMask, punchMask, setPrevPunchMask } from './state';
 import { applyReaction } from './reaction';
 
@@ -57,7 +57,7 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   const ext = triangle(p.progress, ph.peakAt);
   f.lean.fwd = cfg.punchLean * def.lean * ext;
   f.lean.lat = def.sway * handLateralSign(p.hand, f.stance) * ext;
-  f.torsoTwist = (p.hand === 'lead' ? 1 : -1) * handLateralSign('lead', f.stance) * def.turn * ext;
+  f.torsoTwist = (p.hand === 'lead' ? 1 : -1) * handLateralSign('lead', f.stance) * def.turn * punchTwist(def, elapsed, ph);
   f.crouch = punchCrouch(def, elapsed, ph, cfg);
 
   let peak = false;

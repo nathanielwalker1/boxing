@@ -82,6 +82,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const spineBend = spring3();
   const shoulderYaw = spring1(leadSign * cfg.rigStanceShoulderYawDeg * DEG);
   const elbowFlare = [spring1(0), spring1(0)] as const;
+  const hookLevel = [spring1(0), spring1(0)] as const;   // 1 while this arm throws a hook: the elbow pole goes level, so the arm lies flat
   const blockAmt = spring1(0);   // 0 = open guard, 1 = hunched into the block
   const hipYaw = spring1(0);     // hips follow a fraction of the sim's torso twist (stiffest link, so they lead)
   const feet = [new FootPlanter(), new FootPlanter()] as const;
@@ -297,12 +298,16 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const clearance = (body.bodyR + d.forearmR) * c.rigElbowClearance;
     for (let i = 0; i < 2; i++) {
       const sh = shoulderJ[i]!, gl = gloveL[i]!;
-      const flareTarget = Math.min(1, Math.max(0, c.rigElbowFlareBias + (gl.y - sh.y) / body.upperArm));
+      // A hooking arm lies flat: elbow up to the glove line, pole level, so the
+      // forearm is parallel to the floor and the glove leads the elbow.
+      const hooking = next.punch.type === 'hook' && (next.punch.hand === 'lead') === (i === 0) ? c.rigHookElbowLevel : 0;
       const kMul = i === 1 ? 1 + c.rigTwinSkew : 1;
+      const level = chase1(hookLevel[i]!, hooking, c.rigElbowK * kMul * 2, c.rigElbowZeta, dt);
+      const flareTarget = Math.max(level, Math.min(1, Math.max(0, c.rigElbowFlareBias + (gl.y - sh.y) / body.upperArm)));
       const flare = chase1(elbowFlare[i]!, flareTarget, c.rigElbowK * kMul, c.rigElbowZeta, dt);
       v2.set(0, 0, latSign[i]!).applyQuaternion(qChest);   // outward, in the chest's frame
-      pole.set(-c.rigElbowPoleBack, -c.rigElbowPoleDown * (1 - flare * 0.8), 0)
-        .addScaledVector(v2, c.rigElbowPoleOut * (0.6 + flare * 0.6));
+      pole.set(-c.rigElbowPoleBack, -c.rigElbowPoleDown * (1 - flare * 0.8) * (1 - level), 0)
+        .addScaledVector(v2, c.rigElbowPoleOut * (0.6 + flare * 0.6 + level * 0.8));
       solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
       if (v3dist(closestOnSegment(H, S, ik.mid), ik.mid) < clearance) {
         // Forearm would enter the torso: push the elbow out, but keep it hanging

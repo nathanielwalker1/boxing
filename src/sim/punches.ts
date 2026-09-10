@@ -39,6 +39,12 @@ export interface PunchDef {
   smotherable: boolean;
   /** Torso twist at full extension, radians about y (legacy PUNCHES.turn; 1 = full torque). */
   turn: number;
+  /**
+   * Counter-rotation through the wind-up as a fraction of `turn`: the body
+   * coils the other way before it comes across (a hook), 0 for a punch that
+   * turns straight into it (the straights, as before).
+   */
+  coil: number;
   /** Forward weight transfer at full extension, as a multiple of cfg.punchLean. */
   lean: number;
   /**
@@ -76,25 +82,26 @@ function phases(cock: number, extend: number, recover: number, scale: number, ho
 
 export const PUNCHES: Record<PunchType, PunchDef> = {
   jab: {
-    hand: 'lead', smotherable: true, turn: 0.45, swing: 0, lean: 0.8, sway: 0, dip: 0.02,   // turn raised from v1's 0.15: the lead shoulder drives the jab (feel-test 2026-09-03)
+    hand: 'lead', smotherable: true, turn: 0.45, coil: 0, swing: 0, lean: 0.8, sway: 0, dip: 0.02,   // turn raised from v1's 0.15: the lead shoulder drives the jab (feel-test 2026-09-03)
     path: (b, h, s) => straightPath(b, h, s, 0.15),
     phases: cfg => phases(cfg.jabCock, cfg.jabExtend, cfg.jabRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.jabImpulseMult,
     react: cfg => ({ back: cfg.jabReactBack, lift: cfg.jabReactLift, twist: cfg.jabReactTwist, torso: cfg.jabReactTorso, snap: cfg.jabReactSnap }),
   },
   cross: {
-    hand: 'rear', smotherable: true, turn: 1.0, swing: 0, lean: 1.0, sway: -0.15, dip: 0.03,
+    hand: 'rear', smotherable: true, turn: 1.0, coil: 0, swing: 0, lean: 1.0, sway: -0.15, dip: 0.03,
     path: (b, h, s) => straightPath(b, h, s, 0.35),
     phases: cfg => phases(cfg.crossCock, cfg.crossExtend, cfg.crossRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.crossImpulseMult,
     react: cfg => ({ back: cfg.crossReactBack, lift: cfg.crossReactLift, twist: cfg.crossReactTwist, torso: cfg.crossReactTorso, snap: cfg.crossReactSnap }),
   },
-  // Elbow comes up and out, then the whole body turns through it: the fist
-  // sweeps wide at jaw height and finishes past the centreline with the
-  // elbow at ~90°. Turn raised from v1's 0.70 to the cross's 1.0 — the hook
-  // IS the hip turn — and the weight goes across to the far leg.
+  // The body coils the other way while the elbow comes up into a compact L
+  // (glove in front of the elbow), then the whole body turns through it: the
+  // fist sweeps wide at jaw height, arm flat to the floor, and finishes past
+  // the centreline with the elbow at ~90°. Turn raised from v1's 0.70 to the
+  // cross's 1.0 — the hook IS the hip turn — and the weight goes across.
   hook: {
-    hand: 'input', smotherable: false, turn: 1.0, swing: 0.85, lean: 0.6, sway: -0.5, dip: 0.05,
+    hand: 'input', smotherable: false, turn: 1.0, coil: 0.3, swing: 0.85, lean: 0.6, sway: -0.5, dip: 0.05,
     path: hookPath,
     phases: cfg => phases(cfg.hookCock, cfg.hookExtend, cfg.hookRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.hookImpulseMult,
@@ -105,7 +112,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // above it with the elbow low. Shortest reach of the four (legacy: turn
   // 0.70, dip 6 px ≈ 0.07 m; 0.09 here so the sit-down reads at the play camera).
   uppercut: {
-    hand: 'input', smotherable: false, turn: 0.7, swing: 0, lean: 0.4, sway: 0.3, dip: 0.09,
+    hand: 'input', smotherable: false, turn: 0.7, coil: 0.15, swing: 0, lean: 0.4, sway: 0.3, dip: 0.09,
     path: uppercutPath,
     phases: cfg => phases(cfg.uppercutCock, cfg.uppercutExtend, cfg.uppercutRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.uppercutImpulseMult,
@@ -184,38 +191,46 @@ function straightPath(body: BodyDims, hand: Hand, stance: Stance, cockBack: numb
 }
 
 /**
- * Hook: the elbow comes up and the fist coils out to its own side, sweeps
- * WIDE (through `via`: a full arm's width out at jaw height, elbow up), and
- * finishes past the centreline, so the last half of the arc crosses the
- * opponent's face. Peak reach is ~0.59 m from the fighter's centre with the
- * shoulder carried forward by the full-torque twist: an elbow of ~90°. It is
- * an inside punch — lands to ~0.8 m centre-to-centre. `hookReachScale` (config)
- * trades that elbow for range.
+ * Hook. Wind-up: a compact L — the elbow rises to the chin line out to the
+ * side, the glove sits IN FRONT of the elbow (never a high-five), while the
+ * body coils the other way (`coil`). Extend: the whole body turns through it
+ * and the fist sweeps WIDE (through `via`: a full arm's width out on the
+ * chin line, arm flat), finishing past the centreline so the last half of
+ * the arc crosses the opponent's face. Everything sits on the chin line
+ * (head centre − 0.7 R) so the arm reads parallel to the floor. Peak reach
+ * ~0.59 m from the fighter's centre with the shoulder carried forward by
+ * the full-torque twist: an elbow of ~90°. An inside punch — lands to ~0.8 m
+ * centre-to-centre; `hookReachScale` (config) trades that elbow for range.
  */
 function hookPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath {
   const g = guardLocal(body, hand, stance);
   const side = handLateralSign(hand, stance);
+  const chin = body.headY - body.headR * 0.7;
   return {
-    cocked: { fwd: g.fwd - body.upperArm * 0.3, up: g.up + body.headR * 0.3, lat: g.lat + side * body.upperArm * 0.5 },
-    via: { fwd: body.upperArm * 0.8, up: body.headY - body.headR * 0.35, lat: side * (body.shoulderW / 2 + body.upperArm * 0.85) },
-    peak: { fwd: (body.upperArm + body.forearm * 0.75) * cfg.hookReachScale, up: body.headY - body.headR * 0.45, lat: -side * body.shoulderW * 0.12 },
+    cocked: { fwd: body.upperArm * 0.85, up: chin - body.headR * 0.15, lat: side * (body.shoulderW / 2 + body.upperArm * 0.4) },
+    via: { fwd: body.upperArm * 0.8, up: chin, lat: side * (body.shoulderW / 2 + body.upperArm * 0.85) },
+    peak: { fwd: (body.upperArm + body.forearm * 0.75) * cfg.hookReachScale, up: chin, lat: -side * body.shoulderW * 0.12 },
   };
 }
 
 /**
- * Uppercut: the fist drops to the hip as the body sits down, drives forward
- * low (through `via`) and rises up through the chin line, finishing just
- * above it with the elbow low and bent (~75°). Reach is the shortest of the
- * four (~0.44 m out; lands inside ~0.66 m centre-to-centre): an inside punch.
- * `uppercutReachScale` (config) trades the elbow for range.
+ * Uppercut. Wind-up: the fist drops beside the hip, OUTSIDE the torso — a
+ * glove sphere clear of the body capsule, so the arm never passes through
+ * the ribs — with the elbow tucked back; the body sits down over that hip.
+ * Extend: drives forward low (through `via`) and rises up through the chin
+ * line, finishing just above it with the elbow low and bent (~75°), glove
+ * pointing up. Reach is the shortest of the four (~0.44 m out; lands inside
+ * ~0.66 m centre-to-centre). `uppercutReachScale` (config) trades the elbow
+ * for range.
  */
 function uppercutPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath {
   const g = guardLocal(body, hand, stance);
   const side = handLateralSign(hand, stance);
   const torso = body.shoulderY - body.hipY;
+  const clear = body.bodyR + body.gloveR * 1.1;   // glove centre this far off the torso axis stays outside the body
   return {
-    cocked: { fwd: g.fwd * 0.6, up: body.hipY + torso * 0.35, lat: g.lat + side * body.shoulderW * 0.05 },
-    via: { fwd: body.upperArm, up: body.shoulderY - torso * 0.25, lat: g.lat * 0.9 },
+    cocked: { fwd: clear * 0.55, up: body.hipY + torso * 0.45, lat: side * Math.max(body.shoulderW / 2, clear * 0.85) },
+    via: { fwd: body.upperArm * 0.9, up: body.shoulderY - torso * 0.15, lat: g.lat * 0.9 },
     peak: { fwd: body.upperArm * 1.3 * cfg.uppercutReachScale, up: body.headY + body.headR * 0.15, lat: g.lat * 0.5 },
   };
 }
@@ -238,6 +253,21 @@ export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: 
   }
   const rt = (elapsed - ph.cock - ph.extend) / ph.recover;
   return mix(peak, g, smoothstep(Math.max(0, (rt - ph.hold) / (1 - ph.hold))));
+}
+
+/**
+ * Torso twist `elapsed` seconds into a punch, as a fraction of `turn` (sign
+ * applied by the caller). A punch with no coil is the triangle it always was:
+ * up to 1 at the resolve moment, back to 0 at the end. A coiling punch winds
+ * the other way through the cock (to −coil), comes across through the
+ * extension, then unwinds.
+ */
+export function punchTwist(def: PunchDef, elapsed: number, ph: PunchPhases): number {
+  const p = elapsed / ph.total;
+  if (def.coil === 0) return Math.max(0, p < ph.peakAt ? p / ph.peakAt : (1 - p) / (1 - ph.peakAt));
+  if (elapsed < ph.cock) return -def.coil * smoothstep(elapsed / ph.cock);
+  if (elapsed < ph.cock + ph.extend) return lerp(-def.coil, 1, smoothstep((elapsed - ph.cock) / ph.extend));
+  return Math.max(0, (1 - p) / (1 - ph.peakAt));
 }
 
 /**

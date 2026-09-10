@@ -89,6 +89,22 @@ for (const t of TYPES) {
     if (Math.abs(h.fighters[0].lean.lat) > Math.abs(hookSway)) hookSway = h.fighters[0].lean.lat;
   }
   check('a hook turns the torso to its own turn (full torque, like the cross)', near(peakHook, PUNCHES.hook.turn, 0.1), `${peakHook.toFixed(3)}`);
+  // Coil: twist samples through the punch, measured against the sign at the resolve moment.
+  const twistTrace = (type, moveX = 0) => {
+    let s = fresh(); const cock = [], all = []; let peakSign = 0;
+    for (let i = 0; i < 30; i++) {
+      s = sim.step(s, [inp({ [type]: i === 0, move: { x: i === 0 ? moveX : 0, y: 0 } }), NONE], cfg).state;
+      const f = s.fighters[0];
+      if (f.punch.type !== type) continue;
+      all.push(f.torsoTwist);
+      if (f.punch.phase === 'cock') cock.push(f.torsoTwist);
+      if (f.punch.resolved && peakSign === 0) peakSign = Math.sign(f.torsoTwist);
+    }
+    return { cock: cock.map(t => t * peakSign), all: all.map(t => t * peakSign) };
+  };
+  const hookT = twistTrace('hook', -1), crossT = twistTrace('cross');
+  check('a hook coils the other way through the wind-up before coming across', Math.min(...hookT.cock) < -0.15 * PUNCHES.hook.turn, `min ${Math.min(...hookT.cock).toFixed(3)} (relative to the peak sign)`);
+  check('a cross does not coil: its twist never crosses zero', crossT.all.every(t => t >= -1e-9));
   check('a lead hook (orthodox, left hand at -z) shifts the weight across to +z', hookSway > 0.3, `${hookSway.toFixed(3)}`);
 }
 {
