@@ -5,7 +5,7 @@
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, triangle, v2dist, v2dot, handLateralSign } from '../core';
-import { PUNCHES, punchHand } from './punches';
+import { PUNCHES, punchCrouch, punchHand } from './punches';
 import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, prevPunchMask, punchMask, setPrevPunchMask } from './state';
 import { applyReaction } from './reaction';
 
@@ -52,16 +52,22 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   else if (elapsed < ph.cock + ph.extend) { p.phase = 'extend'; p.t = elapsed - ph.cock; }
   else { p.phase = 'recover'; p.t = elapsed - ph.cock - ph.extend; }
 
+  // Whole-body channels the rig draws: forward and lateral weight transfer,
+  // torso twist (all peak at the resolve moment) and the body dip.
   const ext = triangle(p.progress, ph.peakAt);
-  f.lean.fwd = cfg.punchLean * ext;
+  f.lean.fwd = cfg.punchLean * def.lean * ext;
+  f.lean.lat = def.sway * handLateralSign(p.hand, f.stance) * ext;
   f.torsoTwist = (p.hand === 'lead' ? 1 : -1) * handLateralSign('lead', f.stance) * def.turn * ext;
+  f.crouch = punchCrouch(def, elapsed, ph, cfg);
 
   let peak = false;
   if (!p.resolved && p.progress >= ph.peakAt) { p.resolved = true; peak = true; }
   if (elapsed >= ph.total) {
     f.punch = { type: null, hand: p.hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null };
     f.lean.fwd = 0;
+    f.lean.lat = 0;
     f.torsoTwist = 0;
+    f.crouch = 0;
   }
   return peak;
 }

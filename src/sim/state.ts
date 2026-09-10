@@ -47,6 +47,7 @@ export function cloneFighter(f: FighterState): FighterState {
     yaw: f.yaw,
     lean: { fwd: f.lean.fwd, lat: f.lean.lat },
     torsoTwist: f.torsoTwist,
+    crouch: f.crouch,
     health: f.health,
     stamina: f.stamina,
     block: f.block,

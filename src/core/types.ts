@@ -136,6 +136,8 @@ export interface FighterState {
   yaw: number;        // faces the opponent; sim turns it, never snaps
   lean: { fwd: number; lat: number };   // weight transfer, -1..1, drives punch force and rig
   torsoTwist: number;                   // radians about y, from punches
+  /** How far the body sits down, m (+ = down; a small negative is the drive up past rest). Punches dip; slips/ducks will. Moves the boxes and the guard. */
+  crouch: number;
 
   // resources
   health: number;     // 0..1

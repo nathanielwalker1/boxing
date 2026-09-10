@@ -169,7 +169,10 @@ export const SCHEMA = {
   smotherDist:      num(0.61, 0.3, 1, 0.01, 'punch', 'centre-to-centre distance inside which a straight punch starts losing power, m (v1: 50 px, where it was a no-contact smother)', 'smotherDist'),
   smotherPowerFloor: num(0.35, 0, 1, 0.05, 'punch', 'power multiplier of a straight punch thrown at the body-separation distance; ramps to 1 at smotherDist'),
   contactSquash:    num(0.35, 0, 0.9, 0.05, 'punch', 'how far the glove sinks into what it hit during the hold, as a fraction of its radius'),
-  punchLean:        num(0.5, 0, 1, 0.05, 'punch', 'forward lean at full extension, 0..1'),
+  punchLean:        num(0.5, 0, 1, 0.05, 'punch', 'forward lean at full extension, 0..1 (× each punch\'s own lean: jab 0.8, cross 1, hook 0.6, uppercut 0.4)'),
+  punchDipScale:    num(1, 0, 3, 0.05, 'punch', 'multiplier on every punch\'s body dip (sit down through the wind-up, drive up at the peak; uppercut 9 cm, hook 5, cross 3, jab 2)'),
+  hookReachScale:   num(1, 0.7, 1.4, 0.05, 'punch', 'hook peak reach multiplier: 1 = elbow ~90° at contact, lands to ~0.8 m; higher straightens the arm for range'),
+  uppercutReachScale: num(1, 0.7, 1.4, 0.05, 'punch', 'uppercut peak reach multiplier: 1 = elbow ~75°, lands to ~0.66 m; higher straightens the arm for range'),
   punchHoldFrac:    num(0.6, 0, 0.9, 0.05, 'punch', 'fraction of the recover phase the fist holds at full extension before returning (visible straight arm; timing and hit tick unchanged)'),
 
   // ── sim: block (SIM) ──

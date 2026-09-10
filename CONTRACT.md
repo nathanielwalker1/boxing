@@ -360,3 +360,9 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   its centre to the glove, so a hook rests on the cheek and an uppercut under the
   chin. All four punches are in the sim table; the pose grid runs the sim for all of
   them and the fixture path is fallback only.
+- 2026-09-09 — **`FighterState.crouch`** (core types, orchestrator change): metres the
+  body sits down, + = down. The sim's `headBox`/`bodyBox` and glove targets ride it;
+  the rig draws on the boxes so the knees bend with it. Punches set it (per-punch
+  `dip`, v1's `PUNCHES.dip`); slips and ducks will. Per-punch `lean` and `sway`
+  (lateral weight transfer, `FighterState.lean.lat`) join `turn` as the whole-body
+  channels the rig reads. Nate's call, feel-test 2026-09-09: "too fake and upright".

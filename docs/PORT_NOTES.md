@@ -43,7 +43,10 @@ Timing and magnitudes are 1:1 ports; the shapes are re-authored.
 | `hookReact*`, `uppercutReact*` (5 each) | same names | dimensionless shape, unchanged except `uppercutReactLift` 0.58 → 0.35 and `uppercutReactTorso` 0.75 → 0.40 (see neck clamp) |
 | `PUNCHES.hook.turn` 0.70, `.uppercut.turn` 0.70 | same | radians about y (the cross's 1.00 was already 1 rad) |
 | `PUNCHES.hook/uppercut .cock/.peak` joint angles | `hookPath()` / `uppercutPath()` in `src/sim/punches.ts` | **re-authored in 3D**, see below |
-| `PUNCHES.uppercut.dip` 6 px | (not ported) | see below |
+| `PUNCHES.uppercut.dip` 6 px | `PunchDef.dip` 0.09 m (and hook 0.05, cross 0.03, jab 0.02) | 6 px = 0.073 m; raised, and every punch gets one, because at the play camera the fighters read as "too upright" (feel-test 2026-09-09). Global `punchDipScale`. |
+| `PUNCHES.hook.turn` 0.70 | 1.0 | raised to the cross's full torque: the hook is the hip turn (same feel-test) |
+| (none) | `PunchDef.lean` (× `punchLean`) and `PunchDef.sway` (lateral weight) | v1 had one `punchLean`; per-punch weight transfer is new |
+| (none) | `hookReachScale`, `uppercutReachScale` | new sliders: reach vs. elbow bend at contact |
 | `hookAimPointY`, `uppercutAimPointY`, `maxAimAngle`, `aimMinRun` | (not yet) | the aim cone is a later slice |
 
 **Shapes.** v1's rig was a side view: its hook was two joint angles that put the fist at
@@ -81,10 +84,17 @@ stretches the spine: at v1's `uppercutReactLift` 0.58 × `uppercutReactTorso` 0.
 chest rose ~20 cm. Both are lowered so the chest rises under 10 cm and the head does the
 rest up to the neck clamp; the lift still reads as chin-up through the tilt.
 
-**Not ported: the uppercut dip.** v1 dropped the whole 2D rig 6 px during the wind-up.
-In v2 the head is a sim hitbox, so a body dip is a sim crouch channel (it moves
-`headBox`), not a rig flourish. Deferred to the slip/duck slice, which needs the same
-channel.
+**The dip is a sim channel.** v1 dropped the whole 2D rig 6 px during the wind-up. In v2
+the head is a sim hitbox, so the dip is `FighterState.crouch` (m, + = down): the sim's
+boxes and glove targets sit down by it, and the rig draws hips, chest and head on the
+boxes, so the knees bend for free. Profile per v1's `punchKey`: dip at the end of the
+wind-up, 0.4 × dip *above* rest at the peak (the leg drive), 0 at the end. Slips and
+ducks will use the same channel.
+
+**Reach vs. look (2026-09-09 feel-test).** A hook whose elbow is bent at contact is a
+short punch: peak ~0.59 m out, lands to ~0.8 m centre-to-centre. The uppercut is shorter
+still (~0.44 m; lands to ~0.66 m). Both are exposed as `*ReachScale` sliders so range can
+be bought back at the cost of a straighter arm.
 
 ## Determinism
 

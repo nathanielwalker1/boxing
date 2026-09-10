@@ -46,19 +46,21 @@ export function stepReaction(f: FighterState, cfg: Config, dt: number): void {
 
 /**
  * headBox = head rest + torso offset + head offset (the head rides on the
- * torso, as in v1). bodyBox = hips→shoulders capsule + torso offset. Slip
- * offset joins the head in Stage 2.
+ * torso, as in v1). bodyBox = hips→shoulders capsule + torso offset. Both
+ * sit down by `crouch` (punch dip; the rig's hips, chest and head are drawn
+ * on these boxes, so the knees bend with it). Slip offset joins the head in
+ * Stage 2.
  */
 export function computeBoxes(f: FighterState): void {
   const fr = frameOf(f.yaw);
-  const b = f.body, r = f.reaction;
-  const head = localToWorld(f.pos, fr, 0, b.headY, 0);
+  const b = f.body, r = f.reaction, c = f.crouch;
+  const head = localToWorld(f.pos, fr, 0, b.headY - c, 0);
   f.headBox.x = head.x + r.torso.x + r.head.x;
   f.headBox.y = head.y + r.torso.y + r.head.y;
   f.headBox.z = head.z + r.torso.z + r.head.z;
   f.headBox.r = b.headR;
-  const hip = localToWorld(f.pos, fr, 0, b.hipY, 0);
-  const sh = localToWorld(f.pos, fr, 0, b.shoulderY, 0);
+  const hip = localToWorld(f.pos, fr, 0, b.hipY - c, 0);
+  const sh = localToWorld(f.pos, fr, 0, b.shoulderY - c, 0);
   f.bodyBox.a.x = hip.x + r.torso.x; f.bodyBox.a.y = hip.y + r.torso.y; f.bodyBox.a.z = hip.z + r.torso.z;
   f.bodyBox.b.x = sh.x + r.torso.x; f.bodyBox.b.y = sh.y + r.torso.y; f.bodyBox.b.z = sh.z + r.torso.z;
   f.bodyBox.r = b.bodyR;

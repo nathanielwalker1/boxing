@@ -81,13 +81,41 @@ for (const t of TYPES) {
   }
   check('forward lean peaks at punchLean during the cross', near(peakLean, cfg.punchLean, 0.05), `${peakLean.toFixed(3)}`);
   check('torso twist peaks at the cross\'s turn', near(peakTwist, PUNCHES.cross.turn, 0.1), `${peakTwist.toFixed(3)}`);
-  check('lean and twist are back to zero after the punch', s.fighters[0].lean.fwd === 0 && s.fighters[0].torsoTwist === 0);
-  let h = fresh(), peakHook = 0;
+  check('lean, sway, twist and crouch are back to zero after the punch', s.fighters[0].lean.fwd === 0 && s.fighters[0].lean.lat === 0 && s.fighters[0].torsoTwist === 0 && s.fighters[0].crouch === 0);
+  let h = fresh(), peakHook = 0, hookSway = 0;
   for (let i = 0; i < 30; i++) {
     h = sim.step(h, [inp({ hook: i === 0, move: { x: i === 0 ? -1 : 0, y: 0 } }), NONE], cfg).state;
     peakHook = Math.max(peakHook, Math.abs(h.fighters[0].torsoTwist));
+    if (Math.abs(h.fighters[0].lean.lat) > Math.abs(hookSway)) hookSway = h.fighters[0].lean.lat;
   }
-  check('a hook turns the torso to its own turn (0.7), less than the cross', near(peakHook, PUNCHES.hook.turn, 0.1) && peakHook < peakTwist, `${peakHook.toFixed(3)}`);
+  check('a hook turns the torso to its own turn (full torque, like the cross)', near(peakHook, PUNCHES.hook.turn, 0.1), `${peakHook.toFixed(3)}`);
+  check('a lead hook (orthodox, left hand at -z) shifts the weight across to +z', hookSway > 0.3, `${hookSway.toFixed(3)}`);
+}
+{
+  // The body dip: sits down through the wind-up, drives up past rest at the
+  // peak, settles. The boxes and the guard ride it.
+  const trackDip = type => {
+    let s = fresh(), maxDown = 0, minAtPeak = 9, headAtRest = null, headAtDeepest = null, guardAtDeepest = null, guardAtRest = null;
+    for (let i = 0; i < 40; i++) {
+      s = sim.step(s, [inp({ [type]: i === 0, move: { x: i === 0 ? 1 : 0, y: 0 } }), NONE], cfg).state;
+      const f = s.fighters[0];
+      if (i === 0) { headAtRest = f.headBox.y + 0; }
+      if (f.crouch > maxDown) { maxDown = f.crouch; headAtDeepest = f.headBox.y; guardAtDeepest = f.gloves[0].target.y; }
+      if (f.punch.type !== null && f.punch.resolved) minAtPeak = Math.min(minAtPeak, f.crouch);
+    }
+    guardAtRest = s.fighters[0].gloves[0].target.y;
+    return { maxDown, minAtPeak, headDrop: headAtRest - headAtDeepest, guardDrop: guardAtRest - guardAtDeepest };
+  };
+  const up = trackDip('uppercut'), hook = trackDip('hook'), jab = trackDip('jab');
+  check('an uppercut sits the body down through the wind-up (≥ 6 cm)', up.maxDown >= 0.06, `${up.maxDown.toFixed(3)} m`);
+  check('…and drives up past rest at the peak (negative crouch)', up.minAtPeak < -0.01, `${up.minAtPeak.toFixed(3)} m`);
+  check('the head box drops with the crouch', near(up.headDrop, up.maxDown, 0.005), `head ${up.headDrop.toFixed(3)} vs crouch ${up.maxDown.toFixed(3)}`);
+  check('the guard hand drops with it too (within the idle bob)', Math.abs(up.guardDrop - up.maxDown) < cfg.chainBobAmp * 2 + 0.005, `guard ${up.guardDrop.toFixed(3)}`);
+  check('dip ordering: uppercut > hook > jab', up.maxDown > hook.maxDown && hook.maxDown > jab.maxDown, `${up.maxDown.toFixed(3)} ${hook.maxDown.toFixed(3)} ${jab.maxDown.toFixed(3)}`);
+  const scaled = { ...cfg, punchDipScale: 0 };
+  let z = fresh(scaled), any = false;
+  for (let i = 0; i < 40; i++) { z = sim.step(z, [inp({ uppercut: i === 0 }), NONE], scaled).state; if (z.fighters[0].crouch !== 0) any = true; }
+  check('punchDipScale 0 removes the dip entirely', !any);
 }
 
 // ── 3. Round clock ──────────────────────────────────────────────────────────

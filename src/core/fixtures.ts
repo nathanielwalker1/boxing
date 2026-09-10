@@ -40,6 +40,7 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
     yaw,
     lean: { fwd: 0, lat: 0 },
     torsoTwist: 0,
+    crouch: 0,
     health: 1,
     stamina: 1,
     block: false,

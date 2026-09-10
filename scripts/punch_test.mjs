@@ -174,13 +174,18 @@ function reachOf(type, moveX = 0) {
   const upClose = outcome(run(fresh(CLOSE), 40, tapWith('uppercut', 1)).evs);
   check('uppercut inside smotherDist → punchLand (locked spec)', upClose?.type === 'punchLand', upClose?.type);
   check('…on the head, with the rear hand', upClose?.part === 'head' && upClose?.hand === 'rear', `${upClose?.part} ${upClose?.hand}`);
-  const hookAtMid = outcome(run(fresh(MID), 40, tapWith('hook', -1)).evs);
-  check('hook at mid range lands', hookAtMid?.type === 'punchLand', hookAtMid?.type);
+  const hookAtMid = outcome(run(fresh(0.75), 40, tapWith('hook', -1)).evs);
+  check('hook at 0.75 m lands', hookAtMid?.type === 'punchLand', hookAtMid?.type);
   const cross = outcome(run(fresh(MID), 40, tapThen('cross')).evs);
   check('impulse ordering: uppercut > hook > cross (jabDamage … uppercutDamage)', upClose?.power > hookMid?.power && hookMid?.power > cross?.power, `${upClose?.power?.toFixed(2)} ${hookMid?.power?.toFixed(2)} ${cross?.power?.toFixed(2)}`);
   const reach = { jab: reachOf('jab'), cross: reachOf('cross'), hook: reachOf('hook', -1), uppercut: reachOf('uppercut', -1) };
   check('reach ordering: straights > hook > uppercut', reach.cross > reach.hook && reach.jab > reach.hook && reach.hook > reach.uppercut, JSON.stringify(reach, (k, v) => typeof v === 'number' ? +v.toFixed(3) : v));
-  check('the hook is a mid-range punch: it lands to ≥ 0.85 m centre-to-centre', reach.hook + cfg.gloveScale * 0 + fresh(MID).fighters[0].body.gloveR + fresh(MID).fighters[1].body.headR >= 0.85, `${reach.hook?.toFixed(3)}`);
+  // Hooks and uppercuts are inside punches (elbow bent at contact); the
+  // *ReachScale sliders trade the elbow for range.
+  check('the hook lands to ≥ 0.78 m centre-to-centre at reach scale 1', reach.hook + fresh(MID).fighters[0].body.gloveR + fresh(MID).fighters[1].body.headR >= 0.78, `${reach.hook?.toFixed(3)}`);
+  const longer = { ...cfg, hookReachScale: 1.3 };
+  const farHook = outcome(run(fresh(0.9), 40, tapWith('hook', -1), longer).evs);
+  check('hookReachScale 1.3 lands a hook at 0.9 m', farHook?.type === 'punchLand', farHook?.type);
   const upFar = outcome(run(fresh(MID), 40, tapWith('uppercut', 1)).evs);
   check('the uppercut is an inside punch: it whiffs at mid range', upFar?.type === 'punchWhiff', upFar?.type);
 }
@@ -192,8 +197,8 @@ function reachOf(type, moveX = 0) {
   check('hook with the stick centred = rear hand', start('hook', 0)?.hand === 'rear', start('hook', 0)?.hand);
   check('uppercut follows the same rule', start('uppercut', -1)?.hand === 'lead' && start('uppercut', 1)?.hand === 'rear');
   check('a small nudge counts (any x < 0)', start('hook', -0.1)?.hand === 'lead');
-  const { evs } = run(fresh(MID), 40, i => [inp({ hook: i === 0, move: { x: i === 0 ? -1 : 1, y: 0 } }), NONE]);
-  check('the hand is locked at the press: flipping the stick mid-punch changes nothing', evs.find(e => e.type === 'punchStart')?.hand === 'lead' && outcome(evs)?.hand === 'lead');
+  const flipped = run(fresh(0.7), 8, i => [inp({ hook: i === 0, move: { x: i === 0 ? -1 : 1, y: 0 } }), NONE]);
+  check('the hand is locked at the press: flipping the stick mid-punch changes nothing', flipped.evs.find(e => e.type === 'punchStart')?.hand === 'lead' && flipped.s.fighters[0].punch.type === 'hook' && flipped.s.fighters[0].punch.hand === 'lead');
   const sp = [{ ...ROSTER[0], stance: 'southpaw' }, ROSTER[1]];
   let s = sim.createState(sp, cfg, 1);
   s.fighters[0].pos = { x: -MID / 2, z: 0 }; s.fighters[1].pos = { x: MID / 2, z: 0 };
@@ -216,9 +221,9 @@ function reachOf(type, moveX = 0) {
   // Contact rests where the glove touched: on the head surface along the
   // line from the head's centre to the glove. A hook finishes just past the
   // centreline, so it rests on the point of the chin, mirrored per hand.
-  const heldAfter = (type, moveX) => {
-    const landTick = outcome(run(fresh(0.7), 40, tapWith(type, moveX)).evs).tick;
-    return run(fresh(0.7), landTick + 2, tapWith(type, moveX)).s;
+  const heldAfter = (type, moveX, dist = 0.7) => {
+    const landTick = outcome(run(fresh(dist), 40, tapWith(type, moveX)).evs).tick;
+    return run(fresh(dist), landTick + 2, tapWith(type, moveX)).s;
   };
   const held = heldAfter('hook', -1);
   const a = held.fighters[0], d = held.fighters[1];
@@ -228,7 +233,7 @@ function reachOf(type, moveX = 0) {
   check('…on the attacker\'s side of the head', a.punch.contact.x < d.headBox.x, `${(a.punch.contact.x - d.headBox.x).toFixed(3)}`);
   const rear = heldAfter('hook', 1).fighters[0];
   check('lead and rear hooks rest on mirrored sides of the chin', a.punch.contact.z > rear.punch.contact.z, `${a.punch.contact.z.toFixed(3)} vs ${rear.punch.contact.z.toFixed(3)}`);
-  const up = heldAfter('uppercut', 1);
+  const up = heldAfter('uppercut', 1, CLOSE);
   const ua = up.fighters[0], ud = up.fighters[1];
   check('an uppercut rests under the chin: contact below the head centre', ua.punch.contact !== null && ua.punch.contact.y < ud.headBox.y, `${ua.punch.contact && (ua.punch.contact.y - ud.headBox.y).toFixed(3)}`);
 }
