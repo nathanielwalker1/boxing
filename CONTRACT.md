@@ -349,3 +349,14 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   unchanged; this is where the L6 contact squash hangs.
 - 2026-09-03 — **Pose grid runs the sim** for ported punches (`__pose` steps a fresh
   state to the requested progress). Fixtures remain only for unported punches.
+- 2026-09-09 — **A punch's impulse direction can follow the fist.** Each `PunchDef`
+  has a `swing` weight: the impulse direction is the attacker→defender line blended
+  with the glove's own travel direction at the resolve tick (hook 0.85, others 0).
+  Momentum for the impulse magnitude is still measured along the attacker→defender
+  line. Refines §7's "impulse into a spring-damped rig": a hook sends the head and
+  the stagger sideways, not straight back.
+- 2026-09-09 — **The held glove rests where it touched.** Refines the 2026-09-03
+  contact rule: the contact point is on the struck sphere/capsule along the line from
+  its centre to the glove, so a hook rests on the cheek and an uppercut under the
+  chin. All four punches are in the sim table; the pose grid runs the sim for all of
+  them and the fixture path is fallback only.

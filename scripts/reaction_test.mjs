@@ -16,13 +16,13 @@ function fresh(dist = MID) {
   for (let i = 0; i < 30; i++) s = sim.step(s, [NONE, NONE], cfg).state;
   return s;
 }
-/** Throw `type`; returns per-tick snapshots from the press onward and the land tick. */
-function throwAndWatch(type, n = 120) {
-  let s = fresh();
+/** Throw `type` (stick held to `moveX` on the press tick only); returns per-tick snapshots from the press onward and the land tick. */
+function throwAndWatch(type, n = 120, dist = MID, moveX = 0) {
+  let s = fresh(dist);
   const snaps = [];
   let landTick = null, land = null;
   for (let i = 0; i < n; i++) {
-    const r = sim.step(s, [inp({ [type]: i === 0 }), NONE], cfg);
+    const r = sim.step(s, [inp({ [type]: i === 0, move: { x: i === 0 ? moveX : 0, y: 0 } }), NONE], cfg);
     s = r.state;
     const l = r.events.find(e => e.type === 'punchLand');
     if (l) { landTick = i; land = l; }
@@ -59,6 +59,28 @@ function throwAndWatch(type, n = 120) {
     for (const s of w.snaps) if (Math.abs(s.d.reaction.head.x) > 0.005) last = s.tick;
     return last;
   }
+}
+
+{
+  // Per-punch shape (legacy hookReact* / uppercutReact*): the hook is a twist
+  // and a sideways whip, the uppercut is a lift carried by the torso.
+  const NEAR = 0.7;   // hooks reach, straights are still at full power
+  const cross = throwAndWatch('cross', 120, NEAR), hook = throwAndWatch('hook', 120, NEAR, -1), up = throwAndWatch('uppercut', 120, 0.5, 1), crossIn = throwAndWatch('cross', 120, 0.5);
+  check('hook and uppercut land in this setup', hook.landTick !== null && up.landTick !== null);
+  const peakAbs = (w, f) => Math.max(...w.snaps.map(s => Math.abs(f(s.d.reaction))));
+  check('a hook tilts the head far more than a cross', peakAbs(hook, r => r.tilt.x) > peakAbs(cross, r => r.tilt.x) * 2, `${peakAbs(hook, r => r.tilt.x).toFixed(3)} vs ${peakAbs(cross, r => r.tilt.x).toFixed(3)}`);
+  check('a hook whips the head sideways (z); a cross does not', peakAbs(hook, r => r.head.z) > 0.03 && peakAbs(cross, r => r.head.z) < 1e-6, `${peakAbs(hook, r => r.head.z).toFixed(3)} vs ${peakAbs(cross, r => r.head.z).toFixed(6)}`);
+  check('a lead hook sends the head toward +z (the way the fist was travelling)', Math.max(...hook.snaps.map(s => s.d.reaction.head.z)) > 0.03);
+  check('an uppercut lifts the head more than a cross thrown from the same spot', peakAbs(up, r => r.head.y) > peakAbs(crossIn, r => r.head.y) * 1.5, `${peakAbs(up, r => r.head.y).toFixed(3)} vs ${peakAbs(crossIn, r => r.head.y).toFixed(3)}`);
+  check('…and the torso rises with it (uppercutReactTorso)', peakAbs(up, r => r.torso.y) > peakAbs(up, r => r.head.y) * 0.3, `${peakAbs(up, r => r.torso.y).toFixed(3)} vs ${peakAbs(up, r => r.head.y).toFixed(3)}`);
+  check('…but not so far that the chest leaves the hips (torso lift under 10 cm)', peakAbs(up, r => r.torso.y) < 0.1, `${peakAbs(up, r => r.torso.y).toFixed(3)}`);
+  const backPerLift = w => peakAbs(w, r => r.head.x) / peakAbs(w, r => r.head.y);
+  check('an uppercut is mostly lift where a cross is mostly snap-back (back/lift ratio)', backPerLift(up) < backPerLift(crossIn) * 0.5, `${backPerLift(up).toFixed(2)} vs ${backPerLift(crossIn).toFixed(2)}`);
+  check('every reaction stays inside the clamps', [hook, up].every(w => w.snaps.every(s => Math.abs(s.d.reaction.head.z) <= cfg.reactionMaxOffset && Math.abs(s.d.reaction.head.y) <= cfg.reactionMaxOffset && Math.abs(s.d.reaction.tilt.x) <= cfg.reactionMaxTilt)));
+  const neck = w => Math.max(...w.snaps.map(s => Math.hypot(s.d.reaction.head.x, s.d.reaction.head.y, s.d.reaction.head.z)));
+  check('the head never leaves the neck by more than reactionMaxNeck on any axis (the uppercut lift used to detach it)', [hook, up, cross].every(w => w.snaps.every(s => Math.abs(s.d.reaction.head.y) <= cfg.reactionMaxNeck + 1e-9 && Math.abs(s.d.reaction.head.x) <= cfg.reactionMaxNeck + 1e-9)), `uppercut peak ${neck(up).toFixed(3)} m`);
+  check('the neck clamp is tighter than the torso clamp', cfg.reactionMaxNeck < cfg.reactionMaxOffset);
+  check('a hook staggers the defender sideways as well as back', Math.abs(hook.snaps[hook.landTick].d.stagger.z) > 0.3 && hook.snaps[hook.landTick].d.stagger.x > 0, `z ${hook.snaps[hook.landTick].d.stagger.z.toFixed(3)} x ${hook.snaps[hook.landTick].d.stagger.x.toFixed(3)}`);
 }
 
 // ── 2. Derived boxes follow the reaction ────────────────────────────────────

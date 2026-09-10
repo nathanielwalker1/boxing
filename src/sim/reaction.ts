@@ -36,8 +36,10 @@ export function stepReaction(f: FighterState, cfg: Config, dt: number): void {
   stepSpring3(r.head, 0, 0, 0, cfg.reactionHeadK * snap, cfg.reactionHeadC, dt);
   stepSpring3(r.torso, 0, 0, 0, cfg.reactionTorsoK * snap, cfg.reactionTorsoC, dt);
   stepSpring1(r.tilt, 0, cfg.reactionTiltK * snap, cfg.reactionTiltC, dt);
-  const m = cfg.reactionMaxOffset;
-  r.head.x = clamp(r.head.x, -m, m); r.head.y = clamp(r.head.y, -m, m); r.head.z = clamp(r.head.z, -m, m);
+  // The head offset rides on top of the torso offset (see computeBoxes), so
+  // its clamp is the neck: how far the head may leave the shoulders.
+  const m = cfg.reactionMaxOffset, n = cfg.reactionMaxNeck;
+  r.head.x = clamp(r.head.x, -n, n); r.head.y = clamp(r.head.y, -n, n); r.head.z = clamp(r.head.z, -n, n);
   r.torso.x = clamp(r.torso.x, -m, m); r.torso.y = clamp(r.torso.y, -m, m); r.torso.z = clamp(r.torso.z, -m, m);
   r.tilt.x = clamp(r.tilt.x, -cfg.reactionMaxTilt, cfg.reactionMaxTilt);
 }

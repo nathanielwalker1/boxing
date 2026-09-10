@@ -4,9 +4,9 @@
  * timer in fighter.js, in SI.
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
-import { clamp, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, triangle, v2dist, v2dot, handLateralSign } from '../core';
-import { PUNCHES } from './punches';
-import { MASK_CROSS, MASK_JAB, prevPunchMask, punchMask, setPrevPunchMask } from './state';
+import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, triangle, v2dist, v2dot, handLateralSign } from '../core';
+import { PUNCHES, punchHand } from './punches';
+import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, prevPunchMask, punchMask, setPrevPunchMask } from './state';
 import { applyReaction } from './reaction';
 
 /**
@@ -27,12 +27,14 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
   f.guard = f.block ? 'block' : 'rest';
 
   if (f.block || !guardOpen || f.down) return;
-  const type: PunchType | null = pressed & MASK_JAB ? 'jab' : pressed & MASK_CROSS ? 'cross' : null;
+  // Two pressed on the same tick: the faster punch wins.
+  const type: PunchType | null =
+    pressed & MASK_JAB ? 'jab' : pressed & MASK_CROSS ? 'cross' : pressed & MASK_HOOK ? 'hook' : pressed & MASK_UPPERCUT ? 'uppercut' : null;
   if (type === null) return;
-  const def = PUNCHES[type];
-  if (!def) return;
-  f.punch = { type, hand: def.hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
-  events.push({ type: 'punchStart', side, punch: type, hand: def.hand });
+  // Hook/uppercut: the joystick at the press picks the hand (x < 0 = lead).
+  const hand = punchHand(PUNCHES[type], input.move.x);
+  f.punch = { type, hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
+  events.push({ type: 'punchStart', side, punch: type, hand });
 }
 
 /**
@@ -43,7 +45,6 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   const p = f.punch;
   if (p.type === null) return false;
   const def = PUNCHES[p.type];
-  if (!def) { f.punch = { type: null, hand: p.hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null }; return false; }
   const ph = def.phases(cfg);
   const elapsed = Math.min(ph.total, p.progress * ph.total + dt);
   p.progress = elapsed / ph.total;
@@ -72,11 +73,11 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
  * or, if the guard is up, a block. A straight punch thrown inside smotherDist
  * still lands (a cramped jab is still a jab) but loses power, sliding to
  * smotherPowerFloor at the body-separation distance (Stage-1 feel-test,
- * 2026-09-03; supersedes v1's no-contact smother).
+ * 2026-09-03; supersedes v1's no-contact smother). Hooks and uppercuts keep
+ * full power at any distance they can reach.
  */
 export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Config, events: SimEvent[]): void {
   const def = PUNCHES[type];
-  if (!def) return;
   const target: Side = side === 0 ? 1 : 0;
   const a = s.fighters[side], d = s.fighters[target];
   if (d.down) return;
@@ -91,10 +92,22 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
 
   // Impulse: base + attacker momentum toward the defender, floored so a
   // retreating punch still lands with something, scaled by lean and per-type.
-  let dirX: number, dirZ: number;
-  if (dist > 1e-6) { dirX = (d.pos.x - a.pos.x) / dist; dirZ = (d.pos.z - a.pos.z) / dist; }
-  else { const fr = frameOf(a.yaw); dirX = fr.fwd.x; dirZ = fr.fwd.z; }
-  const approachSpd = v2dot(a.vel, { x: dirX, z: dirZ });
+  // Momentum is measured along the attacker→defender line; the impulse
+  // DIRECTION is that line blended, per type, with the fist's own travel, so
+  // a hook that crosses the face sends the head and body sideways.
+  let adX: number, adZ: number;
+  if (dist > 1e-6) { adX = (d.pos.x - a.pos.x) / dist; adZ = (d.pos.z - a.pos.z) / dist; }
+  else { const fr = frameOf(a.yaw); adX = fr.fwd.x; adZ = fr.fwd.z; }
+  const approachSpd = v2dot(a.vel, { x: adX, z: adZ });
+  let dirX = adX, dirZ = adZ;
+  if (def.swing > 0) {
+    const vlen = Math.hypot(g.vel.x, g.vel.z);
+    if (vlen > 1e-6) {
+      dirX = lerp(adX, g.vel.x / vlen, def.swing); dirZ = lerp(adZ, g.vel.z / vlen, def.swing);
+      const n = Math.hypot(dirX, dirZ);
+      if (n > 1e-6) { dirX /= n; dirZ /= n; } else { dirX = adX; dirZ = adZ; }
+    }
+  }
   let mag = cfg.punchImpulseBase + a.body.massKg * approachSpd * cfg.punchMomentumScale;
   mag = Math.max(cfg.punchImpulseBase * cfg.punchImpulseFloor, mag);
   mag *= 1 + a.lean.fwd * cfg.punchLeanScale;
@@ -105,17 +118,16 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   }
 
   // The glove stops at what it hit: for the rest of the hold its centre rests
-  // one glove radius (less the contact squash) off the struck surface, along
-  // the punch line. Bodies are flesh and bone, not empty (feel-test 2026-09-03).
+  // one glove radius (less the contact squash) off the struck surface, on the
+  // side it arrived from — a hook rests on the cheek, an uppercut under the
+  // chin. Bodies are flesh and bone, not empty (feel-test 2026-09-03).
   const sink = a.body.gloveR * cfg.contactSquash;
-  if (part === 'head') {
-    const r = d.headBox.r + a.body.gloveR - sink;
-    a.punch.contact = { x: d.headBox.x - dirX * r, y: g.pos.y, z: d.headBox.z - dirZ * r };
-  } else {
-    const bb = d.bodyBox;
-    const r = bb.r + a.body.gloveR - sink;
-    a.punch.contact = { x: bb.a.x - dirX * r, y: clamp(g.pos.y, Math.min(bb.a.y, bb.b.y), Math.max(bb.a.y, bb.b.y)), z: bb.a.z - dirZ * r };
-  }
+  const centre = part === 'head' ? { x: d.headBox.x, y: d.headBox.y, z: d.headBox.z } : closestOnSegment(d.bodyBox.a, d.bodyBox.b, g.pos);
+  const r = (part === 'head' ? d.headBox.r : d.bodyBox.r) + a.body.gloveR - sink;
+  let nx = g.pos.x - centre.x, ny = g.pos.y - centre.y, nz = g.pos.z - centre.z;
+  const nlen = Math.hypot(nx, ny, nz);
+  if (nlen > 1e-6) { nx /= nlen; ny /= nlen; nz /= nlen; } else { nx = -adX; ny = 0; nz = -adZ; }
+  a.punch.contact = { x: centre.x + nx * r, y: centre.y + ny * r, z: centre.z + nz * r };
   const blocked = d.block;
   if (blocked) mag *= 1 - cfg.blockReduction;
   const power = mag / cfg.punchImpulseBase;

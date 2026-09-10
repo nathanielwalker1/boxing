@@ -19,7 +19,8 @@ function fresh(c = cfg) {
 }
 
 // ── 1. Derived phase fractions (legacy punchPhases) ─────────────────────────
-for (const t of ['jab', 'cross']) {
+const TYPES = ['jab', 'cross', 'hook', 'uppercut'];
+for (const t of TYPES) {
   const p = punchPhases(cfg, t);
   const cock = cfg[`${t}Cock`], ext = cfg[`${t}Extend`], rec = cfg[`${t}Recover`];
   check(`${t}: total = cock + extend + recover`, near(p.total, cock + ext + rec, 1e-12));
@@ -27,8 +28,8 @@ for (const t of ['jab', 'cross']) {
   check(`${t}: peakAt = (cock + extend) / total`, near(p.peakAt, (cock + ext) / p.total, 1e-12));
   check(`${t}: cocks for longer than it extends (the telegraph)`, cock > ext);
 }
-check('cock ordering is jab < cross', cfg.jabCock < cfg.crossCock);
-check('hook and uppercut are not in the Stage-1 table', PUNCHES.hook === undefined && PUNCHES.uppercut === undefined);
+check('cock ordering is jab < cross < hook < uppercut (the telegraph gradient)', cfg.jabCock < cfg.crossCock && cfg.crossCock < cfg.hookCock && cfg.hookCock < cfg.uppercutCock);
+check('all four punches are in the table', TYPES.every(t => PUNCHES[t] !== undefined));
 {
   const x2 = punchPhases({ ...cfg, punchTimeScale: 2 }, 'jab'), x1 = punchPhases(cfg, 'jab');
   check('punchTimeScale ×2 doubles the total and leaves the fractions alone', near(x2.total, x1.total * 2, 1e-12) && near(x2.peakAt, x1.peakAt, 1e-12));
@@ -50,7 +51,7 @@ function trace(type, c = cfg) {
   }
   return { phases, progress, resolveTick, endTick, resolvedFlagTick };
 }
-for (const t of ['jab', 'cross']) {
+for (const t of TYPES) {
   const p = punchPhases(cfg, t);
   const tr = trace(t);
   const wantResolve = Math.ceil((p.cock + p.extend) / SIM_DT) - 1;   // press tick counts as the first dt
@@ -81,6 +82,12 @@ for (const t of ['jab', 'cross']) {
   check('forward lean peaks at punchLean during the cross', near(peakLean, cfg.punchLean, 0.05), `${peakLean.toFixed(3)}`);
   check('torso twist peaks at the cross\'s turn', near(peakTwist, PUNCHES.cross.turn, 0.1), `${peakTwist.toFixed(3)}`);
   check('lean and twist are back to zero after the punch', s.fighters[0].lean.fwd === 0 && s.fighters[0].torsoTwist === 0);
+  let h = fresh(), peakHook = 0;
+  for (let i = 0; i < 30; i++) {
+    h = sim.step(h, [inp({ hook: i === 0, move: { x: i === 0 ? -1 : 0, y: 0 } }), NONE], cfg).state;
+    peakHook = Math.max(peakHook, Math.abs(h.fighters[0].torsoTwist));
+  }
+  check('a hook turns the torso to its own turn (0.7), less than the cross', near(peakHook, PUNCHES.hook.turn, 0.1) && peakHook < peakTwist, `${peakHook.toFixed(3)}`);
 }
 
 // ── 3. Round clock ──────────────────────────────────────────────────────────
