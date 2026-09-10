@@ -214,23 +214,25 @@ function hookPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): Punc
 }
 
 /**
- * Uppercut. Wind-up: the arm FOLDS — the elbow drops back toward the hip and
- * the fist stays up by the lower ribs, outside the torso, pointing forward
- * (the rig's uppercut elbow pole puts the elbow behind the fist). It is the
- * body that dips, not the hand. Extend: drives forward low (through `via`)
- * and rises up through the chin line, finishing just above it with the
- * elbow low and bent (~75°), glove pointing up. Reach is the shortest of the
- * four (~0.44 m out; lands inside ~0.66 m centre-to-centre).
- * `uppercutReachScale` (config) trades the elbow for range.
+ * Uppercut. Wind-up: a tight fold — the fist sits at rib height a forearm
+ * IN FRONT of the shoulder line, so the upper arm hangs down and back and
+ * the forearm points forward-up. (The fist must be forward of the shoulder
+ * by about as much as it is below it: straight below, the elbow solver has
+ * no "down" to work with and the elbow wings out sideways.) It is the body
+ * that dips, not the hand. Extend: drives forward low (through `via`) and
+ * rises up the centreline to the chin, elbow low and bent (~75°), glove
+ * pointing up. Reach is the shortest of the four (~0.44 m out; lands inside
+ * ~0.66 m centre-to-centre). `uppercutReachScale` (config) trades the elbow
+ * for range.
  */
 function uppercutPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath {
   const g = guardLocal(body, hand, stance);
   const side = handLateralSign(hand, stance);
   const torso = body.shoulderY - body.hipY;
   return {
-    cocked: { fwd: body.upperArm * 0.25, up: body.shoulderY - torso * 0.3, lat: side * (body.shoulderW / 2 + body.gloveR * 0.6) },
-    via: { fwd: body.upperArm * 0.9, up: body.shoulderY - torso * 0.15, lat: g.lat * 0.9 },
-    peak: { fwd: body.upperArm * 1.3 * cfg.uppercutReachScale, up: body.headY + body.headR * 0.15, lat: g.lat * 0.5 },
+    cocked: { fwd: body.upperArm * 0.6, up: body.shoulderY - torso * 0.3, lat: side * (body.shoulderW / 2 + body.gloveR * 0.3) },
+    via: { fwd: body.upperArm * 0.9, up: body.shoulderY - torso * 0.1, lat: g.lat * 0.9 },
+    peak: { fwd: body.upperArm * 1.3 * cfg.uppercutReachScale, up: body.headY - body.headR * 0.2, lat: g.lat * 0.5 },
   };
 }
 

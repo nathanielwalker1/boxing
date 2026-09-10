@@ -308,10 +308,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       // forearm is parallel to the floor and the glove leads the elbow.
       const mine = (next.punch.hand === 'lead') === (i === 0);
       const hooking = next.punch.type === 'hook' && mine ? c.rigHookElbowLevel : 0;
-      // An uppercutting arm folds with the elbow BEHIND the fist (the guard's
-      // pole points the elbow forward, which would aim the forearm back at
-      // the body when the fist is low by the ribs).
-      const uppercutting = next.punch.type === 'uppercut' && mine ? 1 : 0;
+      // Through an uppercut's wind-up and drive the elbow pole points back,
+      // so the fold keeps the elbow behind and below the fist. Not through
+      // the recovery: with the fist up at the face a back pole bends the
+      // elbow behind the body.
+      const uppercutting = next.punch.type === 'uppercut' && mine && next.punch.phase !== 'recover' ? 1 : 0;
       const kMul = i === 1 ? 1 + c.rigTwinSkew : 1;
       const level = chase1(hookLevel[i]!, hooking, c.rigElbowK * kMul * 2, c.rigElbowZeta, dt);
       const back = chase1(upBack[i]!, uppercutting, c.rigElbowK * kMul * 2, c.rigElbowZeta, dt);
