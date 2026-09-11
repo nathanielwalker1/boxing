@@ -131,7 +131,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   const inRange = dist <= cfg.aiEngageDist;
   let aggression = 1;
   if (inRange && !opp.block) aggression *= cfg.aiAggressionMult;
-  if (opp.stamina < cfg.aiLowStamina) aggression *= cfg.aiAggressionMult;
+  if (opp.stamina < cfg.lowStamina) aggression *= cfg.aiAggressionMult;
   a.aggression = aggression;
   a.attackTimer = Math.max(0, a.attackTimer - dt * aggression);
   if (a.attackTimer === 0 && a.armed === null) {

@@ -13,7 +13,9 @@ import { check, near, done } from './check.js';
 
 const [core, sim, ai] = await load('/src/core/index.ts', '/src/sim/index.ts', '/src/ai/index.ts');
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
-const base = createConfig();
+// No knockdowns: a knockdown freezes the fight for the count, which would
+// stall the long series below (v1 did the same with healthDamagePerForce = 0).
+const base = { ...createConfig(), healthDamagePerImpulse: 0 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
@@ -199,7 +201,9 @@ function jabSeries(chance, count) {
 console.log('\n=== 4. Punishing openings ===');
 // Fixed base delay, no reactive guard, so the only variable is the aggression multiplier.
 function cadence({ lowStamina, blocking }, seconds) {
-  const cfg = { ...base, aiAttackDelayMin: 3, aiAttackDelayMax: 3, aiBlockChance: 0 };
+  // staminaBlockDrain 0: 12 s of held guard would otherwise gas the player and
+  // trip the low-stamina term in the very case that is meant to be baseline.
+  const cfg = { ...base, aiAttackDelayMin: 3, aiAttackDelayMax: 3, aiBlockChance: 0, staminaBlockDrain: 0 };
   const w = settle(fresh(cfg));
   const before = w.throws.length;
   const player = blocking ? () => inp({ block: true }) : () => NONE;

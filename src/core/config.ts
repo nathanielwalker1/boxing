@@ -180,6 +180,19 @@ export const SCHEMA = {
   // ── sim: block (SIM) ──
   blockReduction:   num(0.75, 0, 1, 0.05, 'block', 'fraction of an incoming impulse absorbed by a held block', 'blockReduction'),
 
+  // ── sim: health + stamina + knockdown (SIM) — v1 Stage 6 / 17 on 0..1 bars, impulse in N·s ──
+  healthDamagePerImpulse: num(0.0009, 0, 0.005, 0.00005, 'health', 'health lost per N·s of landed impulse (after block reduction). A standing cross is ~230 N·s → ~0.2, so ~5 clean crosses or ~3 hooks put a fighter down (v1: 0.01 per force on a 100 bar)', 'healthDamagePerForce'),
+  staminaPunchCost: num(0.04, 0, 0.2, 0.005, 'health', 'stamina spent per punch thrown, lands or not (v1: 4/100)', 'staminaDrainPerPunch'),
+  staminaBlockDrain: num(0.08, 0, 0.5, 0.01, 'health', 'stamina drained per second the block is held — a full bar buys 12.5 s of guard. v1 was 2/100 per s, which made turtling free (Nate 2026-09-11: "you can\'t perpetually block")', 'staminaDrainPerSecondBlocking'),
+  staminaRegen:     num(0.2, 0, 1, 0.01, 'health', 'stamina regained per second while neither punching nor blocking (v1: 20/100)', 'staminaRegenPerSecond'),
+  staminaHitCost:   num(0.00026, 0, 0.002, 0.00001, 'health', 'stamina lost per N·s taken (after block reduction): eating a solid shot costs about what throwing one or two does (v1: 0.012 per force)', 'staminaDrainPerHitForce'),
+  staminaBlockedHitMult: num(1, 0, 3, 0.1, 'health', 'multiplier on that hit cost when the shot lands on the guard, on top of blockReduction having already cut the impulse', 'staminaDrainBlockedMult'),
+  staminaRegenDelay: num(0.6, 0, 3, 0.05, 'health', 'seconds regen pauses after taking a hit, so a chip is not repaid before the next punch lands', 'staminaRegenDelayAfterHit'),
+  lowStamina:       num(0.25, 0, 1, 0.05, 'health', 'stamina below this = gassed: the wind-up telegraphs (next key) and the AI smells it', 'lowStaminaThreshold'),
+  lowStaminaCockMult: num(2.5, 1, 5, 0.1, 'health', 'a gassed fighter\'s wind-up (cock phase) takes this many times longer in real time; extend and recover are untouched, so the strike itself is not in slow motion', 'lowStaminaWindupMultiplier'),
+  knockdownDuration: num(2.5, 0.5, 10, 0.1, 'health', 'seconds on the canvas; both fighters freeze for the count until the get-up (Stage 3 makes this a 10-count with a chin-based get-up chance)', 'knockdownRecoveryDuration'),
+  knockdownHealthRestore: num(0.35, 0, 1, 0.05, 'health', 'health on getting up, as a fraction of full', 'knockdownHealthRestorePct'),
+
   // ── sim: reaction (SIM) — hit reaction springs, per chain level ──
   reactionHeadK:    num(400, 50, 1500, 10, 'reaction', 'head spring stiffness, 1/s² (loosest level)', 'reactionStiffness'),
   reactionHeadC:    num(16, 2, 60, 0.5, 'reaction', 'head spring damping, 1/s', 'reactionDamping'),
@@ -253,7 +266,6 @@ export const SCHEMA = {
   aiBlockChance:    num(0.35, 0, 1, 0.05, 'ai', 'probability it answers an in-range punch by raising its guard', 'dummyBlockReactionChance'),
   aiBlockWindow:    num(0.45, 0.05, 2, 0.05, 'ai', 'seconds the reactive guard stays up once raised (also covers follow-ups thrown inside it)', 'dummyBlockReactionWindow'),
   aiAggressionMult: num(1.8, 1, 4, 0.1, 'ai', 'the attack timer drains this much faster against an unguarded in-range opponent, and again against a gassed one (they stack)', 'dummyOpeningAggressionMultiplier'),
-  aiLowStamina:     num(0.25, 0, 1, 0.05, 'ai', 'opponent stamina (0..1) below which it counts as gassed', 'lowStaminaThreshold'),
 
   // ── debug (UI) ──
   debugHitboxes:    bool(false, 'debug', 'draw sim hit spheres and capsules'),
@@ -318,12 +330,14 @@ export const SCHEMA = {
   rigSwayAmp:              num(0.012, 0, 0.05, 0.001, 'rig', 'idle weight-shift lateral amplitude, m'),
   rigBobAmp:               num(0.006, 0, 0.03, 0.001, 'rig', 'idle hip bob amplitude, m'),
   rigRhythmHz:             num(1.7, 0.5, 4, 0.05, 'rig', 'the boxer\'s bounce: beats per second the knees pump at while standing/moving (side 1 runs 6% slower so the two never sync)'),
-  rigRhythmBob:            num(0.02, 0, 0.08, 0.002, 'rig', 'bounce depth: how far the hips drop on each beat, m (feet are planted, so the knees bend)'),
-  rigRhythmSway:           num(0.015, 0, 0.06, 0.001, 'rig', 'weight shift: hips move this far foot to foot, every other beat, m'),
-  rigRhythmFwd:            num(0.008, 0, 0.04, 0.001, 'rig', 'front/back rock of the hips with the weight shift, m'),
-  rigRhythmHead:           num(0.7, 0, 1.5, 0.05, 'rig', 'the head follows this fraction of the bounce and weave, lagging a little (drawn head leaves the sim\'s head sphere by at most rhythmBob × this)'),
-  rigRhythmRoll:           num(2, 0, 8, 0.5, 'rig', 'chest rolls this much over the loaded foot on each weight shift, degrees'),
+  rigRhythmBob:            num(0.035, 0, 0.08, 0.002, 'rig', 'bounce depth: how far the hips drop on each beat, m (feet are planted, so the knees bend). 2 cm read as too little (Nate, 2026-09-11)'),
+  rigRhythmSway:           num(0.022, 0, 0.06, 0.001, 'rig', 'weight shift: hips move this far foot to foot, every other beat, m'),
+  rigRhythmFwd:            num(0.012, 0, 0.04, 0.001, 'rig', 'front/back rock of the hips with the weight shift, m'),
+  rigRhythmHead:           num(0.8, 0, 1.5, 0.05, 'rig', 'the head follows this fraction of the bounce and weave, lagging a little (drawn head leaves the sim\'s head sphere by at most rhythmBob × this)'),
+  rigRhythmRoll:           num(3, 0, 8, 0.5, 'rig', 'chest rolls this much over the loaded foot on each weight shift, degrees'),
   rigRhythmFade:           num(1, 0, 1, 0.05, 'rig', 'how completely the rhythm stops while punching or blocking (1 = fully; 0 = it never stops)'),
+  rigFallDeg:              num(80, 30, 90, 1, 'rig', 'knocked down: the whole rig tips back this far about its feet, degrees (placeholder fall; a proper crumple is a later layer)'),
+  rigFallSquash:           num(0.25, 0, 0.6, 0.05, 'rig', 'knocked down: the rig shortens along the body by this fraction as it lands'),
   rigStepThreshold:        num(0.12, 0.02, 0.4, 0.01, 'rig', 'a foot steps once its rest spot drifts this far, m'),
   rigStepDur:              num(0.22, 0.08, 0.6, 0.01, 'rig', 'step duration, s'),
   rigStepLift:             num(0.05, 0, 0.15, 0.005, 'rig', 'foot lift mid-step, m'),

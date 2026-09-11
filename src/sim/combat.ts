@@ -6,8 +6,9 @@
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, triangle, v2dist, v2dot, handLateralSign } from '../core';
 import { PUNCHES, punchCrouch, punchHand, punchTwist } from './punches';
-import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, prevPunchMask, punchBuffer, punchMask, setPrevPunchMask, setPunchBuffer } from './state';
+import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer } from './state';
 import { applyReaction } from './reaction';
+import { takeHit } from './resources';
 
 /** Two pressed on the same tick: the faster punch wins. */
 function fastestOf(mask: number): PunchType | null {
@@ -26,9 +27,16 @@ function canStartPunch(f: FighterState, cfg: Config): boolean {
   return p.phase === 'recover' && p.t >= cfg.punchChainAt * PUNCHES[p.type].phases(cfg).recover;
 }
 
-/** Hook/uppercut: the joystick at the press picks the hand (x < 0 = lead). */
-function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number, events: SimEvent[]): void {
+/**
+ * Hook/uppercut: the joystick at the press picks the hand (x < 0 = lead).
+ * Every punch costs staminaPunchCost, lands or not; thrown gassed (below
+ * lowStamina, judged before the cost) its wind-up runs lowStaminaCockMult
+ * times slower — a slower pull-back, not a strike in slow motion.
+ */
+function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number, cfg: Config, events: SimEvent[]): void {
   const hand = punchHand(PUNCHES[type], moveX);
+  setCockMult(f, f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1);
+  f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost);
   f.punch = { type, hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
   events.push({ type: 'punchStart', side, punch: type, hand });
 }
@@ -55,7 +63,7 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
   const wasBlocking = f.block;
   f.block = input.block && guardOpen && !f.down;
   f.blockT = f.block ? (wasBlocking ? f.blockT + dt : 0) : 0;
-  f.guard = f.block ? 'block' : 'rest';
+  f.guard = f.down ? 'down' : f.block ? 'block' : 'rest';
 
   const buf = punchBuffer(f);
   buf.t = Math.max(0, buf.t - dt);
@@ -65,10 +73,10 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
 
   const open = canStartPunch(f, cfg);
   if (pressed !== null) {
-    if (open) { startPunch(f, side, pressed, input.move.x, events); buf.mask = 0; buf.t = 0; }
+    if (open) { startPunch(f, side, pressed, input.move.x, cfg, events); buf.mask = 0; buf.t = 0; }
     else if (cfg.punchBuffer > 0) { buf.mask = maskOf(pressed); buf.t = cfg.punchBuffer; buf.x = input.move.x; }
   } else if (open && buf.mask) {
-    startPunch(f, side, fastestOf(buf.mask)!, buf.x, events);
+    startPunch(f, side, fastestOf(buf.mask)!, buf.x, cfg, events);
     buf.mask = 0; buf.t = 0;
   }
   setPunchBuffer(f, buf);
@@ -83,7 +91,11 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   if (p.type === null) return false;
   const def = PUNCHES[p.type];
   const ph = def.phases(cfg);
-  const elapsed = Math.min(ph.total, p.progress * ph.total + dt);
+  // A gassed throw's cock phase runs slower in real time (the telegraph); the
+  // phase table itself is untouched, so every pose still reads off `progress`.
+  const was = p.progress * ph.total;
+  const rate = was < ph.cock ? 1 / cockMult(f) : 1;
+  const elapsed = Math.min(ph.total, was + dt * rate);
   p.progress = elapsed / ph.total;
   if (elapsed < ph.cock) { p.phase = 'cock'; p.t = elapsed; }
   else if (elapsed < ph.cock + ph.extend) { p.phase = 'extend'; p.t = elapsed - ph.cock; }
@@ -185,5 +197,6 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   d.stagger.x += impulse.x / d.body.massKg;
   d.stagger.z += impulse.z / d.body.massKg;
   applyReaction(d, type, dir, mag, cfg);
+  takeHit(s, target, mag, blocked, cfg, events);
   s.hitStop = Math.max(s.hitStop, clamp(cfg.hitStopBase * power, 0, cfg.hitStopMax));
 }

@@ -18,6 +18,7 @@ import { resolveSeparation, stepFacing, stepLocomotion } from './movement';
 import { advancePunch, resolvePunch, stepActions } from './combat';
 import { computeBoxes, stepReaction } from './reaction';
 import { settleGloves, stepGloves } from './gloves';
+import { stepCount, stepStamina } from './resources';
 
 const SIDES: [Side, Side] = [0, 1];
 
@@ -57,6 +58,7 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   const ins: [Readonly<FrameInput>, Readonly<FrameInput>] = fighting ? inputs : [NULL_INPUT, NULL_INPUT];
 
   for (const side of SIDES) stepActions(s.fighters[side], side, ins[side], cfg, dt, events);
+  for (const side of SIDES) stepStamina(s.fighters[side], cfg, dt);
   for (const side of SIDES) stepLocomotion(s.fighters[side], ins[side], cfg, dt);
   resolveSeparation(s.fighters[0], s.fighters[1], cfg);
   stepFacing(s.fighters[0], s.fighters[1], cfg, dt);
@@ -71,6 +73,7 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   for (const side of SIDES) { stepReaction(s.fighters[side], cfg, dt); computeBoxes(s.fighters[side]); }
   for (const side of SIDES) stepGloves(s.fighters[side], side, s.time, cfg, dt);
   for (const side of SIDES) { const t = peaked[side]; if (t !== null) resolvePunch(s, side, t, cfg, events); }
+  stepCount(s, cfg, dt, events);
 
   s.round.phaseT += dt;
   if (fighting) {
