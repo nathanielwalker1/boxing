@@ -233,6 +233,19 @@ export const SCHEMA = {
   betweenRoundSeconds: num(10, 3, 30, 1, 'fight', 'between-round card duration, s'),
   knockdownsForTko: num(3, 1, 5, 1, 'fight', 'knockdowns in one round = TKO'),
 
+  // ── ai (SIM: src/ai) — the opponent's four heuristics, ported from legacy dummy.js at 1 px = 0.0122 m ──
+  aiEnabled:        bool(true, 'ai', 'side 1 is driven by the AI (off = the frozen-guard dummy; ?ai=0 in the URL sets this at boot)'),
+  aiSpeedScale:     num(0.85, 0, 1, 0.05, 'ai', 'the AI walks at this fraction of moveSpeed so the player can always make distance (v1: 170 / 200)', 'dummyMoveSpeed'),
+  aiStandoffDist:   num(0.72, 0.4, 1.5, 0.01, 'ai', 'centre-to-centre distance it tries to hold, m. Coming in from far it rests at standoff + band, which must sit inside aiEngageDist or it never throws (v1: 64 px)', 'dummyStandoffDist'),
+  aiStandoffBand:   num(0.12, 0.02, 0.5, 0.01, 'ai', 'hysteresis half-width around the standoff inside which it stops steering — the anti-jitter knob (v1: 12 px)', 'dummyStandoffBand'),
+  aiEngageDist:     num(0.9, 0.5, 1.5, 0.01, 'ai', 'farthest distance it commits a jab at, and inside which it bothers reacting with its guard. MEASURED: its jab lands to 0.96 m in the sim; set under that so a step back during the wind-up still connects (v1: 78 px)', 'dummyEngageDist'),
+  aiAttackDelayMin: num(1.5, 0.1, 10, 0.1, 'ai', 'shortest gap before the next punch is ARMED, s — the throw itself still waits for range', 'dummyAttackDelayMin'),
+  aiAttackDelayMax: num(3.5, 0.1, 10, 0.1, 'ai', 'longest gap before the next punch is armed, s', 'dummyAttackDelayMax'),
+  aiBlockChance:    num(0.35, 0, 1, 0.05, 'ai', 'probability it answers an in-range punch by raising its guard', 'dummyBlockReactionChance'),
+  aiBlockWindow:    num(0.45, 0.05, 2, 0.05, 'ai', 'seconds the reactive guard stays up once raised (also covers follow-ups thrown inside it)', 'dummyBlockReactionWindow'),
+  aiAggressionMult: num(1.8, 1, 4, 0.1, 'ai', 'the attack timer drains this much faster against an unguarded in-range opponent, and again against a gassed one (they stack)', 'dummyOpeningAggressionMultiplier'),
+  aiLowStamina:     num(0.25, 0, 1, 0.05, 'ai', 'opponent stamina (0..1) below which it counts as gassed', 'lowStaminaThreshold'),
+
   // ── debug (UI) ──
   debugHitboxes:    bool(false, 'debug', 'draw sim hit spheres and capsules'),
   debugSkeleton:    bool(false, 'debug', 'draw rig joints and bones'),

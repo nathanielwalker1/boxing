@@ -10,6 +10,7 @@ import {
   type Config, type FighterState, type FrameInput, type Hand, type PunchType, type Side, type SimEvent, type SimState,
 } from './core';
 import { createState, step } from './sim';
+import { aiStep, createAi, type AiState } from './ai';
 import { createFighterView } from './rig';
 import { Stage } from './render/stage';
 import { mountTuningPanel } from './ui/tune';
@@ -26,6 +27,8 @@ declare global {
       input: (side: Side, input: FrameInput | null) => void;
       reset: (seed?: number) => void;
     };
+    /** The side-1 AI's state (tests). Stale while side 1 is overridden or aiEnabled is off. */
+    __ai: { state: () => AiState };
     __pose: (side: Side, punch: PunchType | 'rest', hand: Hand, progress: number) => void;
     /**
      * Replay (filmstrips): run a fresh sim with the fighters `dist` apart, side 0
@@ -42,6 +45,7 @@ declare global {
 
 const params = new URLSearchParams(location.search);
 const cfg = createConfig();
+if (params.get('ai') === '0') cfg.aiEnabled = false;   // browser checks that want the frozen-guard dummy
 window.__cfg = cfg;
 
 const app = document.getElementById('app')!;
@@ -52,15 +56,19 @@ if (params.get('tune') === '1') mountTuningPanel(cfg);
 // ── Sim + views ──────────────────────────────────────────────────────────────
 const specs = [ROSTER[0]!, ROSTER[1]!] as const;
 const bus = new EventBus();
-let prev: SimState = createState([specs[0], specs[1]], cfg, Number(params.get('seed') ?? 1));
+const seed = Number(params.get('seed') ?? 1);
+let prev: SimState = createState([specs[0], specs[1]], cfg, seed);
 let next: SimState = prev;
+let ai: AiState = createAi(1, seed, cfg);
 const views = [
   createFighterView(0, specs[0], cfg, stage.scene),
   createFighterView(1, specs[1], cfg, stage.scene),
 ] as const;
 
 // Inputs: side 0 is the player (InputManager → liveInput[0] each frame), side 1
-// is the frozen-guard dummy. Tests can override either side via window.__sim.input.
+// is the AI (aiStep each sim tick; the frozen-guard dummy when aiEnabled is off).
+// Tests can override either side via window.__sim.input; an override on side 1
+// also parks the AI so its rng stream does not advance behind the test's back.
 const liveInput: [FrameInput, FrameInput] = [cloneInput(NULL_INPUT), cloneInput(NULL_INPUT)];
 const overrideInput: [FrameInput | null, FrameInput | null] = [null, null];
 const input = new InputManager(cfg, { yaw: () => next.fighters[0].yaw, touch: wantsTouch(params) });
@@ -68,8 +76,9 @@ const input = new InputManager(cfg, { yaw: () => next.fighters[0].yaw, touch: wa
 window.__sim = {
   state: () => next,
   input: (side, input) => { overrideInput[side] = input ? cloneInput(input) : null; },
-  reset: (seed = 1) => { prev = next = createState([specs[0], specs[1]], cfg, seed); },
+  reset: (s = 1) => { prev = next = createState([specs[0], specs[1]], cfg, s); ai = createAi(1, s, cfg); },
 };
+window.__ai = { state: () => ai };
 
 // Pose override (pose grid): while any side is posed the sim is paused and the
 // views draw a frozen state instead of the live one. Every punch is posed by
@@ -139,7 +148,12 @@ function loop(nowMs: number): void {
   if (!paused) {
     acc += dt;
     while (acc >= SIM_DT) {
-      const inputs: [FrameInput, FrameInput] = [overrideInput[0] ?? liveInput[0], overrideInput[1] ?? liveInput[1]];
+      let side1 = overrideInput[1];
+      if (side1 === null) {
+        if (cfg.aiEnabled) { const d = aiStep(ai, next, cfg); ai = d.ai; side1 = d.input; }
+        else side1 = liveInput[1];
+      }
+      const inputs: [FrameInput, FrameInput] = [overrideInput[0] ?? liveInput[0], side1];
       const r = step(next, inputs, cfg);
       prev = next;
       next = r.state;
@@ -153,6 +167,7 @@ function loop(nowMs: number): void {
     // between-round flow.
     if (next.round.phase === 'over' && cfg.sparRestartSeconds > 0 && next.round.phaseT >= cfg.sparRestartSeconds) {
       prev = next = createState([specs[0], specs[1]], cfg, next.seed);
+      ai = createAi(1, next.seed, cfg);
     }
   }
   if (frameEvents.length) { bus.emit(frameEvents); stage.handleEvents(frameEvents); }
