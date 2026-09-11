@@ -21,7 +21,7 @@
 import * as THREE from 'three';
 import {
   angleDelta, closestOnSegment, frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, v3dist, worldToLocal,
-  type Config, type FighterSpec, type FighterState, type FighterView, type Frame, type Side, type SimEvent, type Vec2, type Vec3,
+  type Config, type FighterSpec, type FighterState, type FighterView, type Frame, type PunchType, type Side, type SimEvent, type Vec2, type Vec3,
 } from '../core';
 import { BONE, buildRigMesh, rigGeomKey, type RigMesh } from './mesh';
 import { outlineMaterial, toonMaterial, updateMaterials } from './materials';
@@ -88,7 +88,25 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const hookDrive = spring1(0);   // 1 while a hook is in flight: hips, head and the punching-side foot turn harder with it
   const blockAmt = spring1(0);   // 0 = open guard, 1 = hunched into the block
   const rhythmGate = spring1(1); // 1 = the idle bounce is on; eases to 0 while punching / blocking / down
-  const fallAmt = spring1(0);    // 0 = standing, 1 = on the canvas (knockdown)
+  // ── Knockdown ──
+  // The fall is a timeline on the sim's downT, shaped by the finishing punch:
+  // its impulse direction (captured rig-local from the punchLand that came
+  // with the knockdown event) is the fall line, its type picks the lead-in.
+  // fallAmt is 1 while down and eases to 0 over rigGetUpTime after the get-up.
+  const fallAmt = spring1(0);
+  const fallDir = new THREE.Vector3(-1, 0, 0);
+  const fallAxis = new THREE.Vector3(0, 0, 1);
+  let fallType: PunchType = 'cross';
+  let lastHit: { punch: PunchType; impulse: Vec3 } | null = null;
+  let lastDownT = 0;
+  const qFall = new THREE.Quaternion();
+  const qHead = new THREE.Quaternion();
+  const qHipsF = new THREE.Quaternion();
+  const qChestF = new THREE.Quaternion();
+  const Hf = new THREE.Vector3();
+  const Sf = new THREE.Vector3();
+  const headF = new THREE.Vector3();
+  const gloveF = [new THREE.Vector3(), new THREE.Vector3()] as const;
   const hipYaw = spring1(0);     // hips follow a fraction of the sim's torso twist (stiffest link, so they lead)
   const feet = [new FootPlanter(), new FootPlanter()] as const;
   const squashHead = new Squash();
@@ -182,7 +200,18 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   // ── Events → squash ──
   const onEvents = (events: readonly SimEvent[], body: FighterState['body']): void => {
     for (const e of events) {
-      if (e.type === 'punchLand' && e.target === side) fireBodySquash(e.part, e.impulse);
+      if (e.type === 'punchLand' && e.target === side) { fireBodySquash(e.part, e.impulse); lastHit = { punch: e.punch, impulse: e.impulse }; }
+      else if (e.type === 'knockdown' && e.side === side) {
+        fallType = lastHit?.punch ?? 'cross';
+        if (lastHit) dirToLocal(lastHit.impulse.x, 0, lastHit.impulse.z, fallDir); else fallDir.set(-1, 0, 0);
+        fallDir.y = 0;
+        if (fallDir.lengthSq() < 1e-8) fallDir.set(-1, 0, 0);
+        // An uppercut sends you back whatever the fist was doing; a straight is already back.
+        if (fallType === 'uppercut') fallDir.x = Math.min(fallDir.x, -0.7);
+        fallDir.normalize();
+        fallAxis.crossVectors(UP, fallDir).normalize();   // tipping UP toward fallDir
+        lastDownT = 0;
+      }
       else if (e.type === 'hurt' && e.side === side) fireBodySquash(e.part, e.impulse);
       else if (e.type === 'punchLand' && e.side === side) {
         // attacker: squash the glove along the forearm (bone-local y)
@@ -273,10 +302,6 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // Hips.
     H.copy(hipL).add(hipSway as unknown as THREE.Vector3Like);
     qHips.setFromAxisAngle(YAXIS, leadSign * c.rigStanceHipYawDeg * DEG + hipYawS);
-    const bHips = bone(BONE.hips);
-    bHips.position.copy(H);
-    bHips.quaternion.copy(qHips);
-    bHips.scale.set(1, 1, 1);
 
     // Chest: on the capsule top + sim torso reaction + spine spring, yawed by the
     // shoulder line, pitched by lean and the sim's tilt (positive = leaning back).
@@ -286,6 +311,66 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     qChest.multiply(qTmp);
     qTmp.setFromAxisAngle(XAXIS, -rRoll);   // rhythm: roll over the loaded foot
     qChest.multiply(qTmp);
+
+    // ── Knockdown: rewrite hips, chest, head and gloves from the fall timeline ──
+    // While down the pose is the timeline at downT (sim time, so it freezes
+    // with hit-stop); after the get-up it eases back to the stance. The sim's
+    // boxes stay standing — a downed fighter cannot be hit, so that is fine.
+    if (next.down) { fallAmt.x = 1; fallAmt.v = 0; lastDownT = lerp(prev.down ? prev.downT : 0, next.downT, alpha); }
+    const fallK = next.down ? 1 : chase1(fallAmt, 0, 25 / (c.rigGetUpTime * c.rigGetUpTime), 0.9, dt);
+    if (fallK > 1e-4) {
+      const t = lastDownT;
+      const isUp = fallType === 'uppercut', isHook = fallType === 'hook';
+      // Uppercut lead-in: up on the toes, head punched up, a slight arch — then the legs go.
+      const tl = isUp ? c.rigFallLiftTime : 0;
+      const tf = Math.max(0, t - tl);
+      const liftY = tl > 0 && t < tl ? c.rigFallLift * Math.sin(Math.PI * t / tl) : 0;
+      // Legs give way: the hips fall under rigFallGravity to the canvas and slide along the fall line.
+      const hipFloor = body.bodyR * 1.05;
+      const hipDropMax = Math.max(0.01, H.y - hipFloor);
+      const hipDrop = Math.min(hipDropMax, 0.5 * c.rigFallGravity * tf * tf);
+      Hf.copy(H).addScaledVector(fallDir, (hipDrop / hipDropMax) * c.rigFallSlide);
+      Hf.y = H.y - hipDrop + liftY;
+      // Torso tips about the hips along the fall line, accelerating, until it lies; a damped bounce on landing.
+      const thetaMax = 88 * DEG;
+      const tLand = Math.sqrt(2 * thetaMax / c.rigFallTip);
+      let theta = Math.min(thetaMax, 0.5 * c.rigFallTip * tf * tf);
+      if (tf > tLand) { const tb = tf - tLand; theta = thetaMax - c.rigFallBounce * Math.exp(-5 * tb) * Math.max(0, Math.sin(18 * tb)); }
+      if (t < tl) theta = 0.2 * Math.sin(Math.PI * t / tl);   // the arch during the lift
+      qFall.setFromAxisAngle(fallAxis, theta);
+      if (isHook) {   // the body turns with the punch as it goes down sideways
+        qTmp.setFromAxisAngle(YAXIS, c.rigFallHookSpin * DEG * Math.min(1, tf / 0.6) * (fallDir.z < 0 ? -1 : 1));
+        qFall.multiply(qTmp);
+      }
+      v.subVectors(S, H).applyQuaternion(qFall);
+      Sf.copy(Hf).add(v);
+      Sf.y = Math.max(Sf.y, body.bodyR);
+      qChestF.copy(qFall).multiply(qChest);
+      qHipsF.copy(qFall).multiply(qHips);
+      // The head whips past the torso; the canvas stops it.
+      qHead.setFromAxisAngle(fallAxis, Math.min(thetaMax + 0.35, theta * (1 + c.rigFallHeadLag)));
+      v.subVectors(headL, S).applyQuaternion(qHead);
+      headF.copy(Sf).add(v);
+      headF.y = Math.max(headF.y, body.headR);
+      // Arms flop: from the fallen shoulders, forward-down and out, onto the canvas.
+      for (let i = 0; i < 2; i++) {
+        v.set(0.22, -0.2, latSign[i]! * (body.shoulderW / 2 + 0.12)).applyQuaternion(qChestF);
+        gloveF[i]!.copy(Sf).add(v);
+        gloveF[i]!.y = Math.max(gloveF[i]!.y, body.gloveR);
+      }
+      H.lerp(Hf, fallK);
+      S.lerp(Sf, fallK);
+      headL.lerp(headF, fallK);
+      gloveL[0].lerp(gloveF[0]!, fallK);
+      gloveL[1].lerp(gloveF[1]!, fallK);
+      qHips.slerp(qHipsF, fallK);
+      qChest.slerp(qChestF, fallK);
+    }
+
+    const bHips = bone(BONE.hips);
+    bHips.position.copy(H);
+    bHips.quaternion.copy(qHips);
+    bHips.scale.set(1, 1, 1);
     const bChest = bone(BONE.chest);
     bChest.position.copy(S);
     bChest.quaternion.copy(qChest);
@@ -420,14 +505,6 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       dbgPts[J.sh1]!.copy(shoulderJ[1]!); dbgPts[J.el1]!.copy(bone(BONE.forearm1).position); dbgPts[J.gl1]!.copy(gloveL[1]);
       debug.update(dbgPts, DEBUG_BONES);
     }
-
-    // Knockdown: the whole rig tips back about its feet and shortens as it
-    // lands, chased so the fall takes a beat and the get-up rises. Placeholder
-    // (a plank, not a crumple) — the sim's boxes stay standing, which is fine
-    // because a downed fighter cannot be hit.
-    const fall = chase1(fallAmt, next.down ? 1 : 0, c.rigSpineK * 0.5, c.rigSpineZeta, dt);
-    r.group.rotation.set(0, 0, fall * c.rigFallDeg * DEG);
-    r.group.scale.set(1, 1 - fall * c.rigFallSquash, 1);
 
     // Materials + outline toggle (live).
     updateMaterials(c);
