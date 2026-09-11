@@ -44,6 +44,7 @@ declare global {
 
 const DOWN = new THREE.Vector3(0, -1, 0);
 const UP = new THREE.Vector3(0, 1, 0);
+const XAXIS = new THREE.Vector3(1, 0, 0);
 const YAXIS = new THREE.Vector3(0, 1, 0);
 const ZAXIS = new THREE.Vector3(0, 0, 1);
 const DEG = Math.PI / 180;
@@ -86,6 +87,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const upBack = [spring1(0), spring1(0)] as const;      // 1 while this arm throws an uppercut: the elbow pole goes back, so the fist folds up by the ribs
   const hookDrive = spring1(0);   // 1 while a hook is in flight: hips, head and the punching-side foot turn harder with it
   const blockAmt = spring1(0);   // 0 = open guard, 1 = hunched into the block
+  const rhythmGate = spring1(1); // 1 = the idle bounce is on; eases to 0 while punching / blocking / down
   const hipYaw = spring1(0);     // hips follow a fraction of the sim's torso twist (stiffest link, so they lead)
   const feet = [new FootPlanter(), new FootPlanter()] as const;
   const squashHead = new Squash();
@@ -241,15 +243,30 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
 
     onEvents(events, body);
 
-    // 3. Idle life.
+    // 3. Idle life: slow breath + drift, and on top the boxer's rhythm — knees
+    //    pumping on a beat, weight shifting foot to foot every other beat, the
+    //    head riding it a little late. All non-hitbox (the sim's boxes hold
+    //    still); the rhythm eases out through a punch or a block so the
+    //    authored motion is not fighting a bounce.
     tIdle += dt;
     const breath = Math.sin(tIdle * c.rigBreathHz * Math.PI * 2);
     const sway = Math.sin(tIdle * c.rigSwayHz * Math.PI * 2 + side * 2.1);
     const bob = Math.sin(tIdle * c.rigSwayHz * Math.PI * 4 + 0.7) * c.rigBobAmp;
+    const busy = next.punch.type !== null || next.block || next.down;
+    const rhythm = chase1(rhythmGate, busy ? 1 - c.rigRhythmFade : 1, c.rigSpineK, c.rigSpineZeta, dt);
+    const beat = tIdle * c.rigRhythmHz * (1 - 0.06 * side) * Math.PI * 2 + side * 1.3;
+    const rDip = c.rigRhythmBob * (0.5 - 0.5 * Math.cos(beat)) * rhythm;        // hips drop on the beat, feet planted → knees
+    const rLat = c.rigRhythmSway * Math.sin(beat / 2) * rhythm;                  // weight foot to foot, every other beat
+    const rFwd = c.rigRhythmFwd * Math.sin(beat / 2 + 1.1) * rhythm;             // and a little rock front / back
+    const rHeadY = -c.rigRhythmBob * (0.5 - 0.5 * Math.cos(beat - 0.5)) * c.rigRhythmHead * rhythm;   // head follows, a little late
+    const rHeadZ = c.rigRhythmSway * Math.sin(beat / 2 - 0.5) * c.rigRhythmHead * rhythm;
+    const rRoll = c.rigRhythmRoll * DEG * Math.sin(beat / 2 - 0.25) * rhythm;    // chest rolls over the loaded foot
+    headL.y += rHeadY;
+    headL.z += rHeadZ;
 
     // 2. Secondary motion — springs, hips stiffest → elbows loosest.
-    chase3(hipSway, leanF * c.rigLeanHip, bob, leanL * c.rigLeanLat + sway * c.rigSwayAmp, c.rigHipK, c.rigHipZeta, dt);
-    chase3(spineBend, leanF * c.rigLeanChest, 0, sway * c.rigSwayAmp * 0.5, c.rigSpineK, c.rigSpineZeta, dt);
+    chase3(hipSway, leanF * c.rigLeanHip + rFwd, bob - rDip, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat, c.rigHipK, c.rigHipZeta, dt);
+    chase3(spineBend, leanF * c.rigLeanChest, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3, c.rigSpineK, c.rigSpineZeta, dt);
     const yawS = chase1(shoulderYaw, leadSign * c.rigStanceShoulderYawDeg * DEG + twist, c.rigShoulderK, c.rigShoulderZeta, dt);
 
     // Hips.
@@ -265,6 +282,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     S.copy(shoulderL).add(torsoOffL).add(spineBend as unknown as THREE.Vector3Like);
     qChest.setFromAxisAngle(YAXIS, yawS);
     qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg) * DEG);
+    qChest.multiply(qTmp);
+    qTmp.setFromAxisAngle(XAXIS, -rRoll);   // rhythm: roll over the loaded foot
     qChest.multiply(qTmp);
     const bChest = bone(BONE.chest);
     bChest.position.copy(S);
