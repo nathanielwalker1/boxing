@@ -11,7 +11,11 @@ const CSS = `
 #hud .side { position: absolute; top: 14px; width: min(38vw, 340px); }
 #hud .side.l { left: 16px; } #hud .side.r { right: 16px; text-align: right; }
 #hud .name { font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px; }
-#hud .bar { position: relative; height: 10px; background: #0008; border: 1px solid #fff5; border-radius: 2px; overflow: hidden; margin-bottom: 4px; }
+#hud .row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+#hud .r .row { flex-direction: row-reverse; }
+#hud .lbl { flex: 0 0 56px; font-size: 9px; letter-spacing: 0.12em; color: #fffb; }
+#hud .r .lbl { text-align: left; }
+#hud .bar { position: relative; flex: 1 1 auto; height: 10px; background: #0008; border: 1px solid #fff5; border-radius: 2px; overflow: hidden; }
 #hud .bar.stamina { height: 6px; }
 #hud .fill { position: absolute; inset: 0; transform-origin: left; background: #d8323c; }
 #hud .r .fill { transform-origin: right; }
@@ -41,7 +45,10 @@ export class Hud {
     const panel = (cls: string, name: string): SidePanel => {
       const root = document.createElement('div');
       root.className = `side ${cls}`;
-      root.innerHTML = `<div class="name">${name}</div><div class="bar health"><div class="fill"></div></div><div class="bar stamina"><div class="fill"></div></div><div class="pips"></div><span class="tag"></span>`;
+      root.innerHTML = `<div class="name">${name}</div>` +
+        `<div class="row"><span class="lbl">HEALTH</span><div class="bar health"><div class="fill"></div></div></div>` +
+        `<div class="row"><span class="lbl">STAMINA</span><div class="bar stamina"><div class="fill"></div></div></div>` +
+        `<div class="pips"></div><span class="tag"></span>`;
       this.el.appendChild(root);
       return {
         root,
