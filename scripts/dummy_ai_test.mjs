@@ -94,15 +94,39 @@ console.log('\n=== 2. Range-gated attacks ===');
   check('does not throw while out of range', w.throws.length === 0, `dist ${dist(w).toFixed(2)} > engage ${pinned.aiEngageDist}, ${w.throws.length} throws`);
   check('timer holds armed at 0 waiting for range', w.a.attackTimer === 0, `attackTimer=${w.a.attackTimer.toFixed(2)}`);
 
-  // Let it walk: every throw starts inside the landing band, and each commit is a real punchStart.
+  // Let it walk: every throw starts inside ITS punch's landing band, and each commit is a real punchStart.
   w.cfg = { ...pinned, aiSpeedScale: base.aiSpeedScale };
-  run(w, ticks(5));
-  const outOfBand = w.throws.filter(t => t.dist > w.cfg.aiEngageDist + 0.005 || t.dist < w.cfg.smotherDist - 0.005);
+  run(w, ticks(20));
   const starts = w.evs.filter(e => e.type === 'punchStart' && e.side === 1);
+  const band = t => [ai.nearDist(t, w.cfg), ai.engageDist(t, w.cfg)];
+  const outOfBand = w.throws.filter((t, i) => { const [lo, hi] = band(starts[i]?.punch ?? 'jab'); return t.dist > hi + 0.005 || t.dist < lo - 0.005; });
+  const types = new Set(starts.map(e => e.punch));
   check('throws once it has closed into range', w.throws.length > 0, `${w.throws.length} throws`);
-  check('every throw starts inside the landing band', outOfBand.length === 0, `distances ${w.throws.map(t => t.dist.toFixed(2)).join(', ')}`);
   check('every commit fires a punchStart on side 1 (the one-tick edge works)', starts.length === w.throws.length, `${starts.length} starts vs ${w.throws.length} commits`);
-  check('it only jabs', starts.every(e => e.punch === 'jab'));
+  check('every throw starts inside its own punch\'s landing band', outOfBand.length === 0,
+    starts.map((e, i) => `${e.punch}@${w.throws[i].dist.toFixed(2)}`).join(', '));
+  check('it throws all four punches', types.size === 4, `${[...types].join(', ')} over ${starts.length} throws`);
+  const hooks = starts.filter(e => e.punch === 'hook' || e.punch === 'uppercut');
+  check('hooks and uppercuts come from both hands', new Set(hooks.map(e => e.hand)).size === 2, hooks.map(e => `${e.punch}:${e.hand}`).join(', '));
+
+  // Weights: jab only → only jabs.
+  const jo = fresh({ ...pinned, aiSpeedScale: base.aiSpeedScale, aiCrossWeight: 0, aiHookWeight: 0, aiUppercutWeight: 0 });
+  run(jo, ticks(10));
+  const joStarts = jo.evs.filter(e => e.type === 'punchStart' && e.side === 1);
+  check('weights: jab-only throws only jabs', joStarts.length > 3 && joStarts.every(e => e.punch === 'jab'), `${joStarts.length} throws`);
+
+  // A short punch steps in: armed with an uppercut from the resting standoff
+  // (out of uppercut range) it closes to uppercut range and throws it.
+  const up = fresh({ ...base, aiAttackDelayMin: 999, aiAttackDelayMax: 999, aiJabWeight: 0, aiCrossWeight: 0, aiHookWeight: 0, aiUppercutWeight: 1 });
+  runUntil(up, x => dist(x) <= x.cfg.aiEngageDist, 15); run(up, ticks(1));
+  const restD = dist(up);
+  up.a = { ...up.a, attackTimer: 0 };
+  runUntil(up, x => x.throws.length > 0, 4);
+  const upStart = up.evs.find(e => e.type === 'punchStart' && e.side === 1);
+  check('armed with an uppercut it steps in from the standoff and throws it', restD > up.cfg.aiUppercutEngageDist && upStart?.punch === 'uppercut' && up.throws[0]?.dist <= up.cfg.aiUppercutEngageDist,
+    `rested at ${restD.toFixed(2)} m, threw ${upStart?.punch ?? 'nothing'} at ${up.throws[0]?.dist.toFixed(2) ?? '-'} m`);
+  run(up, ticks(3));
+  check('…then drifts back out toward the standoff', dist(up) > up.cfg.aiUppercutEngageDist, `${dist(up).toFixed(2)} m`);
 
   // Down: no intent at all.
   const dn = fresh(base);
@@ -126,7 +150,7 @@ const settle = w => {
 function jabSeries(chance, count) {
   const cfg = { ...base, aiBlockChance: chance, aiAttackDelayMin: 999, aiAttackDelayMax: 999 };
   const w = settle(fresh(cfg));
-  w.a = { ...w.a, attackTimer: 999 };
+  w.a = { ...w.a, attackTimer: 999, armed: null };   // it may have armed during the walk-in
   w.evs.length = 0;
   for (let i = 0; i < count; i++) {
     run(w, 1, () => inp({ jab: true }));
@@ -151,9 +175,10 @@ function jabSeries(chance, count) {
   check('guard drops when the window expires', !w.last.block && !me(w).block && w.a.blockTimer === 0);
 
   // Locked rule: blocking and punching are mutually exclusive — for the AI too.
-  // Arm it, let it throw, and jab into its wind-up: it must not guard.
+  // Arm it (with a straight, so it throws from where it stands), let it throw,
+  // and jab into its wind-up: it must not guard.
   runUntil(w, x => you(x).punch.type === null && me(x).punch.type === null, 3);
-  w.a = { ...w.a, attackTimer: 0 };
+  w.a = { ...w.a, attackTimer: 0, armed: 'jab' };
   runUntil(w, x => me(x).punch.type !== null, 2);
   const threw = me(w).punch.type !== null;
   let guarded = false, inFlight = 0;
