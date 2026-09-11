@@ -88,6 +88,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const hookDrive = spring1(0);   // 1 while a hook is in flight: hips, head and the punching-side foot turn harder with it
   const blockAmt = spring1(0);   // 0 = open guard, 1 = hunched into the block
   const rhythmGate = spring1(1); // 1 = the idle bounce is on; eases to 0 while punching / blocking / down
+  const fallAmt = spring1(0);    // 0 = standing, 1 = on the canvas (knockdown)
   const hipYaw = spring1(0);     // hips follow a fraction of the sim's torso twist (stiffest link, so they lead)
   const feet = [new FootPlanter(), new FootPlanter()] as const;
   const squashHead = new Squash();
@@ -419,6 +420,14 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       dbgPts[J.sh1]!.copy(shoulderJ[1]!); dbgPts[J.el1]!.copy(bone(BONE.forearm1).position); dbgPts[J.gl1]!.copy(gloveL[1]);
       debug.update(dbgPts, DEBUG_BONES);
     }
+
+    // Knockdown: the whole rig tips back about its feet and shortens as it
+    // lands, chased so the fall takes a beat and the get-up rises. Placeholder
+    // (a plank, not a crumple) — the sim's boxes stay standing, which is fine
+    // because a downed fighter cannot be hit.
+    const fall = chase1(fallAmt, next.down ? 1 : 0, c.rigSpineK * 0.5, c.rigSpineZeta, dt);
+    r.group.rotation.set(0, 0, fall * c.rigFallDeg * DEG);
+    r.group.scale.set(1, 1 - fall * c.rigFallSquash, 1);
 
     // Materials + outline toggle (live).
     updateMaterials(c);
