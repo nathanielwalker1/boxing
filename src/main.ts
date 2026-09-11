@@ -15,6 +15,7 @@ import { createFighterView } from './rig';
 import { Stage } from './render/stage';
 import { mountTuningPanel } from './ui/tune';
 import { FpsOverlay } from './ui/fps';
+import { Hud } from './ui/hud';
 import { InputManager, wantsTouch } from './ui/input';
 
 declare global {
@@ -64,6 +65,7 @@ const views = [
   createFighterView(0, specs[0], cfg, stage.scene),
   createFighterView(1, specs[1], cfg, stage.scene),
 ] as const;
+const hud = new Hud(document.body, [specs[0].name, specs[1].name]);
 
 // Inputs: side 0 is the player (InputManager → liveInput[0] each frame), side 1
 // is the AI (aiStep each sim tick; the frozen-guard dummy when aiEnabled is off).
@@ -188,6 +190,8 @@ function loop(nowMs: number): void {
   if (f === -1) stage.frame(a.pos, b.pos, closeness, nowMs / 1000, dt);
   else stage.frame(shown[f]!.pos, shown[f]!.pos, 1, nowMs / 1000, dt);
 
+  hud.visible = !paused;
+  hud.update(next);
   fps.visible = cfg.debugFps;
   const info = stage.info;
   fps.tick(info.calls, info.triangles);
