@@ -174,6 +174,8 @@ export const SCHEMA = {
   hookReachScale:   num(1, 0.7, 1.4, 0.05, 'punch', 'hook peak reach multiplier: 1 = elbow ~90° at contact, lands to ~0.8 m; higher straightens the arm for range'),
   uppercutReachScale: num(1, 0.7, 1.4, 0.05, 'punch', 'uppercut peak reach multiplier: 1 = elbow ~75°, lands to ~0.66 m; higher straightens the arm for range'),
   punchHoldFrac:    num(0.6, 0, 0.9, 0.05, 'punch', 'fraction of the recover phase the fist holds at full extension before returning (visible straight arm; timing and hit tick unchanged)'),
+  punchBuffer:      num(0.3, 0, 1, 0.05, 'punch', 'a punch pressed while one is in flight is remembered this long and thrown the moment it can be, s (0 = dropped, which is what made jab-cross spam skip every other press)'),
+  punchChainAt:     num(0.5, 0, 1, 0.05, 'punch', 'the next punch may start this far into the recover phase, cutting the tail of the retraction (1 = only after the punch fully finishes; lower = faster combos)'),
 
   // ── sim: block (SIM) ──
   blockReduction:   num(0.75, 0, 1, 0.05, 'block', 'fraction of an incoming impulse absorbed by a held block', 'blockReduction'),

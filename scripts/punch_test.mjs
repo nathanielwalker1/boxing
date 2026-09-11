@@ -115,8 +115,14 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
   check('a held jab flag fires exactly once', evs.filter(e => e.type === 'punchStart').length === 1, `${evs.filter(e => e.type === 'punchStart').length}`);
 }
 {
+  // A cross pressed mid-jab is buffered and fires when the jab opens its chain
+  // window (combo_test covers the timing) — never two in flight at once.
   const { evs } = run(fresh(MID), 60, i => [inp({ jab: i === 0, cross: i === 3 }), NONE]);
-  check('a cross pressed mid-jab is ignored (one punch at a time)', evs.filter(e => e.type === 'punchStart').length === 1);
+  check('a cross pressed mid-jab waits its turn (one punch at a time, then the cross)', evs.filter(e => e.type === 'punchStart').map(e => e.punch).join(',') === 'jab,cross', evs.filter(e => e.type === 'punchStart').map(e => e.punch).join(','));
+  const noBuf = { ...cfg, punchBuffer: 0, punchChainAt: 1 };
+  let s0 = fresh(MID); const e0 = [];
+  for (let i = 0; i < 60; i++) { const r = sim.step(s0, [inp({ jab: i === 0, cross: i === 3 }), NONE], noBuf); s0 = r.state; e0.push(...r.events); }
+  check('punchBuffer 0: a cross pressed mid-jab is dropped (v1 behaviour)', e0.filter(e => e.type === 'punchStart').length === 1);
   const { evs: e2 } = run(fresh(MID), 90, i => [inp({ jab: i === 0, cross: i === 40 }), NONE]);
   check('a cross pressed after the jab finished fires', e2.filter(e => e.type === 'punchStart').map(e => e.punch).join(',') === 'jab,cross');
 }

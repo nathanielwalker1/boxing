@@ -10,13 +10,19 @@
  * (requested in the Stage-1 report):
  *   moveHist[0]  previous tick's punch-flag bitmask (edge-triggering)
  *   moveHist[1]  reaction stiffness multiplier of the last punch that landed
- *   moveHist[2…] reserved for the flick-vs-hold move samples (Stage 2)
+ *   moveHist[2]  buffered punch (one mask bit, 0 = none) — pressed while a punch was in flight
+ *   moveHist[3]  seconds the buffered press is still honoured
+ *   moveHist[4]  move.x at the buffered press (hook/uppercut hand)
+ *   moveHist[5…] reserved for the flick-vs-hold move samples (Stage 2)
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
 
 const HIST_PREV_MASK = 0;
 const HIST_SNAP = 1;
+const HIST_BUF_MASK = 2;
+const HIST_BUF_T = 3;
+const HIST_BUF_X = 4;
 
 export const MASK_JAB = 1, MASK_CROSS = 2, MASK_HOOK = 4, MASK_UPPERCUT = 8;
 
@@ -28,8 +34,16 @@ export function setPrevPunchMask(f: FighterState, m: number): void { f.moveHist[
 export function reactionSnap(f: FighterState): number { return f.moveHist[HIST_SNAP] ?? 1; }
 export function setReactionSnap(f: FighterState, s: number): void { f.moveHist[HIST_SNAP] = s; }
 
+export interface PunchBuffer { mask: number; t: number; x: number }
+export function punchBuffer(f: FighterState): PunchBuffer {
+  return { mask: f.moveHist[HIST_BUF_MASK] ?? 0, t: f.moveHist[HIST_BUF_T] ?? 0, x: f.moveHist[HIST_BUF_X] ?? 0 };
+}
+export function setPunchBuffer(f: FighterState, b: PunchBuffer): void {
+  f.moveHist[HIST_BUF_MASK] = b.mask; f.moveHist[HIST_BUF_T] = b.t; f.moveHist[HIST_BUF_X] = b.x;
+}
+
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0]; }
 
 const v3c = (a: Vec3): Vec3 => ({ x: a.x, y: a.y, z: a.z });
 const s3c = (s: Spring3): Spring3 => ({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz });

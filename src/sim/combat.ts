@@ -6,18 +6,49 @@
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, triangle, v2dist, v2dot, handLateralSign } from '../core';
 import { PUNCHES, punchCrouch, punchHand, punchTwist } from './punches';
-import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, prevPunchMask, punchMask, setPrevPunchMask } from './state';
+import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, prevPunchMask, punchBuffer, punchMask, setPrevPunchMask, setPunchBuffer } from './state';
 import { applyReaction } from './reaction';
+
+/** Two pressed on the same tick: the faster punch wins. */
+function fastestOf(mask: number): PunchType | null {
+  return mask & MASK_JAB ? 'jab' : mask & MASK_CROSS ? 'cross' : mask & MASK_HOOK ? 'hook' : mask & MASK_UPPERCUT ? 'uppercut' : null;
+}
+const maskOf = (t: PunchType): number => t === 'jab' ? MASK_JAB : t === 'cross' ? MASK_CROSS : t === 'hook' ? MASK_HOOK : MASK_UPPERCUT;
+
+/**
+ * Can a new punch start this tick? With the guard down, yes. With one in
+ * flight, once its recover phase is punchChainAt of the way through — the
+ * combo window: the next punch cuts the tail of the retraction (1 = never).
+ */
+function canStartPunch(f: FighterState, cfg: Config): boolean {
+  const p = f.punch;
+  if (p.type === null) return true;
+  return p.phase === 'recover' && p.t >= cfg.punchChainAt * PUNCHES[p.type].phases(cfg).recover;
+}
+
+/** Hook/uppercut: the joystick at the press picks the hand (x < 0 = lead). */
+function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number, events: SimEvent[]): void {
+  const hand = punchHand(PUNCHES[type], moveX);
+  f.punch = { type, hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
+  events.push({ type: 'punchStart', side, punch: type, hand });
+}
 
 /**
  * Block and punch input for one fighter this tick. Block is a level and
  * engages whenever no punch is in flight; a punch fires on the rising edge of
- * its flag when the guard is down. Both re-check fresh every tick, which is
- * what makes switching instant.
+ * its flag. Both re-check fresh every tick, which is what makes switching
+ * instant.
+ *
+ * A press that cannot fire yet (one in flight, before the chain window) is
+ * buffered for punchBuffer seconds — the newest press replaces an older one,
+ * the stick at the press is kept for the hand — and fires on the first tick
+ * it can. Without this, jab-cross spam lost every press that landed inside
+ * the previous punch, and a held key has no edge, so it read as "cross…
+ * cross…". The guard coming up, or the canvas, forgets the buffer: block wins.
  */
 export function stepActions(f: FighterState, side: Side, input: Readonly<FrameInput>, cfg: Config, dt: number, events: SimEvent[]): void {
   const mask = punchMask(input);
-  const pressed = mask & ~prevPunchMask(f);
+  const pressed = fastestOf(mask & ~prevPunchMask(f));
   setPrevPunchMask(f, mask);
 
   const guardOpen = f.punch.type === null;
@@ -26,15 +57,21 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
   f.blockT = f.block ? (wasBlocking ? f.blockT + dt : 0) : 0;
   f.guard = f.block ? 'block' : 'rest';
 
-  if (f.block || !guardOpen || f.down) return;
-  // Two pressed on the same tick: the faster punch wins.
-  const type: PunchType | null =
-    pressed & MASK_JAB ? 'jab' : pressed & MASK_CROSS ? 'cross' : pressed & MASK_HOOK ? 'hook' : pressed & MASK_UPPERCUT ? 'uppercut' : null;
-  if (type === null) return;
-  // Hook/uppercut: the joystick at the press picks the hand (x < 0 = lead).
-  const hand = punchHand(PUNCHES[type], input.move.x);
-  f.punch = { type, hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
-  events.push({ type: 'punchStart', side, punch: type, hand });
+  const buf = punchBuffer(f);
+  buf.t = Math.max(0, buf.t - dt);
+  if (buf.t === 0) buf.mask = 0;
+
+  if (input.block || f.down) { setPunchBuffer(f, { mask: 0, t: 0, x: 0 }); return; }
+
+  const open = canStartPunch(f, cfg);
+  if (pressed !== null) {
+    if (open) { startPunch(f, side, pressed, input.move.x, events); buf.mask = 0; buf.t = 0; }
+    else if (cfg.punchBuffer > 0) { buf.mask = maskOf(pressed); buf.t = cfg.punchBuffer; buf.x = input.move.x; }
+  } else if (open && buf.mask) {
+    startPunch(f, side, fastestOf(buf.mask)!, buf.x, events);
+    buf.mask = 0; buf.t = 0;
+  }
+  setPunchBuffer(f, buf);
 }
 
 /**
