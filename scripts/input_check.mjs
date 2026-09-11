@@ -32,7 +32,9 @@ const idle = i => !i.jab && !i.cross && !i.hook && !i.uppercut && !i.block && ne
 {
   const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
   attach(page);
-  await page.goto(`${DEV_URL}/?touch=0`, { waitUntil: 'networkidle', timeout: 15_000 });
+  // ai=0: the keyboard mapping is yaw-relative, and the AI's hooks shove the
+  // player sideways, so the yaw would drift mid-check.
+  await page.goto(`${DEV_URL}/?touch=0&ai=0`, { waitUntil: 'networkidle', timeout: 15_000 });
   await bootReady(page);
   // The mapping is yaw-relative and the real sim walks the player on every held
   // key, so pin side 0's sim input to idle: window.__input still reports the
@@ -103,7 +105,7 @@ const idle = i => !i.jab && !i.cross && !i.hook && !i.uppercut && !i.block && ne
 {
   const page = await browser.newPage({ viewport: { width: 960, height: 600 }, hasTouch: true });
   attach(page);
-  await page.goto(`${DEV_URL}/?touch=1`, { waitUntil: 'networkidle', timeout: 15_000 });
+  await page.goto(`${DEV_URL}/?touch=1&ai=0`, { waitUntil: 'networkidle', timeout: 15_000 });
   await bootReady(page);
   const cdp = await page.context().newCDPSession(page);
   const touch = (type, touchPoints) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
