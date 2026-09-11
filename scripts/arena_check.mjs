@@ -29,7 +29,9 @@ const logs = [];
 page.on('console', m => logs.push({ type: m.type(), text: m.text() }));
 page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
 
-await page.goto(`${DEV_URL}/`, { waitUntil: 'networkidle', timeout: 15_000 });
+// ?ai=0: the luminance rects are frame fractions and the camera follows the
+// fighters, so the scene has to hold still — the AI would walk the framing.
+await page.goto(`${DEV_URL}/?ai=0`, { waitUntil: 'networkidle', timeout: 15_000 });
 await bootReady(page, { frames: 10 });
 await page.evaluate(() => { window.__cfg.debugHitboxes = false; window.__cfg.debugFps = false; });
 
