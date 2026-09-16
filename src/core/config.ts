@@ -210,7 +210,7 @@ export const SCHEMA = {
   slipPunishDuration: num(0.7, 0, 2, 0.05, 'counter', 'seconds that pin is held — long enough to step in and counter after the slip unwinds; the number to argue with first', 'slipPunishDuration'),
 
   // ── sim: health + stamina + knockdown (SIM) — v1 Stage 6 / 17 on 0..1 bars, impulse in N·s ──
-  healthDamagePerImpulse: num(0.0009, 0, 0.005, 0.00005, 'health', 'health lost per N·s of landed impulse (after block reduction). A standing cross is ~230 N·s → ~0.2, so ~5 clean crosses or ~3 hooks put a fighter down (v1: 0.01 per force on a 100 bar)', 'healthDamagePerForce'),
+  healthDamagePerImpulse: num(0.0005, 0, 0.005, 0.00005, 'health', 'health lost per N·s of landed impulse (after block reduction and the counter bonus). A standing cross is ~230 N·s → ~0.12, so ~9 clean crosses or ~5 hooks put a fighter down; counters at full exposure nearly double that. Was 0.0009 (~5 crosses) — Nate 2026-09-15: "getting knocked out too fast" (v1: 0.01 per force on a 100 bar)', 'healthDamagePerForce'),
   staminaPunchCost: num(0.04, 0, 0.2, 0.005, 'health', 'stamina spent per punch thrown, lands or not (v1: 4/100)', 'staminaDrainPerPunch'),
   staminaBlockDrain: num(0.08, 0, 0.5, 0.01, 'health', 'stamina drained per second the block is held — a full bar buys 12.5 s of guard. v1 was 2/100 per s, which made turtling free (Nate 2026-09-11: "you can\'t perpetually block")', 'staminaDrainPerSecondBlocking'),
   staminaRegen:     num(0.35, 0, 1, 0.01, 'health', 'stamina regained per second while neither punching nor blocking — an empty bar refills in ~3 s (v1: 20/100; raised from 0.2, Nate 2026-09-11)', 'staminaRegenPerSecond'),
