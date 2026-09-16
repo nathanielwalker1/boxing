@@ -9,10 +9,25 @@
  * (CONTRACT §3). The sim never knows the AI exists: side 1 is "whatever input
  * it is given", exactly as before.
  *
- *   1. Standoff steer   — walks toward / away from aiStandoffDist through the
- *                         shared locomotion, with a hysteresis band (no steering
- *                         inside it) and a proportional taper into the band, so
- *                         it settles instead of hunting.
+ *   0. Footwork mode  — (2026-09-16) a mode rolled on a seeded timer decides
+ *                        WHERE it wants to be and whether it moves at all:
+ *                        PRESS   the standoff steer below, at aiStandoffDist
+ *                        PROBE   the same steer at aiProbeDist — out of range;
+ *                                it steps in only to throw, then drifts back out
+ *                        CIRCLE  a loose standoff plus lateral stick, one way
+ *                        HOLD    no steering for a beat
+ *                        RESET   steps out to aiResetDist after an exchange (a
+ *                                throw, or a solid shot taken), then re-rolls.
+ *                        Fight Night / UFC opponents pick spacing behaviour per
+ *                        style rather than holding one distance; this is the
+ *                        cheap version of that. Zero every weight but press
+ *                        and reset chance and it is the old AI.
+ *   1. Standoff steer   — walks toward / away from the mode's standoff through
+ *                         the shared locomotion, with a hysteresis band (no
+ *                         steering inside it) and a proportional taper into the
+ *                         band, so it settles instead of hunting. Acts on the
+ *                         PREDICTED distance (closing speed × aiLookahead) so
+ *                         it decelerates into range rather than gliding through.
  *   2. Range-gated punch — the randomised timer only ARMS a punch. Arming picks
  *                         the type by weight (aiJabWeight…) and, for a hook or
  *                         uppercut, a hand by coin flip. The throw waits for the
@@ -30,9 +45,11 @@
  * Timers run on the sim's clock: during hit-stop they slow with it.
  */
 import {
-  NULL_INPUT, SIM_DT, clamp, cloneInput, frameOf, rngChance, rngClone, rngFloat, rngRange, seedRng, v2dist,
+  NULL_INPUT, SIM_DT, clamp, cloneInput, frameOf, lerp, rngChance, rngClone, rngFloat, rngRange, seedRng, v2dist,
   type Config, type FrameInput, type PunchType, type RngState, type Side, type SimState,
 } from '../core';
+
+export type AiMode = 'press' | 'probe' | 'circle' | 'hold' | 'reset';
 
 export interface AiState {
   side: Side;
@@ -54,6 +71,15 @@ export interface AiState {
   /** Punches committed so far, and the gate distance the last one was committed at. Read by tests. */
   throwCount: number;
   lastThrowDist: number;
+  /** Footwork mode and the seconds left in it. */
+  mode: AiMode;
+  modeTimer: number;
+  /** Which way it circles this time, as a stick x sign. */
+  circleDir: -1 | 1;
+  /** Own health last tick (a drop is a hit taken). */
+  lastHealth: number;
+  /** A reset was rolled at the last throw; it starts once that punch has finished. */
+  resetPending: boolean;
 }
 
 /** A fresh AI for `side`. Its rng stream is derived from the fight seed so two sides never share one. */
@@ -71,6 +97,11 @@ export function createAi(side: Side, seed: number, cfg: Config): AiState {
     dist: Infinity,
     throwCount: 0,
     lastThrowDist: Infinity,
+    mode: 'press',
+    modeTimer: rngRange(rng, cfg.aiModeMin, cfg.aiModeMax),
+    circleDir: -1,
+    lastHealth: 1,
+    resetPending: false,
   };
 }
 
@@ -92,6 +123,23 @@ export const engageDist = (t: PunchType, cfg: Config): number =>
 export const nearDist = (t: PunchType, cfg: Config): number =>
   t === 'hook' || t === 'uppercut' ? cfg.separationDist : cfg.smotherDist;
 
+/** Roll the next footwork mode (never reset — that is event-driven) and its duration. Circling fades with stamina. */
+function rollMode(a: AiState, stamina: number, cfg: Config): void {
+  const circleW = Math.max(0, cfg.aiCircleWeight) * lerp(cfg.aiTiredFootwork, 1, clamp(stamina, 0, 1));
+  const weights: [AiMode, number][] = [
+    ['press', Math.max(0, cfg.aiPressWeight)], ['probe', Math.max(0, cfg.aiProbeWeight)], ['circle', circleW], ['hold', Math.max(0, cfg.aiHoldWeight)],
+  ];
+  const total = weights.reduce((s, [, w]) => s + w, 0);
+  let mode: AiMode = 'press';
+  if (total > 0) {
+    let r = rngFloat(a.rng) * total;
+    for (const [m, w] of weights) { r -= w; if (r < 0) { mode = m; break; } }
+  }
+  a.mode = mode;
+  a.modeTimer = mode === 'hold' ? rngRange(a.rng, 0.3, Math.max(0.3, cfg.aiHoldMax)) : rngRange(a.rng, cfg.aiModeMin, Math.max(cfg.aiModeMin, cfg.aiModeMax));
+  if (mode === 'circle') a.circleDir = rngChance(a.rng, 0.5) ? -1 : 1;
+}
+
 /**
  * Decide this tick's input from the state the sim is about to step. Pure:
  * returns a new AiState and a fresh FrameInput, touches neither argument.
@@ -109,11 +157,24 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   const oppPunching = opp.punch.type !== null;
   const oppStarted = oppPunching && !a.oppPunching;
   a.oppPunching = oppPunching;
+  const hurt = a.lastHealth - me.health;
+  a.lastHealth = me.health;
 
   // Between rounds or on the canvas: no intent, and the timers hold.
   if (s.round.phase !== 'fighting' || me.down) return { ai: a, input };
 
   const punching = me.punch.type !== null;
+
+  // ── 0. Footwork mode ───────────────────────────────────────────────────────
+  // A solid shot taken may trigger a reset, and a reset rolled at the last
+  // throw starts once that punch has finished; the timer expiring rolls the
+  // next mode.
+  if (a.mode !== 'reset' && hurt >= cfg.aiHitResetDamage && cfg.aiHitResetDamage > 0 && rngChance(a.rng, cfg.aiHitResetChance)) {
+    a.mode = 'reset'; a.modeTimer = cfg.aiResetTime; a.resetPending = false;
+  }
+  if (a.resetPending && !punching) { a.mode = 'reset'; a.modeTimer = cfg.aiResetTime; a.resetPending = false; }
+  a.modeTimer = Math.max(0, a.modeTimer - dt);
+  if (a.modeTimer === 0) rollMode(a, me.stamina, cfg);
 
   // ── 3. Reactive block ──────────────────────────────────────────────────────
   // A guard that is already up is neither re-rolled nor extended — a follow-up
@@ -147,27 +208,44 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // instead of overshooting and bouncing back out. Backing off (rather than
   // just stopping) when too close is what restores its own jab's power.
   // Armed with a punch shorter than its resting distance, it steps in to that
-  // punch's range (and drifts back out to the standoff once it has thrown).
-  let standoff = cfg.aiStandoffDist;
-  if (a.armed !== null && cfg.aiStepIn > 0) standoff = Math.min(standoff, engageDist(a.armed, cfg) - cfg.aiStepIn * cfg.aiStandoffBand);
-  const err = dist - standoff;
-  if (Math.abs(err) > cfg.aiStandoffBand) {
-    const mag = clamp(Math.abs(err) / (cfg.aiStandoffBand * 2), 0, 1) * cfg.aiSpeedScale;
+  // punch's range (and drifts back out to the standoff once it has thrown) —
+  // except mid-reset (it is leaving) and on hold (it is standing).
+  const mode = a.mode;
+  let standoff = mode === 'reset' ? cfg.aiResetDist : mode === 'probe' ? cfg.aiProbeDist : mode === 'circle' ? cfg.aiStandoffDist + cfg.aiStandoffBand : cfg.aiStandoffDist;
+  const band = mode === 'circle' ? cfg.aiStandoffBand * 2 : cfg.aiStandoffBand;
+  const stepsIn = a.armed !== null && cfg.aiStepIn > 0 && mode !== 'reset' && mode !== 'hold';
+  if (stepsIn) standoff = Math.min(standoff, engageDist(a.armed!, cfg) - cfg.aiStepIn * cfg.aiStandoffBand);
+  let ux = 1, uz = 0;
+  if (dist > 0.01) { ux = (opp.pos.x - me.pos.x) / dist; uz = (opp.pos.z - me.pos.z) / dist; }
+  // Closing speed along the line (positive = the gap is shrinking) → the distance it is heading for.
+  const closing = (me.vel.x - opp.vel.x) * ux + (me.vel.z - opp.vel.z) * uz;
+  const predicted = dist - closing * cfg.aiLookahead;
+  const err = predicted - standoff;
+  const fr = frameOf(me.yaw);
+  if (mode !== 'hold' && Math.abs(err) > band) {
+    const mag = clamp(Math.abs(err) / (band * 2), 0, 1) * cfg.aiSpeedScale;
     const sign = err > 0 ? 1 : -1;   // +1 = close in, -1 = back off
     if (dist > 0.01) {
-      const fr = frameOf(me.yaw);
-      const ux = (opp.pos.x - me.pos.x) / dist, uz = (opp.pos.z - me.pos.z) / dist;
       input.move.y = (fr.fwd.x * ux + fr.fwd.z * uz) * sign * mag;
       input.move.x = (fr.right.x * ux + fr.right.z * uz) * sign * mag;
     } else {
       input.move.y = -mag;   // co-located: no usable direction, back straight off
     }
   }
+  if (mode === 'circle') {
+    // Lateral stick: the sim's x is the fighter's right, which is already
+    // perpendicular to the line to the opponent (the yaw tracks it).
+    input.move.x += a.circleDir * cfg.aiCircleSpeed * cfg.aiSpeedScale;
+    const len = Math.hypot(input.move.x, input.move.y);
+    if (len > 1) { input.move.x /= len; input.move.y /= len; }
+  }
 
   // ── 2 + 4. Throw: only inside the armed punch's own landing band ──────────
   // (4 is the aggression drain above: the opening punish tracks an opening
   // appearing or closing mid-wait instead of being locked in at the last throw.)
-  if (a.armed !== null) {
+  // Not while resetting: it is stepping out, not fighting. Each throw may
+  // trigger a reset once it has landed or missed — the step-out after the exchange.
+  if (a.armed !== null && mode !== 'reset') {
     const t = a.armed;
     const inBand = dist <= engageDist(t, cfg) && dist >= nearDist(t, cfg);
     if (inBand && !punching && !input.block) {
@@ -177,6 +255,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
       a.attackTimer = rngRange(a.rng, cfg.aiAttackDelayMin, cfg.aiAttackDelayMax);
       a.throwCount += 1;
       a.lastThrowDist = dist;
+      if (rngChance(a.rng, cfg.aiResetChance)) a.resetPending = true;
     }
   }
 

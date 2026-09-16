@@ -15,7 +15,10 @@ const [core, sim, ai] = await load('/src/core/index.ts', '/src/sim/index.ts', '/
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // No knockdowns: a knockdown freezes the fight for the count, which would
 // stall the long series below (v1 did the same with healthDamagePerForce = 0).
-const base = { ...createConfig(), healthDamagePerImpulse: 0 };
+// Press-only footwork (2026-09-16): §1–5 pin the four v1 heuristics, which
+// the footwork modes sit on top of; §6 covers the modes with the defaults.
+const defaults = { ...createConfig(), healthDamagePerImpulse: 0 };
+const base = { ...defaults, aiProbeWeight: 0, aiCircleWeight: 0, aiHoldWeight: 0, aiResetChance: 0, aiHitResetChance: 0 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
@@ -235,6 +238,59 @@ console.log('\n=== 5. Determinism ===');
   const s0 = fresh(base, 5), snap = JSON.stringify(s0.s) + JSON.stringify(s0.a);
   ai.aiStep(s0.a, s0.s, base);
   check('aiStep mutates neither its AI state nor the sim state', JSON.stringify(s0.s) + JSON.stringify(s0.a) === snap);
+}
+
+// ─── 6. Footwork modes (2026-09-16) ───────────────────────────────────────────
+console.log('\n=== 6. Footwork modes ===');
+{
+  // A long spar with the defaults against a player who stands still: it must
+  // spend real time out of range (the space Nate asked for), circle, and reset.
+  const w = fresh(defaults, 2);
+  const trace = [];
+  run(w, ticks(40), () => NONE, x => { trace.push({ mode: x.a.mode, d: dist(x), lat: x.last.move.x, tick: x.s.tick }); });
+  const modes = new Set(trace.map(t => t.mode));
+  const far = trace.filter(t => t.d > defaults.aiEngageDist + 0.05).length / trace.length;
+  const circling = trace.filter(t => t.mode === 'circle');
+  const meanLat = circling.reduce((s, t) => s + Math.abs(t.lat), 0) / Math.max(1, circling.length);
+  const share = m => (trace.filter(t => t.mode === m).length / trace.length * 100).toFixed(0);
+  console.log(`     press ${share('press')}% · probe ${share('probe')}% · circle ${share('circle')}% · hold ${share('hold')}% · reset ${share('reset')}% · ${w.throws.length} throws in 40 s`);
+  check('uses at least four of the five modes in 40 s', modes.size >= 4, [...modes].join(', '));
+  check('spends at least 20% of the time out of its own range (gives space)', far >= 0.2, `${(far * 100).toFixed(0)}% beyond ${(defaults.aiEngageDist + 0.05).toFixed(2)} m`);
+  check('…but still fights: throws punches', w.throws.length >= 6, `${w.throws.length}`);
+  check('circling pushes the stick sideways', circling.length > 0 && meanLat > 0.3, `mean |x| ${meanLat.toFixed(2)} over ${circling.length} ticks`);
+  const resets = trace.filter((t, i) => t.mode === 'reset' && i > 0 && trace[i - 1].mode !== 'reset');
+  check('resets happen (after a throw or a hit)', resets.length >= 1, `${resets.length}`);
+  // Each reset actually opens the distance: from its start, within aiResetTime it is out past aiEngageDist.
+  const opened = resets.filter(r => { const end = trace.find(t => t.tick >= r.tick + ticks(defaults.aiResetTime) - 1); return end && end.d > defaults.aiEngageDist; });
+  check('a reset steps out beyond engage range', resets.length > 0 && opened.length >= Math.ceil(resets.length * 0.6), `${opened.length}/${resets.length} opened`);
+
+  // Probe: parked out of range, it steps in to throw and drifts back out.
+  const pr = fresh({ ...defaults, aiPressWeight: 0, aiCircleWeight: 0, aiHoldWeight: 0, aiResetChance: 0, aiAttackDelayMin: 999, aiAttackDelayMax: 999 }, 3);
+  runUntil(pr, x => x.a.mode === 'probe', 5); run(pr, ticks(6));
+  const restD = dist(pr);
+  check('probe rests outside its jab range', pr.a.mode === 'probe' && restD > defaults.aiEngageDist, `${restD.toFixed(2)} m vs engage ${defaults.aiEngageDist}`);
+  pr.a = { ...pr.a, attackTimer: 0, armed: 'jab' };
+  runUntil(pr, x => x.throws.length > 0, 4);
+  check('…steps in to throw', pr.throws.length === 1 && pr.throws[0].dist <= defaults.aiEngageDist, `threw at ${pr.throws[0]?.dist.toFixed(2) ?? '-'} m`);
+  run(pr, ticks(2.5));
+  check('…and drifts back out', dist(pr) > defaults.aiEngageDist, `${dist(pr).toFixed(2)} m`);
+
+  // Hold: no steering, however far the player is.
+  const hd = fresh({ ...defaults, aiPressWeight: 0, aiProbeWeight: 0, aiCircleWeight: 0, aiResetChance: 0, aiAttackDelayMin: 999, aiAttackDelayMax: 999 }, 4);
+  runUntil(hd, x => x.a.mode === 'hold', 5);
+  let steered = false; run(hd, 10, () => NONE, x => { if (x.last.move.x !== 0 || x.last.move.y !== 0) steered = true; });
+  check('hold: the stick is centred', hd.a.mode === 'hold' && !steered);
+
+  // Momentum: with the glide of the new friction it still arrives inside the band, not through it.
+  const pw = fresh(base, 5);
+  runUntil(pw, x => dist(x) <= x.cfg.aiStandoffDist + x.cfg.aiStandoffBand, 10);
+  let minD = Infinity; run(pw, ticks(1.5), () => NONE, x => { minD = Math.min(minD, dist(x)); });
+  check('press: the walk-in settles inside the band without gliding through it', minD >= base.aiStandoffDist - base.aiStandoffBand - 0.03, `min ${minD.toFixed(2)} m, band ${(base.aiStandoffDist - base.aiStandoffBand).toFixed(2)}–${(base.aiStandoffDist + base.aiStandoffBand).toFixed(2)}`);
+
+  // Determinism with the modes on.
+  const spar = seed => { const x = fresh(defaults, seed); run(x, ticks(15), i => inp({ jab: i % 120 === 0 })); return x; };
+  const a = spar(9), b = spar(9);
+  check('modes are seeded: same seed → same modes and throws', JSON.stringify(a.a) === JSON.stringify(b.a) && JSON.stringify(a.throws) === JSON.stringify(b.throws));
 }
 
 done();
