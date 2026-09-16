@@ -431,7 +431,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const bHead = bone(BONE.head);
     bHead.position.copy(headL);
     bHead.quaternion.setFromAxisAngle(YAXIS, yawS * Math.min(1, c.rigHeadFollow * drive));
-    qTmp.setFromAxisAngle(ZAXIS, tilt * 0.5);
+    qTmp.setFromAxisAngle(ZAXIS, tilt * 0.5 - blk * c.rigBlockChinTuckDeg * DEG);   // chin tucks behind the gloves in the block
     bHead.quaternion.multiply(qTmp);
     scl.set(1, 1, 1);
     squashHead.step(dt);

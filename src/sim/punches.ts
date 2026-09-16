@@ -175,26 +175,31 @@ export function punchHand(def: PunchDef, moveX: number): Hand {
 export interface LocalPose { fwd: number; up: number; lat: number }
 
 /**
- * Guard: lead glove a little forward at chin height, rear glove by the cheek.
- * Kept close to the body so the elbows hang down over the ribs rather than
- * winging out (Stage-1 feel-test).
+ * Guard: the RELAXED stance (2026-09-16, Fight Night reference): lead glove
+ * out in front at chin height, rear glove by the cheek, both a hand's width
+ * outside the face so the face is visible and there is air between the
+ * gloves. Elbows still hang over the ribs (Stage-1 feel-test).
  */
 export function guardLocal(body: BodyDims, hand: Hand, stance: Stance): LocalPose {
   const lead = hand === 'lead';
   return {
-    fwd: body.upperArm * (lead ? 0.6 : 0.35),
-    up: body.headY - body.headR * (lead ? 0.6 : 0.2),
-    lat: handLateralSign(hand, stance) * body.shoulderW * 0.32,
+    fwd: body.upperArm * (lead ? 0.7 : 0.35),
+    up: body.headY - body.headR * (lead ? 0.75 : 0.35),
+    lat: handLateralSign(hand, stance) * body.shoulderW * (lead ? 0.42 : 0.4),
   };
 }
 
-/** Block: both gloves raised to the brow and pulled in tight in front of the face. */
+/**
+ * Block: COVERED UP — both gloves up at the brow, together in front of the
+ * face (a glove's width apart), pulled in close; the rig adds the hunch, the
+ * shrug and the chin tuck. Visibly a different pose from the guard.
+ */
 export function blockLocal(body: BodyDims, hand: Hand, stance: Stance): LocalPose {
   const lead = hand === 'lead';
   return {
-    fwd: body.upperArm * (lead ? 0.5 : 0.4),
-    up: body.headY + body.headR * 0.15,
-    lat: handLateralSign(hand, stance) * body.shoulderW * 0.2,
+    fwd: body.upperArm * (lead ? 0.4 : 0.32),
+    up: body.headY + body.headR * 0.1,
+    lat: handLateralSign(hand, stance) * body.shoulderW * 0.15,
   };
 }
 
