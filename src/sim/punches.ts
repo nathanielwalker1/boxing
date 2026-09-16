@@ -278,7 +278,10 @@ export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: 
   const { cocked, via, peak } = def.path(body, hand, stance, cfg);
   if (elapsed < ph.cock) return mix(g, cocked, smoothstep(elapsed / ph.cock));
   if (elapsed < ph.cock + ph.extend) {
-    const t = smoothstep((elapsed - ph.cock) / ph.extend);
+    // The target reaches the peak at chainArrive of the extend and waits
+    // there, so the glove spring (which lags a fast target by a few cm) has
+    // settled onto the peak by the resolve tick whatever the tick alignment.
+    const t = smoothstep(Math.min(1, (elapsed - ph.cock) / (ph.extend * Math.max(0.05, cfg.chainArrive))));
     return via ? curve(cocked, via, peak, t) : mix(cocked, peak, t);
   }
   const rt = (elapsed - ph.cock - ph.extend) / ph.recover;

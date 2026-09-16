@@ -102,7 +102,12 @@ const spam = (periodS, seconds, c = cfg) => {
 
   const fast = spam(0.15, 3);
   const jabMin = jabPh.cock + jabPh.extend + cfg.punchChainAt * jabPh.recover;
-  check('mashing faster than the fighter can punch still lands most presses', fast.starts.length >= fast.presses * 0.7, `${fast.starts.length} punches from ${fast.presses} presses: ${fast.seq}`);
+  // The ceiling is the timing table: the buffer keeps the newest press, and a
+  // cross can start again only at its chain window, so at most 3 s / (cross
+  // cock + extend + chainAt × recover) punches fit. Within one of that.
+  const crossMin = cfg.crossCock + cfg.crossExtend + cfg.punchChainAt * cfg.crossRecover;
+  const ceiling = Math.floor(3 / crossMin);
+  check('mashing faster than the fighter can punch lands as many as the chain window allows', fast.starts.length >= ceiling - 1, `${fast.starts.length} punches from ${fast.presses} presses (ceiling ${ceiling}): ${fast.seq}`);
   check('…never faster than the chain window allows', fast.minGapS >= jabMin - 1e-9, `min gap ${(fast.minGapS * 1000).toFixed(0)} ms vs ${(jabMin * 1000).toFixed(0)} ms`);
 
   const noBuf = { ...cfg, punchBuffer: 0, punchChainAt: 1 };

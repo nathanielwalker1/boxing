@@ -91,6 +91,9 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
  * Advance the punch clock. Returns true on the one tick the punch reaches its
  * resolve moment (peakAt), which is when the hit test runs.
  */
+/** Seconds of slack on a phase boundary so a boundary that falls on a tick is taken on that tick. */
+const PHASE_EPS = 1e-6;
+
 export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean {
   const p = f.punch;
   if (p.type === null) return false;
@@ -101,12 +104,15 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   // the phase table itself is untouched, so every pose still reads off
   // `progress`, and the exposure curve stretches with the recovery for free.
   const was = p.progress * ph.total;
-  const rate = was < ph.cock ? 1 / cockMult(f) : was >= ph.cock + ph.extend ? 1 / whiffMult(f) : 1;
+  const rate = was < ph.cock - PHASE_EPS ? 1 / cockMult(f) : was >= ph.cock + ph.extend - PHASE_EPS ? 1 / whiffMult(f) : 1;
   const elapsed = Math.min(ph.total, was + dt * rate);
   p.progress = elapsed / ph.total;
-  if (elapsed < ph.cock) { p.phase = 'cock'; p.t = elapsed; }
-  else if (elapsed < ph.cock + ph.extend) { p.phase = 'extend'; p.t = elapsed - ph.cock; }
-  else { p.phase = 'recover'; p.t = elapsed - ph.cock - ph.extend; }
+  // Phase boundaries with a float epsilon: twelve ticks of 1/60 sum to a hair
+  // under 0.2, and a phase that ends exactly on a tick must end ON that tick,
+  // not one later (the whiff stretch and the hit test both key off it).
+  if (elapsed < ph.cock - PHASE_EPS) { p.phase = 'cock'; p.t = elapsed; }
+  else if (elapsed < ph.cock + ph.extend - PHASE_EPS) { p.phase = 'extend'; p.t = elapsed - ph.cock; }
+  else { p.phase = 'recover'; p.t = Math.max(0, elapsed - ph.cock - ph.extend); }
 
   // Whole-body channels the rig draws: forward and lateral weight transfer,
   // torso twist (all peak at the resolve moment and hold with the fist) and
@@ -118,7 +124,7 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   f.crouch = punchCrouch(def, elapsed, ph, cfg);
 
   let peak = false;
-  if (!p.resolved && p.progress >= ph.peakAt) { p.resolved = true; peak = true; }
+  if (!p.resolved && p.progress >= ph.peakAt - PHASE_EPS / ph.total) { p.resolved = true; peak = true; }
   if (elapsed >= ph.total) {
     f.punch = { type: null, hand: p.hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null };
     f.lean.fwd = 0;
