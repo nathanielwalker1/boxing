@@ -5,7 +5,7 @@
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, v2dist, v2dot, handLateralSign } from '../core';
-import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchTwist, whiffRecoveryMult } from './punches';
+import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffRecoveryMult } from './punches';
 import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, whiffMult } from './state';
 import { applyReaction } from './reaction';
 import { takeHit } from './resources';
@@ -112,7 +112,7 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   // torso twist (all peak at the resolve moment and hold with the fist) and
   // the body dip.
   const ext = punchEnvelope(elapsed, ph);
-  f.lean.fwd = cfg.punchLean * def.lean * ext;
+  f.lean.fwd = cfg.punchLean * def.lean * punchLean(def, elapsed, ph, cfg);
   f.lean.lat = def.sway * handLateralSign(p.hand, f.stance) * ext;
   f.torsoTwist = (p.hand === 'lead' ? 1 : -1) * handLateralSign('lead', f.stance) * def.turn * punchTwist(def, elapsed, ph);
   f.crouch = punchCrouch(def, elapsed, ph, cfg);

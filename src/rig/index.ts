@@ -515,8 +515,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       // The pivoting foot's heel lifts with the torso twist (rear foot on a
       // straight, the punching-side foot on a hook); the boot pitches about the
       // ankle so the toe stays down.
+      // Keyed on the forward weight, not the twist: through the load the
+      // weight is back and the heel stays down; it comes up with the drive.
       const liftW = i === 1 ? 1 : hookFoot;
-      const lift = c.rigPunchHeelLift * Math.min(1, Math.abs(twist)) * liftW;
+      const lift = c.rigPunchHeelLift * Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean) * liftW;
       ankle.y += body.bootH + lift;
 
       hipJ[i]!.set(0, 0, s * body.hipW / 2).applyQuaternion(qHips).add(H);

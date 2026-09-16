@@ -172,6 +172,7 @@ export const SCHEMA = {
   smotherPowerFloor: num(0.35, 0, 1, 0.05, 'punch', 'power multiplier of a straight punch thrown at the body-separation distance; ramps to 1 at smotherDist'),
   contactSquash:    num(0.35, 0, 0.9, 0.05, 'punch', 'how far the glove sinks into what it hit during the hold, as a fraction of its radius'),
   punchLean:        num(0.5, 0, 1, 0.05, 'punch', 'forward lean at full extension, 0..1 (× each punch\'s own lean: jab 0.8, cross 1, hook 0.6, uppercut 0.4)'),
+  punchLoad:        num(1, 0, 2, 0.05, 'punch', 'the load (2026-09-16): through the wind-up the weight rocks BACK onto the rear foot by this × each punch\'s own load × its lean (jab 0.15, cross 0.5, hook 0.4, uppercut 0.6), and the hips counter-turn (cross coil 0.15, jab 0.05); the drive then comes forward off that foot. 0 = the old straight-into-it ramp'),
   punchDipScale:    num(1, 0, 3, 0.05, 'punch', 'multiplier on every punch\'s body dip (sit down through the wind-up, drive up at the peak; uppercut 9 cm, hook 5, cross 3, jab 2)'),
   hookReachScale:   num(1, 0.7, 1.4, 0.05, 'punch', 'hook peak reach multiplier: 1 = elbow ~90° at contact, lands to ~0.8 m; higher straightens the arm for range'),
   uppercutReachScale: num(1, 0.7, 1.4, 0.05, 'punch', 'uppercut peak reach multiplier: 1 = elbow ~75°, lands to ~0.66 m; higher straightens the arm for range'),
@@ -435,7 +436,8 @@ export const SCHEMA = {
   rigPunchFootPivot:       num(1.3, 0, 2, 0.05, 'rig', 'the pivoting foot turns this multiple of the hip turn on the ball of the foot (heel swings out, knee follows in). >1: the foot turns further than the hips, as it does. Was 0.9 (2026-09-16)'),
   rigPunchLeadFootPivot:   num(0.3, 0, 2, 0.05, 'rig', 'lead foot pivots this multiple of the hip turn on a straight (on a lead hook it becomes the pivot foot and uses rigPunchFootPivot)'),
   rigPivotBall:            num(0.5, 0, 0.72, 0.02, 'rig', 'where the pivot point sits along the boot, as a fraction of its length forward of the ankle (0 = pivots on the ankle, 0.5 = the ball of the foot, 0.72 = the toe)'),
-  rigPunchHeelLift:        num(0.06, 0, 0.15, 0.005, 'rig', 'the pivoting foot\'s heel rises this much at full torso twist, m (toe stays down): the rear foot on a straight, the punching-side foot on a hook'),
+  rigPunchHeelLift:        num(0.06, 0, 0.15, 0.005, 'rig', 'the pivoting foot\'s heel rises this much through the drive, m (toe stays down): the rear foot on a straight, the punching-side foot on a hook. Down through the load'),
+  rigHeelLiftLean:         num(0.25, 0.05, 1, 0.05, 'rig', 'the forward lean (sim lean.fwd) at which the heel is fully up; a cross peaks at 0.5, an uppercut at 0.2'),
   rigMoveLeanDeg:          num(7, 0, 20, 0.5, 'rig', 'walking: the chest pitches into the direction of travel this much at top speed, degrees (forward = lean in, back = lean away, sideways = roll over the leading foot). 2026-09-16, movement feel'),
   rigMoveLeanShift:        num(0.05, 0, 0.15, 0.005, 'rig', 'walking: the hips shift this far into the direction of travel at top speed, m — the weight goes where the fighter is going, so the legs trail'),
 } satisfies Record<string, Entry>;

@@ -107,7 +107,13 @@ for (const t of TYPES) {
   };
   const hookT = twistTrace('hook', -1), crossT = twistTrace('cross');
   check('a hook coils the other way through the wind-up before coming across', Math.min(...hookT.cock) < -0.15 * PUNCHES.hook.turn, `min ${Math.min(...hookT.cock).toFixed(3)} (relative to the peak sign)`);
-  check('a cross does not coil: its twist never crosses zero', crossT.all.every(t => t >= -1e-9));
+  // The load (2026-09-16): a cross counter-turns a little through the wind-up too, but far less than a hook.
+  check('a cross loads with a small counter-turn, smaller than the hook\'s', Math.min(...crossT.cock) < 0 && Math.min(...crossT.cock) > Math.min(...hookT.cock), `cross min ${Math.min(...crossT.cock).toFixed(3)}, hook min ${Math.min(...hookT.cock).toFixed(3)}`);
+  const leanTrace = type => { let s = fresh(); const cock = []; let peak = 0; for (let i = 0; i < 30; i++) { s = sim.step(s, [inp({ [type]: i === 0 }), NONE], cfg).state; const f = s.fighters[0]; if (f.punch.type !== type) continue; if (f.punch.phase === 'cock') cock.push(f.lean.fwd); peak = Math.max(peak, f.lean.fwd); } return { cock, peak }; };
+  const crossL = leanTrace('cross'), jabL = leanTrace('jab');
+  check('the load: a cross rocks the weight BACK through the wind-up before it comes forward', Math.min(...crossL.cock) < -0.1 && crossL.peak > 0.45, `min ${Math.min(...crossL.cock).toFixed(3)}, peak ${crossL.peak.toFixed(3)}`);
+  check('…the jab barely loads (the whip)', Math.min(...jabL.cock) > Math.min(...crossL.cock) * 0.5, `jab min ${Math.min(...jabL.cock).toFixed(3)}`);
+  check('punchLoad 0 removes the load', (() => { let s = fresh(); let m = 0; const c0 = { ...cfg, punchLoad: 0 }; for (let i = 0; i < 12; i++) { s = sim.step(s, [inp({ cross: i === 0 }), NONE], c0).state; m = Math.min(m, s.fighters[0].lean.fwd); } return m >= -1e-9; })());
   check('a lead hook (orthodox, left hand at -z) shifts the weight across to +z', hookSway > 0.3, `${hookSway.toFixed(3)}`);
 }
 {

@@ -48,6 +48,13 @@ export interface PunchDef {
   /** Forward weight transfer at full extension, as a multiple of cfg.punchLean. */
   lean: number;
   /**
+   * The load (2026-09-16): through the wind-up the weight first goes BACK onto
+   * the rear foot by this fraction of the punch's full lean (× cfg.punchLoad),
+   * and the hips counter-turn by `coil`; the drive then comes forward off
+   * that foot. The heel-hip-shoulder-fist chain starts at the ground.
+   */
+  load: number;
+  /**
    * Lateral weight transfer at full extension, -1..1, signed toward the
    * punching hand's side: a hook drives the weight ACROSS (negative), an
    * uppercut loads over the punching hip (positive).
@@ -96,7 +103,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // lead shoulder still drives it (turn 0.45, raised from v1's 0.15 at the
   // 2026-09-03 feel-test) and the body's turn snaps back with the fist.
   jab: {
-    hand: 'lead', smotherable: true, turn: 0.45, coil: 0, swing: 0, lean: 0.8, sway: 0, dip: 0.02,
+    hand: 'lead', smotherable: true, turn: 0.45, coil: 0.05, swing: 0, lean: 0.8, sway: 0, dip: 0.02, load: 0.15,
     path: (b, h, s) => straightPath(b, h, s, 0.04),
     phases: cfg => phases(cfg.jabCock, cfg.jabExtend, cfg.jabRecover, cfg.punchTimeScale, cfg.jabHoldFrac),
     recoverK: cfg => cfg.jabChainRecoverK,
@@ -105,7 +112,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     react: cfg => ({ back: cfg.jabReactBack, lift: cfg.jabReactLift, twist: cfg.jabReactTwist, torso: cfg.jabReactTorso, snap: cfg.jabReactSnap }),
   },
   cross: {
-    hand: 'rear', smotherable: true, turn: 1.0, coil: 0, swing: 0, lean: 1.0, sway: -0.15, dip: 0.03,
+    hand: 'rear', smotherable: true, turn: 1.0, coil: 0.15, swing: 0, lean: 1.0, sway: -0.15, dip: 0.03, load: 0.5,
     path: (b, h, s) => straightPath(b, h, s, 0.35),
     phases: cfg => phases(cfg.crossCock, cfg.crossExtend, cfg.crossRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     recoverK: cfg => cfg.chainRecoverK,
@@ -119,7 +126,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // the centreline with the elbow at ~90°. Turn raised from v1's 0.70 to the
   // cross's 1.0 — the hook IS the hip turn — and the weight goes across.
   hook: {
-    hand: 'input', smotherable: false, turn: 1.3, coil: 0.3, swing: 0.85, lean: 0.6, sway: -0.5, dip: 0.05,   // turn 1.3: past the cross — the shoulders come right round (feel-test 2026-09-09)
+    hand: 'input', smotherable: false, turn: 1.3, coil: 0.3, swing: 0.85, lean: 0.6, sway: -0.5, dip: 0.05, load: 0.4,   // turn 1.3: past the cross — the shoulders come right round (feel-test 2026-09-09)
     path: hookPath,
     phases: cfg => phases(cfg.hookCock, cfg.hookExtend, cfg.hookRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     recoverK: cfg => cfg.chainRecoverK,
@@ -132,7 +139,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // above it with the elbow low. Shortest reach of the four (legacy: turn
   // 0.70, dip 6 px ≈ 0.07 m; 0.09 here so the sit-down reads at the play camera).
   uppercut: {
-    hand: 'input', smotherable: false, turn: 0.7, coil: 0.15, swing: 0, lean: 0.4, sway: 0.3, dip: 0.09,
+    hand: 'input', smotherable: false, turn: 0.7, coil: 0.15, swing: 0, lean: 0.4, sway: 0.3, dip: 0.09, load: 0.6,
     path: uppercutPath,
     phases: cfg => phases(cfg.uppercutCock, cfg.uppercutExtend, cfg.uppercutRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     recoverK: cfg => cfg.chainRecoverK,
@@ -296,17 +303,35 @@ export function punchEnvelope(elapsed: number, ph: PunchPhases): number {
 }
 
 /**
+ * Wind-up → drive shape shared by the twist and the lean: goes to −`back`
+ * through the cock (the load: counter-turn, weight onto the rear foot), then
+ * from −`back` to 1 through the extension (the drive), then the envelope's
+ * hold and unwind. `back` = 0 is the plain envelope.
+ */
+function loadThenDrive(back: number, elapsed: number, ph: PunchPhases): number {
+  if (back <= 0) return punchEnvelope(elapsed, ph);
+  if (elapsed < ph.cock) return -back * smoothstep(elapsed / ph.cock);
+  if (elapsed < ph.cock + ph.extend) return lerp(-back, 1, smoothstep((elapsed - ph.cock) / ph.extend));
+  return punchEnvelope(elapsed, ph);
+}
+
+/**
  * Torso twist `elapsed` seconds into a punch, as a fraction of `turn` (sign
- * applied by the caller). A punch with no coil rides the envelope: up to 1
- * at the resolve moment, held, back to 0 at the end. A coiling punch winds
- * the other way through the cock (to −coil), comes across through the
- * extension, then holds and unwinds the same way.
+ * applied by the caller): winds the other way through the cock (to −coil),
+ * comes across through the extension, holds with the fist, unwinds.
  */
 export function punchTwist(def: PunchDef, elapsed: number, ph: PunchPhases): number {
-  if (def.coil === 0) return punchEnvelope(elapsed, ph);
-  if (elapsed < ph.cock) return -def.coil * smoothstep(elapsed / ph.cock);
-  if (elapsed < ph.cock + ph.extend) return lerp(-def.coil, 1, smoothstep((elapsed - ph.cock) / ph.extend));
-  return punchEnvelope(elapsed, ph);
+  return loadThenDrive(def.coil, elapsed, ph);
+}
+
+/**
+ * Forward weight `elapsed` seconds into a punch, as a fraction of the punch's
+ * full lean: BACK onto the rear foot through the cock (to −load × cfg.punchLoad),
+ * forward through the drive, held, unwound. The rig reads the negative part
+ * as the hips and chest rocking back and the heel staying down.
+ */
+export function punchLean(def: PunchDef, elapsed: number, ph: PunchPhases, cfg: Config): number {
+  return loadThenDrive(def.load * cfg.punchLoad, elapsed, ph);
 }
 
 /**
