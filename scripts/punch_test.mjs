@@ -163,6 +163,22 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
   check('a one-tick stick push at the press does not reach 1.15 m without the step-in', stood?.type === 'punchWhiff', stood?.type);
   check('with the step-in the same jab lunges into range and lands', lunged?.type === 'punchLand', lunged?.type);
   check('…harder than a standing jab (the lunge is momentum)', lunged?.power > standing?.power * 1.05, `${lunged?.power?.toFixed(3)} vs ${standing?.power?.toFixed(3)}`);
+  // Context (2026-09-16): hit while backing off = rolling with it — less impulse, but a longer stumble.
+  {
+    const still = run(fresh(0.9), 40, i => [inp({ jab: i === 6 }), NONE]);
+    // The dummy backs off from tick 0; the jab is timed so it still reaches (1.0 → ~0.9 by the resolve is the walk-in below).
+    let s = fresh(0.8);
+    const evs = [];
+    let retreatTick = null;
+    for (let i = 0; i < 40; i++) { const r = sim.step(s, [inp({ jab: i === 6 }), inp({ move: { x: 0, y: -1 } })], cfg); s = r.state; for (const e of r.events) evs.push(e); if (retreatTick === null && r.events.some(e => e.type === 'punchLand')) retreatTick = i; }
+    const stillLand = outcome(still.evs), retreatLand = evs.find(e => e.type === 'punchLand');
+    check('a jab lands on a backing-off dummy in this setup', stillLand?.type === 'punchLand' && retreatLand?.type === 'punchLand', `${stillLand?.type} / ${retreatLand?.type}`);
+    check('…with less impulse than on a standing one (rolling with it)', retreatLand && stillLand && v3len(retreatLand.impulse) < v3len(stillLand.impulse) * 0.95, `${retreatLand && v3len(retreatLand.impulse).toFixed(0)} vs ${stillLand && v3len(stillLand.impulse).toFixed(0)} N·s`);
+    const noRoll = { ...cfg, punchRollWith: 0, punchRetreatStumble: 0 };
+    let s2 = fresh(0.8); let plain = null;
+    for (let i = 0; i < 40; i++) { const r = sim.step(s2, [inp({ jab: i === 6 }), inp({ move: { x: 0, y: -1 } })], noRoll); s2 = r.state; plain = plain ?? r.events.find(e => e.type === 'punchLand'); }
+    check('punchRollWith 0 restores the full impulse', plain && retreatLand && v3len(plain.impulse) > v3len(retreatLand.impulse), `${plain && v3len(plain.impulse).toFixed(0)} vs ${retreatLand && v3len(retreatLand.impulse).toFixed(0)}`);
+  }
   const hookStep = run(fresh(1.05), 3, i => [inp({ hook: i === 0, move: { x: -1, y: 1 } }), NONE]).s;
   check('a hook never steps in', Math.hypot(hookStep.fighters[0].stagger.x, hookStep.fighters[0].stagger.z) < 1e-9, JSON.stringify(hookStep.fighters[0].stagger));
   const half = run(fresh(1.05), 3, i => [inp({ jab: i === 0, move: { x: 0, y: 0.3 } }), NONE]).s;

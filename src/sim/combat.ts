@@ -136,7 +136,14 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   // torso twist (all peak at the resolve moment and hold with the fist) and
   // the body dip.
   const ext = punchEnvelope(elapsed, ph);
-  f.lean.fwd = cfg.punchLean * def.lean * punchLean(def, elapsed, ph, cfg);
+  // Context (2026-09-16): a punch thrown moving FORWARD leans further into
+  // it (the lunge); thrown backing off it is the flicker — hips stay back,
+  // little lean. Reads the fighter's own velocity along its facing.
+  const fr = frameOf(f.yaw);
+  const along = cfg.moveSpeed > 1e-6 ? (f.vel.x * fr.fwd.x + f.vel.z * fr.fwd.z) / cfg.moveSpeed : 0;
+  const leanMove = clamp(1 + cfg.punchLeanMove * along, 0.4, 1.5);
+  const leanShape = punchLean(def, elapsed, ph, cfg);
+  f.lean.fwd = cfg.punchLean * def.lean * (leanShape > 0 ? leanShape * leanMove : leanShape);
   f.lean.lat = def.sway * handLateralSign(p.hand, f.stance) * ext;
   f.torsoTwist = (p.hand === 'lead' ? 1 : -1) * handLateralSign('lead', f.stance) * def.turn * punchTwist(def, elapsed, ph);
   f.crouch = punchCrouch(def, elapsed, ph, cfg);
@@ -255,6 +262,10 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   mag = Math.max(cfg.punchImpulseBase * cfg.punchImpulseFloor, mag);
   mag *= 1 + a.lean.fwd * cfg.punchLeanScale;
   mag *= def.impulseMult(cfg);
+  // Context (2026-09-16): a defender moving AWAY along the impulse rolls with
+  // it — less impulse — but stumbles further for it (below).
+  const retreat = cfg.moveSpeed > 1e-6 ? clamp(((d.vel.x + d.stagger.x) * dirX + (d.vel.z + d.stagger.z) * dirZ) / cfg.moveSpeed, 0, 1) : 0;
+  mag *= 1 - retreat * cfg.punchRollWith;
   if (def.smotherable && dist < cfg.smotherDist) {
     const span = Math.max(1e-6, cfg.smotherDist - cfg.separationDist);
     mag *= lerp(cfg.smotherPowerFloor, 1, clamp((dist - cfg.separationDist) / span, 0, 1));
@@ -305,8 +316,9 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   events.push({ type: 'hurt', side: target, part, impulse });
   if (counter && !blocked) events.push({ type: 'counter', side, target, punch: type });
 
-  d.stagger.x += impulse.x / d.body.massKg;
-  d.stagger.z += impulse.z / d.body.massKg;
+  const stumble = 1 + retreat * cfg.punchRetreatStumble;   // hit while backing off: the feet go
+  d.stagger.x += impulse.x / d.body.massKg * stumble;
+  d.stagger.z += impulse.z / d.body.massKg * stumble;
   applyReaction(d, type, dir, mag, cfg);
   if (perfect) {
     applyPunish(a, cfg.perfectBlockPunishVuln, cfg.perfectBlockPunishDuration);

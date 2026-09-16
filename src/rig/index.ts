@@ -300,8 +300,14 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const rHeadY = -c.rigRhythmBob * (0.5 - 0.5 * Math.cos(beat - 0.5)) * c.rigRhythmHead * rhythm;   // head follows, a little late
     const rHeadZ = c.rigRhythmSway * Math.sin(beat / 2 - 0.5) * c.rigRhythmHead * rhythm;
     const rRoll = c.rigRhythmRoll * DEG * Math.sin(beat / 2 - 0.25) * rhythm;    // chest rolls over the loaded foot
+    // Head off the centre line: a slow asymmetric weave of the upper body
+    // (head full, shoulders 0.6), on top of the beat, gated the same way.
+    const wPh = tIdle * c.rigWeaveHz * Math.PI * 2 + side * 2.7;
+    const weaveZ = c.rigWeaveAmp * (Math.sin(wPh) + 0.35 * Math.sin(wPh * 1.7 + 0.8)) * rhythm;
+    const weaveX = c.rigWeaveFwd * Math.sin(wPh * 0.5 + 1.9) * rhythm;
     headL.y += rHeadY;
-    headL.z += rHeadZ;
+    headL.z += rHeadZ + weaveZ;
+    headL.x += weaveX;
 
     // Walking lean: the body leans into the direction of travel (hips shift,
     // chest pitches / rolls), through the spine spring so it arrives a beat
@@ -327,7 +333,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
 
     // 2. Secondary motion — springs, hips stiffest → elbows loosest.
     chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift + surgeF, bob - rDip + stepUp, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7 + surgeL, c.rigHipK, c.rigHipZeta, dt);
-    chase3(spineBend, leanF * c.rigLeanChest + mvFwd * c.rigMoveLeanShift * 0.6, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3 + mvLat * c.rigMoveLeanShift * 0.4, c.rigSpineK, c.rigSpineZeta, dt);
+    chase3(spineBend, leanF * c.rigLeanChest + mvFwd * c.rigMoveLeanShift * 0.6 + weaveX * 0.6, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3 + mvLat * c.rigMoveLeanShift * 0.4 + weaveZ * 0.6, c.rigSpineK, c.rigSpineZeta, dt);
+    // Circling: the head leads the travel.
+    headL.z += mvLat * c.rigMoveHeadLead;
     const yawS = chase1(shoulderYaw, leadSign * c.rigStanceShoulderYawDeg * DEG + twist, c.rigShoulderK, c.rigShoulderZeta, dt);
 
     // Hips.
@@ -354,7 +362,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // walking (roll into the travel) and the punch's lateral weight transfer
     // (a hook rolls the shoulders across with the weight, an uppercut over the
     // punching hip).
-    qTmp.setFromAxisAngle(XAXIS, -rRoll + (mvLat * c.rigMoveLeanDeg * 0.7 + leanL * c.rigLeanRollDeg) * DEG);
+    qTmp.setFromAxisAngle(XAXIS, -rRoll + (mvLat * c.rigMoveLeanDeg * (lateralTravel ? 1.1 : 0.7) + leanL * c.rigLeanRollDeg) * DEG);   // circling rolls the torso harder into the travel
     qChest.multiply(qTmp);
 
     // ── Knockdown: rewrite hips, chest, head and gloves from the fall timeline ──
@@ -509,8 +517,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const footYawLocal = leadSign * (i === 0 ? c.rigLeadFootYawDeg : c.rigRearFootYawDeg) * DEG;
       const w = localToWorld(pos, frame, restFwd + hipSway.x, 0, restLat);
       footRest.x = w.x; footRest.z = w.z; footRest.y = 0; footRest.rotY = -yaw + footYawLocal;
-      footDesired.x = w.x + (moving ? next.vel.x * c.rigStepLead : 0);
-      footDesired.z = w.z + (moving ? next.vel.z * c.rigStepLead : 0);
+      // Sideways the leading foot reaches further (a pivot step); the drag foot's target is the rest spot anyway.
+      const leadT = c.rigStepLead * (lateralTravel ? c.rigShuffleLead : 1);
+      footDesired.x = w.x + (moving ? next.vel.x * leadT : 0);
+      footDesired.z = w.z + (moving ? next.vel.z * leadT : 0);
       footDesired.y = 0;
       footDesired.rotY = footRest.rotY;
       stepStyle.role = i === leader ? 'lead' : 'trail';
