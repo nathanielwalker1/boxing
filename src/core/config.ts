@@ -175,6 +175,8 @@ export const SCHEMA = {
   smotherPowerFloor: num(0.35, 0, 1, 0.05, 'punch', 'power multiplier of a straight punch thrown at the body-separation distance; ramps to 1 at smotherDist'),
   contactSquash:    num(0.35, 0, 0.9, 0.05, 'punch', 'how far the glove sinks into what it hit during the hold, as a fraction of its radius'),
   punchLean:        num(0.5, 0, 1, 0.05, 'punch', 'forward lean at full extension, 0..1 (× each punch\'s own lean: jab 0.8, cross 1, hook 0.6, uppercut 0.4)'),
+  punchStepIn:      num(0.15, 0, 0.4, 0.01, 'punch', 'the step-in (2026-09-16, Nate\'s call): a jab or cross thrown with the stick pushed forward takes a lunge step this long with it, m, landing as the fist does; it counts as approach momentum, so a step-in cross hits harder. 0 = punches are thrown from where you stand. Hooks and uppercuts never step'),
+  punchStepInStick: num(0.5, 0, 1, 0.05, 'punch', 'how far forward the stick must be at the press for a straight to step in'),
   punchLoad:        num(1, 0, 2, 0.05, 'punch', 'the load (2026-09-16): through the wind-up the weight rocks BACK onto the rear foot by this × each punch\'s own load × its lean (jab 0.15, cross 0.5, hook 0.4, uppercut 0.6), and the hips counter-turn (cross coil 0.15, jab 0.05); the drive then comes forward off that foot. 0 = the old straight-into-it ramp'),
   punchDipScale:    num(1, 0, 3, 0.05, 'punch', 'multiplier on every punch\'s body dip (sit down through the wind-up, drive up at the peak; uppercut 9 cm, hook 5, cross 3, jab 2)'),
   hookReachScale:   num(1, 0.7, 1.4, 0.05, 'punch', 'hook peak reach multiplier: 1 = elbow ~90° at contact, lands to ~0.8 m; higher straightens the arm for range'),

@@ -35,12 +35,24 @@ function canStartPunch(f: FighterState, cfg: Config): boolean {
  * lowStamina, judged before the cost) its wind-up runs lowStaminaCockMult
  * times slower — a slower pull-back, not a strike in slow motion.
  */
-function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number, cfg: Config, events: SimEvent[]): void {
-  const hand = punchHand(PUNCHES[type], moveX);
+function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number, moveY: number, cfg: Config, events: SimEvent[]): void {
+  const def = PUNCHES[type];
+  const hand = punchHand(def, moveX);
   setCockMult(f, f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1);
   setWhiffMult(f, 1);
   f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost);
   f.punch = { type, hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
+  // The step-in (2026-09-16): a straight thrown with the stick pushed forward
+  // takes a short lunge step with it — a burst on the stagger channel (it
+  // decays on its own, is not capped by walking speed, and counts as approach
+  // momentum in the impulse), covering punchStepIn metres by the time the
+  // fist lands. Hooks and uppercuts are thrown from where you stand.
+  if (def.smotherable && cfg.punchStepIn > 0 && moveY > cfg.punchStepInStick && !f.down) {
+    const fr = frameOf(f.yaw);
+    const v = cfg.punchStepIn * cfg.staggerDecay;
+    f.stagger.x += fr.fwd.x * v;
+    f.stagger.z += fr.fwd.z * v;
+  }
   events.push({ type: 'punchStart', side, punch: type, hand });
 }
 
@@ -78,10 +90,11 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
 
   const open = canStartPunch(f, cfg);
   if (pressed !== null) {
-    if (open) { startPunch(f, side, pressed, input.move.x, cfg, events); buf.mask = 0; buf.t = 0; }
+    if (open) { startPunch(f, side, pressed, input.move.x, input.move.y, cfg, events); buf.mask = 0; buf.t = 0; }
     else if (cfg.punchBuffer > 0) { buf.mask = maskOf(pressed); buf.t = cfg.punchBuffer; buf.x = input.move.x; }
   } else if (open && buf.mask) {
-    startPunch(f, side, fastestOf(buf.mask)!, buf.x, cfg, events);
+    // A buffered press keeps the hand it chose; the step-in reads the stick as it fires.
+    startPunch(f, side, fastestOf(buf.mask)!, buf.x, input.move.y, cfg, events);
     buf.mask = 0; buf.t = 0;
   }
   setPunchBuffer(f, buf);
@@ -192,7 +205,9 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   let adX: number, adZ: number;
   if (dist > 1e-6) { adX = (d.pos.x - a.pos.x) / dist; adZ = (d.pos.z - a.pos.z) / dist; }
   else { const fr = frameOf(a.yaw); adX = fr.fwd.x; adZ = fr.fwd.z; }
-  const approachSpd = v2dot(a.vel, { x: adX, z: adZ });
+  // Walking plus the stagger channel: a step-in lunge (and, fairly, a shove
+  // toward the defender) is momentum behind the fist too.
+  const approachSpd = v2dot({ x: a.vel.x + a.stagger.x, z: a.vel.z + a.stagger.z }, { x: adX, z: adZ });
   let dirX = adX, dirZ = adZ;
   if (def.swing > 0) {
     const vlen = Math.hypot(g.vel.x, g.vel.z);
