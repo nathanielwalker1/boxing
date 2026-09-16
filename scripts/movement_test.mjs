@@ -38,10 +38,16 @@ for (const [name, move] of [['forward', { x: 0, y: 1 }], ['back', { x: 0, y: -1 
 // ── 2. Velocity reaches moveSpeed, never exceeds it, friction stops it ──────
 {
   let maxSpd = 0;
-  let s = run(fresh(), 40, () => [inp({ move: { x: 1, y: 0 } }), NONE], st => { maxSpd = Math.max(maxSpd, v2len(st.fighters[0].vel)); });
+  let s = run(fresh(), 50, () => [inp({ move: { x: 1, y: 0 } }), NONE], st => { maxSpd = Math.max(maxSpd, v2len(st.fighters[0].vel)); });
   const spd = v2len(s.fighters[0].vel);
-  check('strafing for 40 ticks reaches ~moveSpeed', spd >= cfg.moveSpeed * 0.99, `${spd.toFixed(3)} vs ${cfg.moveSpeed}`);
+  const latTop = cfg.moveSpeed * cfg.moveLateralScale;
+  check('strafing for 50 ticks reaches ~moveSpeed × moveLateralScale', spd >= latTop * 0.99, `${spd.toFixed(3)} vs ${latTop.toFixed(3)}`);
   check('speed never exceeds moveSpeed', maxSpd <= cfg.moveSpeed + 1e-9, `${maxSpd.toFixed(4)}`);
+  // Direction-dependent top speed (2026-09-16): forward is the fastest, back the slowest.
+  const topOf = move => { let m = 0; run(fresh(), 60, () => [inp({ move }), NONE], st => { m = Math.max(m, v2len(st.fighters[0].vel)); }); return m; };
+  const fwdTop = topOf({ x: 0, y: 1 }), backTop = topOf({ x: 0, y: -1 });
+  check('walking forward reaches moveSpeed', fwdTop >= cfg.moveSpeed * 0.99, `${fwdTop.toFixed(3)}`);
+  check('walking back tops out at moveSpeed × moveBackScale', near(backTop, cfg.moveSpeed * cfg.moveBackScale, 0.02), `${backTop.toFixed(3)} vs ${(cfg.moveSpeed * cfg.moveBackScale).toFixed(3)}`);
   check('strafe right moves along the fighter\'s right (+z when facing +x)', s.fighters[0].pos.z > 0.5, `${s.fighters[0].pos.z.toFixed(3)}`);
   s = run(s, 60, () => [NONE, NONE]);
   check('friction brings the fighter to a dead stop within 1 s', s.fighters[0].vel.x === 0 && s.fighters[0].vel.z === 0, `${JSON.stringify(s.fighters[0].vel)}`);

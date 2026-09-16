@@ -28,8 +28,14 @@ export function stepLocomotion(f: FighterState, input: Readonly<FrameInput>, cfg
     const len = sqrt(mx * mx + my * my);
     if (len > 1) { mx /= len; my /= len; }
     const fr = frameOf(f.yaw);
-    const tvx = (fr.fwd.x * my + fr.right.x * mx) * cfg.moveSpeed;
-    const tvz = (fr.fwd.z * my + fr.right.z * mx) * cfg.moveSpeed;
+    // Direction-dependent top speed: full speed forward, slower backing off
+    // and circling. Weighted by the squared components (which sum to the
+    // squared magnitude), so a diagonal blends the two.
+    const m2 = mx * mx + my * my;
+    const dirScale = m2 > 0 ? ((my > 0 ? 1 : cfg.moveBackScale) * my * my + cfg.moveLateralScale * mx * mx) / m2 : 1;
+    const speed = cfg.moveSpeed * dirScale;
+    const tvx = (fr.fwd.x * my + fr.right.x * mx) * speed;
+    const tvz = (fr.fwd.z * my + fr.right.z * mx) * speed;
     const a = Math.min(1, accelRate * dt);
     f.vel.x += (tvx - f.vel.x) * a;
     f.vel.z += (tvz - f.vel.z) * a;
