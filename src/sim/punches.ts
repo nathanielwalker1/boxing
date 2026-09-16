@@ -69,6 +69,8 @@ export interface PunchDef {
   /** The glove's path: guard → wind-up → peak, in the fighter's local frame. */
   path(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath;
   phases(cfg: Config): PunchPhases;
+  /** Glove-spring stiffness multiplier through the recovery (cfg.chainRecoverK, or the jab's own snap-back). */
+  recoverK(cfg: Config): number;
   impulseMult(cfg: Config): number;
   /** Weight on the whiff recovery stretch (legacy `${type}WhiffScale`). */
   whiffScale(cfg: Config): number;
@@ -88,10 +90,16 @@ function phases(cock: number, extend: number, recover: number, scale: number, ho
 }
 
 export const PUNCHES: Record<PunchType, PunchDef> = {
+  // The whip (2026-09-16): no pull-back — the fist leaves the guard on the
+  // line it travels — the shortest hold of the four (jabHoldFrac), and the
+  // fist is snapped home as hard as it was thrown (jabChainRecoverK). The
+  // lead shoulder still drives it (turn 0.45, raised from v1's 0.15 at the
+  // 2026-09-03 feel-test) and the body's turn snaps back with the fist.
   jab: {
-    hand: 'lead', smotherable: true, turn: 0.45, coil: 0, swing: 0, lean: 0.8, sway: 0, dip: 0.02,   // turn raised from v1's 0.15: the lead shoulder drives the jab (feel-test 2026-09-03)
-    path: (b, h, s) => straightPath(b, h, s, 0.15),
-    phases: cfg => phases(cfg.jabCock, cfg.jabExtend, cfg.jabRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
+    hand: 'lead', smotherable: true, turn: 0.45, coil: 0, swing: 0, lean: 0.8, sway: 0, dip: 0.02,
+    path: (b, h, s) => straightPath(b, h, s, 0.04),
+    phases: cfg => phases(cfg.jabCock, cfg.jabExtend, cfg.jabRecover, cfg.punchTimeScale, cfg.jabHoldFrac),
+    recoverK: cfg => cfg.jabChainRecoverK,
     impulseMult: cfg => cfg.jabImpulseMult,
     whiffScale: cfg => cfg.jabWhiffScale,
     react: cfg => ({ back: cfg.jabReactBack, lift: cfg.jabReactLift, twist: cfg.jabReactTwist, torso: cfg.jabReactTorso, snap: cfg.jabReactSnap }),
@@ -100,6 +108,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     hand: 'rear', smotherable: true, turn: 1.0, coil: 0, swing: 0, lean: 1.0, sway: -0.15, dip: 0.03,
     path: (b, h, s) => straightPath(b, h, s, 0.35),
     phases: cfg => phases(cfg.crossCock, cfg.crossExtend, cfg.crossRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
+    recoverK: cfg => cfg.chainRecoverK,
     impulseMult: cfg => cfg.crossImpulseMult,
     whiffScale: cfg => cfg.crossWhiffScale,
     react: cfg => ({ back: cfg.crossReactBack, lift: cfg.crossReactLift, twist: cfg.crossReactTwist, torso: cfg.crossReactTorso, snap: cfg.crossReactSnap }),
@@ -113,6 +122,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     hand: 'input', smotherable: false, turn: 1.3, coil: 0.3, swing: 0.85, lean: 0.6, sway: -0.5, dip: 0.05,   // turn 1.3: past the cross — the shoulders come right round (feel-test 2026-09-09)
     path: hookPath,
     phases: cfg => phases(cfg.hookCock, cfg.hookExtend, cfg.hookRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
+    recoverK: cfg => cfg.chainRecoverK,
     impulseMult: cfg => cfg.hookImpulseMult,
     whiffScale: cfg => cfg.hookWhiffScale,
     react: cfg => ({ back: cfg.hookReactBack, lift: cfg.hookReactLift, twist: cfg.hookReactTwist, torso: cfg.hookReactTorso, snap: cfg.hookReactSnap }),
@@ -125,6 +135,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     hand: 'input', smotherable: false, turn: 0.7, coil: 0.15, swing: 0, lean: 0.4, sway: 0.3, dip: 0.09,
     path: uppercutPath,
     phases: cfg => phases(cfg.uppercutCock, cfg.uppercutExtend, cfg.uppercutRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
+    recoverK: cfg => cfg.chainRecoverK,
     impulseMult: cfg => cfg.uppercutImpulseMult,
     whiffScale: cfg => cfg.uppercutWhiffScale,
     react: cfg => ({ back: cfg.uppercutReactBack, lift: cfg.uppercutReactLift, twist: cfg.uppercutReactTwist, torso: cfg.uppercutReactTorso, snap: cfg.uppercutReactSnap }),
@@ -268,18 +279,34 @@ export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: 
 }
 
 /**
+ * The whole-body envelope `elapsed` seconds into a punch, 0..1: rises
+ * linearly to 1 at the resolve moment, HOLDS there through the same
+ * fraction of the recovery the fist holds at full extension (the follow-
+ * through: shoulders over, weight on the front foot, while the glove is on
+ * the target), then unwinds with the fist. Was a triangle that started
+ * unwinding the instant the fist arrived, so the body was already home
+ * while the glove was still out there (2026-09-16).
+ */
+export function punchEnvelope(elapsed: number, ph: PunchPhases): number {
+  const p = elapsed / ph.total;
+  if (p < ph.peakAt) return Math.max(0, p / ph.peakAt);
+  const rt = ph.recover > 0 ? (elapsed - ph.cock - ph.extend) / ph.recover : 1;
+  if (rt < ph.hold) return 1;
+  return Math.max(0, 1 - smoothstep((rt - ph.hold) / Math.max(1e-6, 1 - ph.hold)));
+}
+
+/**
  * Torso twist `elapsed` seconds into a punch, as a fraction of `turn` (sign
- * applied by the caller). A punch with no coil is the triangle it always was:
- * up to 1 at the resolve moment, back to 0 at the end. A coiling punch winds
+ * applied by the caller). A punch with no coil rides the envelope: up to 1
+ * at the resolve moment, held, back to 0 at the end. A coiling punch winds
  * the other way through the cock (to −coil), comes across through the
- * extension, then unwinds.
+ * extension, then holds and unwinds the same way.
  */
 export function punchTwist(def: PunchDef, elapsed: number, ph: PunchPhases): number {
-  const p = elapsed / ph.total;
-  if (def.coil === 0) return Math.max(0, p < ph.peakAt ? p / ph.peakAt : (1 - p) / (1 - ph.peakAt));
+  if (def.coil === 0) return punchEnvelope(elapsed, ph);
   if (elapsed < ph.cock) return -def.coil * smoothstep(elapsed / ph.cock);
   if (elapsed < ph.cock + ph.extend) return lerp(-def.coil, 1, smoothstep((elapsed - ph.cock) / ph.extend));
-  return Math.max(0, (1 - p) / (1 - ph.peakAt));
+  return punchEnvelope(elapsed, ph);
 }
 
 /**

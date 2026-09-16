@@ -32,7 +32,7 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPos
     const def = PUNCHES[p.type];
     if (def) {
       const ph = def.phases(cfg);
-      const kMul = p.phase === 'recover' ? cfg.chainRecoverK : cfg.chainPunchK;
+      const kMul = p.phase === 'recover' ? def.recoverK(cfg) : cfg.chainPunchK;
       // A glove that hit something rests on it through the hold instead of
       // driving on to the free-air peak.
       const rt = (p.progress * ph.total - ph.cock - ph.extend) / ph.recover;

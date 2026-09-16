@@ -87,6 +87,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const upBack = [spring1(0), spring1(0)] as const;      // 1 while this arm throws an uppercut: the elbow pole goes back, so the fist folds up by the ribs
   const hookDrive = spring1(0);   // 1 while a hook is in flight: hips, head and the punching-side foot turn harder with it
   const blockAmt = spring1(0);   // 0 = open guard, 1 = hunched into the block
+  const moveLean = spring3();    // walking: velocity in the rig frame as a fraction of moveSpeed (x forward, z lateral), lagged so the body leans in after the feet push
   const rhythmGate = spring1(1); // 1 = the idle bounce is on; eases to 0 while punching / blocking / down
   // ── Knockdown ──
   // The fall is a timeline on the sim's downT, shaped by the finishing punch:
@@ -294,9 +295,17 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     headL.y += rHeadY;
     headL.z += rHeadZ;
 
+    // Walking lean: the body leans into the direction of travel (hips shift,
+    // chest pitches / rolls), through the spine spring so it arrives a beat
+    // after the velocity does. Rig-local, as a fraction of top speed.
+    dirToLocal(next.vel.x, 0, next.vel.z, v);
+    const vScale = c.moveSpeed > 1e-6 ? 1 / c.moveSpeed : 0;
+    chase3(moveLean, v.x * vScale, 0, v.z * vScale, c.rigSpineK, c.rigSpineZeta, dt);
+    const mvFwd = moveLean.x, mvLat = moveLean.z;
+
     // 2. Secondary motion — springs, hips stiffest → elbows loosest.
-    chase3(hipSway, leanF * c.rigLeanHip + rFwd, bob - rDip, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat, c.rigHipK, c.rigHipZeta, dt);
-    chase3(spineBend, leanF * c.rigLeanChest, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3, c.rigSpineK, c.rigSpineZeta, dt);
+    chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift, bob - rDip, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7, c.rigHipK, c.rigHipZeta, dt);
+    chase3(spineBend, leanF * c.rigLeanChest + mvFwd * c.rigMoveLeanShift * 0.6, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3 + mvLat * c.rigMoveLeanShift * 0.4, c.rigSpineK, c.rigSpineZeta, dt);
     const yawS = chase1(shoulderYaw, leadSign * c.rigStanceShoulderYawDeg * DEG + twist, c.rigShoulderK, c.rigShoulderZeta, dt);
 
     // Hips.
@@ -307,9 +316,13 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // shoulder line, pitched by lean and the sim's tilt (positive = leaning back).
     S.copy(shoulderL).add(torsoOffL).add(spineBend as unknown as THREE.Vector3Like);
     qChest.setFromAxisAngle(YAXIS, yawS);
-    qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg) * DEG);
+    qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg + mvFwd * c.rigMoveLeanDeg) * DEG);
     qChest.multiply(qTmp);
-    qTmp.setFromAxisAngle(XAXIS, -rRoll);   // rhythm: roll over the loaded foot
+    // Roll about the forward axis: the rhythm's roll over the loaded foot,
+    // walking (roll into the travel) and the punch's lateral weight transfer
+    // (a hook rolls the shoulders across with the weight, an uppercut over the
+    // punching hip).
+    qTmp.setFromAxisAngle(XAXIS, -rRoll + (mvLat * c.rigMoveLeanDeg * 0.7 + leanL * c.rigLeanRollDeg) * DEG);
     qChest.multiply(qTmp);
 
     // ── Knockdown: rewrite hips, chest, head and gloves from the fall timeline ──
@@ -459,14 +472,25 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       footDesired.rotY = -yaw + footYawLocal;
       const fp = feet[i]!.update(footDesired, dt, c, feet[1 - i]!);
       toLocal({ x: fp.x, y: fp.y, z: fp.z }, ankle);
-      // Rear heel lifts with the torso twist; the boot pitches about the ankle so the toe stays down.
-      const lift = i === 1 ? c.rigPunchHeelLift * Math.min(1, Math.abs(twist)) : 0;
-      ankle.y += body.bootH + lift;
       // The foot under the punching hand of a hook pivots like the rear foot
       // on a cross (toe turns in, heel out); otherwise lead/rear as authored.
       const hookFoot = hookAmt * ((next.punch.hand === 'lead') === (i === 0) ? 1 : 0);
       const pivot = i === 0 ? lerp(c.rigPunchLeadFootPivot, c.rigPunchFootPivot, hookFoot) : c.rigPunchFootPivot;
-      const yawL = fp.rotY + yaw + hipYawS * pivot;
+      const pivotYaw = hipYawS * pivot;
+      const yawL = fp.rotY + yaw + pivotYaw;
+      // The pivot is on the BALL of the foot, not the ankle: the heel swings
+      // round the ball, so the ankle moves along an arc (2026-09-16). +x is the
+      // toe in the boot's frame, a Y rotation by θ sends it to (cos θ, 0, −sin θ).
+      const ballD = d.footLen * c.rigPivotBall;
+      const th0 = yawL - pivotYaw;
+      ankle.x += ballD * (Math.cos(th0) - Math.cos(yawL));
+      ankle.z += ballD * (Math.sin(yawL) - Math.sin(th0));
+      // The pivoting foot's heel lifts with the torso twist (rear foot on a
+      // straight, the punching-side foot on a hook); the boot pitches about the
+      // ankle so the toe stays down.
+      const liftW = i === 1 ? 1 : hookFoot;
+      const lift = c.rigPunchHeelLift * Math.min(1, Math.abs(twist)) * liftW;
+      ankle.y += body.bootH + lift;
 
       hipJ[i]!.set(0, 0, s * body.hipW / 2).applyQuaternion(qHips).add(H);
       // No hyperextension: pull the ankle in horizontally, then up if it must.
