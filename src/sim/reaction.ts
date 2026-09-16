@@ -14,7 +14,12 @@ import { PUNCHES } from './punches';
 import { reactionSnap, setReactionSnap } from './state';
 import { slipBack, slipLateral, slipShape } from './slip';
 
-/** Kick the defender's springs. `dir` is the unit impulse direction, `mag` in N·s. */
+/**
+ * Kick the defender's springs. `dir` is the unit impulse direction, `mag` in
+ * N·s. The spin (2026-09-16): the sideways part of the impulse, in the
+ * defender's frame, becomes a yaw whip of the head and shoulders — a hook
+ * turns the head round, a straight barely does.
+ */
 export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: number, cfg: Config): void {
   const def = PUNCHES[type];
   if (!def) return;
@@ -28,6 +33,10 @@ export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: 
   r.torso.vz += dir.z * s.back * s.torso * v;
   r.torso.vy += s.lift * s.torso * v;
   r.tilt.v += s.twist * mag * cfg.reactionTwistScale;
+  // Sideways component of the impulse in the defender's frame (+ = toward their right) → yaw the other way.
+  const fr = frameOf(f.yaw);
+  const side = dir.x * fr.right.x + dir.z * fr.right.z;
+  r.spin.v += -side * s.spin * mag * cfg.reactionSpinScale;
   setReactionSnap(f, s.snap);
 }
 
@@ -37,12 +46,14 @@ export function stepReaction(f: FighterState, cfg: Config, dt: number): void {
   stepSpring3(r.head, 0, 0, 0, cfg.reactionHeadK * snap, cfg.reactionHeadC, dt);
   stepSpring3(r.torso, 0, 0, 0, cfg.reactionTorsoK * snap, cfg.reactionTorsoC, dt);
   stepSpring1(r.tilt, 0, cfg.reactionTiltK * snap, cfg.reactionTiltC, dt);
+  stepSpring1(r.spin, 0, cfg.reactionSpinK * snap, cfg.reactionSpinC, dt);
   // The head offset rides on top of the torso offset (see computeBoxes), so
   // its clamp is the neck: how far the head may leave the shoulders.
   const m = cfg.reactionMaxOffset, n = cfg.reactionMaxNeck;
   r.head.x = clamp(r.head.x, -n, n); r.head.y = clamp(r.head.y, -n, n); r.head.z = clamp(r.head.z, -n, n);
   r.torso.x = clamp(r.torso.x, -m, m); r.torso.y = clamp(r.torso.y, -m, m); r.torso.z = clamp(r.torso.z, -m, m);
   r.tilt.x = clamp(r.tilt.x, -cfg.reactionMaxTilt, cfg.reactionMaxTilt);
+  r.spin.x = clamp(r.spin.x, -cfg.reactionMaxSpin, cfg.reactionMaxSpin);
 }
 
 /**
@@ -76,7 +87,11 @@ export function computeBoxes(f: FighterState, cfg: Config): void {
   f.headBox.r = b.headR;
   const hip = localToWorld(f.pos, fr, shift * 0.5, b.hipY - c, 0);
   const sh = localToWorld(f.pos, fr, shift - back * cfg.slipShoulderFrac, b.shoulderY - c, slipLat * cfg.slipShoulderFrac);
-  f.bodyBox.a.x = hip.x + r.torso.x; f.bodyBox.a.y = hip.y + r.torso.y; f.bodyBox.a.z = hip.z + r.torso.z;
+  // A hit moves the shoulders by the whole torso offset and the hips by
+  // reactionHipFollow of it, so the body BENDS back from the waist (the rig
+  // draws the chest along the capsule) instead of sliding as a post.
+  const hf = cfg.reactionHipFollow;
+  f.bodyBox.a.x = hip.x + r.torso.x * hf; f.bodyBox.a.y = hip.y + r.torso.y * hf; f.bodyBox.a.z = hip.z + r.torso.z * hf;
   f.bodyBox.b.x = sh.x + r.torso.x; f.bodyBox.b.y = sh.y + r.torso.y; f.bodyBox.b.z = sh.z + r.torso.z;
   f.bodyBox.r = b.bodyR;
 }

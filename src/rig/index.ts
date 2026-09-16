@@ -262,6 +262,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       lerp(prev.reaction.torso.y, next.reaction.torso.y, alpha),
       lerp(prev.reaction.torso.z, next.reaction.torso.z, alpha), torsoOffL);
     const tilt = lerp(prev.reaction.tilt.x, next.reaction.tilt.x, alpha);
+    const spin = lerp(prev.reaction.spin.x, next.reaction.spin.x, alpha);   // yaw whip from a hit (hooks)
     const leanF = lerp(prev.lean.fwd, next.lean.fwd, alpha);
     const leanL = lerp(prev.lean.lat, next.lean.lat, alpha);
     const twist = lerp(prev.torsoTwist, next.torsoTwist, alpha);
@@ -345,7 +346,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     qChest.setFromAxisAngle(ZAXIS, -bendPitch);
     qTmp.setFromAxisAngle(XAXIS, bendRoll);
     qChest.multiply(qTmp);
-    qTmp.setFromAxisAngle(YAXIS, yawS);
+    qTmp.setFromAxisAngle(YAXIS, yawS + spin);   // the shoulders whip round with a hook's spin
     qChest.multiply(qTmp);
     qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg + mvFwd * c.rigMoveLeanDeg) * DEG);
     qChest.multiply(qTmp);
@@ -445,7 +446,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // Head: exactly on the sim's head sphere.
     const bHead = bone(BONE.head);
     bHead.position.copy(headL);
-    bHead.quaternion.setFromAxisAngle(YAXIS, yawS * Math.min(1, c.rigHeadFollow * drive));
+    bHead.quaternion.setFromAxisAngle(YAXIS, yawS * Math.min(1, c.rigHeadFollow * drive) + spin * c.rigHitHeadSpin);   // the head whips further than the shoulders
     // Chin tucks behind the gloves in the block, and behind the shoulder on a punch.
     qTmp.setFromAxisAngle(ZAXIS, tilt * 0.5 - (blk * c.rigBlockChinTuckDeg + leanN * c.rigPunchChinTuckDeg) * DEG);
     bHead.quaternion.multiply(qTmp);

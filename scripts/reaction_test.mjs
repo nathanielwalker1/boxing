@@ -70,6 +70,9 @@ function throwAndWatch(type, n = 120, dist = MID, moveX = 0) {
   const peakAbs = (w, f) => Math.max(...w.snaps.map(s => Math.abs(f(s.d.reaction))));
   check('a hook tilts the head far more than a cross', peakAbs(hook, r => r.tilt.x) > peakAbs(cross, r => r.tilt.x) * 2, `${peakAbs(hook, r => r.tilt.x).toFixed(3)} vs ${peakAbs(cross, r => r.tilt.x).toFixed(3)}`);
   check('a hook whips the head sideways (z); a cross does not', peakAbs(hook, r => r.head.z) > 0.03 && peakAbs(cross, r => r.head.z) < 1e-6, `${peakAbs(hook, r => r.head.z).toFixed(3)} vs ${peakAbs(cross, r => r.head.z).toFixed(6)}`);
+  // The spin (2026-09-16): a hook turns the head and shoulders round; a straight arrives on the line and barely does.
+  check('a hook spins the torso (yaw whip) far more than a cross', peakAbs(hook, r => r.spin.x) > 0.25 && peakAbs(hook, r => r.spin.x) > peakAbs(cross, r => r.spin.x) * 4, `${(peakAbs(hook, r => r.spin.x) * 57.3).toFixed(0)}° vs ${(peakAbs(cross, r => r.spin.x) * 57.3).toFixed(1)}°`);
+  check('the spin stays inside its clamp', peakAbs(hook, r => r.spin.x) <= cfg.reactionMaxSpin + 1e-9);
   check('a lead hook sends the head toward +z (the way the fist was travelling)', Math.max(...hook.snaps.map(s => s.d.reaction.head.z)) > 0.03);
   check('an uppercut lifts the head more than a cross thrown from the same spot', peakAbs(up, r => r.head.y) > peakAbs(crossIn, r => r.head.y) * 1.5, `${peakAbs(up, r => r.head.y).toFixed(3)} vs ${peakAbs(crossIn, r => r.head.y).toFixed(3)}`);
   check('…and the torso rises with it (uppercutReactTorso)', peakAbs(up, r => r.torso.y) > peakAbs(up, r => r.head.y) * 0.3, `${peakAbs(up, r => r.torso.y).toFixed(3)} vs ${peakAbs(up, r => r.head.y).toFixed(3)}`);
@@ -95,7 +98,8 @@ function throwAndWatch(type, n = 120, dist = MID, moveX = 0) {
     worst = Math.max(worst, err);
     if (err > 1e-9 || d.headBox.r !== d.body.headR) ok = false;
     const hip = localToWorld(d.pos, fr, 0, d.body.hipY, 0), sh = localToWorld(d.pos, fr, 0, d.body.shoulderY, 0);
-    if (Math.abs(d.bodyBox.a.x - hip.x - r.torso.x) > 1e-9 || Math.abs(d.bodyBox.b.y - sh.y - r.torso.y) > 1e-9 || d.bodyBox.r !== d.body.bodyR) ok = false;
+    // The hips take reactionHipFollow of the torso offset (the body bends back from the waist), the shoulders all of it.
+    if (Math.abs(d.bodyBox.a.x - hip.x - r.torso.x * cfg.reactionHipFollow) > 1e-9 || Math.abs(d.bodyBox.b.y - sh.y - r.torso.y) > 1e-9 || d.bodyBox.r !== d.body.bodyR) ok = false;
   }
   check('headBox = head rest + torso + head offsets, every tick', ok, `worst ${worst}`);
   const before = snaps[landTick - 1].d, after = snaps[landTick + 3].d;

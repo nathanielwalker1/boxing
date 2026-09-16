@@ -53,7 +53,7 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
     vuln: 0,
     counterWindow: 0,
     gloves: [gloveAtRest(body, pos, yaw, 'lead', spec.stance), gloveAtRest(body, pos, yaw, 'rear', spec.stance)],
-    reaction: { head: spring3(), torso: spring3(), tilt: spring1() },
+    reaction: { head: spring3(), torso: spring3(), tilt: spring1(), spin: spring1() },
     stagger: { x: 0, z: 0 },
     down: false,
     downT: 0,

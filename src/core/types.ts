@@ -123,6 +123,7 @@ export interface ReactionState {
   head: Spring3;    // head offset from its rest position, metres
   torso: Spring3;   // torso offset
   tilt: Spring1;    // torso tilt about the lateral axis, radians
+  spin: Spring1;    // torso yaw kick about the vertical axis, radians (a hook whips the head and shoulders round; contract addition 2026-09-16)
 }
 
 /** The spec's 0–100 ratings, carried on the state so the sim can read them without the roster (2026-09-15; only chin is wired). */

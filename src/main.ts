@@ -17,6 +17,7 @@ import { mountTuningPanel } from './ui/tune';
 import { FpsOverlay } from './ui/fps';
 import { Hud } from './ui/hud';
 import { InputManager, wantsTouch } from './ui/input';
+import { CombatAudio } from './ui/audio';
 
 declare global {
   interface Window {
@@ -57,6 +58,7 @@ if (params.get('tune') === '1') mountTuningPanel(cfg);
 // ── Sim + views ──────────────────────────────────────────────────────────────
 const specs = [ROSTER[0]!, ROSTER[1]!] as const;
 const bus = new EventBus();
+new CombatAudio(cfg, bus);   // synthesized SFX on the outcome events; silent until the first click/key (autoplay policy)
 const seed = Number(params.get('seed') ?? 1);
 let prev: SimState = createState([specs[0], specs[1]], cfg, seed);
 let next: SimState = prev;

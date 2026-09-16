@@ -74,7 +74,8 @@ const ROUND = T(cfg.roundSeconds), REST = T(cfg.betweenRoundSeconds);
   // Hit-stop slows the clock a few ticks per landed punch, so run past the nominal end and read the card from the event.
   const left = T(fresh().round.clock) + 30;
   let tally = null;
-  const two = run(fresh(), left, i => [inp({ jab: i === 0 || i === 30 }), NONE], (st, i, ev) => { if (st.round.phase === 'fighting' && !ev.some(e => e.type === 'roundEnd')) tally = { landed: [...st.round.landed], power: [...st.round.power] }; });
+  // (The first jab stumbles the dummy back ~30 cm now, so the player walks in before the second.)
+  const two = run(fresh(), left, i => [inp({ jab: i === 0 || i === 40, move: { x: 0, y: i > 12 && i < 38 ? 1 : 0 } }), NONE], (st, i, ev) => { if (st.round.phase === 'fighting' && !ev.some(e => e.type === 'roundEnd')) tally = { landed: [...st.round.landed], power: [...st.round.power] }; });
   const card = of(two.evs, 'roundEnd')[0]?.score;
   check('two clean jabs: the tally counts them and their impulse', two.s.round.score.length === 1 && of(two.evs, 'punchLand').length === 2 && tally?.landed[0] === 2 && tally?.landed[1] === 0 && tally?.power[0] > 200 && tally?.power[1] === 0, `${of(two.evs, 'punchLand').length} lands, tally ${JSON.stringify(tally)}`);
   check('the busier fighter takes the round 10-9', card && card[0] === 10 && card[1] === 9, JSON.stringify(card));

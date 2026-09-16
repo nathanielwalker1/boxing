@@ -21,7 +21,8 @@ import type { BodyDims, Config, FighterState, Hand, PunchType, Stance } from '..
 import { handLateralSign, lerp, smoothstep } from '../core';
 import { whiffMult } from './state';
 
-export interface ReactShape { back: number; lift: number; twist: number; torso: number; snap: number }
+/** `spin`: how much of the impulse (× the fist's sideways travel) becomes a yaw whip of the head and shoulders — the hook's signature (2026-09-16). */
+export interface ReactShape { back: number; lift: number; twist: number; torso: number; snap: number; spin: number }
 
 export interface PunchPhases {
   cock: number; extend: number; recover: number; total: number;
@@ -121,7 +122,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     recoverK: cfg => cfg.jabChainRecoverK,
     impulseMult: cfg => cfg.jabImpulseMult,
     whiffScale: cfg => cfg.jabWhiffScale,
-    react: cfg => ({ back: cfg.jabReactBack, lift: cfg.jabReactLift, twist: cfg.jabReactTwist, torso: cfg.jabReactTorso, snap: cfg.jabReactSnap }),
+    react: cfg => ({ back: cfg.jabReactBack, lift: cfg.jabReactLift, twist: cfg.jabReactTwist, torso: cfg.jabReactTorso, snap: cfg.jabReactSnap, spin: cfg.jabReactSpin }),
   },
   cross: {
     hand: 'rear', smotherable: true, turn: 1.0, coil: 0.15, swing: 0, lean: 1.0, sway: -0.15, dip: 0.03, load: 0.5,
@@ -130,7 +131,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     recoverK: cfg => cfg.chainRecoverK,
     impulseMult: cfg => cfg.crossImpulseMult,
     whiffScale: cfg => cfg.crossWhiffScale,
-    react: cfg => ({ back: cfg.crossReactBack, lift: cfg.crossReactLift, twist: cfg.crossReactTwist, torso: cfg.crossReactTorso, snap: cfg.crossReactSnap }),
+    react: cfg => ({ back: cfg.crossReactBack, lift: cfg.crossReactLift, twist: cfg.crossReactTwist, torso: cfg.crossReactTorso, snap: cfg.crossReactSnap, spin: cfg.crossReactSpin }),
   },
   // The body coils the other way while the elbow comes up into a compact L
   // (glove in front of the elbow), then the whole body turns through it: the
@@ -144,7 +145,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     recoverK: cfg => cfg.chainRecoverK,
     impulseMult: cfg => cfg.hookImpulseMult,
     whiffScale: cfg => cfg.hookWhiffScale,
-    react: cfg => ({ back: cfg.hookReactBack, lift: cfg.hookReactLift, twist: cfg.hookReactTwist, torso: cfg.hookReactTorso, snap: cfg.hookReactSnap }),
+    react: cfg => ({ back: cfg.hookReactBack, lift: cfg.hookReactLift, twist: cfg.hookReactTwist, torso: cfg.hookReactTorso, snap: cfg.hookReactSnap, spin: cfg.hookReactSpin }),
   },
   // The body sits down over the punching hip while the fist drops to it, then
   // the legs drive up and the fist rises through the chin line, finishing
@@ -157,7 +158,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     recoverK: cfg => cfg.chainRecoverK,
     impulseMult: cfg => cfg.uppercutImpulseMult,
     whiffScale: cfg => cfg.uppercutWhiffScale,
-    react: cfg => ({ back: cfg.uppercutReactBack, lift: cfg.uppercutReactLift, twist: cfg.uppercutReactTwist, torso: cfg.uppercutReactTorso, snap: cfg.uppercutReactSnap }),
+    react: cfg => ({ back: cfg.uppercutReactBack, lift: cfg.uppercutReactLift, twist: cfg.uppercutReactTwist, torso: cfg.uppercutReactTorso, snap: cfg.uppercutReactSnap, spin: cfg.uppercutReactSpin }),
   },
 };
 

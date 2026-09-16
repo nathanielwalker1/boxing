@@ -49,7 +49,12 @@ function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number,
   // fist lands. Hooks and uppercuts are thrown from where you stand.
   if (def.smotherable && cfg.punchStepIn > 0 && moveY > cfg.punchStepInStick && !f.down) {
     const fr = frameOf(f.yaw);
-    const v = cfg.punchStepIn * cfg.staggerDecay;
+    // Sized so that punchStepIn metres are covered by the resolve moment
+    // whatever the stagger decay is (the burst keeps gliding a little after).
+    const ph = def.phases(cfg);
+    const k = cfg.staggerDecay, tPeak = ph.cock + ph.extend;
+    const covered = 1 - Math.exp(-k * tPeak);
+    const v = cfg.punchStepIn * k / Math.max(0.05, covered);
     f.stagger.x += fr.fwd.x * v;
     f.stagger.z += fr.fwd.z * v;
   }

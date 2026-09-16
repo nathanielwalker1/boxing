@@ -40,6 +40,8 @@ export class Stage {
   private punchAmp = 0;
   private punchT = 0;
   private punchDur = 1;
+  private shakeAmp = 0;   // camera shake on a landed punch, m (decays over camShakeRecover)
+  private shakeT = 0;
 
   constructor(container: HTMLElement, private cfg: Config) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -142,8 +144,12 @@ export class Stage {
       if (e.type === 'punchLand') {
         const mag = Math.hypot(e.impulse.x, e.impulse.y, e.impulse.z);
         this.pushPunchIn(Math.min(c.camPunchInMax, mag * c.camPunchIn), c.camPunchRecover);
+        // Shake scales with the punch's power (jab ≈ 0.7, hook ≈ 1.4), a bigger hit restarts it.
+        const shake = Math.min(0.06, e.power * c.camShake);
+        if (shake >= this.shakeAmp * Math.exp(-this.shakeT / Math.max(0.02, c.camShakeRecover))) { this.shakeAmp = shake; this.shakeT = 0; }
       } else if (e.type === 'knockdown' || e.type === 'ko' || e.type === 'tko') {
         this.pushPunchIn(c.camKoPunchIn, c.camKoRecover);
+        this.shakeAmp = Math.min(0.08, c.camShake * 3); this.shakeT = 0;
       }
     }
   }
@@ -211,8 +217,10 @@ export class Stage {
     const lam = 1 - Math.exp(-c.camFollowLambda * dt);
     this.look.lerp(this.lookTarget, lam);
     const drift = c.camDriftAmp;
-    const dx = Math.sin(t * c.camDriftHz * TAU) * drift;
-    const dy = Math.sin(t * c.camDriftHz * TAU * 1.37 + 1.1) * drift * 0.6;
+    this.shakeT += dt;
+    const shake = this.shakeAmp * Math.exp(-this.shakeT / Math.max(0.02, c.camShakeRecover));
+    const dx = Math.sin(t * c.camDriftHz * TAU) * drift + Math.sin(this.shakeT * c.camShakeHz * TAU) * shake;
+    const dy = Math.sin(t * c.camDriftHz * TAU * 1.37 + 1.1) * drift * 0.6 + Math.sin(this.shakeT * c.camShakeHz * TAU * 1.3 + 0.9) * shake * 0.7;
     this.camera.position.set(
       this.look.x + dist * Math.cos(el) * Math.cos(az) + dx,
       this.look.y + dist * Math.sin(el) + dy,
