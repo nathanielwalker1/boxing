@@ -18,7 +18,8 @@ const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // Press-only footwork (2026-09-16): §1–5 pin the four v1 heuristics, which
 // the footwork modes sit on top of; §6 covers the modes with the defaults.
 const defaults = { ...createConfig(), healthDamagePerImpulse: 0 };
-const base = { ...defaults, aiProbeWeight: 0, aiCircleWeight: 0, aiHoldWeight: 0, aiResetChance: 0, aiHitResetChance: 0 };
+// …and no reaction lag, rush response, chase delay or bursts either (§7 covers those).
+const base = { ...defaults, aiProbeWeight: 0, aiCircleWeight: 0, aiHoldWeight: 0, aiResetChance: 0, aiHitResetChance: 0, aiReactionTime: 0, aiPressureSpeed: 999, aiChaseDelay: 0, aiComboChance: 0 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
@@ -291,6 +292,94 @@ console.log('\n=== 6. Footwork modes ===');
   const spar = seed => { const x = fresh(defaults, seed); run(x, ticks(15), i => inp({ jab: i % 120 === 0 })); return x; };
   const a = spar(9), b = spar(9);
   check('modes are seeded: same seed → same modes and throws', JSON.stringify(a.a) === JSON.stringify(b.a) && JSON.stringify(a.throws) === JSON.stringify(b.throws));
+}
+
+// ─── 7. Reading the opponent (2026-09-16) ─────────────────────────────────────
+console.log('\n=== 7. Reaction time, rush, retreat, bursts ===');
+{
+  // Reaction time: with aiReactionTime 0.2 and chance 1 the guard comes up
+  // ~12 ticks after the punch starts, not the tick after.
+  const guardDelay = rt => {
+    const w = settle(fresh({ ...base, aiBlockChance: 1, aiReactionTime: rt, aiAttackDelayMin: 999, aiAttackDelayMax: 999 }));
+    w.a = { ...w.a, attackTimer: 999, armed: null };
+    run(w, 1, () => inp({ jab: true }));
+    let n = 0; run(w, 30, () => NONE, x => { n++; return me(x).block; });
+    return me(w).block ? n : -1;
+  };
+  const late = guardDelay(0.2), instant = guardDelay(0);
+  // 12 ticks of reaction on the sim clock, plus the hit-stop of the jab landing meanwhile (~3 ticks near-frozen).
+  check('aiReactionTime 0.2: the guard comes up ~12 ticks (plus the jab\'s hit-stop) after the punch starts', late >= 11 && late <= 18, `${late} ticks`);
+  check('aiReactionTime 0: the tick after, as before', instant === 1, `${instant} ticks`);
+
+  // Perception lag: the player is teleported deep inside the standoff; the
+  // old AI backed off on the next tick, the lagged one takes a beat to notice.
+  const noticeDelay = rt => {
+    const w = settle(fresh({ ...base, aiReactionTime: rt, aiAttackDelayMin: 999, aiAttackDelayMax: 999 }));
+    const d = dist(w); const ux = (you(w).pos.x - me(w).pos.x) / d, uz = (you(w).pos.z - me(w).pos.z) / d;
+    w.s.fighters[0].pos = { x: me(w).pos.x + ux * 0.45, z: me(w).pos.z + uz * 0.45 };
+    let n = 0; run(w, 30, () => NONE, x => { n++; return x.last.move.y < -0.05; });
+    return n;
+  };
+  const lagN = noticeDelay(0.2), fastN = noticeDelay(0);
+  check('a lagged AI takes a beat to notice the player is suddenly close', lagN > fastN + 2, `${lagN} vs ${fastN} ticks before it backs off`);
+
+  // Rush: the player charges from ~1.8 m at an AI that was pinned there.
+  // Give-ground 1 → it retreats while still well outside its normal band
+  // (its standoff has stepped out by aiGiveGround); give-ground 0 → it fires
+  // a jab at them instead.
+  const rush = giveChance => {
+    const cfg = { ...base, aiPressureSpeed: defaults.aiPressureSpeed, aiGiveGroundChance: giveChance, aiGiveGround: 0.6, aiAttackDelayMin: 999, aiAttackDelayMax: 999 };
+    const w = settle(fresh(cfg));
+    w.a = { ...w.a, attackTimer: 999, armed: null };
+    // back the player out to ~1.8 m with the AI pinned, then charge
+    w.cfg = { ...cfg, aiSpeedScale: 0 };
+    runUntil(w, x => dist(x) > 1.7, 6, () => inp({ move: { x: 0, y: -1 } }));
+    run(w, ticks(1.0));
+    w.cfg = cfg;
+    w.evs.length = 0;
+    let retreatedWhileFar = false, jab = false;
+    run(w, ticks(1.2), () => inp({ move: { x: 0, y: 1 } }), x => {
+      if (x.last.move.y < -0.05 && dist(x) > cfg.aiStandoffDist + cfg.aiStandoffBand + 0.05) retreatedWhileFar = true;
+      if (x.evs.some(e => e.type === 'punchStart' && e.side === 1 && e.punch === 'jab')) jab = true;
+    });
+    return { retreatedWhileFar, jab, giveGround: w.a.giveGround, cooldown: w.a.pressureCooldown };
+  };
+  const give = rush(1), fire = rush(0);
+  check('rushed with give-ground: it backs off while still outside its band', give.retreatedWhileFar, `giveGround ${give.giveGround.toFixed(2)} s left`);
+  // (It may still back off a step as the charge arrives — that is the lookahead, not give-ground.)
+  check('rushed without: it stands and fires a jab into the rush', fire.jab && fire.giveGround === 0, `jab=${fire.jab}, giveGround=${fire.giveGround}`);
+
+  // Retreat: the player backs off at speed; for aiChaseDelay the AI does not close.
+  {
+    const cfg = { ...base, aiPressureSpeed: defaults.aiPressureSpeed, aiChaseDelay: 0.4, aiAttackDelayMin: 999, aiAttackDelayMax: 999 };
+    const w = settle(fresh(cfg));
+    // The player needs ~4 ticks to pass aiPressureSpeed; from then until the
+    // delay has run the AI must not close, after it it must.
+    let chasedEarly = false, chasedLater = false;
+    run(w, ticks(1.2), i => inp({ move: { x: 0, y: -1 } }), (x, i) => { if (x.last.move.y > 0.05) { if (i >= 6 && i < ticks(0.4) + 4) chasedEarly = true; else if (i >= ticks(0.4) + 4) chasedLater = true; } });
+    check('the player backs off fast: no chasing for aiChaseDelay…', !chasedEarly);
+    check('…then it follows, even though they are still retreating', chasedLater);
+  }
+
+  // Bursts: every throw opens a 3-punch burst → throws come in tight groups.
+  {
+    const cfg = { ...base, aiComboChance: 1, aiComboMax: 3, aiAttackDelayMin: 2, aiAttackDelayMax: 2, aiAggressionMult: 1, aiJabWeight: 1, aiCrossWeight: 1, aiHookWeight: 0, aiUppercutWeight: 0 };
+    const w = settle(fresh(cfg));
+    w.a = { ...w.a, attackTimer: 0.1, armed: null };
+    run(w, ticks(6));
+    const gaps = w.throws.slice(1).map((t, i) => (t.tick - w.throws[i].tick) * SIM_DT);
+    const tight = gaps.filter(g => g < 0.5).length, loose = gaps.filter(g => g >= 1.5).length;
+    check('bursts: throws come in tight groups (gaps under 0.5 s)…', tight >= 2, `${w.throws.length} throws, gaps ${gaps.map(g => g.toFixed(2)).join(' ')}`);
+    check('…separated by the usual wait', loose >= 1, `${loose} long gaps`);
+    check('a burst chains through the sim\'s combo window (a gap shorter than a whole punch)', Math.min(...gaps) < cfg.crossCock + cfg.crossExtend + cfg.crossRecover, `min gap ${Math.min(...gaps).toFixed(3)} s`);
+    const single = settle(fresh({ ...cfg, aiComboChance: 0 })); single.a = { ...single.a, attackTimer: 0.1, armed: null }; run(single, ticks(6));
+    check('aiComboChance 0: single shots', single.throws.length < w.throws.length, `${single.throws.length} vs ${w.throws.length}`);
+  }
+
+  // Determinism with everything on.
+  const spar = seed => { const x = fresh(defaults, seed); run(x, ticks(15), i => inp({ jab: i % 120 === 0, move: { x: 0, y: i % 300 < 60 ? 1 : i % 300 < 120 ? -1 : 0 } })); return x; };
+  const a = spar(11), b = spar(11);
+  check('reaction, rush and bursts are seeded: same seed → identical', JSON.stringify(a.a) === JSON.stringify(b.a) && JSON.stringify(a.throws) === JSON.stringify(b.throws));
 }
 
 done();

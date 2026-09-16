@@ -139,8 +139,10 @@ check('control: the jab lands', L !== undefined);
 }
 
 // ── 4. The AI's zero-latency reactive block is NOT a perfect block ──────────
+// (aiReactionTime 0 = the tick-after block this section is about; with the
+// 2026-09-16 default of 0.2 s the guard comes up after a jab has landed.)
 {
-  const c = { ...QUIET, aiBlockChance: 1 };
+  const c = { ...QUIET, aiBlockChance: 1, aiReactionTime: 0 };
   let s = fresh(MID, c);
   let a = ai.createAi(1, 7, c);
   const evs = [];

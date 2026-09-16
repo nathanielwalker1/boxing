@@ -334,6 +334,17 @@ export const SCHEMA = {
   aiResetDist:      num(1.3, 0.8, 2, 0.01, 'ai', 'RESET standoff, m — out of everyone\'s range'),
   aiResetTime:      num(1.0, 0.2, 4, 0.1, 'ai', 'seconds a reset lasts before the next mode is rolled'),
   aiTiredFootwork:  num(0.3, 0, 1, 0.05, 'ai', 'CIRCLE weight multiplier at zero stamina (1 at full): a gassed fighter goes flat-footed (Undisputed\'s loose → flat movement)'),
+  // Reading the opponent (2026-09-16): nothing it does is instant, and it responds to what the player DOES, not where they are.
+  aiReactionTime:   num(0.2, 0, 0.6, 0.01, 'ai', 'human reaction time, s: its guard comes up this long after it notices a punch (a jab is through before the hands move; a hook meets the guard), and it steers by where it SAW the player this long ago (a lag, so a step-in gets a beat before it answers). 0 = the old tick-after AI. SF2\'s input-reading "reactions" read as cheating; this is the opposite'),
+  aiPressureSpeed:  num(1.0, 0.2, 3, 0.05, 'ai', 'the player closing faster than this, m/s, is a RUSH it responds to; backing off faster than this is a RETREAT it declines to chase for aiChaseDelay'),
+  aiGiveGroundChance: num(0.5, 0, 1, 0.05, 'ai', 'on a rush: odds it gives ground (standoff + aiGiveGround for aiGiveGroundTime); otherwise it stands and fires (a jab is armed on the spot to meet them coming in)'),
+  aiGiveGround:     num(0.3, 0, 1, 0.05, 'ai', 'how far the standoff steps out while giving ground, m'),
+  aiGiveGroundTime: num(0.6, 0.1, 3, 0.1, 'ai', 'seconds it gives ground for'),
+  aiPressureCooldown: num(1.0, 0.1, 5, 0.1, 'ai', 'seconds before it responds to another rush'),
+  aiChaseDelay:     num(0.4, 0, 2, 0.05, 'ai', 'after the player backs off fast it does not close the gap for this long — the space opens before it follows'),
+  aiComboChance:    num(0.5, 0, 1, 0.05, 'ai', 'odds a throw opens a BURST: up to aiComboMax punches chained through the sim\'s combo window, then the usual wait (and the reset roll). Bursts and lulls, not a metronome'),
+  aiComboMax:       num(3, 1, 5, 1, 'ai', 'most punches in a burst'),
+  aiComboGap:       num(0.05, 0, 1, 0.01, 'ai', 'seconds before the next punch of a burst is armed (it still waits for range and the chain window)'),
 
   // ── debug (UI) ──
   debugHitboxes:    bool(false, 'debug', 'draw sim hit spheres and capsules'),
