@@ -5,7 +5,10 @@ import { check, near, done } from './check.js';
 const [core, sim, punches] = await load('/src/core/index.ts', '/src/sim/index.ts', '/src/sim/punches.ts');
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 const { punchPhases, PUNCHES } = punches;
-const cfg = createConfig();
+// Whiff cost off: every punch here misses on purpose (no hit-stop, so the clock
+// is undisturbed), and this suite measures the timing table AS AUTHORED. The
+// stretch a miss pays is counter_test's subject.
+const cfg = { ...createConfig(), whiffRecoveryMult: 1 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();

@@ -18,6 +18,8 @@
  *   moveHist[7]  seconds the stick has been pushed past slipInputThreshold (0 = not pushed)
  *   moveHist[8]  slip direction captured when that push began (-1 lead / +1 rear / 0 = not a lateral push)
  *   moveHist[9]  1 once the push outlived slipFlickMax — it is footwork now, not a flick
+ *   moveHist[10] the punish spike's level: vulnerability floor while counterWindow > 0
+ *   moveHist[11] recover-phase time multiplier of the punch in flight (>1 = it missed)
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
@@ -32,6 +34,8 @@ const HIST_REGEN_DELAY = 6;
 const HIST_PUSH_T = 7;
 const HIST_PUSH_DIR = 8;
 const HIST_PUSH_HOLD = 9;
+const HIST_PUNISH_LEVEL = 10;
+const HIST_WHIFF_MULT = 11;
 
 export const MASK_JAB = 1, MASK_CROSS = 2, MASK_HOOK = 4, MASK_UPPERCUT = 8;
 
@@ -66,8 +70,13 @@ export function setPushState(f: FighterState, p: PushState): void {
   f.moveHist[HIST_PUSH_T] = p.t; f.moveHist[HIST_PUSH_DIR] = p.dir; f.moveHist[HIST_PUSH_HOLD] = p.hold ? 1 : 0;
 }
 
+export function punishLevel(f: FighterState): number { return f.moveHist[HIST_PUNISH_LEVEL] ?? 0; }
+export function setPunishLevel(f: FighterState, v: number): void { f.moveHist[HIST_PUNISH_LEVEL] = v; }
+export function whiffMult(f: FighterState): number { return f.moveHist[HIST_WHIFF_MULT] || 1; }
+export function setWhiffMult(f: FighterState, m: number): void { f.moveHist[HIST_WHIFF_MULT] = m; }
+
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]; }
 
 const v3c = (a: Vec3): Vec3 => ({ x: a.x, y: a.y, z: a.z });
 const s3c = (s: Spring3): Spring3 => ({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz });

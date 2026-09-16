@@ -70,7 +70,14 @@ export interface PunchDef {
   path(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath;
   phases(cfg: Config): PunchPhases;
   impulseMult(cfg: Config): number;
+  /** Weight on the whiff recovery stretch (legacy `${type}WhiffScale`). */
+  whiffScale(cfg: Config): number;
   react(cfg: Config): ReactShape;
+}
+
+/** The recover-phase multiplier a missed punch of this type pays: 1 + (global − 1) × weight, never under 1. */
+export function whiffRecoveryMult(def: PunchDef, cfg: Config): number {
+  return 1 + Math.max(0, cfg.whiffRecoveryMult - 1) * Math.max(0, def.whiffScale(cfg));
 }
 
 function phases(cock: number, extend: number, recover: number, scale: number, hold: number): PunchPhases {
@@ -86,6 +93,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     path: (b, h, s) => straightPath(b, h, s, 0.15),
     phases: cfg => phases(cfg.jabCock, cfg.jabExtend, cfg.jabRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.jabImpulseMult,
+    whiffScale: cfg => cfg.jabWhiffScale,
     react: cfg => ({ back: cfg.jabReactBack, lift: cfg.jabReactLift, twist: cfg.jabReactTwist, torso: cfg.jabReactTorso, snap: cfg.jabReactSnap }),
   },
   cross: {
@@ -93,6 +101,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     path: (b, h, s) => straightPath(b, h, s, 0.35),
     phases: cfg => phases(cfg.crossCock, cfg.crossExtend, cfg.crossRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.crossImpulseMult,
+    whiffScale: cfg => cfg.crossWhiffScale,
     react: cfg => ({ back: cfg.crossReactBack, lift: cfg.crossReactLift, twist: cfg.crossReactTwist, torso: cfg.crossReactTorso, snap: cfg.crossReactSnap }),
   },
   // The body coils the other way while the elbow comes up into a compact L
@@ -105,6 +114,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     path: hookPath,
     phases: cfg => phases(cfg.hookCock, cfg.hookExtend, cfg.hookRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.hookImpulseMult,
+    whiffScale: cfg => cfg.hookWhiffScale,
     react: cfg => ({ back: cfg.hookReactBack, lift: cfg.hookReactLift, twist: cfg.hookReactTwist, torso: cfg.hookReactTorso, snap: cfg.hookReactSnap }),
   },
   // The body sits down over the punching hip while the fist drops to it, then
@@ -116,6 +126,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     path: uppercutPath,
     phases: cfg => phases(cfg.uppercutCock, cfg.uppercutExtend, cfg.uppercutRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     impulseMult: cfg => cfg.uppercutImpulseMult,
+    whiffScale: cfg => cfg.uppercutWhiffScale,
     react: cfg => ({ back: cfg.uppercutReactBack, lift: cfg.uppercutReactLift, twist: cfg.uppercutReactTwist, torso: cfg.uppercutReactTorso, snap: cfg.uppercutReactSnap }),
   },
 };

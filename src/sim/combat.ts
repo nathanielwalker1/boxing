@@ -5,11 +5,12 @@
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, triangle, v2dist, v2dot, handLateralSign } from '../core';
-import { PUNCHES, punchCrouch, punchHand, punchTwist } from './punches';
-import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer } from './state';
+import { PUNCHES, punchCrouch, punchHand, punchTwist, whiffRecoveryMult } from './punches';
+import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, whiffMult } from './state';
 import { applyReaction } from './reaction';
 import { takeHit } from './resources';
 import { slipLateral } from './slip';
+import { applyPunish } from './vulnerability';
 
 /** Two pressed on the same tick: the faster punch wins. */
 function fastestOf(mask: number): PunchType | null {
@@ -37,6 +38,7 @@ function canStartPunch(f: FighterState, cfg: Config): boolean {
 function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number, cfg: Config, events: SimEvent[]): void {
   const hand = punchHand(PUNCHES[type], moveX);
   setCockMult(f, f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1);
+  setWhiffMult(f, 1);
   f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost);
   f.punch = { type, hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
   events.push({ type: 'punchStart', side, punch: type, hand });
@@ -94,10 +96,12 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   if (p.type === null) return false;
   const def = PUNCHES[p.type];
   const ph = def.phases(cfg);
-  // A gassed throw's cock phase runs slower in real time (the telegraph); the
-  // phase table itself is untouched, so every pose still reads off `progress`.
+  // A gassed throw's cock phase runs slower in real time (the telegraph), and
+  // a punch that missed retracts slower (the whiff cost, set at the resolve);
+  // the phase table itself is untouched, so every pose still reads off
+  // `progress`, and the exposure curve stretches with the recovery for free.
   const was = p.progress * ph.total;
-  const rate = was < ph.cock ? 1 / cockMult(f) : 1;
+  const rate = was < ph.cock ? 1 / cockMult(f) : was >= ph.cock + ph.extend ? 1 / whiffMult(f) : 1;
   const elapsed = Math.min(ph.total, was + dt * rate);
   p.progress = elapsed / ph.total;
   if (elapsed < ph.cock) { p.phase = 'cock'; p.t = elapsed; }
@@ -141,13 +145,17 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   if (d.down) return;
 
   const dist = v2dist(a.pos, d.pos);
-  if (dist > cfg.rangeMax) { events.push({ type: 'punchWhiff', side, punch: type }); return; }
+  // A miss is paid for in the recovery: the arm comes back whiffRecoveryMult
+  // (weighted per type) times slower, the next punch and the guard wait for
+  // it, and the exposure curve decays over the longer window.
+  if (dist > cfg.rangeMax) { events.push({ type: 'punchWhiff', side, punch: type }); setWhiffMult(a, whiffRecoveryMult(def, cfg)); return; }
 
   const g = a.gloves[a.punch.hand === 'lead' ? 0 : 1];
   const glove = { x: g.pos.x, y: g.pos.y, z: g.pos.z, r: a.body.gloveR };
   const part = sphereOverlap(glove, d.headBox) ? 'head' : sphereCapsuleOverlap(glove, d.bodyBox) ? 'body' : null;
   if (part === null) {
     events.push({ type: 'punchWhiff', side, punch: type });
+    setWhiffMult(a, whiffRecoveryMult(def, cfg));
     // Slip classification (legacy main.js Stage 19 part 1): a punch that missed
     // because the defender READ it and one that missed because the attacker
     // was out of range are the same whiff to every other system, and must not
@@ -158,7 +166,13 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     if (d.slip.active && d.slip.dir !== 0) {
       const fr = frameOf(d.yaw), lat = slipLateral(d);
       const home = { x: d.headBox.x - fr.right.x * lat, y: d.headBox.y, z: d.headBox.z - fr.right.z * lat, r: d.headBox.r };
-      if (sphereOverlap(glove, home)) events.push({ type: 'slip', side: target, dir: d.slip.dir, dodged: true });
+      if (sphereOverlap(glove, home)) {
+        events.push({ type: 'slip', side: target, dir: d.slip.dir, dodged: true });
+        // The slip punish: the attacker is pinned exposed, and the counter
+        // machinery does the rest. Survives the stretched recovery above —
+        // the spike is a floor under the curve, on its own clock.
+        applyPunish(a, cfg.slipPunishVuln, cfg.slipPunishDuration);
+      }
     }
     return;
   }
@@ -201,20 +215,43 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const nlen = Math.hypot(nx, ny, nz);
   if (nlen > 1e-6) { nx /= nlen; ny /= nlen; nz /= nlen; } else { nx = -adX; ny = 0; nz = -adZ; }
   a.punch.contact = { x: centre.x + nx * r, y: centre.y + ny * r, z: centre.z + nz * r };
+
+  // Counter: the target's exposure this tick (0 while blocking, by
+  // construction) scales the ONE impulse value damage, stagger, reaction and
+  // hit-stop all read, so a counter is harder, pushes further and reacts
+  // bigger without three separate multipliers.
+  const targetVuln = d.vuln;
+  const counter = targetVuln > 0;
+  mag *= 1 + targetVuln * cfg.counterImpulseBonus;
+
+  // Perfect block: a guard younger than perfectBlockWindow at the impact —
+  // and younger than perfectBlockLateFrac of the punch's flight, so it read
+  // the ARRIVAL, not the start (see config). It absorbs the punch (stagger
+  // and reaction stay) but costs nothing, and the attacker is pinned exposed.
   const blocked = d.block;
+  const ph = def.phases(cfg);
+  const flight = ph.cock * cockMult(a) + ph.extend;
+  const perfect = blocked && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight);
   if (blocked) mag *= 1 - cfg.blockReduction;
   const power = mag / cfg.punchImpulseBase;
   const dir: Vec3 = { x: dirX, y: 0, z: dirZ };
   const impulse: Vec3 = { x: dirX * mag, y: 0, z: dirZ * mag };
   const at: Vec3 = { x: g.pos.x, y: g.pos.y, z: g.pos.z };
 
-  if (blocked) events.push({ type: 'punchBlock', side, target, punch: type, at });
-  else events.push({ type: 'punchLand', side, target, punch: type, hand: a.punch.hand, part, at, impulse, power, counter: false });
+  if (perfect) events.push({ type: 'perfectBlock', side, target, punch: type, at });
+  else if (blocked) events.push({ type: 'punchBlock', side, target, punch: type, at });
+  else events.push({ type: 'punchLand', side, target, punch: type, hand: a.punch.hand, part, at, impulse, power, counter });
   events.push({ type: 'hurt', side: target, part, impulse });
+  if (counter && !blocked) events.push({ type: 'counter', side, target, punch: type });
 
   d.stagger.x += impulse.x / d.body.massKg;
   d.stagger.z += impulse.z / d.body.massKg;
   applyReaction(d, type, dir, mag, cfg);
-  takeHit(s, target, mag, blocked, cfg, events);
-  s.hitStop = Math.max(s.hitStop, clamp(cfg.hitStopBase * power, 0, cfg.hitStopMax));
+  if (perfect) {
+    applyPunish(a, cfg.perfectBlockPunishVuln, cfg.perfectBlockPunishDuration);
+    s.hitStop = Math.max(s.hitStop, cfg.perfectBlockHitStop);
+  } else {
+    takeHit(s, target, mag, blocked, cfg, events);
+    s.hitStop = Math.max(s.hitStop, clamp(cfg.hitStopBase * power, 0, cfg.hitStopMax) + targetVuln * cfg.counterHitStopBonus);
+  }
 }

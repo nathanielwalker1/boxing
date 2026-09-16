@@ -6,8 +6,9 @@
  * frozen-guard dummy: it still turns, holds guard, takes hits and reacts).
  *
  * Tick order (every system reads positions the previous system settled):
- *   slip → actions → stamina → locomotion → separation → facing → punch clock
- *   → reaction springs + boxes → gloves → hit resolution → count → clock / hit-stop.
+ *   slip → actions → stamina → locomotion → separation → facing → punch clock +
+ *   vulnerability → reaction springs + boxes → gloves → hit resolution → count
+ *   → clock / hit-stop.
  */
 import {
   NULL_INPUT, SIM_DT, restFighterState, seedRng,
@@ -20,6 +21,7 @@ import { computeBoxes, stepReaction } from './reaction';
 import { settleGloves, stepGloves } from './gloves';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip } from './slip';
+import { stepVulnerability } from './vulnerability';
 
 const SIDES: [Side, Side] = [0, 1];
 
@@ -73,6 +75,9 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     const f = s.fighters[side];
     const type = f.punch.type;
     if (advancePunch(f, cfg, dt)) peaked[side] = type;
+    // Exposure is read off this tick's punch progress, so the hit test below
+    // sees the same number a readout would show for this tick.
+    stepVulnerability(f, cfg, dt);
   }
   for (const side of SIDES) { stepReaction(s.fighters[side], cfg, dt); computeBoxes(s.fighters[side], cfg); }
   for (const side of SIDES) stepGloves(s.fighters[side], side, s.time, cfg, dt);

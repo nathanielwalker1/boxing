@@ -189,6 +189,26 @@ export const SCHEMA = {
   slipRise:         num(0.05, 0, 0.2, 0.005, 'slip', 'seconds the head takes to reach the full offset after the flick (the sim moves the sphere; the rig draws it there)'),
   slipReturn:       num(0.12, 0, 0.5, 0.01, 'slip', 'seconds the head takes to come home after the window closes; no new slip until it is back'),
 
+  // ── sim: vulnerability, whiff cost, counters, perfect block, slip punish (SIM) — v1 Stage 16 / 17 / 19, src/sim/vulnerability.ts ──
+  vulnerabilityPeak:  num(1, 0, 1, 0.05, 'counter', 'how exposed a fighter is at full extension, 0..1 — the ceiling of the per-punch curve', 'vulnerabilityPeak'),
+  vulnerabilityCockLevel: num(0.15, 0, 1, 0.05, 'counter', 'fraction of the peak reached by the END of the wind-up', 'vulnerabilityCockLevel'),
+  vulnerabilityRiseShape: num(2, 0.25, 4, 0.05, 'counter', '>1 back-loads the rise: flat through the early cock, steep into the peak', 'vulnerabilityRiseShape'),
+  vulnerabilityDecayShape: num(1.2, 0.25, 4, 0.05, 'counter', '>1 drops off quickly after the peak; <1 stays exposed longer through the recovery', 'vulnerabilityDecayShape'),
+  whiffRecoveryMult: num(3.5, 1, 6, 0.1, 'counter', 'a punch that misses retracts this many times slower (recover phase only; the cock and extension already happened). Stretches the exposure with it and holds off the next punch AND the guard (v2: the block waits for the punch to end). 1 = missing is free. The single most important number here to feel-test', 'whiffRecoveryMultiplier'),
+  jabWhiffScale:    num(0.55, 0, 2, 0.05, 'counter', 'weight on the whiff stretch for a jab: effective = 1 + (whiffRecoveryMult - 1) × weight. Cheapest miss', 'jabWhiffScale'),
+  crossWhiffScale:  num(0.85, 0, 2, 0.05, 'counter', 'weight on the whiff stretch for a cross', 'crossWhiffScale'),
+  hookWhiffScale:   num(1.15, 0, 2, 0.05, 'counter', 'weight on the whiff stretch for a hook', 'hookWhiffScale'),
+  uppercutWhiffScale: num(1.45, 0, 2, 0.05, 'counter', 'weight on the whiff stretch for an uppercut: the most expensive miss', 'uppercutWhiffScale'),
+  counterImpulseBonus: num(0.9, 0, 2, 0.05, 'counter', 'a hit on a vulnerable target multiplies the impulse by 1 + vulnerability × this, so damage, stagger and reaction all grow off one number. 0.9 ≈ double at full exposure', 'counterForceBonus'),
+  counterHitStopBonus: num(0.05, 0, 0.2, 0.005, 'counter', 'seconds ADDED to the hit-stop on a counter, × the target\'s vulnerability', 'counterHitStopBonus'),
+  perfectBlockWindow: num(0.12, 0.02, 0.5, 0.01, 'counter', 'a guard that is younger than this at the impact is a PERFECT block: no health or stamina cost, and the attacker is pinned exposed (the stagger and reaction stay — it absorbs the punch, it does not delete it)', 'perfectBlockWindow'),
+  perfectBlockLateFrac: num(0.6, 0, 1, 0.05, 'counter', 'v2 addition: the guard must also be younger than this fraction of the punch\'s flight (cock + extension). A guard raised the instant the punch STARTS is a reaction to the start, not a read of the arrival — without this the AI\'s zero-latency block was perfect every time and each blocked jab bought it a counter (v1 finding, counter_test §4)'),
+  perfectBlockPunishVuln: num(0.85, 0, 1, 0.05, 'counter', 'the attacker\'s vulnerability is pinned at (at least) this after a perfect block', 'perfectBlockPunishVulnerability'),
+  perfectBlockPunishDuration: num(0.45, 0, 2, 0.05, 'counter', 'seconds that pin is held', 'perfectBlockPunishDuration'),
+  perfectBlockHitStop: num(0.05, 0, 0.2, 0.005, 'counter', 'hit-stop on a perfect block, s — deliberately under a counter\'s', 'perfectBlockHitStop'),
+  slipPunishVuln:   num(1, 0, 1, 0.05, 'counter', 'the attacker\'s vulnerability is pinned at (at least) this after a punch is slipped. Higher than the perfect block\'s: a slip is a timed flick that commits the head', 'slipPunishVulnerability'),
+  slipPunishDuration: num(0.7, 0, 2, 0.05, 'counter', 'seconds that pin is held — long enough to step in and counter after the slip unwinds; the number to argue with first', 'slipPunishDuration'),
+
   // ── sim: health + stamina + knockdown (SIM) — v1 Stage 6 / 17 on 0..1 bars, impulse in N·s ──
   healthDamagePerImpulse: num(0.0009, 0, 0.005, 0.00005, 'health', 'health lost per N·s of landed impulse (after block reduction). A standing cross is ~230 N·s → ~0.2, so ~5 clean crosses or ~3 hooks put a fighter down (v1: 0.01 per force on a 100 bar)', 'healthDamagePerForce'),
   staminaPunchCost: num(0.04, 0, 0.2, 0.005, 'health', 'stamina spent per punch thrown, lands or not (v1: 4/100)', 'staminaDrainPerPunch'),

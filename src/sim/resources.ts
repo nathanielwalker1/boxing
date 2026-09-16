@@ -13,6 +13,7 @@
  */
 import type { Config, FighterState, Side, SimEvent, SimState } from '../core';
 import { regenDelay, setRegenDelay } from './state';
+import { clearPunish } from './vulnerability';
 
 /** Per tick: the guard drains stamina, idling regains it (after any post-hit pause), the canvas freezes it. */
 export function stepStamina(f: FighterState, cfg: Config, dt: number): void {
@@ -45,6 +46,7 @@ function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent[]): vo
   d.lean.fwd = 0; d.lean.lat = 0; d.torsoTwist = 0; d.crouch = 0;
   d.stagger.x = 0; d.stagger.z = 0;
   d.slip = { active: false, dir: 0, t: 0, offset: 0 };
+  clearPunish(d);   // the knockdown supersedes any punish window
   events.push({ type: 'knockdown', side, count: d.knockdowns });
   if (d.knockdowns >= cfg.knockdownsForTko) {
     events.push({ type: 'tko', winner: side === 0 ? 1 : 0 });
