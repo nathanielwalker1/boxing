@@ -144,6 +144,7 @@ export const SCHEMA = {
   separationStrength: num(0.5, 0.05, 1, 0.05, 'movement', 'fraction of a body overlap corrected per tick; 1 = rigid', 'fighterSeparationStrength'),
   moveBackScale:    num(0.8, 0.3, 1, 0.05, 'movement', 'top speed walking BACK (away from the opponent) as a fraction of moveSpeed — a boxer retreats slower than he advances (2026-09-16; Fight Night does the same)'),
   moveLateralScale: num(0.9, 0.3, 1, 0.05, 'movement', 'top speed circling (pure lateral stick) as a fraction of moveSpeed; diagonals blend'),
+  moveTiredScale:   num(0.65, 0.2, 1, 0.05, 'movement', 'the legs go first (2026-09-16): at ZERO stamina top speed and the push-off are this fraction of fresh, linearly in between — both fighters. Undisputed does loose → flat-footed off the same bar'),
 
   // ── sim: punch (SIM) — per-phase timing in seconds, impulse in N·s ──
   jabCock:          num(0.06, 0.02, 0.4, 0.005, 'punch', 'jab wind-up (the telegraph), s. 0.06 from v1\'s 0.08 (2026-09-16, the whip: the fist leaves the guard sooner and there is no pull-back to show)', 'jabCockMs'),
@@ -416,6 +417,7 @@ export const SCHEMA = {
   rigRhythmHead:           num(0.8, 0, 1.5, 0.05, 'rig', 'the head follows this fraction of the bounce and weave, lagging a little (drawn head leaves the sim\'s head sphere by at most rhythmBob × this)'),
   rigRhythmRoll:           num(3, 0, 8, 0.5, 'rig', 'chest rolls this much over the loaded foot on each weight shift, degrees'),
   rigRhythmFade:           num(1, 0, 1, 0.05, 'rig', 'how completely the rhythm stops while punching or blocking (1 = fully; 0 = it never stops)'),
+  rigRhythmTired:          num(0.25, 0, 1, 0.05, 'rig', 'the bounce at ZERO stamina as a fraction of fresh (linearly in between): a gassed fighter goes flat-footed and the head stops riding (2026-09-16)'),
   rigFallGravity:          num(5, 1, 15, 0.25, 'rig', 'knockdown: the legs give way and the hips fall to the canvas under this acceleration, m/s² (real is 9.8; lower reads heavier and slower on a toy figure)'),
   rigFallTip:              num(8, 1, 30, 0.5, 'rig', 'knockdown: the torso tips about the hips along the punch\'s impulse line with this angular acceleration, rad/s² (8 → lying in ~0.6 s)'),
   rigFallSlide:            num(0.35, 0, 0.8, 0.01, 'rig', 'knockdown: how far the hips travel along the fall line as they drop, m (the feet stay, so the legs fold)'),

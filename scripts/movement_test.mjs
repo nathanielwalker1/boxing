@@ -48,6 +48,15 @@ for (const [name, move] of [['forward', { x: 0, y: 1 }], ['back', { x: 0, y: -1 
   const fwdTop = topOf({ x: 0, y: 1 }), backTop = topOf({ x: 0, y: -1 });
   check('walking forward reaches moveSpeed', fwdTop >= cfg.moveSpeed * 0.99, `${fwdTop.toFixed(3)}`);
   check('walking back tops out at moveSpeed × moveBackScale', near(backTop, cfg.moveSpeed * cfg.moveBackScale, 0.02), `${backTop.toFixed(3)} vs ${(cfg.moveSpeed * cfg.moveBackScale).toFixed(3)}`);
+  // The legs go first (2026-09-16): an empty bar walks at moveTiredScale of fresh, and accelerates slower.
+  const gassed = () => { const s = fresh(); s.fighters[0].stamina = 0; return s; };
+  const noRegen = { ...cfg, staminaRegen: 0 };
+  let tiredTop = 0, tiredEarly = 0, freshEarly = 0;
+  { let s = fresh(); for (let i = 0; i < 6; i++) { s = sim.step(s, [inp({ move: { x: 0, y: 1 } }), NONE], cfg).state; } freshEarly = v2len(s.fighters[0].vel); }
+  // (noRegen so the bar stays empty for the whole walk.)
+  { let s = gassed(); for (let i = 0; i < 60; i++) { s = sim.step(s, [inp({ move: { x: 0, y: 1 } }), NONE], noRegen).state; tiredTop = Math.max(tiredTop, v2len(s.fighters[0].vel)); if (i === 5) tiredEarly = v2len(s.fighters[0].vel); } }
+  check('at zero stamina top speed is moveSpeed × moveTiredScale', near(tiredTop, cfg.moveSpeed * cfg.moveTiredScale, 0.03), `${tiredTop.toFixed(3)} vs ${(cfg.moveSpeed * cfg.moveTiredScale).toFixed(3)}`);
+  check('…and the push-off is slower too', tiredEarly < freshEarly * cfg.moveTiredScale * 1.15, `${tiredEarly.toFixed(3)} vs fresh ${freshEarly.toFixed(3)} after 6 ticks`);
   check('strafe right moves along the fighter\'s right (+z when facing +x)', s.fighters[0].pos.z > 0.5, `${s.fighters[0].pos.z.toFixed(3)}`);
   s = run(s, 60, () => [NONE, NONE]);
   check('friction brings the fighter to a dead stop within 1 s', s.fighters[0].vel.x === 0 && s.fighters[0].vel.z === 0, `${JSON.stringify(s.fighters[0].vel)}`);

@@ -289,7 +289,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const sway = Math.sin(tIdle * c.rigSwayHz * Math.PI * 2 + side * 2.1);
     const bob = Math.sin(tIdle * c.rigSwayHz * Math.PI * 4 + 0.7) * c.rigBobAmp;
     const busy = next.punch.type !== null || next.block || next.down;
-    const rhythm = chase1(rhythmGate, busy ? 1 - c.rigRhythmFade : 1, c.rigSpineK, c.rigSpineZeta, dt);
+    // …and it dies down as the fighter tires (stamina → rigRhythmTired).
+    const freshness = lerp(c.rigRhythmTired, 1, Math.max(0, Math.min(1, next.stamina)));
+    const rhythm = chase1(rhythmGate, (busy ? 1 - c.rigRhythmFade : 1) * freshness, c.rigSpineK, c.rigSpineZeta, dt);
     const beat = tIdle * c.rigRhythmHz * (1 - 0.06 * side) * Math.PI * 2 + side * 1.3;
     const rDip = c.rigRhythmBob * (0.5 - 0.5 * Math.cos(beat)) * rhythm;        // hips drop on the beat, feet planted → knees
     const rLat = c.rigRhythmSway * Math.sin(beat / 2) * rhythm;                  // weight foot to foot, every other beat

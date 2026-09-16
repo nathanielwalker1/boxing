@@ -5,7 +5,7 @@
  * ropes and facing as a yaw that turns at a capped rate instead of snapping.
  */
 import type { Config, FighterState, FrameInput, Vec2 } from '../core';
-import { RING_HALF, clamp, frameOf, sqrt, turnToward, v2angle, v2dist, v2len, v2sub } from '../core';
+import { RING_HALF, clamp, frameOf, lerp, sqrt, turnToward, v2angle, v2dist, v2len, v2sub } from '../core';
 
 /** Half-size of the walkable square. */
 export const bound = (cfg: Config): number => RING_HALF - cfg.ringInset;
@@ -19,7 +19,10 @@ export const bound = (cfg: Config): number => RING_HALF - cfg.ringInset;
  */
 export function stepLocomotion(f: FighterState, input: Readonly<FrameInput>, cfg: Config, dt: number): void {
   const massScale = cfg.moveMassRef / f.body.massKg;
-  const accelRate = cfg.moveAccel * massScale;
+  // The legs go first (2026-09-16): at zero stamina top speed and the push-off
+  // are moveTiredScale of fresh, linearly in between. Both fighters.
+  const tired = lerp(cfg.moveTiredScale, 1, clamp(f.stamina, 0, 1));
+  const accelRate = cfg.moveAccel * massScale * tired;
   const frictionRate = cfg.moveFriction * massScale;
   let mx = input.move.x, my = input.move.y;
   const hasInput = Math.abs(mx) > 0.01 || Math.abs(my) > 0.01;
@@ -33,7 +36,7 @@ export function stepLocomotion(f: FighterState, input: Readonly<FrameInput>, cfg
     // squared magnitude), so a diagonal blends the two.
     const m2 = mx * mx + my * my;
     const dirScale = m2 > 0 ? ((my > 0 ? 1 : cfg.moveBackScale) * my * my + cfg.moveLateralScale * mx * mx) / m2 : 1;
-    const speed = cfg.moveSpeed * dirScale;
+    const speed = cfg.moveSpeed * dirScale * tired;
     const tvx = (fr.fwd.x * my + fr.right.x * mx) * speed;
     const tvz = (fr.fwd.z * my + fr.right.z * mx) * speed;
     const a = Math.min(1, accelRate * dt);
