@@ -11,6 +11,7 @@
 import type { Config, FighterState, Hand, Side, Vec3 } from '../core';
 import { TAU, frameOf, localToWorld, sin, sqrt } from '../core';
 import { PUNCHES, blockLocal, guardLocal, punchLocal, type LocalPose } from './punches';
+import { slipLateral } from './slip';
 
 const HANDS: [Hand, Hand] = ['lead', 'rear'];
 /**
@@ -24,7 +25,8 @@ const CHAIN_SUBSTEPS = 4;
 const BOB_PHASE_HAND = [0, 1.9];
 const BOB_PHASE_SIDE = [0, 2.6];
 
-function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPose; kMul: number; contact: Vec3 | null } {
+/** `guard`: the hand is at rest or blocking (it rides the shoulders through a slip); a punching hand aims from the fighter's frame. */
+function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPose; kMul: number; contact: Vec3 | null; guard: boolean } {
   const p = f.punch;
   if (p.type !== null && p.hand === hand) {
     const def = PUNCHES[p.type];
@@ -35,10 +37,10 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPos
       // driving on to the free-air peak.
       const rt = (p.progress * ph.total - ph.cock - ph.extend) / ph.recover;
       const contact = p.contact && p.phase === 'recover' && rt < ph.hold ? p.contact : null;
-      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg), kMul, contact };
+      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg), kMul, contact, guard: false };
     }
   }
-  return { pose: f.block ? blockLocal(f.body, hand, f.stance) : guardLocal(f.body, hand, f.stance), kMul: 1, contact: null };
+  return { pose: f.block ? blockLocal(f.body, hand, f.stance) : guardLocal(f.body, hand, f.stance), kMul: 1, contact: null, guard: true };
 }
 
 /** Compute this tick's targets and advance the springs by dt. */
@@ -46,10 +48,14 @@ export function stepGloves(f: FighterState, side: Side, time: number, cfg: Confi
   const fr = frameOf(f.yaw);
   for (let i = 0; i < 2; i++) {
     const hand = HANDS[i]!;
-    const { pose, kMul, contact } = targetLocal(f, hand, cfg);
+    const { pose, kMul, contact, guard } = targetLocal(f, hand, cfg);
     const bob = sin(time * TAU * cfg.chainBobHz + BOB_PHASE_HAND[i]! + BOB_PHASE_SIDE[side]!) * cfg.chainBobAmp;
     // The hands ride the body down through a crouch (guard and punch alike).
-    const t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, pose.fwd, pose.up + bob - f.crouch, pose.lat);
+    // The guard also rides the shoulders sideways through a slip; a punching
+    // hand does not — it aims from the fighter's frame, so a slip-and-hook
+    // still lands where the hook was thrown.
+    const lat = pose.lat + (guard ? slipLateral(f) * cfg.slipShoulderFrac : 0);
+    const t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, pose.fwd, pose.up + bob - f.crouch, lat);
     // The gloves ride the torso's reaction offset, so they travel with the body.
     if (!contact) { t.x += f.reaction.torso.x; t.y += f.reaction.torso.y; t.z += f.reaction.torso.z; }
     const g = f.gloves[i]!;

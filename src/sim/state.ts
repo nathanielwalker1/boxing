@@ -15,7 +15,9 @@
  *   moveHist[4]  move.x at the buffered press (hook/uppercut hand)
  *   moveHist[5]  cock-phase time multiplier of the punch in flight (>1 = thrown gassed)
  *   moveHist[6]  seconds of stamina-regen pause left after a hit
- *   moveHist[7…] reserved for the flick-vs-hold move samples (Stage 2)
+ *   moveHist[7]  seconds the stick has been pushed past slipInputThreshold (0 = not pushed)
+ *   moveHist[8]  slip direction captured when that push began (-1 lead / +1 rear / 0 = not a lateral push)
+ *   moveHist[9]  1 once the push outlived slipFlickMax — it is footwork now, not a flick
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
@@ -27,6 +29,9 @@ const HIST_BUF_T = 3;
 const HIST_BUF_X = 4;
 const HIST_COCK_MULT = 5;
 const HIST_REGEN_DELAY = 6;
+const HIST_PUSH_T = 7;
+const HIST_PUSH_DIR = 8;
+const HIST_PUSH_HOLD = 9;
 
 export const MASK_JAB = 1, MASK_CROSS = 2, MASK_HOOK = 4, MASK_UPPERCUT = 8;
 
@@ -51,8 +56,18 @@ export function setCockMult(f: FighterState, m: number): void { f.moveHist[HIST_
 export function regenDelay(f: FighterState): number { return f.moveHist[HIST_REGEN_DELAY] ?? 0; }
 export function setRegenDelay(f: FighterState, t: number): void { f.moveHist[HIST_REGEN_DELAY] = t; }
 
+/** The flick-vs-hold detector's memory of the current stick push (slip.ts). */
+export interface PushState { t: number; dir: -1 | 0 | 1; hold: boolean }
+export function pushState(f: FighterState): PushState {
+  const d = f.moveHist[HIST_PUSH_DIR] ?? 0;
+  return { t: f.moveHist[HIST_PUSH_T] ?? 0, dir: d < 0 ? -1 : d > 0 ? 1 : 0, hold: (f.moveHist[HIST_PUSH_HOLD] ?? 0) !== 0 };
+}
+export function setPushState(f: FighterState, p: PushState): void {
+  f.moveHist[HIST_PUSH_T] = p.t; f.moveHist[HIST_PUSH_DIR] = p.dir; f.moveHist[HIST_PUSH_HOLD] = p.hold ? 1 : 0;
+}
+
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0]; }
 
 const v3c = (a: Vec3): Vec3 => ({ x: a.x, y: a.y, z: a.z });
 const s3c = (s: Spring3): Spring3 => ({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz });

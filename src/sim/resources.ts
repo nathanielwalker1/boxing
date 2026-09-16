@@ -44,6 +44,7 @@ function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent[]): vo
   d.punch = { type: null, hand: d.punch.hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null };
   d.lean.fwd = 0; d.lean.lat = 0; d.torsoTwist = 0; d.crouch = 0;
   d.stagger.x = 0; d.stagger.z = 0;
+  d.slip = { active: false, dir: 0, t: 0, offset: 0 };
   events.push({ type: 'knockdown', side, count: d.knockdowns });
   if (d.knockdowns >= cfg.knockdownsForTko) {
     events.push({ type: 'tko', winner: side === 0 ? 1 : 0 });

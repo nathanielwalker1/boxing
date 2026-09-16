@@ -200,6 +200,7 @@ export type SimEvent =
   | { type: 'perfectBlock'; side: Side; target: Side; punch: PunchType; at: Vec3 }
   | { type: 'punchWhiff';  side: Side; punch: PunchType }
   | { type: 'punchSmother'; side: Side; target: Side; punch: PunchType }
+  /** Once at the flick (dodged: false), and once more, dodged: true, for each punch the slip takes away. */
   | { type: 'slip';        side: Side; dir: -1 | 1; dodged: boolean }
   | { type: 'counter';     side: Side; target: Side; punch: PunchType }
   | { type: 'hurt';        side: Side; part: BodyPart; impulse: Vec3 }

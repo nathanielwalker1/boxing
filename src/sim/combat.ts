@@ -9,6 +9,7 @@ import { PUNCHES, punchCrouch, punchHand, punchTwist } from './punches';
 import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer } from './state';
 import { applyReaction } from './reaction';
 import { takeHit } from './resources';
+import { slipLateral } from './slip';
 
 /** Two pressed on the same tick: the faster punch wins. */
 function fastestOf(mask: number): PunchType | null {
@@ -61,7 +62,9 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
 
   const guardOpen = f.punch.type === null;
   const wasBlocking = f.block;
-  f.block = input.block && guardOpen && !f.down;
+  // The guard cannot come up inside a slip window (v1: isBlocking requires
+  // slipTimer === 0); the head is committed. It engages the tick the window closes.
+  f.block = input.block && guardOpen && !f.down && !f.slip.active;
   f.blockT = f.block ? (wasBlocking ? f.blockT + dt : 0) : 0;
   f.guard = f.down ? 'down' : f.block ? 'block' : 'rest';
 
@@ -143,7 +146,22 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const g = a.gloves[a.punch.hand === 'lead' ? 0 : 1];
   const glove = { x: g.pos.x, y: g.pos.y, z: g.pos.z, r: a.body.gloveR };
   const part = sphereOverlap(glove, d.headBox) ? 'head' : sphereCapsuleOverlap(glove, d.bodyBox) ? 'body' : null;
-  if (part === null) { events.push({ type: 'punchWhiff', side, punch: type }); return; }
+  if (part === null) {
+    events.push({ type: 'punchWhiff', side, punch: type });
+    // Slip classification (legacy main.js Stage 19 part 1): a punch that missed
+    // because the defender READ it and one that missed because the attacker
+    // was out of range are the same whiff to every other system, and must not
+    // earn the same reward. The test is the head test again, at the head's
+    // UN-slipped position: if the glove would have found it there, the slip is
+    // the only thing that took the punch away. A classification layered on,
+    // not a new outcome — the whiff above still stands for recovery and stamina.
+    if (d.slip.active && d.slip.dir !== 0) {
+      const fr = frameOf(d.yaw), lat = slipLateral(d);
+      const home = { x: d.headBox.x - fr.right.x * lat, y: d.headBox.y, z: d.headBox.z - fr.right.z * lat, r: d.headBox.r };
+      if (sphereOverlap(glove, home)) events.push({ type: 'slip', side: target, dir: d.slip.dir, dodged: true });
+    }
+    return;
+  }
 
   // Impulse: base + attacker momentum toward the defender, floored so a
   // retreating punch still lands with something, scaled by lean and per-type.

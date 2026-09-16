@@ -180,6 +180,15 @@ export const SCHEMA = {
   // ── sim: block (SIM) ──
   blockReduction:   num(0.75, 0, 1, 0.05, 'block', 'fraction of an incoming impulse absorbed by a held block', 'blockReduction'),
 
+  // ── sim: slip (SIM) — flick-vs-hold head movement on the movement stick, ported from legacy fighter.js Stage 5. src/sim/slip.ts ──
+  slipInputThreshold: num(0.6, 0.1, 1, 0.05, 'slip', 'stick magnitude that counts as a push; under it the flick detector sees nothing', 'slipInputThreshold'),
+  slipFlickMax:     num(0.18, 0.04, 0.5, 0.01, 'slip', 'a lateral push released before this is a FLICK and slips; held past it, it is footwork and never slips, even on release, s (v1: 180 ms)', 'slipFlickMaxDurationMs'),
+  slipDuration:     num(0.25, 0.05, 1, 0.01, 'slip', 'the slip window: how long the head stays off the line, s. The block cannot come up inside it (v1 rule)', 'slipInvincibilityDuration'),
+  slipHeadOffset:   num(0.30, 0, 0.5, 0.01, 'slip', 'how far the head moves to the side, m — the whole invincibility: the head sphere is simply not where the punch is. One toy-head width. MEASURED: a jab lands 5 cm off the centreline on the lead-hand side, so this must beat headR + gloveR + 0.05 (0.30 at the default body) to clear a straight slipped AWAY from the hand; slipped into the hand it still catches the body (v1: 90 px, which at 0.0122 m/px would be 1.1 m — a body teleport, not a slip)', 'slipHeadOffsetX'),
+  slipShoulderFrac: num(0.6, 0, 1, 0.05, 'slip', 'the slip is a bend at the waist: the shoulder end of the body capsule (and the drawn shoulders) move this fraction of the head offset; the hips stay. Below ~0.5 the capsule\'s end cap, which reaches chin height, still catches a slipped jab'),
+  slipRise:         num(0.05, 0, 0.2, 0.005, 'slip', 'seconds the head takes to reach the full offset after the flick (the sim moves the sphere; the rig draws it there)'),
+  slipReturn:       num(0.12, 0, 0.5, 0.01, 'slip', 'seconds the head takes to come home after the window closes; no new slip until it is back'),
+
   // ── sim: health + stamina + knockdown (SIM) — v1 Stage 6 / 17 on 0..1 bars, impulse in N·s ──
   healthDamagePerImpulse: num(0.0009, 0, 0.005, 0.00005, 'health', 'health lost per N·s of landed impulse (after block reduction). A standing cross is ~230 N·s → ~0.2, so ~5 clean crosses or ~3 hooks put a fighter down (v1: 0.01 per force on a 100 bar)', 'healthDamagePerForce'),
   staminaPunchCost: num(0.04, 0, 0.2, 0.005, 'health', 'stamina spent per punch thrown, lands or not (v1: 4/100)', 'staminaDrainPerPunch'),

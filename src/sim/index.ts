@@ -6,8 +6,8 @@
  * frozen-guard dummy: it still turns, holds guard, takes hits and reacts).
  *
  * Tick order (every system reads positions the previous system settled):
- *   actions → locomotion → separation → facing → punch clock → reaction
- *   springs + boxes → gloves → hit resolution → clock / hit-stop.
+ *   slip → actions → stamina → locomotion → separation → facing → punch clock
+ *   → reaction springs + boxes → gloves → hit resolution → count → clock / hit-stop.
  */
 import {
   NULL_INPUT, SIM_DT, restFighterState, seedRng,
@@ -19,6 +19,7 @@ import { advancePunch, resolvePunch, stepActions } from './combat';
 import { computeBoxes, stepReaction } from './reaction';
 import { settleGloves, stepGloves } from './gloves';
 import { stepCount, stepStamina } from './resources';
+import { stepSlip } from './slip';
 
 const SIDES: [Side, Side] = [0, 1];
 
@@ -39,7 +40,7 @@ export function createState(specs: [FighterSpec, FighterSpec], cfg: Config, seed
   for (const side of SIDES) {
     const f = s.fighters[side];
     f.moveHist = initialMoveHist();
-    computeBoxes(f);
+    computeBoxes(f, cfg);
     settleGloves(f, side, 0, cfg);
   }
   return s;
@@ -57,6 +58,9 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   const fighting = s.round.phase === 'fighting';
   const ins: [Readonly<FrameInput>, Readonly<FrameInput>] = fighting ? inputs : [NULL_INPUT, NULL_INPUT];
 
+  // Slip before actions: the block reads this tick's window, so it comes up
+  // on the very tick the window closes; the flick reads the held block level.
+  for (const side of SIDES) stepSlip(s.fighters[side], side, ins[side], cfg, dt, events);
   for (const side of SIDES) stepActions(s.fighters[side], side, ins[side], cfg, dt, events);
   for (const side of SIDES) stepStamina(s.fighters[side], cfg, dt);
   for (const side of SIDES) stepLocomotion(s.fighters[side], ins[side], cfg, dt);
@@ -70,7 +74,7 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     const type = f.punch.type;
     if (advancePunch(f, cfg, dt)) peaked[side] = type;
   }
-  for (const side of SIDES) { stepReaction(s.fighters[side], cfg, dt); computeBoxes(s.fighters[side]); }
+  for (const side of SIDES) { stepReaction(s.fighters[side], cfg, dt); computeBoxes(s.fighters[side], cfg); }
   for (const side of SIDES) stepGloves(s.fighters[side], side, s.time, cfg, dt);
   for (const side of SIDES) { const t = peaked[side]; if (t !== null) resolvePunch(s, side, t, cfg, events); }
   stepCount(s, cfg, dt, events);
