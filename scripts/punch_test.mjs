@@ -153,14 +153,14 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
   check('an advancing jab lands', advancing?.type === 'punchLand', advancing?.type);
   check('…and carries more impulse than a standing one', advancing?.power > standing?.power * 1.05, `${advancing?.power?.toFixed(3)} vs ${standing?.power?.toFixed(3)}`);
   // The step-in (2026-09-16): a straight thrown with the stick forward at the
-  // press lunges punchStepIn with it. From 1.05 m a standing jab whiffs
-  // (lands to ~0.97); the same jab pressed with the stick forward — one tick,
-  // so this is the lunge and not a walk — closes to range and lands.
+  // press lunges punchStepIn with it. From 1.15 m a standing jab whiffs
+  // (lands to ~1.07 with the lean shift); the same jab pressed with the stick
+  // forward — one tick, so this is the lunge and not a walk — closes to range and lands.
   const noStep = { ...cfg, punchStepIn: 0 };
   const stepIn = i => [inp({ jab: i === 0, move: { x: 0, y: i === 0 ? 1 : 0 } }), NONE];
-  const stood = outcome(run(fresh(1.05), 40, stepIn, noStep).evs);
-  const lunged = outcome(run(fresh(1.05), 40, stepIn).evs);
-  check('a one-tick stick push at the press does not reach 1.05 m without the step-in', stood?.type === 'punchWhiff', stood?.type);
+  const stood = outcome(run(fresh(1.15), 40, stepIn, noStep).evs);
+  const lunged = outcome(run(fresh(1.15), 40, stepIn).evs);
+  check('a one-tick stick push at the press does not reach 1.15 m without the step-in', stood?.type === 'punchWhiff', stood?.type);
   check('with the step-in the same jab lunges into range and lands', lunged?.type === 'punchLand', lunged?.type);
   check('…harder than a standing jab (the lunge is momentum)', lunged?.power > standing?.power * 1.05, `${lunged?.power?.toFixed(3)} vs ${standing?.power?.toFixed(3)}`);
   const hookStep = run(fresh(1.05), 3, i => [inp({ hook: i === 0, move: { x: -1, y: 1 } }), NONE]).s;

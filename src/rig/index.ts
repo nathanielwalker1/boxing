@@ -413,10 +413,15 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     squashTorso.applyTo(scl);
     bChest.scale.copy(scl);
 
-    // Shoulder joints and neck base ride on the chest.
+    // Shoulder joints and neck base ride on the chest. On a punch the punching
+    // shoulder reaches forward out of the chest (the scapula), the other
+    // pulls back — keyed on the forward weight, so it peaks with the fist.
     const shrug = blk * c.rigBlockShrug;
+    const leanN = Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean);
     for (let i = 0; i < 2; i++) {
-      shoulderJ[i]!.set(0, shrug, latSign[i]! * body.shoulderW / 2).applyQuaternion(qChest).add(S);
+      const mine = next.punch.type !== null && (next.punch.hand === 'lead') === (i === 0);
+      const reach = next.punch.type === null ? 0 : leanN * c.rigPunchShoulderReach * (mine ? 1 : -0.5);
+      shoulderJ[i]!.set(reach, shrug, latSign[i]! * body.shoulderW / 2).applyQuaternion(qChest).add(S);
     }
     neckBase.set(0, body.chestLen * 0.05 + shrug, 0).applyQuaternion(qChest).add(S);
     const bNeck = bone(BONE.neck);
@@ -431,7 +436,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const bHead = bone(BONE.head);
     bHead.position.copy(headL);
     bHead.quaternion.setFromAxisAngle(YAXIS, yawS * Math.min(1, c.rigHeadFollow * drive));
-    qTmp.setFromAxisAngle(ZAXIS, tilt * 0.5 - blk * c.rigBlockChinTuckDeg * DEG);   // chin tucks behind the gloves in the block
+    // Chin tucks behind the gloves in the block, and behind the shoulder on a punch.
+    qTmp.setFromAxisAngle(ZAXIS, tilt * 0.5 - (blk * c.rigBlockChinTuckDeg + leanN * c.rigPunchChinTuckDeg) * DEG);
     bHead.quaternion.multiply(qTmp);
     scl.set(1, 1, 1);
     squashHead.step(dt);

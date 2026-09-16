@@ -4,8 +4,8 @@
  * timer in fighter.js, in SI.
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
-import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, v2dist, v2dot, handLateralSign } from '../core';
-import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
+import { clamp, closestOnSegment, frameOf, lerp, localToWorld, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign } from '../core';
+import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchLocal, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
 import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, whiffMult } from './state';
 import { applyReaction } from './reaction';
 import { takeHit } from './resources';
@@ -172,7 +172,24 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
 
   const g = a.gloves[a.punch.hand === 'lead' ? 0 : 1];
   const glove = { x: g.pos.x, y: g.pos.y, z: g.pos.z, r: a.body.gloveR };
-  const part = sphereOverlap(glove, d.headBox) ? 'head' : sphereCapsuleOverlap(glove, d.bodyBox) ? 'body' : null;
+  // Swept (2026-09-16): the glove is tested along its extension — from where
+  // the wind-up left it to where it is now — not only where it stopped. A
+  // cramped straight at body contact now reaches PAST the head (the lean
+  // carries the shoulders forward), and a fist that went through the head on
+  // its way still landed. The start is the authored cocked pose in the
+  // fighter's current frame (the glove's own history is not kept).
+  const phs = def.phases(cfg);
+  const cocked = punchLocal(a.body, a.stance, def, a.punch.hand, phs.cock, phs, cfg);
+  const start = localToWorld(a.pos, frameOf(a.yaw), cocked.fwd + a.lean.fwd * cfg.punchLeanShift, cocked.up - a.crouch, cocked.lat);
+  const sweep = { a: { x: start.x + a.reaction.torso.x, y: start.y + a.reaction.torso.y, z: start.z + a.reaction.torso.z }, b: { x: g.pos.x, y: g.pos.y, z: g.pos.z }, r: a.body.gloveR };
+  const bodyHit = (): boolean => {
+    for (const t of [1, 0.5, 0]) {
+      const p = { x: lerp(sweep.a.x, sweep.b.x, t), y: lerp(sweep.a.y, sweep.b.y, t), z: lerp(sweep.a.z, sweep.b.z, t), r: glove.r };
+      if (sphereCapsuleOverlap(p, d.bodyBox)) return true;
+    }
+    return false;
+  };
+  const part = sphereCapsuleOverlap(d.headBox, sweep) ? 'head' : bodyHit() ? 'body' : null;
   if (part === null) {
     events.push({ type: 'punchWhiff', side, punch: type });
     setWhiffMult(a, whiffRecoveryMult(def, cfg));
@@ -186,7 +203,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     if (d.slip.active && d.slip.dir !== 0) {
       const fr = frameOf(d.yaw), lat = slipLateral(d);
       const home = { x: d.headBox.x - fr.right.x * lat, y: d.headBox.y, z: d.headBox.z - fr.right.z * lat, r: d.headBox.r };
-      if (sphereOverlap(glove, home)) {
+      if (sphereCapsuleOverlap(home, sweep)) {
         events.push({ type: 'slip', side: target, dir: d.slip.dir, dodged: true });
         // The slip punish: the attacker is pinned exposed, and the counter
         // machinery does the rest. Survives the stretched recovery above —

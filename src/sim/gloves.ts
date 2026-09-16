@@ -55,7 +55,9 @@ export function stepGloves(f: FighterState, side: Side, time: number, cfg: Confi
     // hand does not — it aims from the fighter's frame, so a slip-and-hook
     // still lands where the hook was thrown.
     const lat = pose.lat + (guard ? slipLateral(f) * cfg.slipShoulderFrac : 0);
-    const t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, pose.fwd, pose.up + bob - f.crouch, lat);
+    // …and forward with the weight transfer (the shoulders move; computeBoxes moves the body by the same shift).
+    const fwd = pose.fwd + f.lean.fwd * cfg.punchLeanShift;
+    const t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, fwd, pose.up + bob - f.crouch, lat);
     // The gloves ride the torso's reaction offset, so they travel with the body.
     if (!contact) { t.x += f.reaction.torso.x; t.y += f.reaction.torso.y; t.z += f.reaction.torso.z; }
     const g = f.gloves[i]!;

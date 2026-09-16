@@ -58,13 +58,19 @@ export function computeBoxes(f: FighterState, cfg: Config): void {
   const fr = frameOf(f.yaw);
   const b = f.body, r = f.reaction, c = f.crouch;
   const slipLat = slipLateral(f);
-  const head = localToWorld(f.pos, fr, 0, b.headY - c, slipLat);
+  // The weight transfer moves the BODY, not just the drawing (2026-09-16):
+  // head and shoulders go forward by lean.fwd × punchLeanShift (back through
+  // the load), the hips by half. So a punch reaches further and the head is
+  // out over the front knee where a counter can find it; the rig draws on
+  // these boxes, so hit geometry stays drawn geometry.
+  const shift = f.lean.fwd * cfg.punchLeanShift;
+  const head = localToWorld(f.pos, fr, shift, b.headY - c, slipLat);
   f.headBox.x = head.x + r.torso.x + r.head.x;
   f.headBox.y = head.y + r.torso.y + r.head.y;
   f.headBox.z = head.z + r.torso.z + r.head.z;
   f.headBox.r = b.headR;
-  const hip = localToWorld(f.pos, fr, 0, b.hipY - c, 0);
-  const sh = localToWorld(f.pos, fr, 0, b.shoulderY - c, slipLat * cfg.slipShoulderFrac);
+  const hip = localToWorld(f.pos, fr, shift * 0.5, b.hipY - c, 0);
+  const sh = localToWorld(f.pos, fr, shift, b.shoulderY - c, slipLat * cfg.slipShoulderFrac);
   f.bodyBox.a.x = hip.x + r.torso.x; f.bodyBox.a.y = hip.y + r.torso.y; f.bodyBox.a.z = hip.z + r.torso.z;
   f.bodyBox.b.x = sh.x + r.torso.x; f.bodyBox.b.y = sh.y + r.torso.y; f.bodyBox.b.z = sh.z + r.torso.z;
   f.bodyBox.r = b.bodyR;

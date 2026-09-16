@@ -151,7 +151,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // above it with the elbow low. Shortest reach of the four (legacy: turn
   // 0.70, dip 6 px ≈ 0.07 m; 0.09 here so the sit-down reads at the play camera).
   uppercut: {
-    hand: 'input', smotherable: false, turn: 0.7, coil: 0.15, swing: 0, lean: 0.4, sway: 0.3, dip: 0.09, load: 0.6,
+    hand: 'input', smotherable: false, turn: 0.7, coil: 0.15, swing: 0, lean: 0.4, sway: 0.55, dip: 0.09, load: 0.6,   // sway 0.55 (was 0.3): the body loads and rolls hard over the punching hip (Tyson reference, 2026-09-16)
     path: uppercutPath,
     phases: cfg => phases(cfg.uppercutCock, cfg.uppercutExtend, cfg.uppercutRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     recoverK: cfg => cfg.chainRecoverK,
