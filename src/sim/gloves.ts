@@ -10,7 +10,7 @@
  */
 import type { Config, FighterState, Hand, Side, Vec3 } from '../core';
 import { TAU, frameOf, localToWorld, sin, sqrt } from '../core';
-import { PUNCHES, blockLocal, guardLocal, punchLocal, type LocalPose } from './punches';
+import { PUNCHES, blockLocal, guardLocal, punchLocal, whiffPhases, type LocalPose } from './punches';
 import { slipLateral } from './slip';
 
 const HANDS: [Hand, Hand] = ['lead', 'rear'];
@@ -31,7 +31,7 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPos
   if (p.type !== null && p.hand === hand) {
     const def = PUNCHES[p.type];
     if (def) {
-      const ph = def.phases(cfg);
+      const ph = whiffPhases(f, def.phases(cfg));
       const kMul = p.phase === 'recover' ? def.recoverK(cfg) : cfg.chainPunchK;
       // A glove that hit something rests on it through the hold instead of
       // driving on to the free-air peak.

@@ -13,25 +13,38 @@
  */
 import type { Config, FighterState, Side, SimEvent, SimState } from '../core';
 import { clamp, lerp, rngRange } from '../core';
-import { getUpAt, regenDelay, setGetUpAt, setRegenDelay } from './state';
+import { getUpAt, healthCap, healthRegenDelay, regenDelay, setGetUpAt, setHealthCap, setHealthRegenDelay, setRegenDelay } from './state';
 import { clearPunish } from './vulnerability';
 
-/** Per tick: the guard drains stamina, idling regains it (after any post-hit pause), the canvas freezes it. */
+/**
+ * Per tick: the guard drains stamina, idling regains it (after any post-hit
+ * pause), the canvas freezes it. Health (2026-09-16, Nate: "health should
+ * regenerate") comes back at healthRegen per second after healthRegenDelay
+ * since the last hit, but only up to the CAP — Fight Night's recoverable
+ * health: every hit takes healthCapLoss of its damage off the ceiling for the
+ * round, so a fighter who has eaten a lot never gets back to full.
+ */
 export function stepStamina(f: FighterState, cfg: Config, dt: number): void {
   const delay = Math.max(0, regenDelay(f) - dt);
   setRegenDelay(f, delay);
+  const hDelay = Math.max(0, healthRegenDelay(f) - dt);
+  setHealthRegenDelay(f, hDelay);
   if (f.down) return;
   if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * dt);
   else if (f.punch.type === null && delay === 0) f.stamina = Math.min(1, f.stamina + cfg.staminaRegen * dt);
+  if (hDelay === 0 && f.health < healthCap(f)) f.health = Math.min(healthCap(f), f.health + cfg.healthRegen * dt);
 }
 
-/** A punch has landed on `target` with post-block impulse `mag`: chip the stamina, take the damage, maybe go down. */
+/** A punch has landed on `target` with post-block impulse `mag`: chip the stamina, take the damage (and the cap), maybe go down. */
 export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean, cfg: Config, events: SimEvent[]): void {
   const d = s.fighters[target];
   if (d.down) return;
   d.stamina = Math.max(0, d.stamina - mag * cfg.staminaHitCost * (blocked ? cfg.staminaBlockedHitMult : 1));
   setRegenDelay(d, Math.max(regenDelay(d), cfg.staminaRegenDelay));
-  d.health = Math.max(0, d.health - mag * cfg.healthDamagePerImpulse);
+  const damage = mag * cfg.healthDamagePerImpulse;
+  d.health = Math.max(0, d.health - damage);
+  setHealthCap(d, Math.max(d.health, healthCap(d) - damage * cfg.healthCapLoss));
+  setHealthRegenDelay(d, Math.max(healthRegenDelay(d), cfg.healthRegenDelay));
   if (d.health <= 0) knockDown(s, target, cfg, events);
 }
 
@@ -88,6 +101,7 @@ export function stepCount(s: SimState, cfg: Config, dt: number, events: SimEvent
       f.downT = 0;
       f.guard = 'rest';
       f.health = Math.max(f.health, cfg.knockdownHealthRestore);
+      setHealthCap(f, Math.max(healthCap(f), f.health));
       events.push({ type: 'getUp', side });
       s.round.phase = 'fighting';
       s.round.phaseT = 0;

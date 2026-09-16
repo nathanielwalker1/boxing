@@ -20,7 +20,7 @@
  * equal = draw (winner null).
  */
 import type { Config, FighterState, Side, SimEvent, SimState, Vec2 } from '../core';
-import { initialMoveHist } from './state';
+import { healthCap, initialMoveHist, setHealthCap } from './state';
 import { computeBoxes } from './reaction';
 import { settleGloves } from './gloves';
 
@@ -42,12 +42,15 @@ function toCorner(f: FighterState, side: Side, time: number, cfg: Config): void 
   f.block = false; f.blockT = 0; f.guard = 'rest';
   f.punch = { type: null, hand: 'lead', phase: 'idle', t: 0, progress: 0, resolved: false, contact: null };
   f.slip = { active: false, dir: 0, t: 0, offset: 0 };
+  // The health cap survives the rest (it is what the round did to him), raised by the same fraction as the health.
+  const cap = healthCap(f);
   f.moveHist = initialMoveHist();
+  setHealthCap(f, Math.min(1, cap + (1 - cap) * cfg.betweenRoundHealthRestore));
   f.vuln = 0; f.counterWindow = 0;
   f.reaction = { head: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }, torso: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }, tilt: { x: 0, v: 0 } };
   f.stagger = { x: 0, z: 0 };
   f.down = false; f.downT = 0; f.knockdowns = 0;
-  f.health = Math.min(1, f.health + (1 - f.health) * cfg.betweenRoundHealthRestore);
+  f.health = Math.min(healthCap(f), f.health + (1 - f.health) * cfg.betweenRoundHealthRestore);
   f.stamina = Math.min(1, f.stamina + (1 - f.stamina) * cfg.betweenRoundStaminaRestore);
   computeBoxes(f, cfg);
   settleGloves(f, side, time, cfg);

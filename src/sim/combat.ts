@@ -5,7 +5,7 @@
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, sphereOverlap, v2dist, v2dot, handLateralSign } from '../core';
-import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffRecoveryMult } from './punches';
+import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
 import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, whiffMult } from './state';
 import { applyReaction } from './reaction';
 import { takeHit } from './resources';
@@ -111,7 +111,7 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   const p = f.punch;
   if (p.type === null) return false;
   const def = PUNCHES[p.type];
-  const ph = def.phases(cfg);
+  const ph = whiffPhases(f, def.phases(cfg));   // a miss drops the hold (fist and body come home together)
   // A gassed throw's cock phase runs slower in real time (the telegraph), and
   // a punch that missed retracts slower (the whiff cost, set at the resolve);
   // the phase table itself is untouched, so every pose still reads off

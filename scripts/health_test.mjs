@@ -56,6 +56,28 @@ console.log('\n=== 1. Stamina economy ===');
   check('the guard cannot be held forever: the bar empties and clamps at 0', long.fighters[0].stamina === 0);
 }
 
+// ── 1b. Health regenerates, up to a cap (2026-09-16) ────────────────────────
+console.log('\n=== 1b. Health regen and the cap ===');
+{
+  const { s: hit, evs } = run(fresh(), 40, i => [inp({ jab: i === 0 }), NONE]);
+  const land = first(evs, 'punchLand');
+  const dmg = 1 - hit.fighters[1].health;
+  check('a landed jab lowers the cap by healthCapLoss of its damage', land && near(sim.healthCap(hit.fighters[1]), 1 - dmg * cfg.healthCapLoss, 1e-9), `cap ${sim.healthCap(hit.fighters[1]).toFixed(4)} after ${dmg.toFixed(4)} damage`);
+  const { s: paused } = run(hit, ticks(cfg.healthRegenDelay) - 45);   // the jab landed ~tick 7 of the 40: still inside the delay
+  check('no regen inside healthRegenDelay after the hit', near(paused.fighters[1].health, hit.fighters[1].health, 1e-9), `${paused.fighters[1].health.toFixed(4)}`);
+  const { s: expired } = run(paused, 50);
+  const { s: later } = run(expired, ticks(1));
+  check('…then it comes back at healthRegen per second', near(later.fighters[1].health, Math.min(sim.healthCap(later.fighters[1]), expired.fighters[1].health + cfg.healthRegen), 0.002), `${expired.fighters[1].health.toFixed(4)} → ${later.fighters[1].health.toFixed(4)} in 1 s`);
+  const { s: full } = run(later, ticks(60));
+  check('…but never past the cap', near(full.fighters[1].health, sim.healthCap(full.fighters[1]), 1e-9) && full.fighters[1].health < 1, `${full.fighters[1].health.toFixed(4)} vs cap ${sim.healthCap(full.fighters[1]).toFixed(4)}`);
+  const none = { ...cfg, healthRegen: 0 };
+  const { s: flat } = run(fresh(none), ticks(5), i => [inp({ jab: i === 0 }), NONE], none);
+  check('healthRegen 0 = the old bar (nothing comes back)', flat.fighters[1].health < 1 && near(flat.fighters[1].health, 1 - dmg, 1e-6), `${flat.fighters[1].health.toFixed(4)}`);
+  const allBack = { ...cfg, healthCapLoss: 0 };
+  const { s: ab } = run(fresh(allBack), ticks(5), i => [inp({ jab: i === 0 }), NONE], allBack);
+  check('healthCapLoss 0 leaves the cap at 1', near(sim.healthCap(ab.fighters[1]), 1, 1e-9));
+}
+
 // ── 2. Getting hit: health + chip off the same impulse ──────────────────────
 console.log('\n=== 2. Getting hit ===');
 {

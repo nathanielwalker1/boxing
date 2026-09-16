@@ -5,6 +5,7 @@
  * state each frame; nothing here decides anything. Stage 3 restyles it.
  */
 import type { SimState } from '../core';
+import { healthCap } from '../sim';
 
 const CSS = `
 #hud { position: fixed; inset: 0; pointer-events: none; font: 600 13px/1.2 system-ui, sans-serif; color: #f2f2f2; text-shadow: 0 1px 2px #000a; }
@@ -18,7 +19,8 @@ const CSS = `
 #hud .bar { position: relative; flex: 1 1 auto; height: 10px; background: #0008; border: 1px solid #fff5; border-radius: 2px; overflow: hidden; }
 #hud .bar.stamina { height: 6px; }
 #hud .fill { position: absolute; inset: 0; transform-origin: left; background: #d8323c; }
-#hud .r .fill { transform-origin: right; }
+#hud .cap { position: absolute; inset: 0; transform-origin: left; background: #d8323c55; }
+#hud .r .fill, #hud .r .cap { transform-origin: right; }
 #hud .stamina .fill { background: #e9c14a; }
 #hud .pips { height: 8px; font-size: 9px; letter-spacing: 3px; color: #fff9; }
 #hud .tag { display: inline-block; margin-top: 4px; padding: 1px 6px; background: #d8323c; color: #fff; border-radius: 2px; font-size: 11px; }
@@ -28,7 +30,7 @@ const CSS = `
 #hud .round { font-size: 11px; letter-spacing: 0.1em; color: #fffb; }
 `;
 
-interface SidePanel { root: HTMLElement; health: HTMLElement; stamina: HTMLElement; pips: HTMLElement; tag: HTMLElement }
+interface SidePanel { root: HTMLElement; health: HTMLElement; cap: HTMLElement; stamina: HTMLElement; pips: HTMLElement; tag: HTMLElement }
 
 export class Hud {
   private el: HTMLElement;
@@ -46,13 +48,14 @@ export class Hud {
       const root = document.createElement('div');
       root.className = `side ${cls}`;
       root.innerHTML = `<div class="name">${name}</div>` +
-        `<div class="row"><span class="lbl">HEALTH</span><div class="bar health"><div class="fill"></div></div></div>` +
+        `<div class="row"><span class="lbl">HEALTH</span><div class="bar health"><div class="cap"></div><div class="fill"></div></div></div>` +
         `<div class="row"><span class="lbl">STAMINA</span><div class="bar stamina"><div class="fill"></div></div></div>` +
         `<div class="pips"></div><span class="tag"></span>`;
       this.el.appendChild(root);
       return {
         root,
         health: root.querySelector('.health .fill')!,
+        cap: root.querySelector('.health .cap')!,
         stamina: root.querySelector('.stamina .fill')!,
         pips: root.querySelector('.pips')!,
         tag: root.querySelector('.tag')!,
@@ -78,6 +81,7 @@ export class Hud {
     for (let i = 0; i < 2; i++) {
       const f = s.fighters[i]!, p = this.sides[i]!;
       p.health.style.transform = `scaleX(${f.health})`;
+      p.cap.style.transform = `scaleX(${healthCap(f)})`;   // the dim part: what can still come back
       p.stamina.style.transform = `scaleX(${f.stamina})`;
       p.pips.textContent = '●'.repeat(f.knockdowns);
       p.tag.textContent = f.down ? (ended ? endTag : 'DOWN') : f.stamina < 0.25 ? 'GASSED' : '';

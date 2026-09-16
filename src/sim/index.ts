@@ -27,6 +27,8 @@ import { stepSlip } from './slip';
 import { stepVulnerability } from './vulnerability';
 import { cornerOf, endRound, startRound, stepBetween } from './round';
 
+export { healthCap } from './state';
+
 const SIDES: [Side, Side] = [0, 1];
 
 export function createState(specs: [FighterSpec, FighterSpec], cfg: Config, seed: number): SimState {

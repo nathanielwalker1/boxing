@@ -17,8 +17,9 @@
  * shoulder. The torso twist carries the punching shoulder forward, so a hook
  * peak 0.66 m out gives the rig an elbow bent ~115°, not a straight arm.
  */
-import type { BodyDims, Config, Hand, PunchType, Stance } from '../core';
+import type { BodyDims, Config, FighterState, Hand, PunchType, Stance } from '../core';
 import { handLateralSign, lerp, smoothstep } from '../core';
+import { whiffMult } from './state';
 
 export interface ReactShape { back: number; lift: number; twist: number; torso: number; snap: number }
 
@@ -82,6 +83,17 @@ export interface PunchDef {
   /** Weight on the whiff recovery stretch (legacy `${type}WhiffScale`). */
   whiffScale(cfg: Config): number;
   react(cfg: Config): ReactShape;
+}
+
+/**
+ * A punch that MISSED never holds at full extension (2026-09-16): with the
+ * stretched recovery, a held whiff was a fist floating in the air for a
+ * quarter of a second. It starts home at once, slowly — off balance, not
+ * frozen. Reads the whiff multiplier the resolve set, so before the resolve
+ * (cock, extend) the phases are untouched.
+ */
+export function whiffPhases(f: FighterState, ph: PunchPhases): PunchPhases {
+  return whiffMult(f) > 1 ? { ...ph, hold: 0 } : ph;
 }
 
 /** The recover-phase multiplier a missed punch of this type pays: 1 + (global − 1) × weight, never under 1. */

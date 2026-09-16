@@ -61,13 +61,13 @@ export const SCHEMA = {
   sponsorDecalTone: num(0.45, 0, 1, 0.01, 'ring', 'decal brightness multiplier — prints are inked into the canvas, never lighter than fighters (L1)'),
 
   // ── camera (RENDER) — CONTRACT §7 broadcast 3/4 view ──
-  camElevationDeg:  num(24, 5, 60, 0.5, 'camera', 'elevation above the floor plane, degrees'),
+  camElevationDeg:  num(12, 5, 60, 0.5, 'camera', 'elevation above the floor plane, degrees. 12 = near eye level with the boxers, Fight Night\'s ringside seat; was 24, "like an eagle" (Nate 2026-09-16)'),
   camAzimuthDeg:    num(90, 0, 360, 1, 'camera', 'orbit angle around the ring; 90 = looking along -z'),
   camDistMin:       num(4.2, 2, 8, 0.05, 'camera', 'dolly distance when fighters are clinched, m'),
   camDistMax:       num(6.5, 3, 12, 0.05, 'camera', 'dolly distance at max separation, m'),
   camFovMin:        num(34, 20, 60, 0.5, 'camera', 'vertical FOV when close, degrees'),
   camFovMax:        num(42, 20, 70, 0.5, 'camera', 'vertical FOV at max separation, degrees'),
-  camLookY:         num(1.0, 0.5, 1.6, 0.01, 'camera', 'height of the look-at point, m'),
+  camLookY:         num(1.08, 0.5, 1.6, 0.01, 'camera', 'height of the look-at point, m (chest height; was 1.0)'),
   camFollowLambda:  num(6, 0.5, 20, 0.1, 'camera', 'tracking smoothing rate, 1/s (higher = snappier)', 'camFollowLerp'),
   camDriftAmp:      num(0.012, 0, 0.05, 0.001, 'camera', 'handheld drift amplitude, m'),
   camDriftHz:       num(0.18, 0.02, 1, 0.01, 'camera', 'handheld drift frequency'),
@@ -182,7 +182,7 @@ export const SCHEMA = {
   punchDipScale:    num(1, 0, 3, 0.05, 'punch', 'multiplier on every punch\'s body dip (sit down through the wind-up, drive up at the peak; uppercut 9 cm, hook 5, cross 3, jab 2)'),
   hookReachScale:   num(1, 0.7, 1.4, 0.05, 'punch', 'hook peak reach multiplier: 1 = elbow ~90° at contact, lands to ~0.8 m; higher straightens the arm for range'),
   uppercutReachScale: num(1, 0.7, 1.4, 0.05, 'punch', 'uppercut peak reach multiplier: 1 = elbow ~75°, lands to ~0.66 m; higher straightens the arm for range'),
-  punchHoldFrac:    num(0.6, 0, 0.9, 0.05, 'punch', 'fraction of the recover phase the fist holds at full extension before returning (visible straight arm; timing and hit tick unchanged). Cross, hook and uppercut; the body\'s turn and lean hold with it and unwind with the fist'),
+  punchHoldFrac:    num(0.35, 0, 0.9, 0.05, 'punch', 'fraction of the recover phase the fist holds at full extension before returning (visible straight arm; timing and hit tick unchanged). Cross, hook and uppercut; the body\'s turn and lean hold with it and unwind with the fist. A MISSED punch never holds — it starts home at once over its stretched recovery. Was 0.6: "my cross just stays there and floats" (Nate 2026-09-16)'),
   jabHoldFrac:      num(0.2, 0, 0.9, 0.05, 'punch', 'the jab\'s own hold: a whip touches and is gone. 0.2 of a 0.10 s recovery = one tick on the target (2026-09-16)'),
   punchBuffer:      num(0.3, 0, 1, 0.05, 'punch', 'a punch pressed while one is in flight is remembered this long and thrown the moment it can be, s (0 = dropped, which is what made jab-cross spam skip every other press)'),
   punchChainAt:     num(0.5, 0, 1, 0.05, 'punch', 'the next punch may start this far into the recover phase, cutting the tail of the retraction (1 = only after the punch fully finishes; lower = faster combos)'),
@@ -204,7 +204,7 @@ export const SCHEMA = {
   vulnerabilityCockLevel: num(0.15, 0, 1, 0.05, 'counter', 'fraction of the peak reached by the END of the wind-up', 'vulnerabilityCockLevel'),
   vulnerabilityRiseShape: num(2, 0.25, 4, 0.05, 'counter', '>1 back-loads the rise: flat through the early cock, steep into the peak', 'vulnerabilityRiseShape'),
   vulnerabilityDecayShape: num(1.2, 0.25, 4, 0.05, 'counter', '>1 drops off quickly after the peak; <1 stays exposed longer through the recovery', 'vulnerabilityDecayShape'),
-  whiffRecoveryMult: num(3.5, 1, 6, 0.1, 'counter', 'a punch that misses retracts this many times slower (recover phase only; the cock and extension already happened). Stretches the exposure with it and holds off the next punch AND the guard (v2: the block waits for the punch to end). 1 = missing is free. The single most important number here to feel-test', 'whiffRecoveryMultiplier'),
+  whiffRecoveryMult: num(2.2, 1, 6, 0.1, 'counter', 'a punch that misses retracts this many times slower (recover phase only; the cock and extension already happened). Stretches the exposure with it and holds off the next punch AND the guard (v2: the block waits for the punch to end). 1 = missing is free. The single most important number here to feel-test', 'whiffRecoveryMultiplier'),
   jabWhiffScale:    num(0.55, 0, 2, 0.05, 'counter', 'weight on the whiff stretch for a jab: effective = 1 + (whiffRecoveryMult - 1) × weight. Cheapest miss', 'jabWhiffScale'),
   crossWhiffScale:  num(0.85, 0, 2, 0.05, 'counter', 'weight on the whiff stretch for a cross', 'crossWhiffScale'),
   hookWhiffScale:   num(1.15, 0, 2, 0.05, 'counter', 'weight on the whiff stretch for a hook', 'hookWhiffScale'),
@@ -230,6 +230,9 @@ export const SCHEMA = {
   lowStamina:       num(0.25, 0, 1, 0.05, 'health', 'stamina below this = gassed: the wind-up telegraphs (next key) and the AI smells it', 'lowStaminaThreshold'),
   lowStaminaCockMult: num(2.5, 1, 5, 0.1, 'health', 'a gassed fighter\'s wind-up (cock phase) takes this many times longer in real time; extend and recover are untouched, so the strike itself is not in slow motion', 'lowStaminaWindupMultiplier'),
   knockdownHealthRestore: num(0.35, 0, 1, 0.05, 'health', 'health on getting up, as a fraction of full', 'knockdownHealthRestorePct'),
+  healthRegen:      num(0.03, 0, 0.2, 0.005, 'health', 'health regained per second, up to the cap (2026-09-16, Nate: "health should regenerate"). 0.03 = a third of the bar back over a 10 s lull'),
+  healthRegenDelay: num(2.0, 0, 10, 0.1, 'health', 'seconds after taking a hit before health starts coming back — you have to earn the lull'),
+  healthCapLoss:    num(0.5, 0, 1, 0.05, 'health', 'Fight Night\'s recoverable health: each hit lowers the CAP health can regenerate to by this fraction of its damage for the rest of the round (the HUD shows the cap as the dim part of the bar). 0 = everything comes back, 1 = nothing does'),
 
   // ── sim: reaction (SIM) — hit reaction springs, per chain level ──
   reactionHeadK:    num(400, 50, 1500, 10, 'reaction', 'head spring stiffness, 1/s² (loosest level)', 'reactionStiffness'),

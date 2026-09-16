@@ -88,11 +88,12 @@ for (const type of TYPES) {
 
   // The exposed window grows with it: the last tick with any exposure comes later.
   const lastExposed = (dist, c) => { let last = -1; run(fresh(dist, c), 80, tap('jab'), (st, i) => { if (st.fighters[0].vuln > 0.05) last = i; }, c); return last; };
-  check('the EXPOSED window itself grows by the stretch', lastExposed(FAR, NO_HITSTOP) > lastExposed(CLOSE, NO_HITSTOP) + 3, `${lastExposed(FAR, NO_HITSTOP)} vs ${lastExposed(CLOSE, NO_HITSTOP)}`);
+  // (Margins were 3 ticks at whiffRecoveryMult 3.5; at 2.2 a jab's 6-tick recovery stretches by 4.)
+  check('the EXPOSED window itself grows by the stretch', lastExposed(FAR, NO_HITSTOP) > lastExposed(CLOSE, NO_HITSTOP) + 1, `${lastExposed(FAR, NO_HITSTOP)} vs ${lastExposed(CLOSE, NO_HITSTOP)}`);
 
   // Throwing is locked out for the stretched recovery: the chained cross comes later after a miss.
   const chainTick = (dist, c) => run(fresh(dist, c), 80, i => [inp({ jab: i === 0, cross: i === 3 }), NONE], null, c).evs.filter(e => e.type === 'punchStart')[1]?.tick;
-  check('the next punch waits for the stretched recovery', chainTick(FAR, NO_HITSTOP) > chainTick(CLOSE, NO_HITSTOP) + 3, `${chainTick(FAR, NO_HITSTOP)} vs ${chainTick(CLOSE, NO_HITSTOP)}`);
+  check('the next punch waits for the stretched recovery', chainTick(FAR, NO_HITSTOP) > chainTick(CLOSE, NO_HITSTOP) + 1, `${chainTick(FAR, NO_HITSTOP)} vs ${chainTick(CLOSE, NO_HITSTOP)}`);
   // v2 rule, unlike v1: the guard waits for the punch to end too (block_test), so a whiff locks the guard out for the same stretch.
   let blockOn = null, punchEnd = null;
   run(fresh(FAR, NO_HITSTOP), 80, i => [inp({ jab: i === 0, block: i >= 3 }), NONE], (st, i) => { if (blockOn === null && st.fighters[0].block) blockOn = i; if (punchEnd === null && i > 0 && st.fighters[0].punch.type === null) punchEnd = i; }, NO_HITSTOP);

@@ -21,6 +21,8 @@
  *   moveHist[10] the punish spike's level: vulnerability floor while counterWindow > 0
  *   moveHist[11] recover-phase time multiplier of the punch in flight (>1 = it missed)
  *   moveHist[12] seconds on the canvas at which this fighter gets up (rolled at the knockdown; -1 = never, a KO)
+ *   moveHist[13] health cap: the ceiling health regenerates toward (1 at the bell; every hit lowers it)
+ *   moveHist[14] seconds of health-regen pause left after a hit
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
@@ -38,6 +40,8 @@ const HIST_PUSH_HOLD = 9;
 const HIST_PUNISH_LEVEL = 10;
 const HIST_WHIFF_MULT = 11;
 const HIST_GET_UP_AT = 12;
+const HIST_HEALTH_CAP = 13;
+const HIST_HEALTH_DELAY = 14;
 
 export const MASK_JAB = 1, MASK_CROSS = 2, MASK_HOOK = 4, MASK_UPPERCUT = 8;
 
@@ -81,7 +85,12 @@ export function getUpAt(f: FighterState): number { return f.moveHist[HIST_GET_UP
 export function setGetUpAt(f: FighterState, t: number): void { f.moveHist[HIST_GET_UP_AT] = t; }
 
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0]; }
+/** The ceiling health regenerates toward this round (Fight Night's recoverable health); every hit lowers it. */
+export function healthCap(f: FighterState): number { const v = f.moveHist[HIST_HEALTH_CAP]; return v === undefined ? 1 : v; }
+export function setHealthCap(f: FighterState, c: number): void { f.moveHist[HIST_HEALTH_CAP] = c; }
+export function healthRegenDelay(f: FighterState): number { return f.moveHist[HIST_HEALTH_DELAY] ?? 0; }
+export function setHealthRegenDelay(f: FighterState, t: number): void { f.moveHist[HIST_HEALTH_DELAY] = t; }
 
 const v3c = (a: Vec3): Vec3 => ({ x: a.x, y: a.y, z: a.z });
 const s3c = (s: Spring3): Spring3 => ({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz });

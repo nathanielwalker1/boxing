@@ -58,8 +58,8 @@ const ROUND = T(cfg.roundSeconds), REST = T(cfg.betweenRoundSeconds);
 }
 {
   // The stool: part of the missing bars comes back; the round's knockdown pips clear.
-  // (Stamina regen off, or the bar refills on its own before the bell.)
-  const noRegen = { ...cfg, staminaRegen: 0 };
+  // (Stamina and health regen off, or the bars refill on their own before the bell.)
+  const noRegen = { ...cfg, staminaRegen: 0, healthRegen: 0 };
   let s = fresh(MID, noRegen);
   s.fighters[0].health = 0.5; s.fighters[0].stamina = 0.5; s.fighters[0].knockdowns = 1;
   const left = T(s.round.clock);
