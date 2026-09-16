@@ -28,7 +28,7 @@ import { outlineMaterial, toonMaterial, updateMaterials } from './materials';
 import { solveTwoBone, type TwoBone } from './ik';
 import { chase1, chase3 } from './springs';
 import { Squash } from './squash';
-import { FootPlanter, type FootPose } from './feet';
+import { FootPlanter, stepRoles, type FootPose, type StepStyle } from './feet';
 import { SkeletonDebug } from './debug';
 
 export interface RigProbe {
@@ -36,6 +36,8 @@ export interface RigProbe {
   gloves(): [Vec3, Vec3];
   /** Main-pass draw calls, shadow-pass draw calls, and triangles for this fighter. */
   stats(): { calls: number; shadowCalls: number; tris: number };
+  /** Step phase per foot (0..1, 1 = planted), index 0 = lead foot. */
+  feet(): [number, number];
 }
 
 declare global {
@@ -138,6 +140,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const ankle = new THREE.Vector3();
   const ik: TwoBone = { mid: new THREE.Vector3(), end: new THREE.Vector3(), stretch: 1 };
   const footDesired: FootPose = { x: 0, y: 0, z: 0, rotY: 0 };
+  const footRest: FootPose = { x: 0, y: 0, z: 0, rotY: 0 };
+  const stepStyle: StepStyle = { role: 'lead', lateral: false };
   const scl = new THREE.Vector3();
   const wp = new THREE.Vector3();
 
@@ -194,6 +198,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       });
       return { calls, shadowCalls, tris };
     },
+    feet: () => [feet[0].phase, feet[1].phase],
   };
   window.__rig = window.__rig ?? {};
   window.__rig[side] = probe;
@@ -300,11 +305,25 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // after the velocity does. Rig-local, as a fraction of top speed.
     dirToLocal(next.vel.x, 0, next.vel.z, v);
     const vScale = c.moveSpeed > 1e-6 ? 1 / c.moveSpeed : 0;
-    chase3(moveLean, v.x * vScale, 0, v.z * vScale, c.rigSpineK, c.rigSpineZeta, dt);
+    const vFwd = v.x, vLat = v.z, vSpd = Math.hypot(vFwd, vLat);
+    chase3(moveLean, vFwd * vScale, 0, vLat * vScale, c.rigSpineK, c.rigSpineZeta, dt);
     const mvFwd = moveLean.x, mvLat = moveLean.z;
+    // Footwork roles: the foot nearest the direction of travel leads, the
+    // other drags. Forward → lead foot; back → rear foot; sideways → the foot
+    // on that side. Sideways travel is a shuffle.
+    const { leader, lateral: lateralTravel } = stepRoles(vFwd, vLat, leadSign);
+    // The push off the planted foot: the hips surge along the travel and rise
+    // through the leading foot's swing (last frame's phase; one frame of lag).
+    let stepUp = 0, stepSurge = 0;
+    if (feet[leader]!.stepping && vSpd > 1e-3) {
+      const sPh = Math.sin(Math.PI * feet[leader]!.phase);
+      stepUp = c.rigStepBob * sPh;
+      stepSurge = c.rigStepSurge * sPh;
+    }
+    const surgeF = vSpd > 1e-3 ? stepSurge * vFwd / vSpd : 0, surgeL = vSpd > 1e-3 ? stepSurge * vLat / vSpd : 0;
 
     // 2. Secondary motion — springs, hips stiffest → elbows loosest.
-    chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift, bob - rDip, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7, c.rigHipK, c.rigHipZeta, dt);
+    chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift + surgeF, bob - rDip + stepUp, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7 + surgeL, c.rigHipK, c.rigHipZeta, dt);
     chase3(spineBend, leanF * c.rigLeanChest + mvFwd * c.rigMoveLeanShift * 0.6, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3 + mvLat * c.rigMoveLeanShift * 0.4, c.rigSpineK, c.rigSpineZeta, dt);
     const yawS = chase1(shoulderYaw, leadSign * c.rigStanceShoulderYawDeg * DEG + twist, c.rigShoulderK, c.rigShoulderZeta, dt);
 
@@ -459,18 +478,26 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     }
 
     // Legs: feet planted in world space, stepped when the body walks away.
-    const moving = Math.hypot(next.vel.x, next.vel.z) > 1e-3;
-    for (let i = 0; i < 2; i++) {
+    // The leader is updated first so it wins when both feet are due.
+    const moving = vSpd > 1e-3;
+    for (const i of leader === 0 ? [0, 1] : [1, 0]) {
       const s = latSign[i]!;
       const restFwd = i === 0 ? c.rigStanceFwd : -c.rigStanceBack;
       const restLat = s * c.rigStanceLat;
       const footYawLocal = leadSign * (i === 0 ? c.rigLeadFootYawDeg : c.rigRearFootYawDeg) * DEG;
       const w = localToWorld(pos, frame, restFwd + hipSway.x, 0, restLat);
+      footRest.x = w.x; footRest.z = w.z; footRest.y = 0; footRest.rotY = -yaw + footYawLocal;
       footDesired.x = w.x + (moving ? next.vel.x * c.rigStepLead : 0);
       footDesired.z = w.z + (moving ? next.vel.z * c.rigStepLead : 0);
       footDesired.y = 0;
-      footDesired.rotY = -yaw + footYawLocal;
-      const fp = feet[i]!.update(footDesired, dt, c, feet[1 - i]!);
+      footDesired.rotY = footRest.rotY;
+      stepStyle.role = i === leader ? 'lead' : 'trail';
+      stepStyle.lateral = lateralTravel;
+      feet[i]!.update(footDesired, footRest, stepStyle, dt, c, feet[1 - i]!);
+    }
+    for (let i = 0; i < 2; i++) {
+      const s = latSign[i]!;
+      const fp = feet[i]!.out;
       toLocal({ x: fp.x, y: fp.y, z: fp.z }, ankle);
       // The foot under the punching hand of a hook pivots like the rear foot
       // on a cross (toe turns in, heel out); otherwise lead/rear as authored.
