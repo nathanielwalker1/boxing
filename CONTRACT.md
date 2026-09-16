@@ -393,3 +393,14 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   at the knockdown from chin, knockdowns this round and seeded jitter (≥ 10 = KO).
   `knockdownDuration` is gone. Between rounds fighters return to the corners with
   `betweenRound*Restore` of the missing bars and the round's knockdowns cleared.
+- 2026-09-16 — **The pull: a back flick is head movement too.** `SlipState.dir` and
+  the `slip` event gain `2` = back: the head sphere goes straight back by
+  `slipBackOffset`, the shoulder end of the capsule and the resting guard by
+  `slipShoulderFrac` of it, the hips stay. A lateral slip also dips the head by
+  `slipDip`. A forward flick is still nothing (the step-in reads a forward push at a
+  punch press). Nate's call, feel-test 2026-09-16 ("the torso and back winds back").
+  Same session: **the weight transfer moves the body.** `punchLeanShift` moves the
+  head and shoulder boxes and the glove targets forward per unit `lean.fwd` (hips
+  half), so a punch reaches further and the head is out over the front knee; the hit
+  test is swept along the extension. **Health regenerates** to a per-round cap that
+  each hit lowers (`healthRegen`, `healthCapLoss`; the cap lives in `moveHist`).

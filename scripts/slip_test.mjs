@@ -84,7 +84,37 @@ const HOLD = T(cfg.slipFlickMax) + 4;  // past the flick window
   check('under slipInputThreshold the detector sees nothing', slips(run(fresh(), 40, push(FLICK, cfg.slipInputThreshold - 0.05)).evs).length === 0);
   check('at the threshold it is a push', slips(run(fresh(), 40, push(FLICK, cfg.slipInputThreshold)).evs).length === 1);
   check('a forward flick is not a slip (no duck on the depth axis)', slips(run(fresh(), 40, push(FLICK, 0, 1)).evs).length === 0);
-  check('a back flick is not a slip either', slips(run(fresh(), 40, push(FLICK, 0, -1)).evs).length === 0);
+  // The pull (2026-09-16): a back flick takes the head straight back.
+  {
+    const trace = [];
+    const { evs } = run(fresh(), 40, push(FLICK, 0, -1), (st, i) => trace.push(st.fighters[0]));
+    const ev = slips(evs);
+    check('a back flick is a PULL: one slip event with dir 2', ev.length === 1 && ev[0].dir === 2, `${ev.length} events, dir ${ev[0]?.dir}`);
+    const mid = trace[FLICK + T(cfg.slipRise) + 2];
+    const headFwd = worldToLocal(mid.pos, frameOf(mid.yaw), mid.headBox).forward;
+    const shFwd = worldToLocal(mid.pos, frameOf(mid.yaw), mid.bodyBox.b).forward;
+    const hipFwd = worldToLocal(mid.pos, frameOf(mid.yaw), mid.bodyBox.a).forward;
+    check('the head goes back by slipBackOffset, not sideways', near(headFwd, -cfg.slipBackOffset, 1e-6) && near(headLat(mid), 0, 1e-9), `forward ${headFwd.toFixed(3)}, lateral ${headLat(mid).toFixed(3)}`);
+    check('the shoulders wind back slipShoulderFrac of it; the hips stay', near(shFwd, -cfg.slipBackOffset * cfg.slipShoulderFrac, 1e-6) && near(hipFwd, 0, 1e-9), `shoulders ${shFwd.toFixed(3)}, hips ${hipFwd.toFixed(3)}`);
+    const homeF = trace[FLICK + T(cfg.slipDuration + cfg.slipReturn) + 1];
+    check('…and it comes home', homeF.slip.dir === 0 && near(worldToLocal(homeF.pos, frameOf(homeF.yaw), homeF.headBox).forward, 0, 1e-9));
+    // It dodges a straight near the edge of range: a jab that lands on a
+    // standing head misses a pulled one, and is classified as slipped. (0.9,
+    // not the very edge: the flick itself walks the fighter back ~12 cm, and
+    // at 1.0 m that alone takes the jab out of range — correctly not a dodge.)
+    const EDGE = 0.9;
+    const stand = run(fresh(EDGE), 40, i => [NONE, inp({ jab: i === 8 })]).evs;
+    const pulled = run(fresh(EDGE), 40, i => [inp({ move: { x: 0, y: i < FLICK ? -1 : 0 } }), inp({ jab: i === 8 })]).evs;
+    check('a jab at the edge of range lands on a standing head', stand.some(e => e.type === 'punchLand'));
+    check('…and is pulled away from by a back flick, classified as dodged', pulled.some(e => e.type === 'punchWhiff') && pulled.some(e => e.type === 'slip' && e.dodged && e.dir === 2), pulled.filter(e => e.type !== 'punchStart').map(e => e.type + (e.dodged ? '(dodged)' : '')).join(', '));
+  }
+  // A lateral slip dips.
+  {
+    const trace = [];
+    run(fresh(), 40, push(FLICK, 1), (st, i) => trace.push(st.fighters[0]));
+    const mid = trace[FLICK + T(cfg.slipRise) + 2];
+    check('a lateral slip dips the head by slipDip', near(mid.headBox.y, mid.body.headY - cfg.slipDip, 1e-6), `${mid.headBox.y.toFixed(3)} vs ${(mid.body.headY - cfg.slipDip).toFixed(3)}`);
+  }
   check('a diagonal flick that is more forward than sideways is not a slip', slips(run(fresh(), 40, push(FLICK, 0.5, 0.8)).evs).length === 0);
   check('a diagonal flick that is more sideways than forward slips', slips(run(fresh(), 40, push(FLICK, 0.8, 0.5)).evs).length === 1);
   // Direction is captured when the push begins, not at release.

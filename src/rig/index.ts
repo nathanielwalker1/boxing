@@ -336,7 +336,17 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // Chest: on the capsule top + sim torso reaction + spine spring, yawed by the
     // shoulder line, pitched by lean and the sim's tilt (positive = leaning back).
     S.copy(shoulderL).add(torsoOffL).add(spineBend as unknown as THREE.Vector3Like);
-    qChest.setFromAxisAngle(YAXIS, yawS);
+    // The torso BENDS with the hip→shoulder line (rigTorsoBend): a slip, a
+    // pull, the lean shift and a hit all move S relative to H in the sim, and
+    // the chest mesh now tilts to follow instead of shearing sideways upright.
+    v.subVectors(S, H);
+    const bendPitch = Math.atan2(v.x, Math.max(1e-3, v.y)) * c.rigTorsoBend;   // forward lean → +x over +y
+    const bendRoll = Math.atan2(v.z, Math.max(1e-3, v.y)) * c.rigTorsoBend;    // sideways → +z over +y
+    qChest.setFromAxisAngle(ZAXIS, -bendPitch);
+    qTmp.setFromAxisAngle(XAXIS, bendRoll);
+    qChest.multiply(qTmp);
+    qTmp.setFromAxisAngle(YAXIS, yawS);
+    qChest.multiply(qTmp);
     qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg + mvFwd * c.rigMoveLeanDeg) * DEG);
     qChest.multiply(qTmp);
     // Roll about the forward axis: the rhythm's roll over the loaded foot,

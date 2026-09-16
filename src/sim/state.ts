@@ -67,10 +67,10 @@ export function regenDelay(f: FighterState): number { return f.moveHist[HIST_REG
 export function setRegenDelay(f: FighterState, t: number): void { f.moveHist[HIST_REGEN_DELAY] = t; }
 
 /** The flick-vs-hold detector's memory of the current stick push (slip.ts). */
-export interface PushState { t: number; dir: -1 | 0 | 1; hold: boolean }
+export interface PushState { t: number; dir: -1 | 0 | 1 | 2; hold: boolean }
 export function pushState(f: FighterState): PushState {
   const d = f.moveHist[HIST_PUSH_DIR] ?? 0;
-  return { t: f.moveHist[HIST_PUSH_T] ?? 0, dir: d < 0 ? -1 : d > 0 ? 1 : 0, hold: (f.moveHist[HIST_PUSH_HOLD] ?? 0) !== 0 };
+  return { t: f.moveHist[HIST_PUSH_T] ?? 0, dir: d === 2 ? 2 : d < 0 ? -1 : d > 0 ? 1 : 0, hold: (f.moveHist[HIST_PUSH_HOLD] ?? 0) !== 0 };
 }
 export function setPushState(f: FighterState, p: PushState): void {
   f.moveHist[HIST_PUSH_T] = p.t; f.moveHist[HIST_PUSH_DIR] = p.dir; f.moveHist[HIST_PUSH_HOLD] = p.hold ? 1 : 0;

@@ -4,12 +4,12 @@
  * timer in fighter.js, in SI.
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
-import { clamp, closestOnSegment, frameOf, lerp, localToWorld, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign } from '../core';
-import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchLocal, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
+import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign } from '../core';
+import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
 import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, whiffMult } from './state';
 import { applyReaction } from './reaction';
 import { takeHit } from './resources';
-import { slipLateral } from './slip';
+import { slipBack, slipLateral } from './slip';
 import { applyPunish } from './vulnerability';
 
 /** Two pressed on the same tick: the faster punch wins. */
@@ -172,16 +172,15 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
 
   const g = a.gloves[a.punch.hand === 'lead' ? 0 : 1];
   const glove = { x: g.pos.x, y: g.pos.y, z: g.pos.z, r: a.body.gloveR };
-  // Swept (2026-09-16): the glove is tested along its extension — from where
-  // the wind-up left it to where it is now — not only where it stopped. A
-  // cramped straight at body contact now reaches PAST the head (the lean
-  // carries the shoulders forward), and a fist that went through the head on
-  // its way still landed. The start is the authored cocked pose in the
-  // fighter's current frame (the glove's own history is not kept).
-  const phs = def.phases(cfg);
-  const cocked = punchLocal(a.body, a.stance, def, a.punch.hand, phs.cock, phs, cfg);
-  const start = localToWorld(a.pos, frameOf(a.yaw), cocked.fwd + a.lean.fwd * cfg.punchLeanShift, cocked.up - a.crouch, cocked.lat);
-  const sweep = { a: { x: start.x + a.reaction.torso.x, y: start.y + a.reaction.torso.y, z: start.z + a.reaction.torso.z }, b: { x: g.pos.x, y: g.pos.y, z: g.pos.z }, r: a.body.gloveR };
+  // Swept (2026-09-16): the glove is tested along the last punchSweepLen of
+  // its LINE — the attacker's forward axis, ending where the fist is — not
+  // only where it stopped. A cramped straight at body contact now reaches
+  // PAST the head (the lean carries the shoulders forward) and still lands.
+  // Along the forward axis only, so the sweep never drifts sideways into a
+  // head that slipped just clear of the fist (the slip-into-the-hand body
+  // shot stays a body shot).
+  const afr = frameOf(a.yaw);
+  const sweep = { a: { x: g.pos.x - afr.fwd.x * cfg.punchSweepLen, y: g.pos.y, z: g.pos.z - afr.fwd.z * cfg.punchSweepLen }, b: { x: g.pos.x, y: g.pos.y, z: g.pos.z }, r: a.body.gloveR };
   const bodyHit = (): boolean => {
     for (const t of [1, 0.5, 0]) {
       const p = { x: lerp(sweep.a.x, sweep.b.x, t), y: lerp(sweep.a.y, sweep.b.y, t), z: lerp(sweep.a.z, sweep.b.z, t), r: glove.r };
@@ -201,8 +200,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // the only thing that took the punch away. A classification layered on,
     // not a new outcome — the whiff above still stands for recovery and stamina.
     if (d.slip.active && d.slip.dir !== 0) {
-      const fr = frameOf(d.yaw), lat = slipLateral(d);
-      const home = { x: d.headBox.x - fr.right.x * lat, y: d.headBox.y, z: d.headBox.z - fr.right.z * lat, r: d.headBox.r };
+      const fr = frameOf(d.yaw), lat = slipLateral(d), back = slipBack(d);
+      const home = { x: d.headBox.x - fr.right.x * lat + fr.fwd.x * back, y: d.headBox.y, z: d.headBox.z - fr.right.z * lat + fr.fwd.z * back, r: d.headBox.r };
       if (sphereCapsuleOverlap(home, sweep)) {
         events.push({ type: 'slip', side: target, dir: d.slip.dir, dodged: true });
         // The slip punish: the attacker is pinned exposed, and the counter

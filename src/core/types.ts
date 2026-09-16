@@ -106,9 +106,9 @@ export interface PunchState {
 
 export interface SlipState {
   active: boolean;
-  dir: -1 | 0 | 1;      // -1 = toward lead side, +1 = toward rear side
+  dir: -1 | 0 | 1 | 2;  // -1 = toward lead side, +1 = toward rear side, 2 = BACK (the pull / lean-back; contract addition 2026-09-16)
   t: number;            // seconds since the flick
-  offset: number;       // current lateral head offset in metres (signed by dir)
+  offset: number;       // current head offset in metres: lateral, signed by dir, for ±1; backward (positive) for 2
 }
 
 export interface GloveState {
@@ -210,7 +210,7 @@ export type SimEvent =
   | { type: 'punchWhiff';  side: Side; punch: PunchType }
   | { type: 'punchSmother'; side: Side; target: Side; punch: PunchType }
   /** Once at the flick (dodged: false), and once more, dodged: true, for each punch the slip takes away. */
-  | { type: 'slip';        side: Side; dir: -1 | 1; dodged: boolean }
+  | { type: 'slip';        side: Side; dir: -1 | 1 | 2; dodged: boolean }
   | { type: 'counter';     side: Side; target: Side; punch: PunchType }
   | { type: 'hurt';        side: Side; part: BodyPart; impulse: Vec3 }
   | { type: 'knockdown';   side: Side; count: number }
