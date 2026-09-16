@@ -125,10 +125,14 @@ export interface ReactionState {
   tilt: Spring1;    // torso tilt about the lateral axis, radians
 }
 
+/** The spec's 0–100 ratings, carried on the state so the sim can read them without the roster (2026-09-15; only chin is wired). */
+export interface Ratings { power: number; speed: number; chin: number; stamina: number; defense: number }
+
 export interface FighterState {
   specId: string;
   body: BodyDims;
   stance: Stance;
+  ratings: Ratings;
 
   // locomotion
   pos: Vec2;          // hip projection on the floor
@@ -177,6 +181,11 @@ export interface RoundState {
   phase: RoundPhase;
   phaseT: number;      // seconds in the current phase
   score: [number, number][];   // per completed round, 10-point-must
+  /** This round's tallies, the judges' inputs (sim/round.ts): clean landed punches and their summed impulse, N·s. Reset at each roundStart. */
+  landed: [number, number];
+  power: [number, number];
+  /** The referee's count while phase = 'count' (1…10), else 0. */
+  count: number;
 }
 
 export interface SimState {

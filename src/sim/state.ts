@@ -20,6 +20,7 @@
  *   moveHist[9]  1 once the push outlived slipFlickMax — it is footwork now, not a flick
  *   moveHist[10] the punish spike's level: vulnerability floor while counterWindow > 0
  *   moveHist[11] recover-phase time multiplier of the punch in flight (>1 = it missed)
+ *   moveHist[12] seconds on the canvas at which this fighter gets up (rolled at the knockdown; -1 = never, a KO)
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
@@ -36,6 +37,7 @@ const HIST_PUSH_DIR = 8;
 const HIST_PUSH_HOLD = 9;
 const HIST_PUNISH_LEVEL = 10;
 const HIST_WHIFF_MULT = 11;
+const HIST_GET_UP_AT = 12;
 
 export const MASK_JAB = 1, MASK_CROSS = 2, MASK_HOOK = 4, MASK_UPPERCUT = 8;
 
@@ -75,8 +77,11 @@ export function setPunishLevel(f: FighterState, v: number): void { f.moveHist[HI
 export function whiffMult(f: FighterState): number { return f.moveHist[HIST_WHIFF_MULT] || 1; }
 export function setWhiffMult(f: FighterState, m: number): void { f.moveHist[HIST_WHIFF_MULT] = m; }
 
+export function getUpAt(f: FighterState): number { return f.moveHist[HIST_GET_UP_AT] ?? 0; }
+export function setGetUpAt(f: FighterState, t: number): void { f.moveHist[HIST_GET_UP_AT] = t; }
+
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0]; }
 
 const v3c = (a: Vec3): Vec3 => ({ x: a.x, y: a.y, z: a.z });
 const s3c = (s: Spring3): Spring3 => ({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz });
@@ -89,6 +94,7 @@ export function cloneFighter(f: FighterState): FighterState {
     specId: f.specId,
     body: f.body,                 // derived once from the spec; never written
     stance: f.stance,
+    ratings: f.ratings,           // from the spec; never written
     pos: { x: f.pos.x, z: f.pos.z },
     vel: { x: f.vel.x, z: f.vel.z },
     yaw: f.yaw,
@@ -124,7 +130,12 @@ export function cloneState(s: SimState): SimState {
     time: s.time,
     hitStop: s.hitStop,
     rng: rngClone(s.rng),
-    round: { ...s.round, score: s.round.score.map(p => [p[0], p[1]] as [number, number]) },
+    round: {
+      ...s.round,
+      score: s.round.score.map(p => [p[0], p[1]] as [number, number]),
+      landed: [s.round.landed[0], s.round.landed[1]],
+      power: [s.round.power[0], s.round.power[1]],
+    },
     fighters: [cloneFighter(s.fighters[0]), cloneFighter(s.fighters[1])],
   };
 }

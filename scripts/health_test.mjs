@@ -126,10 +126,11 @@ console.log('\n=== 4. Knockdown ===');
   check('during the count nobody punches, moves or blocks', !during.evs.some(e => e.type === 'punchStart') && during.s.fighters[0].punch.type === null && !during.s.fighters[1].block && near(during.s.fighters[0].pos.x, s.fighters[0].pos.x, 1e-9));
   check('…and the clock holds', near(during.s.round.clock, s.round.clock, 1e-9) && during.s.round.clock < clockBefore);
 
-  const up = run(during.s, ticks(heavy.knockdownDuration) + 2, () => [NONE, NONE], heavy);
+  // The get-up count is rolled from the chin (fight_test covers the roll); here just wait out the longest possible count.
+  const up = run(during.s, ticks(10 * heavy.countTickSeconds) + 2, () => [NONE, NONE], heavy);
   const gu = first(up.evs, 'getUp');
   const f1 = up.s.fighters[1];
-  check('after knockdownDuration: getUp, standing, health restored to knockdownHealthRestore', gu?.side === 1 && !f1.down && f1.guard === 'rest' && near(f1.health, heavy.knockdownHealthRestore, 1e-9) && f1.knockdowns === 1, `health ${f1.health}`);
+  check('they beat the count: getUp, standing, health restored to knockdownHealthRestore', gu?.side === 1 && !f1.down && f1.guard === 'rest' && near(f1.health, heavy.knockdownHealthRestore, 1e-9) && f1.knockdowns === 1, `health ${f1.health}`);
   check('…and the fight resumes', up.s.round.phase === 'fighting');
   const again = run(up.s, 40, i => [inp({ jab: i === 0 }), NONE], heavy);
   check('the fighter can be hit again once up', again.evs.some(e => e.type === 'punchLand'));

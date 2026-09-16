@@ -35,6 +35,7 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
     specId: spec.id,
     body,
     stance: spec.stance,
+    ratings: { power: spec.power, speed: spec.speed, chin: spec.chin, stamina: spec.stamina, defense: spec.defense },
     pos: { x: pos.x, z: pos.z },
     vel: { x: 0, z: 0 },
     yaw,

@@ -4,11 +4,14 @@
  * reaction, hit-stop, the kinetic chain that owns the gloves, and the round
  * clock. Side 1 is driven by whatever input it is given (NULL_INPUT = the
  * frozen-guard dummy: it still turns, holds guard, takes hits and reacts).
+ * The fight state machine (rounds, rest, the 10-count, scoring, the
+ * decision) is round.ts + resources.ts; the round starts on tick 0 — the
+ * intro is presentation, the UI holds the sim until the bell.
  *
  * Tick order (every system reads positions the previous system settled):
  *   slip → actions → stamina → locomotion → separation → facing → punch clock +
  *   vulnerability → reaction springs + boxes → gloves → hit resolution → count
- *   → clock / hit-stop.
+ *   → rest timer → clock / hit-stop.
  */
 import {
   NULL_INPUT, SIM_DT, restFighterState, seedRng,
@@ -22,21 +25,22 @@ import { settleGloves, stepGloves } from './gloves';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip } from './slip';
 import { stepVulnerability } from './vulnerability';
+import { cornerOf, endRound, startRound, stepBetween } from './round';
 
 const SIDES: [Side, Side] = [0, 1];
 
 export function createState(specs: [FighterSpec, FighterSpec], cfg: Config, seed: number): SimState {
-  const start = 1.2;
+  const c0 = cornerOf(0), c1 = cornerOf(1);
   const s: SimState = {
     seed,
     tick: 0,
     time: 0,
     hitStop: 0,
     rng: seedRng(seed),
-    round: { index: 0, clock: cfg.roundSeconds, phase: 'fighting', phaseT: 0, score: [] },
+    round: { index: 0, clock: cfg.roundSeconds, phase: 'fighting', phaseT: 0, score: [], landed: [0, 0], power: [0, 0], count: 0 },
     fighters: [
-      restFighterState(specs[0], cfg, { x: -start, z: 0 }, 0),
-      restFighterState(specs[1], cfg, { x: start, z: 0 }, Math.PI),
+      restFighterState(specs[0], cfg, c0.pos, c0.yaw),
+      restFighterState(specs[1], cfg, c1.pos, c1.yaw),
     ],
   };
   for (const side of SIDES) {
@@ -56,7 +60,7 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   const dt = s.hitStop > 0 ? SIM_DT * cfg.hitStopScale : SIM_DT;
   s.hitStop = Math.max(0, s.hitStop - SIM_DT);
 
-  if (s.tick === 0) { events.push({ type: 'roundStart', index: s.round.index }); events.push({ type: 'bell' }); }
+  if (s.tick === 0) startRound(s, 0, cfg, events);
   const fighting = s.round.phase === 'fighting';
   const ins: [Readonly<FrameInput>, Readonly<FrameInput>] = fighting ? inputs : [NULL_INPUT, NULL_INPUT];
 
@@ -83,18 +87,14 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   for (const side of SIDES) stepGloves(s.fighters[side], side, s.time, cfg, dt);
   for (const side of SIDES) { const t = peaked[side]; if (t !== null) resolvePunch(s, side, t, cfg, events); }
   stepCount(s, cfg, dt, events);
+  stepBetween(s, cfg, dt, events);
 
   s.round.phaseT += dt;
-  if (fighting) {
+  // The clock only runs while fighting: it holds through the count (a
+  // knockdown at the bell still gets its count) and stops at the round's end.
+  if (fighting && s.round.phase === 'fighting') {
     s.round.clock = Math.max(0, s.round.clock - dt);
-    if (s.round.clock <= 0) {
-      const score: [number, number] = [10, 10];
-      s.round.score.push(score);
-      s.round.phase = 'over';
-      s.round.phaseT = 0;
-      events.push({ type: 'bell' });
-      events.push({ type: 'roundEnd', index: s.round.index, score });
-    }
+    if (s.round.clock <= 0) endRound(s, cfg, events);
   }
   s.tick += 1;
   s.time += dt;

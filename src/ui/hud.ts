@@ -71,16 +71,20 @@ export class Hud {
   set visible(v: boolean) { this.el.hidden = !v; }
 
   update(s: SimState): void {
-    const tko = s.round.phase === 'over' && s.fighters.some(f => f.down);
+    // A fighter still down when the fight is over was counted out (KO) or
+    // stopped (TKO): the referee's count tells them apart.
+    const ended = s.round.phase === 'over' && s.fighters.some(f => f.down);
+    const endTag = s.round.count >= 10 ? 'KO' : 'TKO';
     for (let i = 0; i < 2; i++) {
       const f = s.fighters[i]!, p = this.sides[i]!;
       p.health.style.transform = `scaleX(${f.health})`;
       p.stamina.style.transform = `scaleX(${f.stamina})`;
       p.pips.textContent = '●'.repeat(f.knockdowns);
-      p.tag.textContent = f.down ? (tko ? 'TKO' : 'DOWN') : f.stamina < 0.25 ? 'GASSED' : '';
+      p.tag.textContent = f.down ? (ended ? endTag : 'DOWN') : f.stamina < 0.25 ? 'GASSED' : '';
     }
     const t = Math.max(0, s.round.clock);
     this.clock.textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-    this.round.textContent = s.round.phase === 'count' ? 'COUNT' : s.round.phase === 'over' ? 'OVER' : `ROUND ${s.round.index + 1}`;
+    const ph = s.round.phase;
+    this.round.textContent = ph === 'count' ? `COUNT ${s.round.count}` : ph === 'between' ? 'REST' : ph === 'over' ? 'OVER' : `ROUND ${s.round.index + 1}`;
   }
 }

@@ -150,10 +150,11 @@ for (const t of TYPES) {
     const r = sim.step(s, [inp({ move: { x: 1, y: 0 } }), NONE], short);
     s = r.state;
     for (const e of r.events) evs.push({ ...e, tick: i });
-    if (endTick === null && s.round.phase === 'over') endTick = i;
+    if (endTick === null && s.round.phase !== 'fighting') endTick = i;
   }
   const end = evs.find(e => e.type === 'roundEnd');
   check('the clock counts down to 0 and the round ends on time', endTick !== null && Math.abs(endTick - 59) <= 1 && s.round.clock === 0, `over at tick ${endTick}`);
+  check('…into the rest between rounds (the fight goes on)', s.round.phase === 'between');
   check('roundEnd carries index 0 and a 10-10 score, with a bell', end?.index === 0 && end?.score[0] === 10 && end?.score[1] === 10 && evs.some(e => e.type === 'bell' && e.tick === end.tick));
   check('score is recorded on the round', s.round.score.length === 1);
   const after = sim.step(s, [inp({ move: { x: 1, y: 0 }, jab: true }), NONE], short);

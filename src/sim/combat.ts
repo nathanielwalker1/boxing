@@ -240,7 +240,12 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
 
   if (perfect) events.push({ type: 'perfectBlock', side, target, punch: type, at });
   else if (blocked) events.push({ type: 'punchBlock', side, target, punch: type, at });
-  else events.push({ type: 'punchLand', side, target, punch: type, hand: a.punch.hand, part, at, impulse, power, counter });
+  else {
+    events.push({ type: 'punchLand', side, target, punch: type, hand: a.punch.hand, part, at, impulse, power, counter });
+    // The judges see clean lands and how hard they were (round.ts scoring).
+    s.round.landed[side] += 1;
+    s.round.power[side] += mag;
+  }
   events.push({ type: 'hurt', side: target, part, impulse });
   if (counter && !blocked) events.push({ type: 'counter', side, target, punch: type });
 

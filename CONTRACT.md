@@ -366,3 +366,30 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   `dip`, v1's `PUNCHES.dip`); slips and ducks will. Per-punch `lean` and `sway`
   (lateral weight transfer, `FighterState.lean.lat`) join `turn` as the whole-body
   channels the rig reads. Nate's call, feel-test 2026-09-09: "too fake and upright".
+- 2026-09-15 — **Slip is lateral, and a bend at the waist.** `SlipState.dir` is
+  −1 lead / +1 rear; the head sphere moves by `slipHeadOffset`, the shoulder end of
+  the body capsule and the resting guard by `slipShoulderFrac` of it, the hips not at
+  all. A forward/back flick is not a slip (v1's duck is not ported; y is depth). A
+  stick push present when a punch is pressed is that punch's hand selection and never
+  a flick. The `slip` event fires at the flick (`dodged: false`) and again per punch
+  it takes away (`dodged: true`). Refines §4 and CLAUDE.md "head movement".
+- 2026-09-15 — **Perfect block needs a late read.** A guard is perfect when younger
+  than min(`perfectBlockWindow`, `perfectBlockLateFrac` × the punch's cock + extend)
+  at the impact; a guard raised on the punch's first tick is a reaction to the start,
+  not a read (the AI's block was perfect every time otherwise). `perfectBlock` is
+  emitted in place of `punchBlock`. Counters: a land on a target with `vuln` > 0 is
+  a counter (`punchLand.counter`, a `counter` event), impulse × (1 + vuln ×
+  `counterImpulseBonus`). A whiff stretches the recover phase per type; in v2 the
+  guard waits for the punch to end, so the stretch locks the guard out too (v1 let
+  the guard up mid-recovery — Nate's call pending).
+- 2026-09-15 — **The fight state machine lives in the sim** (round.ts). Phases:
+  `fighting` → `between` (rest, `betweenRoundSeconds`) → `fighting` …, `count` on a
+  knockdown, `over` on decision / KO / TKO. The intro is presentation: the UI holds
+  the sim until the bell; round 0 starts on tick 0. `RoundState` gains this round's
+  `landed` / `power` tallies and the referee's `count`; `FighterState` gains
+  `ratings` (spec 0–100; only `chin` is read). Scoring is 10-point-must from clean
+  lands + impulse × `scorePowerWeight`, −1 per knockdown suffered; control is not
+  scored yet. The count is `countTickSeconds` per count; the get-up count is rolled
+  at the knockdown from chin, knockdowns this round and seeded jitter (≥ 10 = KO).
+  `knockdownDuration` is gone. Between rounds fighters return to the corners with
+  `betweenRound*Restore` of the missing bars and the round's knockdowns cleared.

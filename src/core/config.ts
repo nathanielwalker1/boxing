@@ -219,7 +219,6 @@ export const SCHEMA = {
   staminaRegenDelay: num(0.6, 0, 3, 0.05, 'health', 'seconds regen pauses after taking a hit, so a chip is not repaid before the next punch lands', 'staminaRegenDelayAfterHit'),
   lowStamina:       num(0.25, 0, 1, 0.05, 'health', 'stamina below this = gassed: the wind-up telegraphs (next key) and the AI smells it', 'lowStaminaThreshold'),
   lowStaminaCockMult: num(2.5, 1, 5, 0.1, 'health', 'a gassed fighter\'s wind-up (cock phase) takes this many times longer in real time; extend and recover are untouched, so the strike itself is not in slow motion', 'lowStaminaWindupMultiplier'),
-  knockdownDuration: num(2.5, 0.5, 10, 0.1, 'health', 'seconds on the canvas; both fighters freeze for the count until the get-up (Stage 3 makes this a 10-count with a chin-based get-up chance)', 'knockdownRecoveryDuration'),
   knockdownHealthRestore: num(0.35, 0, 1, 0.05, 'health', 'health on getting up, as a fraction of full', 'knockdownHealthRestorePct'),
 
   // ── sim: reaction (SIM) — hit reaction springs, per chain level ──
@@ -276,6 +275,14 @@ export const SCHEMA = {
   roundSeconds:     num(60, 10, 180, 5, 'fight', 'seconds per round'),
   betweenRoundSeconds: num(10, 3, 30, 1, 'fight', 'between-round card duration, s'),
   knockdownsForTko: num(3, 1, 5, 1, 'fight', 'knockdowns in one round = TKO'),
+  countTickSeconds: num(0.5, 0.2, 1.5, 0.05, 'fight', 'seconds per count of the referee\'s 10-count (both fighters freeze, the clock holds). 0.5 = a 5 s count; 1 = real time (was a flat 2.5 s knockdownDuration)'),
+  getUpCountBest:   num(3, 1, 9, 0.5, 'fight', 'the count a chin-100 fighter rises on, first knockdown of the round (the sim/round.ts get-up roll)'),
+  getUpCountWorst:  num(9, 1, 12, 0.5, 'fight', 'the count a chin-0 fighter rises on; 10 or more = does not get up (KO)'),
+  getUpCountPerKnockdown: num(1.5, 0, 5, 0.5, 'fight', 'counts added per earlier knockdown in the same round — the third knockdown of a round is usually a KO before it is a TKO'),
+  getUpJitter:      num(1, 0, 3, 0.5, 'fight', '± counts of seeded randomness on the get-up roll, so a fight is not a spreadsheet'),
+  betweenRoundHealthRestore: num(0.1, 0, 1, 0.05, 'fight', 'fraction of the MISSING health that comes back on the stool between rounds'),
+  betweenRoundStaminaRestore: num(0.6, 0, 1, 0.05, 'fight', 'fraction of the MISSING stamina that comes back between rounds'),
+  scorePowerWeight: num(0.005, 0, 0.02, 0.0005, 'fight', 'judges: a round is scored on clean landed punches + summed impulse × this (a 230 N·s cross counts 1 + 1.15). 10-point-must: winner 10, loser 9, −1 per knockdown suffered, 10-10 if level. Control is not scored yet'),
 
   // ── ai (SIM: src/ai) — the opponent's four heuristics, ported from legacy dummy.js at 1 px = 0.0122 m ──
   aiEnabled:        bool(true, 'ai', 'side 1 is driven by the AI (off = the frozen-guard dummy; ?ai=0 in the URL sets this at boot)'),
@@ -300,7 +307,7 @@ export const SCHEMA = {
   debugHitboxes:    bool(false, 'debug', 'draw sim hit spheres and capsules'),
   debugSkeleton:    bool(false, 'debug', 'draw rig joints and bones'),
   debugFps:         bool(true, 'debug', 'show the frame-time overlay'),
-  sparRestartSeconds: num(2, 0, 10, 0.5, 'debug', 'Stage-1 sparring shell: seconds after the bell before the round restarts (0 = never; Stage 3 replaces this)'),
+  sparRestartSeconds: num(2, 0, 10, 0.5, 'debug', 'sparring shell: seconds after the fight ends (decision, KO or TKO) before a fresh one starts (0 = never; the Stage 3 menus replace this)'),
 
   // ── input (UI) — touch joystick, touch buttons, gamepad. src/ui/input.ts ──
   joyRadius:        num(70, 30, 160, 1, 'input', 'floating joystick max knob travel, px (full deflection = 1)'),
