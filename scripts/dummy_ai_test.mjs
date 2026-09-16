@@ -211,8 +211,11 @@ function cadence({ lowStamina, blocking }, seconds) {
   const w = settle(fresh(cfg));
   const before = w.throws.length;
   const player = blocking ? () => inp({ block: true }) : () => NONE;
-  run(w, ticks(seconds), player, x => { if (lowStamina) x.s.fighters[0].stamina = 0.1; });
-  return { throws: w.throws.length - before, agg: w.a.aggression };
+  // The peak aggression over the run: a stumble (2026-09-16) can leave the player out of range on the last tick.
+  let agg = 0;
+  // (skip the first ticks: the AI reads the player's guard from the previous tick, before the held block is applied)
+  run(w, ticks(seconds), player, (x, i) => { if (lowStamina) x.s.fighters[0].stamina = 0.1; if (i > 2) agg = Math.max(agg, x.a.aggression); });
+  return { throws: w.throws.length - before, agg };
 }
 {
   const WINDOW = 12;

@@ -474,7 +474,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const back = chase1(upBack[i]!, uppercutting, c.rigElbowK * kMul * 2, c.rigElbowZeta, dt);
       const flareTarget = Math.max(level, Math.min(1, Math.max(0, c.rigElbowFlareBias + (gl.y - sh.y) / body.upperArm)));
       const flare = chase1(elbowFlare[i]!, flareTarget, c.rigElbowK * kMul, c.rigElbowZeta, dt);
-      v2.set(0, 0, latSign[i]!).applyQuaternion(qChest);   // outward, in the chest's frame
+      // Outward in the FIGHTER's frame, not the chest's (2026-09-16): with
+      // the chest turned 80° through a hook, "outward" in its frame pointed
+      // at the opponent and the lead hook's elbow folded inward.
+      v2.set(0, 0, latSign[i]!);
       const poleFwd = lerp(-c.rigElbowPoleBack, -c.rigUppercutElbowBack, back);
       pole.set(poleFwd, -c.rigElbowPoleDown * (1 - flare * 0.8) * (1 - level), 0)
         .addScaledVector(v2, c.rigElbowPoleOut * (0.6 + flare * 0.6 + level * 0.8));

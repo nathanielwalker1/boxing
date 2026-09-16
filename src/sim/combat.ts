@@ -4,7 +4,7 @@
  * timer in fighter.js, in SI.
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
-import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign } from '../core';
+import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
 import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, whiffMult } from './state';
 import { applyReaction } from './reaction';
@@ -231,9 +231,22 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const approachSpd = v2dot({ x: a.vel.x + a.stagger.x, z: a.vel.z + a.stagger.z }, { x: adX, z: adZ });
   let dirX = adX, dirZ = adZ;
   if (def.swing > 0) {
-    const vlen = Math.hypot(g.vel.x, g.vel.z);
+    // The fist's travel direction. A torso-frame punch (hook) travels on the
+    // TANGENT of the body's turn — perpendicular to the line from the
+    // fighter's axis to the fist, in the turn's direction — which is the
+    // analytic version of what the glove was doing (2026-09-16; the glove
+    // spring has settled by the resolve, so its own velocity no longer says).
+    let tx = 0, tz = 0;
+    if (def.torsoFrame) {
+      const afr = frameOf(a.yaw);
+      const loc = worldToLocal(a.pos, afr, g.pos);
+      const sgn = a.torsoTwist >= 0 ? 1 : -1;
+      const lf = loc.lateral * sgn, ll = -loc.forward * sgn;   // d/dθ of a yawed point: (z, −x) × sign(θ)
+      tx = afr.fwd.x * lf + afr.right.x * ll; tz = afr.fwd.z * lf + afr.right.z * ll;
+    } else { tx = g.vel.x; tz = g.vel.z; }
+    const vlen = Math.hypot(tx, tz);
     if (vlen > 1e-6) {
-      dirX = lerp(adX, g.vel.x / vlen, def.swing); dirZ = lerp(adZ, g.vel.z / vlen, def.swing);
+      dirX = lerp(adX, tx / vlen, def.swing); dirZ = lerp(adZ, tz / vlen, def.swing);
       const n = Math.hypot(dirX, dirZ);
       if (n > 1e-6) { dirX /= n; dirZ /= n; } else { dirX = adX; dirZ = adZ; }
     }

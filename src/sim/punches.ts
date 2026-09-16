@@ -75,7 +75,14 @@ export interface PunchDef {
    * the face, so the head and body are sent sideways.
    */
   swing: number;
-  /** The glove's path: guard → wind-up → peak, in the fighter's local frame. */
+  /**
+   * The fist rides the torso (2026-09-16): the path's poses are in the TORSO
+   * frame — yawed by the current torso twist before use — so the body's turn
+   * carries the fist and the arc of a hook IS the rotation of the shoulders.
+   * Straights keep the fighter frame (their peak is on the opponent).
+   */
+  torsoFrame: boolean;
+  /** The glove's path: guard → wind-up → peak, in the fighter's local frame (or the torso frame, see `torsoFrame`). */
   path(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath;
   phases(cfg: Config): PunchPhases;
   /** Glove-spring stiffness multiplier through the recovery (cfg.chainRecoverK, or the jab's own snap-back). */
@@ -116,7 +123,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // lead shoulder still drives it (turn 0.45, raised from v1's 0.15 at the
   // 2026-09-03 feel-test) and the body's turn snaps back with the fist.
   jab: {
-    hand: 'lead', smotherable: true, turn: 0.45, coil: 0.05, swing: 0, lean: 0.8, sway: 0, dip: 0.02, load: 0.15,
+    hand: 'lead', smotherable: true, torsoFrame: false, turn: 0.45, coil: 0.05, swing: 0, lean: 0.8, sway: 0, dip: 0.02, load: 0.15,
     path: (b, h, s) => straightPath(b, h, s, 0.04),
     phases: cfg => phases(cfg.jabCock, cfg.jabExtend, cfg.jabRecover, cfg.punchTimeScale, cfg.jabHoldFrac),
     recoverK: cfg => cfg.jabChainRecoverK,
@@ -125,7 +132,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     react: cfg => ({ back: cfg.jabReactBack, lift: cfg.jabReactLift, twist: cfg.jabReactTwist, torso: cfg.jabReactTorso, snap: cfg.jabReactSnap, spin: cfg.jabReactSpin }),
   },
   cross: {
-    hand: 'rear', smotherable: true, turn: 1.0, coil: 0.15, swing: 0, lean: 1.0, sway: -0.15, dip: 0.03, load: 0.5,
+    hand: 'rear', smotherable: true, torsoFrame: false, turn: 1.15, coil: 0.15, swing: 0, lean: 1.0, sway: -0.15, dip: 0.03, load: 0.5,   // turn 1.15 (was 1.0): "not enough twisting", 2026-09-16
     path: (b, h, s) => straightPath(b, h, s, 0.35),
     phases: cfg => phases(cfg.crossCock, cfg.crossExtend, cfg.crossRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     recoverK: cfg => cfg.chainRecoverK,
@@ -139,7 +146,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // the centreline with the elbow at ~90°. Turn raised from v1's 0.70 to the
   // cross's 1.0 — the hook IS the hip turn — and the weight goes across.
   hook: {
-    hand: 'input', smotherable: false, turn: 1.3, coil: 0.3, swing: 0.85, lean: 0.6, sway: -0.5, dip: 0.05, load: 0.4,   // turn 1.3: past the cross — the shoulders come right round (feel-test 2026-09-09)
+    hand: 'input', smotherable: false, torsoFrame: true, turn: 1.45, coil: 0.3, swing: 0.5, lean: 0.6, sway: -0.5, dip: 0.05, load: 0.4,   // swing 0.5 on the turn's tangent ≈ 45° (was 0.85 on the glove's own velocity)   // turn 1.45 (1.3 at the 2026-09-09 feel-test): the shoulders come right round, and now the fist rides them
     path: hookPath,
     phases: cfg => phases(cfg.hookCock, cfg.hookExtend, cfg.hookRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     recoverK: cfg => cfg.chainRecoverK,
@@ -152,7 +159,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // above it with the elbow low. Shortest reach of the four (legacy: turn
   // 0.70, dip 6 px ≈ 0.07 m; 0.09 here so the sit-down reads at the play camera).
   uppercut: {
-    hand: 'input', smotherable: false, turn: 0.7, coil: 0.15, swing: 0, lean: 0.4, sway: 0.55, dip: 0.09, load: 0.6,   // sway 0.55 (was 0.3): the body loads and rolls hard over the punching hip (Tyson reference, 2026-09-16)
+    hand: 'input', smotherable: false, torsoFrame: true, turn: 0.85, coil: 0.15, swing: 0, lean: 0.4, sway: 0.55, dip: 0.09, load: 0.6,   // sway 0.55 (was 0.3): the body loads and rolls hard over the punching hip (Tyson reference, 2026-09-16); turn 0.85 (was 0.7)
     path: uppercutPath,
     phases: cfg => phases(cfg.uppercutCock, cfg.uppercutExtend, cfg.uppercutRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     recoverK: cfg => cfg.chainRecoverK,
@@ -215,6 +222,22 @@ function mix(a: LocalPose, b: LocalPose, t: number): LocalPose {
   return { fwd: lerp(a.fwd, b.fwd, t), up: lerp(a.up, b.up, t), lat: lerp(a.lat, b.lat, t) };
 }
 
+/**
+ * Yaw a local pose about the fighter's vertical axis by `theta` (radians),
+ * with the rig's convention (a three.js Y rotation: +theta turns forward
+ * toward the fighter's left). The torso twist is applied to torso-frame
+ * poses with this; authoring inverse-rotates with −theta.
+ */
+export function yawPose(p: LocalPose, theta: number): LocalPose {
+  const c = Math.cos(theta), s = Math.sin(theta);
+  return { fwd: p.fwd * c + p.lat * s, up: p.up, lat: -p.fwd * s + p.lat * c };
+}
+
+/** The torso twist (radians, signed as the sim signs it) at the peak of a punch thrown with `hand`: `side` × turn. */
+function peakTwist(def: PunchDef, hand: Hand, stance: Stance): number {
+  return handLateralSign(hand, stance) * def.turn;
+}
+
 /** Quadratic curve a → b that passes through `via` at t = 0.5 (the control point is derived, so `via` is a real waypoint). */
 function curve(a: LocalPose, via: LocalPose, b: LocalPose, t: number): LocalPose {
   const u = 1 - t, wa = u * u, wc = 2 * u * t, wb = t * t;
@@ -250,13 +273,22 @@ function straightPath(body: BodyDims, hand: Hand, stance: Stance, cockBack: numb
  * centre-to-centre; `hookReachScale` (config) trades that elbow for range.
  */
 function hookPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath {
-  const g = guardLocal(body, hand, stance);
   const side = handLateralSign(hand, stance);
   const chin = body.headY - body.headR * 0.7;
+  const def = PUNCHES.hook;
+  const thetaPeak = peakTwist(def, hand, stance);
+  // Torso frame (2026-09-16): the COMPACT hook. The wind-up is the fist by
+  // the chin with the elbow bent, on the punching side, while the body coils
+  // the other way; the peak is authored where it lands in the fighter frame
+  // (across the centreline, elbow ~90°, reach as measured before) and
+  // inverse-rotated by the peak twist, so the fist gets there BY the turn:
+  // the arc is the shoulders coming round, nothing is drawn wide.
+  const cockedF = { fwd: body.upperArm * 0.55, up: chin - body.headR * 0.1, lat: side * (body.shoulderW / 2 + body.upperArm * 0.15) };
+  const peakF = { fwd: (body.upperArm + body.forearm * 0.75) * cfg.hookReachScale, up: chin, lat: -side * body.shoulderW * 0.12 };
   return {
-    cocked: { fwd: body.upperArm * 0.85, up: chin - body.headR * 0.15, lat: side * (body.shoulderW / 2 + body.upperArm * 0.4) },
-    via: { fwd: body.upperArm * 0.8, up: chin, lat: side * (body.shoulderW / 2 + body.upperArm * 0.85) },
-    peak: { fwd: (body.upperArm + body.forearm * 0.75) * cfg.hookReachScale, up: chin, lat: -side * body.shoulderW * 0.12 },
+    cocked: yawPose(cockedF, -(-def.coil) * thetaPeak),   // the body is coiled to −coil × turn when the fist sits here
+    via: null,
+    peak: yawPose(peakF, -thetaPeak),
   };
 }
 
@@ -276,10 +308,18 @@ function uppercutPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): 
   const g = guardLocal(body, hand, stance);
   const side = handLateralSign(hand, stance);
   const torso = body.shoulderY - body.hipY;
+  const def = PUNCHES.uppercut;
+  const thetaPeak = peakTwist(def, hand, stance);
+  // Torso frame: authored in the fighter frame at the moments they occur and
+  // inverse-rotated by the twist at those moments, so the body's turn carries
+  // the fist up through the chin line (the shovel).
+  const cockedF = { fwd: body.upperArm * 0.6, up: body.shoulderY - torso * 0.3, lat: side * (body.shoulderW / 2 + body.gloveR * 0.3) };
+  const viaF = { fwd: body.upperArm * 0.9, up: body.shoulderY - torso * 0.1, lat: g.lat * 0.9 };
+  const peakF = { fwd: body.upperArm * 1.3 * cfg.uppercutReachScale, up: body.headY - body.headR * 0.2, lat: g.lat * 0.5 };
   return {
-    cocked: { fwd: body.upperArm * 0.6, up: body.shoulderY - torso * 0.3, lat: side * (body.shoulderW / 2 + body.gloveR * 0.3) },
-    via: { fwd: body.upperArm * 0.9, up: body.shoulderY - torso * 0.1, lat: g.lat * 0.9 },
-    peak: { fwd: body.upperArm * 1.3 * cfg.uppercutReachScale, up: body.headY - body.headR * 0.2, lat: g.lat * 0.5 },
+    cocked: yawPose(cockedF, def.coil * thetaPeak),
+    via: yawPose(viaF, -0.85 * thetaPeak),
+    peak: yawPose(peakF, -thetaPeak),
   };
 }
 
@@ -291,9 +331,14 @@ function uppercutPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): 
  * sits at the peak so the punch is actually on screen, then snaps home in
  * what is left.
  */
-export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: Hand, elapsed: number, ph: PunchPhases, cfg: Config): LocalPose {
+export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: Hand, elapsed: number, ph: PunchPhases, cfg: Config, twist = 0): LocalPose {
   const g = guardLocal(body, hand, stance);
-  const { cocked, via, peak } = def.path(body, hand, stance, cfg);
+  const path = def.path(body, hand, stance, cfg);
+  // Torso-frame paths are yawed by the CURRENT twist into the fighter frame
+  // before mixing with the guard, so the fist rides the turn.
+  const cocked = def.torsoFrame ? yawPose(path.cocked, twist) : path.cocked;
+  const via = def.torsoFrame && path.via ? yawPose(path.via, twist) : path.via;
+  const peak = def.torsoFrame ? yawPose(path.peak, twist) : path.peak;
   if (elapsed < ph.cock) return mix(g, cocked, smoothstep(elapsed / ph.cock));
   if (elapsed < ph.cock + ph.extend) {
     // The target reaches the peak at chainArrive of the extend and waits
@@ -331,10 +376,18 @@ export function punchEnvelope(elapsed: number, ph: PunchPhases): number {
  */
 function loadThenDrive(back: number, elapsed: number, ph: PunchPhases): number {
   if (back <= 0) return punchEnvelope(elapsed, ph);
-  if (elapsed < ph.cock) return -back * smoothstep(elapsed / ph.cock);
-  if (elapsed < ph.cock + ph.extend) return lerp(-back, 1, smoothstep((elapsed - ph.cock) / ph.extend));
+  // The chain in time (2026-09-16): the load is complete at CHAIN_LOAD_AT of
+  // the wind-up and the drive starts THERE — the hips and shoulders are
+  // already turning into the punch through the rest of the wind-up, and the
+  // fist leaves last (its target only moves in the extend). The turn reads
+  // as a turn instead of a 3-frame pop, and a hook comes from the body.
+  const loadEnd = ph.cock * CHAIN_LOAD_AT;
+  if (elapsed < loadEnd) return -back * smoothstep(elapsed / Math.max(1e-6, loadEnd));
+  if (elapsed < ph.cock + ph.extend) return lerp(-back, 1, smoothstep((elapsed - loadEnd) / Math.max(1e-6, ph.cock + ph.extend - loadEnd)));
   return punchEnvelope(elapsed, ph);
 }
+/** Fraction of the wind-up by which the load is complete and the drive begins. Shape, not a tunable (the phase table is). */
+const CHAIN_LOAD_AT = 0.4;
 
 /**
  * Torso twist `elapsed` seconds into a punch, as a fraction of `turn` (sign

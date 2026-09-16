@@ -37,7 +37,7 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPos
       // driving on to the free-air peak.
       const rt = (p.progress * ph.total - ph.cock - ph.extend) / ph.recover;
       const contact = p.contact && p.phase === 'recover' && rt < ph.hold ? p.contact : null;
-      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg), kMul, contact, guard: false };
+      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg, f.torsoTwist), kMul, contact, guard: false };
     }
   }
   return { pose: f.block ? blockLocal(f.body, hand, f.stance) : guardLocal(f.body, hand, f.stance), kMul: 1, contact: null, guard: true };
