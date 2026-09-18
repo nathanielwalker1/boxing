@@ -85,6 +85,17 @@ pull, dip), not the drawing.
 - Hooks and uppercuts come home in the torso frame (`punchLocal` recovery):
   the fist folds toward the chin as the shoulders unwind and carry it. The
   rig's level elbow pole ends with the hold, so the elbow drops with the fist.
+- **Solid bodies** (2026-09-18, `contactSolid`, `gloves.ts`): the glove's
+  spring target is cut back along the forward axis until its path clears the
+  other fighter's head and body, then the glove is pushed out of them to
+  `contactSquash` × gloveR (2.9 cm, the leather) with its inward velocity
+  dropped. The target stays on the free-air peak through the hold, so the
+  fist presses on the skull and rides the head back — the follow-through.
+  Measured before: a jab at 0.85 m sat 11 cm inside the head; at 0.7 m the
+  fist passed 13 cm beyond the head centre ("fists go through the head like
+  it's translucent… light and cheap"). After: ≤ 2.9 cm everywhere, never
+  behind the head. Other gloves are NOT solid (a relaxed guard is not a
+  wall); a block that stops the fist at the gloves is still to do.
 
 **Hit performance** (`src/sim/reaction.ts`, `src/rig/index.ts`, `src/ui/audio.ts`)
 - Springs ~2.5x slower than v1 (`reactionHeadK` 160 / C 9 …): jab settles in
@@ -179,6 +190,12 @@ pull, dip), not the drawing.
   after its press; the hook's return was a straight-armed swing in the
   fighter frame, filmstrip t=22–26). → hit confirm + chained wind-up + queue,
   torso-frame recovery, follow camera. NOT yet feel-tested.
+- 2026-09-18: "punches go through their heads… fists go through the head
+  and body like it's translucent… exchanges feel light and cheap.
+  Exchanges should be fast and thunderous." → measured 11 cm of
+  penetration, then solid bodies (target cut + position clamp). The
+  "thunderous" half — hit-stop, sound and flash tiers on a solid landing —
+  is not done; the numbers are unchanged. NOT yet feel-tested.
 
 ## Open
 
