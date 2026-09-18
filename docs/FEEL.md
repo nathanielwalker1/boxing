@@ -74,6 +74,17 @@ pull, dip), not the drawing.
 - The hit test sweeps the last `punchSweepLen` 0.3 m of the fist's line.
   Tick-boundary epsilon in `advancePunch` (`PHASE_EPS`); the glove target
   arrives at `chainArrive` 0.8 of the extend so the spring has settled.
+- Combos (2026-09-17, principle 5 — tempo is bursts): the **hit confirm**.
+  A punch that touched something opens the chain window the tick after its
+  hit test (`punchChainOnHit` 0); a miss waits for `punchChainAt` 0.5 of its
+  stretched recovery. A chained punch winds up `comboCockScale` 0.6 as long
+  (the body is already turned). The buffer queues `punchBufferDepth` 2
+  presses in order. Measured 1-2: cross pressed at 50 ms started at 217 ms
+  and landed at 400; now 117 / 283. Hit-stop still freezes the attacker's
+  follow-up for ~3 ticks per land (deliberate; `hitStopBase`).
+- Hooks and uppercuts come home in the torso frame (`punchLocal` recovery):
+  the fist folds toward the chin as the shoulders unwind and carry it. The
+  rig's level elbow pole ends with the hold, so the elbow drops with the fist.
 
 **Hit performance** (`src/sim/reaction.ts`, `src/rig/index.ts`, `src/ui/audio.ts`)
 - Springs ~2.5x slower than v1 (`reactionHeadK` 160 / C 9 …): jab settles in
@@ -85,6 +96,12 @@ pull, dip), not the drawing.
 - `staggerDecay` 8: the stumble is long enough that the feet step to catch it.
 - Audio is synthesized (no files): sharp / heavy / body / blocked / counter
   sting / whiff / knockdown / bell. Camera punch-in and `camShake` per hit.
+- Camera (2026-09-17, Fight Night Champion): `camFollow` 1 orbits on the
+  player→opponent line, `camBehindDeg` 35 round from side-on toward the
+  player's back, chased at `camOrbitLambda` 2.5 with a `camOrbitMaxRate` 140
+  °/s cap. The player is always screen-left and nearest the lens. Before, the
+  fixed seat put the player between the lens and the opponent whenever the
+  pair circled into a line ("I'm blocked, I don't even see my fighter").
 - Numbers: `healthDamagePerImpulse` 0.0003 (~14 crosses), `healthRegen` 0.06
   after `healthRegenDelay` 1.5 s up to a per-round cap (`healthCapLoss` 0.35).
 
@@ -139,10 +156,26 @@ pull, dip), not the drawing.
   then the five-item pass (hit performance + audio, kinetic chain, numbers,
   weave, context variants). Verdict: **"feels much better already, but still
   needs changes and improvements."**
+- 2026-09-17 night: "it feels much better now." Three specifics: a 1-2 is
+  "not snappy enough, there's a delay after the jab where my cross doesn't
+  come out even after I've clicked"; the hook is "really weird — the way the
+  elbow bends, the fist, and how it reverts back"; the camera left him
+  blocked behind his own fighter. Measured first (the cross started 167 ms
+  after its press; the hook's return was a straight-armed swing in the
+  fighter frame, filmstrip t=22–26). → hit confirm + chained wind-up + queue,
+  torso-frame recovery, follow camera. NOT yet feel-tested.
 
 ## Open
 
 - Per-fighter styles (the roster's `style` field is unread).
+- Follow camera near a corner: a ring post can sit in the foreground as the
+  orbit comes round (see `camera-never-shows-outside-the-ring` in memory —
+  the overscan decision is still open). A post-avoidance nudge on the
+  azimuth, or a shorter dolly near the ropes, if it bothers him.
+- A chained punch's twist snaps from the last punch's peak to the new one's
+  load in the sim (the rig's shoulder spring smooths it). If a 2-3 reads as a
+  pop at the shoulders, blend the twist from where it was over the chained
+  cock.
 - The AI reads none of the new hit states (spin, stumble) and has no per-punch
   hit-stop; hit-stop is power-scaled only.
 - At Nate's ~0.85 m play distance a straight's fist stops at the head before
