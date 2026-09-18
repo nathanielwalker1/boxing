@@ -348,7 +348,14 @@ export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: 
     return via ? curve(cocked, via, peak, t) : mix(cocked, peak, t);
   }
   const rt = (elapsed - ph.cock - ph.extend) / ph.recover;
-  return mix(peak, g, smoothstep(Math.max(0, (rt - ph.hold) / (1 - ph.hold))));
+  const s = smoothstep(Math.max(0, (rt - ph.hold) / (1 - ph.hold)));
+  // A torso-frame punch comes home IN the torso frame (2026-09-17): the fist
+  // folds back toward the guard as the shoulders carry it, so the elbow bends
+  // first and the arm rides the unwind. Mixed in the fighter frame, the guard
+  // point sat a full arm from the turned shoulder and the hook's return was a
+  // straight-armed swing out wide before it folded.
+  if (def.torsoFrame) return yawPose(mix(path.peak, g, s), twist);
+  return mix(peak, g, s);
 }
 
 /**

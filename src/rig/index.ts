@@ -471,7 +471,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       // A hooking arm lies flat: elbow up to the glove line, pole level, so the
       // forearm is parallel to the floor and the glove leads the elbow.
       const mine = (next.punch.hand === 'lead') === (i === 0);
-      const hooking = next.punch.type === 'hook' && mine ? c.rigHookElbowLevel : 0;
+      // Level through the wind-up, the swing and the hold; the elbow drops
+      // with the fist as it folds home (2026-09-17 — it used to stay up until
+      // the punch state ended, then fall).
+      const hookHold = next.punch.phase !== 'recover' || next.punch.t < c.punchHoldFrac * c.hookRecover * c.punchTimeScale;
+      const hooking = next.punch.type === 'hook' && mine && hookHold ? c.rigHookElbowLevel : 0;
       // Through an uppercut's wind-up and drive the elbow pole points back,
       // so the fold keeps the elbow behind and below the fist. Not through
       // the recovery: with the fist up at the face a back pole bends the
