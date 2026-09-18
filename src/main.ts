@@ -44,6 +44,8 @@ declare global {
     __states: () => readonly FighterState[];
     /** The azimuth the stick maps against (the follow camera's orbit less camBehindDeg), radians (tests). */
     __camAz: () => number;
+    /** The camera's current dolly distance from the look point, m (tests). */
+    __camDist: () => number;
   }
 }
 
@@ -137,6 +139,7 @@ window.__replay = (dist, script, ticks) => {
 window.__focus = -1;
 window.__states = () => [posed[0] ?? next.fighters[0], posed[1] ?? next.fighters[1]];
 window.__camAz = () => stage.inputAzimuth;
+window.__camDist = () => stage.dollyDistance;
 
 // ── Loop: fixed-step accumulator (CONTRACT §3), render every rAF ──────────────
 window.__tick = { frames: 0, simTicks: 0, gameTime: 0, ready: false };

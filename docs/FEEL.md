@@ -97,17 +97,26 @@ pull, dip), not the drawing.
 - Audio is synthesized (no files): sharp / heavy / body / blocked / counter
   sting / whiff / knockdown / bell. Camera punch-in and `camShake` per hit.
 - Camera (2026-09-17, Fight Night Champion): `camFollow` 1 orbits on the
-  player→opponent line, `camBehindDeg` 35 round from side-on toward the
-  player's back, chased at `camOrbitLambda` 2.5 with a `camOrbitMaxRate` 140
-  °/s cap. The player is always screen-left and nearest the lens. Before, the
-  fixed seat put the player between the lens and the opponent whenever the
-  pair circled into a line ("I'm blocked, I don't even see my fighter").
-  Then "moves way too much, too distracting" → `camOrbitDeadDeg` 25 (chase
-  only the drift beyond it), lambda 1.0, cap 30. Measured in a seeded 20 s
-  AI spar: the line turns ~270° and the camera travels ~175–186° whatever
-  the knobs — total motion is the fighters' circling (`aiCircleWeight`,
-  `aiCircleSpeed`), the knobs only trade twitch for lag. The stick maps
-  against the line side-on (`Stage.inputAzimuth`), never the raw orbit.
+  player→opponent line, centred `camBehindDeg` 30 round from side-on toward
+  the player's back. The player is always screen-left and nearest the lens.
+  Before, the fixed seat put the player between the lens and the opponent
+  whenever the pair circled into a line ("I'm blocked, I don't even see my
+  fighter"). Three cuts the same night: (1) a smoothed chase (lambda 2.5,
+  140 °/s cap) — "moves way too much"; (2) a soft dead zone + 30 °/s cap —
+  calmer but the lag let it fall 60°+ behind: "still blocked"; (3) **the
+  band** (`camOrbitBandDeg` 20): the camera sits wherever the line last
+  left it and is hard-clamped to 30 ± 20° behind, so it moves only when
+  dragged and can never fall far enough behind either fighter for one to
+  cover the other. `camOrbitLambda` 0 = no recentre drift. Measured in a
+  seeded 20 s AI spar: behind-angle 26–50°, still 84% of samples (47% with
+  the dead zone). The fighters' circling sets total travel (~200°/20 s with
+  the AI alone). The stick maps against the line side-on
+  (`Stage.inputAzimuth`), never the raw orbit.
+- "Panning in and out" was the dolly: it chased the fighters' distance at
+  4/s over 4.2–6.5 m and lunged `camPunchIn` 0.18 m on every hit — with
+  combos landing every 0.15 s that was constant. Now 4.5–5.8 m at 0.8/s,
+  FOV 36–40, punch-in 0.08 (max 0.25). Dolly travel in the spar 10.5 → 3.9
+  m. The shake carries the hit.
 - Numbers: `healthDamagePerImpulse` 0.0003 (~14 crosses), `healthRegen` 0.06
   after `healthRegenDelay` 1.5 s up to a per-round cap (`healthCapLoss` 0.35).
 
@@ -178,10 +187,10 @@ pull, dip), not the drawing.
   orbit comes round (see `camera-never-shows-outside-the-ring` in memory —
   the overscan decision is still open). A post-avoidance nudge on the
   azimuth, or a shorter dolly near the ropes, if it bothers him.
-- If the follow camera is still too much: (a) a "re-frame only when nearly
-  blocked" mode — the seat stays fixed until the line comes within ~25° of
-  the view axis, then eases to side-on once; (b) less AI circling; (c) a
-  longer dolly so the background parallax per degree drops.
+- If the follow camera is still too much: widen `camOrbitBandDeg` (up to
+  ~25 before the player can start to cover the opponent at the far edge),
+  less AI circling, or a longer dolly so the background parallax per degree
+  drops.
 - A chained punch's twist snaps from the last punch's peak to the new one's
   load in the sim (the rig's shoulder spring smooths it). If a 2-3 reads as a
   pop at the shoulders, blend the twist from where it was over the chained

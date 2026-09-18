@@ -53,6 +53,9 @@ export class Stage {
    * seat: camAzimuthDeg. Screen-relative at the over-the-shoulder angle
    * turned "forward" into forward-and-sideways (2026-09-17 feel-test).
    */
+  /** The lens's current distance from the look point after the punch-in, m (probes). */
+  get dollyDistance(): number { return Math.max(1, this.dist - this.punchIn); }
+
   get inputAzimuth(): number {
     if (this.following && !Number.isNaN(this.az)) return this.az - this.cfg.camBehindDeg * Math.PI / 180;
     return this.cfg.camAzimuthDeg * Math.PI / 180;
@@ -233,15 +236,19 @@ export class Stage {
     }
     if (Number.isNaN(this.az) || !this.following) this.az = azTarget;   // the fixed seat is placed, not chased
     else {
-      let dAz = azTarget - this.az;
-      dAz = Math.atan2(Math.sin(dAz), Math.cos(dAz));   // shortest way round
-      // Dead zone: only the drift beyond camOrbitDeadDeg is chased, so the
-      // camera sits still through footwork and moves once the line has turned.
-      const dead = c.camOrbitDeadDeg * Math.PI / 180;
-      dAz = Math.sign(dAz) * Math.max(0, Math.abs(dAz) - dead);
-      const maxStep = c.camOrbitMaxRate * Math.PI / 180 * dt;
-      const step = dAz * (1 - Math.exp(-c.camOrbitLambda * dt));
-      this.az += Math.max(-maxStep, Math.min(maxStep, step));
+      // The band (2026-09-17, "still too much panning… and still blocked"):
+      // the camera sits wherever the line last left it, and is dragged only
+      // when the line would push it more than camOrbitBandDeg from the
+      // over-the-shoulder centre — a hard clamp, so it can never fall far
+      // enough behind either fighter for one to cover the other, however
+      // fast the pair circles. Inside the band an optional slow recentre.
+      let off = this.az - azTarget;
+      off = Math.atan2(Math.sin(off), Math.cos(off));   // shortest way round
+      const band = c.camOrbitBandDeg * Math.PI / 180;
+      if (off > band) off = band;
+      else if (off < -band) off = -band;
+      else if (c.camOrbitLambda > 0) off *= Math.exp(-c.camOrbitLambda * dt);
+      this.az = azTarget + off;
     }
     const az = this.az;
     const el = c.camElevationDeg * Math.PI / 180;
