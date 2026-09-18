@@ -102,6 +102,12 @@ pull, dip), not the drawing.
   °/s cap. The player is always screen-left and nearest the lens. Before, the
   fixed seat put the player between the lens and the opponent whenever the
   pair circled into a line ("I'm blocked, I don't even see my fighter").
+  Then "moves way too much, too distracting" → `camOrbitDeadDeg` 25 (chase
+  only the drift beyond it), lambda 1.0, cap 30. Measured in a seeded 20 s
+  AI spar: the line turns ~270° and the camera travels ~175–186° whatever
+  the knobs — total motion is the fighters' circling (`aiCircleWeight`,
+  `aiCircleSpeed`), the knobs only trade twitch for lag. The stick maps
+  against the line side-on (`Stage.inputAzimuth`), never the raw orbit.
 - Numbers: `healthDamagePerImpulse` 0.0003 (~14 crosses), `healthRegen` 0.06
   after `healthRegenDelay` 1.5 s up to a per-round cap (`healthCapLoss` 0.35).
 
@@ -172,6 +178,10 @@ pull, dip), not the drawing.
   orbit comes round (see `camera-never-shows-outside-the-ring` in memory —
   the overscan decision is still open). A post-avoidance nudge on the
   azimuth, or a shorter dolly near the ropes, if it bothers him.
+- If the follow camera is still too much: (a) a "re-frame only when nearly
+  blocked" mode — the seat stays fixed until the line comes within ~25° of
+  the view axis, then eases to side-on once; (b) less AI circling; (c) a
+  longer dolly so the background parallax per degree drops.
 - A chained punch's twist snaps from the last punch's peak to the new one's
   load in the sim (the rig's shoulder spring smooths it). If a 2-3 reads as a
   pop at the shoulders, blend the twist from where it was over the chained
