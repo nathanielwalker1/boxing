@@ -76,6 +76,15 @@ const RECIPES: Record<string, Recipe> = {
       { type: 'noise', gain: 0.28, attack: 0.020, decay: 0.120, filter: { type: 'bandpass', freq: 1800, freqEnd: 500, q: 1.2 } },
     ],
   },
+  // Slipped — the whiff, close: a fist past the ear. Shorter, brighter, a
+  // little louder than a miss in space (2026-09-18, the read).
+  slipNear: {
+    gain: 3.2,
+    layers: [
+      { type: 'noise', gain: 0.6, attack: 0.008, decay: 0.09, filter: { type: 'bandpass', freq: 900, freqEnd: 3800, q: 1.6 } },
+      { type: 'noise', gain: 0.3, attack: 0.004, decay: 0.06, filter: { type: 'highpass', freq: 2600, q: 0.8 } },
+    ],
+  },
   // Knockdown — the heavy hit plus the canvas.
   knockdown: {
     gain: 0.9,
@@ -118,6 +127,8 @@ export class CombatAudio {
     bus.on('punchBlock', () => this.play('impactBlocked'));
     bus.on('perfectBlock', () => this.play('impactBlocked', 1.3));
     bus.on('punchWhiff', () => this.play('whiff'));
+    // A slipped punch: the whiff fires too (the attacker missed); this is the close pass by the ear on top.
+    bus.on('slip', e => { if (e.dodged) this.play('slipNear'); });
     bus.on('knockdown', () => this.play('knockdown'));
     bus.on('bell', () => this.play('bell'));
   }

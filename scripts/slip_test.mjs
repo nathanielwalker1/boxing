@@ -229,6 +229,17 @@ const HOLD = T(cfg.slipFlickMax) + 4;  // past the flick window
   check('…and is classified as SLIPPED: one slip event with dodged: true, on the defender', dodged.length === 1 && dodged[0].side === 1 && dodged[0].tick === L && dodged[0].dir === -1, `${dodged.length} dodged events`);
   check('the whiff itself still fires (a slipped punch is still a miss for recovery and stamina)', evs.filter(e => e.type === 'punchWhiff').length === 1);
   check('no hurt event: the slip took the punch away entirely', !evs.some(e => e.type === 'hurt'));
+  {
+    // The read (2026-09-18): a slipped punch adds slipDodgeHitStop — the beat as the fist passes the ear.
+    let stopAt = 0, stopBefore = 0, s = fresh(MID);
+    for (let i = 0; i <= L; i++) {
+      const r = sim.step(s, [inp({ jab: i === 0 }), inp({ move: { x: i >= L - 7 && i < L - 2 ? -1 : 0, y: 0 } })], cfg);
+      s = r.state;
+      if (i === L - 1) stopBefore = s.hitStop;
+      if (r.events.some(ev => ev.type === 'slip' && ev.dodged)) stopAt = s.hitStop;
+    }
+    check('a slipped punch adds slipDodgeHitStop at the dodge (the read)', stopAt >= cfg.slipDodgeHitStop - SIM_DT - 1e-9 && stopBefore === 0, `hit-stop ${stopAt.toFixed(3)} at the dodge (before: ${stopBefore})`);
+  }
   const inside = slipRun(MID, 1);
   const il = inside.evs.find(e => e.type === 'punchLand');
   check('slipping INTO the jab hand: the head clears but the shoulder catches it — a body shot, not a dodge', il?.part === 'body' && !inside.evs.some(e => e.type === 'slip' && e.dodged), `${il?.type} ${il?.part}`);
