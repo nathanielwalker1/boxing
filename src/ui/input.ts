@@ -17,7 +17,9 @@
  * Screen → opponent-relative mapping
  *   The stick/keys are camera-relative: stick right = screen right, stick up =
  *   screen up (away from the camera on the floor). With the broadcast camera at
- *   azimuth `az` (cfg.camAzimuthDeg; the camera sits at (cos az, sin az) from
+ *   azimuth `az` (opts.azimuth — Stage.inputAzimuth, which under the follow
+ *   camera is the fighters' line side-on, so stick right is always toward the
+ *   opponent — or cfg.camAzimuthDeg; the camera sits at (cos az, sin az) from
  *   the look point, so at the default 90° it sits at +z looking along −z):
  *     screenRight (floor) = ( sin az, −cos az)     → +x at 90°
  *     screenUp    (floor) = (−cos az, −sin az)     → −z at 90°
@@ -36,6 +38,8 @@ import { frameOf, type Config, type FrameInput } from '../core';
 export interface InputOptions {
   /** Yaw of the player fighter, read every `current()` call. */
   yaw: () => number;
+  /** The camera azimuth to map the stick against, radians (Stage.inputAzimuth); defaults to cfg.camAzimuthDeg. */
+  azimuth?: () => number;
   /** Mount the touch controls (floating joystick + diamond + block). */
   touch: boolean;
   /** Parent for the touch DOM; defaults to document.body. */
@@ -157,7 +161,7 @@ export class InputManager {
     if (sl > 1) { sx /= sl; sy /= sl; }
     if (sl > 1e-6) {
       // Screen → world floor (see header), then world → the player's frame.
-      const az = this.cfg.camAzimuthDeg * Math.PI / 180;
+      const az = this.opts.azimuth ? this.opts.azimuth() : this.cfg.camAzimuthDeg * Math.PI / 180;
       const su = -sy;
       const wx = sx * Math.sin(az) - su * Math.cos(az);
       const wz = -sx * Math.cos(az) - su * Math.sin(az);

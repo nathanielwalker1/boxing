@@ -43,6 +43,20 @@ export class Stage {
   private shakeAmp = 0;   // camera shake on a landed punch, m (decays over camShakeRecover)
   private shakeT = 0;
   private az = NaN;       // smoothed follow-camera azimuth, radians (NaN = not yet placed)
+  private following = false;   // last frame rode the fighters' line (vs the fixed seat)
+
+  /**
+   * The azimuth the stick/keys map against (ui/input.ts), radians. While
+   * following, the side-on angle of the fighters' line (the orbit less
+   * camBehindDeg): stick right = toward the opponent, stick up = away from
+   * the camera's side, exactly the fixed seat's feel at its default. Fixed
+   * seat: camAzimuthDeg. Screen-relative at the over-the-shoulder angle
+   * turned "forward" into forward-and-sideways (2026-09-17 feel-test).
+   */
+  get inputAzimuth(): number {
+    if (this.following && !Number.isNaN(this.az)) return this.az - this.cfg.camBehindDeg * Math.PI / 180;
+    return this.cfg.camAzimuthDeg * Math.PI / 180;
+  }
 
   constructor(container: HTMLElement, private cfg: Config) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -210,18 +224,21 @@ export class Stage {
     // a single fighter is focused (a and b coincide — pose grids, filmstrips).
     // Dolly and FOV chase `closeness`; the punch-in envelope rides on the dolly.
     const abx = b.x - a.x, abz = b.z - a.z;
+    this.following = c.camFollow > 0 && abx * abx + abz * abz > 1e-4;
     let azTarget = c.camAzimuthDeg * Math.PI / 180;
-    if (c.camFollow > 0 && abx * abx + abz * abz > 1e-4) {
+    if (this.following) {
       // Camera at (cos az, sin az) from the look point; bearing + 90° is the
       // side view with the player screen-left, + camBehindDeg goes round behind.
       azTarget = Math.atan2(abz, abx) + (90 + c.camBehindDeg) * Math.PI / 180;
     }
-    if (Number.isNaN(this.az)) this.az = azTarget;
-    let dAz = azTarget - this.az;
-    dAz = Math.atan2(Math.sin(dAz), Math.cos(dAz));   // shortest way round
-    const maxStep = c.camOrbitMaxRate * Math.PI / 180 * dt;
-    const step = dAz * (1 - Math.exp(-c.camOrbitLambda * dt));
-    this.az += Math.max(-maxStep, Math.min(maxStep, step));
+    if (Number.isNaN(this.az) || !this.following) this.az = azTarget;   // the fixed seat is placed, not chased
+    else {
+      let dAz = azTarget - this.az;
+      dAz = Math.atan2(Math.sin(dAz), Math.cos(dAz));   // shortest way round
+      const maxStep = c.camOrbitMaxRate * Math.PI / 180 * dt;
+      const step = dAz * (1 - Math.exp(-c.camOrbitLambda * dt));
+      this.az += Math.max(-maxStep, Math.min(maxStep, step));
+    }
     const az = this.az;
     const el = c.camElevationDeg * Math.PI / 180;
     const distTarget = c.camDistMax + (c.camDistMin - c.camDistMax) * closeness;

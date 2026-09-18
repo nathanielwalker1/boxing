@@ -15,7 +15,7 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
-import { bootReady } from './waits.js';
+import { bootReady, frames } from './waits.js';
 import { check, near, done } from './check.js';
 
 const browser = await chromium.launch();
@@ -89,14 +89,17 @@ const idle = i => !i.jab && !i.cross && !i.hook && !i.uppercut && !i.block && ne
 
   // Camera azimuth changes the mapping: at 0° the camera sits at +x looking
   // along −x, so screen-right is −z = the yaw-0 fighter's left (move.x = −1).
-  await page.evaluate(() => { window.__cfg.camAzimuthDeg = 0; });
+  // The fixed seat only — the follow camera maps against the fighters' line
+  // (checked above: with the pair along x it equals the 90° default).
+  await page.evaluate(() => { window.__cfg.camFollow = 0; window.__cfg.camAzimuthDeg = 0; });
+  await frames(page, 2);
   await page.keyboard.down('KeyD');
   {
     const i = await cur(page);
-    check('azimuth 0: D → move.x ≈ −1', near(i.move.x, -1, EPS) && near(i.move.y, 0, EPS), JSON.stringify(i.move));
+    check('fixed seat, azimuth 0: D → move.x ≈ −1', near(i.move.x, -1, EPS) && near(i.move.y, 0, EPS), JSON.stringify(i.move));
   }
   await page.keyboard.up('KeyD');
-  await page.evaluate(() => { window.__cfg.camAzimuthDeg = 90; });
+  await page.evaluate(() => { window.__cfg.camAzimuthDeg = 90; window.__cfg.camFollow = 1; });
 
   await page.close();
 }

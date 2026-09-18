@@ -75,7 +75,7 @@ const hud = new Hud(document.body, [specs[0].name, specs[1].name]);
 // also parks the AI so its rng stream does not advance behind the test's back.
 const liveInput: [FrameInput, FrameInput] = [cloneInput(NULL_INPUT), cloneInput(NULL_INPUT)];
 const overrideInput: [FrameInput | null, FrameInput | null] = [null, null];
-const input = new InputManager(cfg, { yaw: () => next.fighters[0].yaw, touch: wantsTouch(params) });
+const input = new InputManager(cfg, { yaw: () => next.fighters[0].yaw, azimuth: () => stage.inputAzimuth, touch: wantsTouch(params) });
 
 window.__sim = {
   state: () => next,
