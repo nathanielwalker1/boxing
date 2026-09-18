@@ -6,7 +6,7 @@
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, whiffMult } from './state';
+import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, whiffMult } from './state';
 import { applyReaction } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -20,13 +20,17 @@ const maskOf = (t: PunchType): number => t === 'jab' ? MASK_JAB : t === 'cross' 
 
 /**
  * Can a new punch start this tick? With the guard down, yes. With one in
- * flight, once its recover phase is punchChainAt of the way through — the
- * combo window: the next punch cuts the tail of the retraction (1 = never).
+ * flight, once its recover phase is far enough through — the combo window:
+ * the next punch cuts the tail of the retraction. The hit confirm
+ * (2026-09-17): a punch that TOUCHED something (land or block) opens at
+ * punchChainOnHit of its recovery, a miss at punchChainAt of its stretched
+ * one. The AI reads the same rule.
  */
-function canStartPunch(f: FighterState, cfg: Config): boolean {
+export function canStartPunch(f: FighterState, cfg: Config): boolean {
   const p = f.punch;
   if (p.type === null) return true;
-  return p.phase === 'recover' && p.t >= cfg.punchChainAt * PUNCHES[p.type].phases(cfg).recover;
+  const at = p.contact ? cfg.punchChainOnHit : cfg.punchChainAt;
+  return p.phase === 'recover' && p.t >= at * PUNCHES[p.type].phases(cfg).recover;
 }
 
 /**
@@ -38,7 +42,10 @@ function canStartPunch(f: FighterState, cfg: Config): boolean {
 function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number, moveY: number, cfg: Config, events: SimEvent[]): void {
   const def = PUNCHES[type];
   const hand = punchHand(def, moveX);
-  setCockMult(f, f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1);
+  // Inside a chain the body is already turned and loaded from the last
+  // punch's follow-through, so the wind-up is comboCockScale as long.
+  const chained = f.punch.type !== null;
+  setCockMult(f, (f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1) * (chained ? cfg.comboCockScale : 1));
   setWhiffMult(f, 1);
   f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost);
   f.punch = { type, hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
@@ -68,11 +75,13 @@ function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number,
  * instant.
  *
  * A press that cannot fire yet (one in flight, before the chain window) is
- * buffered for punchBuffer seconds — the newest press replaces an older one,
- * the stick at the press is kept for the hand — and fires on the first tick
- * it can. Without this, jab-cross spam lost every press that landed inside
- * the previous punch, and a held key has no edge, so it read as "cross…
- * cross…". The guard coming up, or the canvas, forgets the buffer: block wins.
+ * buffered for punchBuffer seconds — up to punchBufferDepth presses queue in
+ * order, a press beyond that replaces the last, the stick at each press is
+ * kept for the hand — and fires on the first tick it can. Without this,
+ * jab-cross spam lost every press that landed inside the previous punch, and
+ * a held key has no edge, so it read as "cross… cross…"; with a depth of one
+ * a fast 1-2-3 lost its 2. The guard coming up, or the canvas, forgets the
+ * buffer: block wins.
  */
 export function stepActions(f: FighterState, side: Side, input: Readonly<FrameInput>, cfg: Config, dt: number, events: SimEvent[]): void {
   const mask = punchMask(input);
@@ -89,18 +98,22 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
 
   const buf = punchBuffer(f);
   buf.t = Math.max(0, buf.t - dt);
-  if (buf.t === 0) buf.mask = 0;
+  if (buf.t === 0) { buf.mask = 0; buf.mask2 = 0; }
 
-  if (input.block || f.down) { setPunchBuffer(f, { mask: 0, t: 0, x: 0 }); return; }
+  if (input.block || f.down) { setPunchBuffer(f, { ...EMPTY_BUFFER }); return; }
 
   const open = canStartPunch(f, cfg);
   if (pressed !== null) {
-    if (open) { startPunch(f, side, pressed, input.move.x, input.move.y, cfg, events); buf.mask = 0; buf.t = 0; }
-    else if (cfg.punchBuffer > 0) { buf.mask = maskOf(pressed); buf.t = cfg.punchBuffer; buf.x = input.move.x; }
+    if (open) { startPunch(f, side, pressed, input.move.x, input.move.y, cfg, events); buf.mask = 0; buf.mask2 = 0; buf.t = 0; }
+    else if (cfg.punchBuffer > 0) {
+      if (buf.mask && cfg.punchBufferDepth >= 2) { buf.mask2 = maskOf(pressed); buf.x2 = input.move.x; }
+      else { buf.mask = maskOf(pressed); buf.t = cfg.punchBuffer; buf.x = input.move.x; buf.mask2 = 0; }
+    }
   } else if (open && buf.mask) {
     // A buffered press keeps the hand it chose; the step-in reads the stick as it fires.
     startPunch(f, side, fastestOf(buf.mask)!, buf.x, input.move.y, cfg, events);
-    buf.mask = 0; buf.t = 0;
+    // The queued press moves up with a fresh life.
+    buf.mask = buf.mask2; buf.x = buf.x2; buf.mask2 = 0; buf.t = buf.mask ? cfg.punchBuffer : 0;
   }
   setPunchBuffer(f, buf);
 }

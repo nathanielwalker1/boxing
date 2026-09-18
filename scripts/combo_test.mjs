@@ -57,7 +57,7 @@ const FAR = 1.5;
 }
 {
   const { starts } = run(fresh(), 60, i => inp({ jab: i === 0, cross: i === 2, hook: i === 5 }));
-  check('the newest press replaces the buffered one', starts.map(s => s.punch).join(',') === 'jab,hook', starts.map(s => s.punch).join(','));
+  check('a second press queues behind the first (punchBufferDepth 2)', starts.map(s => s.punch).join(',') === 'jab,cross,hook', starts.map(s => s.punch).join(','));
 }
 {
   const short = { ...cfg, punchBuffer: 0.05 };   // 3 ticks; the jab's chain window is ~10 ticks out
@@ -81,6 +81,48 @@ const FAR = 1.5;
   check('a buffered hook keeps the hand the stick chose at the press', starts[1]?.punch === 'hook' && starts[1]?.hand === 'lead', `${starts[1]?.punch} ${starts[1]?.hand}`);
 }
 
+// ── 1b. The hit confirm, the chained wind-up and the two-deep queue (2026-09-17) ─
+// Nate: "I attempt a 1-2, there's a delay after the jab where my cross doesn't
+// come out even after I've clicked". Measured before: cross pressed at tick 3
+// started at tick 13 and landed at 24.
+{
+  const events = [];
+  const { starts } = run(fresh(), 60, i => inp({ jab: i === 0, cross: i === 3 }), cfg, (s, i) => {});
+  let landTick = -1;
+  let s = fresh();
+  for (let i = 0; i < 60; i++) { const r = sim.step(s, [inp({ jab: i === 0, cross: i === 3 }), NONE], cfg); s = r.state; for (const e of r.events) { if (e.type === 'punchLand' && e.side === 0 && e.punch === 'jab') landTick = i; if (e.type === 'punchLand' && e.side === 0) events.push(`${e.punch}@${i}`); } }
+  check('hit confirm: a cross pressed in a LANDED jab starts the tick after the jab lands', starts.length === 2 && starts[1].punch === 'cross' && starts[1].tick === landTick + 1,
+    `starts ${starts.map(s => `${s.punch}@${s.tick}`).join(', ')}, jab landed @${landTick}`);
+  const crossLand = events.find(e => e.startsWith('cross'));
+  check('…and the 1-2 lands inside 0.3 s of the first press (was 0.4)', crossLand && Number(crossLand.split('@')[1]) * SIM_DT <= 0.3, `${events.join(', ')}`);
+}
+{
+  // The chained cross winds up comboCockScale as long: compare its cock in ticks alone vs after a jab (out of range, no hit-stop, whiff cost off).
+  const cockTicks = (script) => { let s = fresh(cfg, FAR), t0 = -1, t1 = -1; for (let i = 0; i < 60; i++) { s = sim.step(s, [inp(script(i)), NONE], cfg).state; const p = s.fighters[0].punch; if (p.type === 'cross' && t0 < 0) t0 = i; if (p.type === 'cross' && p.phase !== 'cock' && t1 < 0) t1 = i; } return t1 - t0; };
+  const alone = cockTicks(i => ({ cross: i === 0 }));
+  const chained = cockTicks(i => ({ jab: i === 0, cross: i === 3 }));
+  check('a chained cross winds up ~comboCockScale as long as one thrown cold', Math.abs(chained - Math.round(alone * cfg.comboCockScale)) <= 1, `alone ${alone} ticks, chained ${chained}, scale ${cfg.comboCockScale}`);
+  const cold = { ...cfg, comboCockScale: 1 };
+  let s = fresh(cold, FAR), t0 = -1, t1 = -1;
+  for (let i = 0; i < 60; i++) { s = sim.step(s, [inp({ jab: i === 0, cross: i === 3 }), NONE], cold).state; const p = s.fighters[0].punch; if (p.type === 'cross' && t0 < 0) t0 = i; if (p.type === 'cross' && p.phase !== 'cock' && t1 < 0) t1 = i; }
+  check('comboCockScale 1: every punch winds up from scratch', t1 - t0 === alone, `${t1 - t0} vs ${alone}`);
+}
+{
+  const { starts } = run(fresh(), 80, i => inp({ jab: i === 0, cross: i === 3, hook: i === 6, move: { x: i === 6 ? -1 : 0, y: 0 } }));
+  check('a fast 1-2-3 (presses at 0, 50, 100 ms) comes out as jab, cross, hook', starts.map(s => s.punch).join(',') === 'jab,cross,hook', starts.map(s => `${s.punch}@${s.tick}`).join(', '));
+  check('…the queued hook keeps its hand from the press', starts[2]?.hand === 'lead', `${starts[2]?.hand}`);
+  const four = run(fresh(), 80, i => inp({ jab: i === 0, cross: i === 2, hook: i === 4, uppercut: i === 6, move: { x: i >= 4 ? -1 : 0, y: 0 } })).starts;
+  check('a fourth press beyond the queue replaces the last queued one', four.map(s => s.punch).join(',') === 'jab,cross,uppercut', four.map(s => s.punch).join(','));
+  const one = { ...cfg, punchBufferDepth: 1 };
+  const { starts: old } = run(fresh(one), 80, i => inp({ jab: i === 0, cross: i === 3, hook: i === 6, move: { x: i === 6 ? -1 : 0, y: 0 } }), one);
+  check('punchBufferDepth 1: the newest press replaces the older (the 2 is lost)', old.map(s => s.punch).join(',') === 'jab,hook', old.map(s => s.punch).join(','));
+}
+{
+  // A miss keeps the later window: out of range the cross waits for punchChainAt of the jab's recovery.
+  const { starts } = run(fresh(cfg, FAR), 60, i => inp({ jab: i === 0, cross: i === 3 }));
+  check('off a whiff the follow-up still waits for punchChainAt', starts[1] && Math.abs(starts[1].tick - jabChainTick) <= 1, `cross @${starts[1]?.tick}, whiff chain tick ${jabChainTick}`);
+}
+
 // ── 2. Spam: alternating jab / cross, landing on the dummy (hit-stop and all) ─
 // Every press is a 3-tick tap. The buffer keeps the NEWEST press, so at a
 // cadence faster than the punches themselves the combo still runs at the
@@ -101,13 +143,15 @@ const spam = (periodS, seconds, c = cfg) => {
   check('…in order, alternating', human.alternating === human.starts.length - 1, `${human.alternating}/${human.starts.length - 1}: ${human.seq}`);
 
   const fast = spam(0.15, 3);
-  const jabMin = jabPh.cock + jabPh.extend + cfg.punchChainAt * jabPh.recover;
-  // The ceiling is the timing table: the buffer keeps the newest press, and a
-  // cross can start again only at its chain window, so at most 3 s / (cross
-  // cock + extend + chainAt × recover) punches fit. Within one of that.
-  const crossMin = cfg.crossCock + cfg.crossExtend + cfg.punchChainAt * cfg.crossRecover;
+  // Everything lands here, so the chain opens at punchChainOnHit and every
+  // punch after the first winds up comboCockScale as long.
+  const jabMin = jabPh.cock * cfg.comboCockScale + jabPh.extend + cfg.punchChainOnHit * jabPh.recover;
+  // The ceiling is the timing table: at most 3 s / (a chained cross's cock +
+  // extend + chainOnHit × recover) punches fit, less what hit-stop eats
+  // (every land freezes the clock for a few ticks). Within a fifth of that.
+  const crossMin = cfg.crossCock * cfg.comboCockScale + cfg.crossExtend + cfg.punchChainOnHit * cfg.crossRecover;
   const ceiling = Math.floor(3 / crossMin);
-  check('mashing faster than the fighter can punch lands as many as the chain window allows', fast.starts.length >= ceiling - 1, `${fast.starts.length} punches from ${fast.presses} presses (ceiling ${ceiling}): ${fast.seq}`);
+  check('mashing faster than the fighter can punch lands as many as the chain window allows', fast.starts.length >= ceiling * 0.8 && fast.starts.length <= ceiling, `${fast.starts.length} punches from ${fast.presses} presses (ceiling ${ceiling}): ${fast.seq}`);
   check('…never faster than the chain window allows', fast.minGapS >= jabMin - 1e-9, `min gap ${(fast.minGapS * 1000).toFixed(0)} ms vs ${(jabMin * 1000).toFixed(0)} ms`);
 
   const noBuf = { ...cfg, punchBuffer: 0, punchChainAt: 1 };

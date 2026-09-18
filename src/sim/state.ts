@@ -23,6 +23,8 @@
  *   moveHist[12] seconds on the canvas at which this fighter gets up (rolled at the knockdown; -1 = never, a KO)
  *   moveHist[13] health cap: the ceiling health regenerates toward (1 at the bell; every hit lowers it)
  *   moveHist[14] seconds of health-regen pause left after a hit
+ *   moveHist[15] second buffered punch (queued behind [2]; 0 = none)
+ *   moveHist[16] move.x at that second press
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
@@ -42,6 +44,8 @@ const HIST_WHIFF_MULT = 11;
 const HIST_GET_UP_AT = 12;
 const HIST_HEALTH_CAP = 13;
 const HIST_HEALTH_DELAY = 14;
+const HIST_BUF2_MASK = 15;
+const HIST_BUF2_X = 16;
 
 export const MASK_JAB = 1, MASK_CROSS = 2, MASK_HOOK = 4, MASK_UPPERCUT = 8;
 
@@ -53,13 +57,16 @@ export function setPrevPunchMask(f: FighterState, m: number): void { f.moveHist[
 export function reactionSnap(f: FighterState): number { return f.moveHist[HIST_SNAP] ?? 1; }
 export function setReactionSnap(f: FighterState, s: number): void { f.moveHist[HIST_SNAP] = s; }
 
-export interface PunchBuffer { mask: number; t: number; x: number }
+/** The queue of buffered presses, oldest first (`mask` fires next; `mask2` behind it, 0 = empty); `t` is the head's remaining life. */
+export interface PunchBuffer { mask: number; t: number; x: number; mask2: number; x2: number }
 export function punchBuffer(f: FighterState): PunchBuffer {
-  return { mask: f.moveHist[HIST_BUF_MASK] ?? 0, t: f.moveHist[HIST_BUF_T] ?? 0, x: f.moveHist[HIST_BUF_X] ?? 0 };
+  return { mask: f.moveHist[HIST_BUF_MASK] ?? 0, t: f.moveHist[HIST_BUF_T] ?? 0, x: f.moveHist[HIST_BUF_X] ?? 0, mask2: f.moveHist[HIST_BUF2_MASK] ?? 0, x2: f.moveHist[HIST_BUF2_X] ?? 0 };
 }
 export function setPunchBuffer(f: FighterState, b: PunchBuffer): void {
   f.moveHist[HIST_BUF_MASK] = b.mask; f.moveHist[HIST_BUF_T] = b.t; f.moveHist[HIST_BUF_X] = b.x;
+  f.moveHist[HIST_BUF2_MASK] = b.mask2; f.moveHist[HIST_BUF2_X] = b.x2;
 }
+export const EMPTY_BUFFER: Readonly<PunchBuffer> = { mask: 0, t: 0, x: 0, mask2: 0, x2: 0 };
 
 export function cockMult(f: FighterState): number { return f.moveHist[HIST_COCK_MULT] || 1; }
 export function setCockMult(f: FighterState, m: number): void { f.moveHist[HIST_COCK_MULT] = m; }
@@ -85,7 +92,7 @@ export function getUpAt(f: FighterState): number { return f.moveHist[HIST_GET_UP
 export function setGetUpAt(f: FighterState, t: number): void { f.moveHist[HIST_GET_UP_AT] = t; }
 
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0]; }
 /** The ceiling health regenerates toward this round (Fight Night's recoverable health); every hit lowers it. */
 export function healthCap(f: FighterState): number { const v = f.moveHist[HIST_HEALTH_CAP]; return v === undefined ? 1 : v; }
 export function setHealthCap(f: FighterState, c: number): void { f.moveHist[HIST_HEALTH_CAP] = c; }

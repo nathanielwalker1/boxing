@@ -48,6 +48,7 @@ import {
   NULL_INPUT, SIM_DT, clamp, cloneInput, frameOf, lerp, rngChance, rngClone, rngFloat, rngInt, rngRange, seedRng, v2dist,
   type Config, type FrameInput, type PunchType, type RngState, type Side, type SimState,
 } from '../core';
+import { canStartPunch } from '../sim';
 
 export type AiMode = 'press' | 'probe' | 'circle' | 'hold' | 'reset';
 
@@ -126,12 +127,6 @@ export function createAi(side: Side, seed: number, cfg: Config): AiState {
   };
 }
 
-/** The recover phase of `t` in seconds, as the sim will time it (punches.ts phases()). */
-function recoverOf(t: PunchType, cfg: Config): number {
-  const r = t === 'jab' ? cfg.jabRecover : t === 'cross' ? cfg.crossRecover : t === 'hook' ? cfg.hookRecover : cfg.uppercutRecover;
-  return r * Math.max(0.01, cfg.punchTimeScale);
-}
-
 const TYPES: readonly PunchType[] = ['jab', 'cross', 'hook', 'uppercut'];
 const weightOf = (t: PunchType, cfg: Config): number =>
   t === 'jab' ? cfg.aiJabWeight : t === 'cross' ? cfg.aiCrossWeight : t === 'hook' ? cfg.aiHookWeight : cfg.aiUppercutWeight;
@@ -203,9 +198,8 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   if (s.round.phase !== 'fighting' || me.down) return { ai: a, input };
 
   const punching = me.punch.type !== null;
-  // Mirror of the sim's chain window: a follow-up may start this far into the recovery.
-  const chainOpen = punching && me.punch.phase === 'recover' && me.punch.t >= cfg.punchChainAt * recoverOf(me.punch.type!, cfg);
-  const canThrow = !punching || chainOpen;
+  // The sim's own chain window (hit confirm on a touch, later on a miss).
+  const canThrow = canStartPunch(me, cfg);
 
   // ── Reading the opponent (2026-09-16) ──────────────────────────────────────
   // Closing speed of the opponent along the line (positive = coming at me).

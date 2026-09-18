@@ -62,7 +62,11 @@ export const SCHEMA = {
 
   // ── camera (RENDER) — CONTRACT §7 broadcast 3/4 view ──
   camElevationDeg:  num(12, 5, 60, 0.5, 'camera', 'elevation above the floor plane, degrees. 12 = near eye level with the boxers, Fight Night\'s ringside seat; was 24, "like an eagle" (Nate 2026-09-16)'),
-  camAzimuthDeg:    num(90, 0, 360, 1, 'camera', 'orbit angle around the ring; 90 = looking along -z'),
+  camAzimuthDeg:    num(90, 0, 360, 1, 'camera', 'orbit angle around the ring when the camera is not following (camFollow 0, or a focused single fighter); 90 = looking along -z'),
+  camFollow:        num(1, 0, 1, 1, 'camera', 'the follow camera (2026-09-17, Fight Night Champion): the orbit rides the player→opponent line so the player is always seen from the same angle, over the shoulder, and never stands between the lens and the opponent. 0 = the fixed broadcast seat (fighters circling ended up in a line, "I\'m blocked, I don\'t even see my fighter")'),
+  camBehindDeg:     num(35, 0, 80, 1, 'camera', 'how far round from side-on toward the player\'s back the follow camera sits, degrees. 0 = pure side view (both fighters in profile), 90 = directly behind the player'),
+  camOrbitLambda:   num(2.5, 0.3, 12, 0.1, 'camera', 'how quickly the follow camera swings round to the new line, 1/s (higher = tighter)'),
+  camOrbitMaxRate:  num(140, 20, 720, 5, 'camera', 'cap on the follow camera\'s swing, degrees per second, so two fighters circling do not whip the room'),
   camDistMin:       num(4.2, 2, 8, 0.05, 'camera', 'dolly distance when fighters are clinched, m'),
   camDistMax:       num(6.5, 3, 12, 0.05, 'camera', 'dolly distance at max separation, m'),
   camFovMin:        num(34, 20, 60, 0.5, 'camera', 'vertical FOV when close, degrees'),
@@ -199,7 +203,10 @@ export const SCHEMA = {
   punchHoldFrac:    num(0.35, 0, 0.9, 0.05, 'punch', 'fraction of the recover phase the fist holds at full extension before returning (visible straight arm; timing and hit tick unchanged). Cross, hook and uppercut; the body\'s turn and lean hold with it and unwind with the fist. A MISSED punch never holds — it starts home at once over its stretched recovery. Was 0.6: "my cross just stays there and floats" (Nate 2026-09-16)'),
   jabHoldFrac:      num(0.2, 0, 0.9, 0.05, 'punch', 'the jab\'s own hold: a whip touches and is gone. 0.2 of a 0.10 s recovery = one tick on the target (2026-09-16)'),
   punchBuffer:      num(0.3, 0, 1, 0.05, 'punch', 'a punch pressed while one is in flight is remembered this long and thrown the moment it can be, s (0 = dropped, which is what made jab-cross spam skip every other press)'),
-  punchChainAt:     num(0.5, 0, 1, 0.05, 'punch', 'the next punch may start this far into the recover phase, cutting the tail of the retraction (1 = only after the punch fully finishes; lower = faster combos)'),
+  punchChainAt:     num(0.5, 0, 1, 0.05, 'punch', 'after a MISS, the next punch may start this far into the (stretched) recover phase, cutting the tail of the retraction (1 = only after the punch fully finishes; lower = faster combos off a whiff)'),
+  punchChainOnHit:  num(0, 0, 1, 0.05, 'punch', 'the hit confirm (2026-09-17): after a punch that TOUCHED something (land or block) the next may start this far into the recovery. 0 = the tick after the hit test — the fist comes home while the other goes out, a 1-2 instead of jab, wait, cross. Was punchChainAt for all punches: the cross pressed at 50 ms started at 217 ms'),
+  comboCockScale:   num(0.6, 0.2, 1, 0.05, 'punch', 'a punch thrown INSIDE a chain (the previous still recovering) runs its wind-up this fraction as long: the body is already turned and loaded from the follow-through, so the cross of a 1-2 needs no full pull-back. 1 = every punch winds up from scratch (2026-09-17)'),
+  punchBufferDepth: num(2, 1, 3, 1, 'punch', 'how many presses the buffer queues in order while a punch is in flight. 1 = the newest replaces the older (a fast 1-2-3 lost its 2); 2 = a 1-2-3 pressed as fast as you like comes out as a 1-2-3 (2026-09-17)'),
 
   // ── sim: block (SIM) ──
   blockReduction:   num(0.75, 0, 1, 0.05, 'block', 'fraction of an incoming impulse absorbed by a held block', 'blockReduction'),
