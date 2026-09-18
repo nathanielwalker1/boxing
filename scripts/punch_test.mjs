@@ -76,12 +76,16 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
   check('no punchSmother is emitted any more', !evs.some(e => e.type === 'punchSmother'));
 }
 {
-  // The glove stops at what it hit: through the hold its target is the contact point, not the free-air peak.
+  // The glove stops at what it hit: through the hold the fist sits ON the
+  // surface (solid bodies, 2026-09-18: the target is cut at the surface along
+  // the punch line, never inside the head), not at the free-air peak.
   const first = run(fresh(MID), 40, tapThen('jab'));
   const landTick = outcome(first.evs).tick;
-  const held = run(fresh(MID), landTick + 3, tapThen('jab')).s.fighters[0];
+  const heldS = run(fresh(MID), landTick + 3, tapThen('jab')).s;
+  const held = heldS.fighters[0], hd = heldS.fighters[1];
+  const surface = hd.headBox.r + held.body.gloveR * (1 - cfg.contactSquash);
   check('a landed punch records its contact point', held.punch.contact !== null && held.punch.type === 'jab');
-  check('…and the glove is held there, not driven on to full extension', held.punch.contact && v3dist(held.gloves[0].target, held.punch.contact) < 1e-9, `target ${JSON.stringify(held.gloves[0].target)} contact ${JSON.stringify(held.punch.contact)}`);
+  check('…and the glove is held on the surface, not driven on into the head', v3dist(held.gloves[0].target, hd.headBox) >= surface - 0.005 && v3dist(held.gloves[0].pos, hd.headBox) >= surface - 0.005, `target ${v3dist(held.gloves[0].target, hd.headBox).toFixed(3)}, glove ${v3dist(held.gloves[0].pos, hd.headBox).toFixed(3)}, surface ${surface.toFixed(3)}`);
   const whiffed = run(fresh(FAR), 40, tapThen('jab')).s.fighters[0];
   check('a whiffed punch has no contact point', whiffed.punch.contact === null);
 }
@@ -264,8 +268,16 @@ function reachOf(type, moveX = 0) {
   };
   const held = heldAfter('hook', -1);
   const a = held.fighters[0], d = held.fighters[1];
-  check('a landed hook records a contact point and the glove is held on it', a.punch.contact !== null && v3dist(a.gloves[0].target, a.punch.contact) < 1e-9);
   const r = d.headBox.r + a.body.gloveR * (1 - cfg.contactSquash);
+  // Solid bodies (2026-09-18): the glove is not steered to the contact point
+  // any more — it is stopped AT the surface by clampGloves and presses on.
+  check('a landed hook records a contact point and the glove sits on the head surface (not inside it)', a.punch.contact !== null && v3dist(a.gloves[0].pos, d.headBox) >= r - 0.005, `glove ${v3dist(a.gloves[0].pos, d.headBox).toFixed(3)} from the head centre, surface at ${r.toFixed(3)}`);
+  {
+    const soft = { ...cfg, contactSolid: 0 };
+    const landTick = outcome(run(fresh(0.7, soft), 40, tapWith('hook', -1), soft).evs).tick;
+    const s = run(fresh(0.7, soft), landTick + 2, tapWith('hook', -1), soft).s;
+    check('contactSolid 0: the old way, the glove target moves to the contact point for the hold', v3dist(s.fighters[0].gloves[0].target, s.fighters[0].punch.contact) < 1e-9);
+  }
   check('the contact point sits one (squashed) glove radius off the head surface', near(v3dist(a.punch.contact, d.headBox), r, 0.03), `${v3dist(a.punch.contact, d.headBox).toFixed(3)} vs ${r.toFixed(3)}`);
   check('…on the attacker\'s side of the head', a.punch.contact.x < d.headBox.x, `${(a.punch.contact.x - d.headBox.x).toFixed(3)}`);
   const rear = heldAfter('hook', 1).fighters[0];

@@ -21,7 +21,7 @@ import { cloneState, initialMoveHist } from './state';
 import { resolveSeparation, stepFacing, stepLocomotion } from './movement';
 import { advancePunch, resolvePunch, stepActions } from './combat';
 import { computeBoxes, stepReaction } from './reaction';
-import { settleGloves, stepGloves } from './gloves';
+import { clampGloves, settleGloves, stepGloves } from './gloves';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip } from './slip';
 import { stepVulnerability } from './vulnerability';
@@ -50,8 +50,8 @@ export function createState(specs: [FighterSpec, FighterSpec], cfg: Config, seed
     const f = s.fighters[side];
     f.moveHist = initialMoveHist();
     computeBoxes(f, cfg);
-    settleGloves(f, side, 0, cfg);
   }
+  for (const side of SIDES) settleGloves(s.fighters[side], s.fighters[side === 0 ? 1 : 0], side, 0, cfg);
   return s;
 }
 
@@ -87,7 +87,11 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     stepVulnerability(f, cfg, dt);
   }
   for (const side of SIDES) { stepReaction(s.fighters[side], cfg, dt); computeBoxes(s.fighters[side], cfg); }
-  for (const side of SIDES) stepGloves(s.fighters[side], side, s.time, cfg, dt);
+  for (const side of SIDES) stepGloves(s.fighters[side], s.fighters[side === 0 ? 1 : 0], side, s.time, cfg, dt);
+  // Solid bodies: no glove ends a tick inside the other fighter's head, body
+  // or gloves. Before the hit test, which sees the surface contact it leaves.
+  clampGloves(s.fighters[0], s.fighters[1], cfg);
+  clampGloves(s.fighters[1], s.fighters[0], cfg);
   for (const side of SIDES) { const t = peaked[side]; if (t !== null) resolvePunch(s, side, t, cfg, events); }
   stepCount(s, cfg, dt, events);
   stepBetween(s, cfg, dt, events);

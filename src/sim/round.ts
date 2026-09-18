@@ -53,7 +53,6 @@ function toCorner(f: FighterState, side: Side, time: number, cfg: Config): void 
   f.health = Math.min(healthCap(f), f.health + (1 - f.health) * cfg.betweenRoundHealthRestore);
   f.stamina = Math.min(1, f.stamina + (1 - f.stamina) * cfg.betweenRoundStaminaRestore);
   computeBoxes(f, cfg);
-  settleGloves(f, side, time, cfg);
 }
 
 export function startRound(s: SimState, index: number, cfg: Config, events: SimEvent[]): void {
@@ -64,7 +63,11 @@ export function startRound(s: SimState, index: number, cfg: Config, events: SimE
   s.round.landed = [0, 0];
   s.round.power = [0, 0];
   s.round.count = 0;
-  if (index > 0) for (const side of [0, 1] as const) toCorner(s.fighters[side], side, s.time, cfg);
+  if (index > 0) {
+    for (const side of [0, 1] as const) toCorner(s.fighters[side], side, s.time, cfg);
+    // Both sets of boxes first: a glove settles clear of the OTHER fighter.
+    for (const side of [0, 1] as const) settleGloves(s.fighters[side], s.fighters[side === 0 ? 1 : 0], side, s.time, cfg);
+  }
   events.push({ type: 'roundStart', index });
   events.push({ type: 'bell' });
 }
