@@ -150,6 +150,34 @@ export function sphereOverlap(a: { x: number; y: number; z: number; r: number },
   return v3dist(a, b) <= a.r + b.r;
 }
 
+/**
+ * The middle joint of an analytic two-bone chain root→mid→target (bones l1,
+ * l2), bending toward `pole`. Pure twin of rig/ik.ts solveTwoBone so the sim
+ * can place elbows for contact: past reach the second bone stretches up to
+ * `stretchMax` × l2, then the chain falls short along the line.
+ */
+export function twoBoneMid(root: Vec3, target: Vec3, l1: number, l2: number, pole: Vec3, stretchMax: number): Vec3 {
+  let dx = target.x - root.x, dy = target.y - root.y, dz = target.z - root.z;
+  let d = sqrt(dx * dx + dy * dy + dz * dz);
+  if (d < 1e-6) { dx = 0; dy = -1; dz = 0; d = 1e-6; } else { dx /= d; dy /= d; dz /= d; }
+  let len2 = l2;
+  if (d > l1 + l2) len2 = Math.min(d - l1, l2 * stretchMax);
+  const dEff = Math.min(d, l1 + len2);
+  const a = (l1 * l1 - len2 * len2 + dEff * dEff) / (2 * dEff);
+  const h = sqrt(Math.max(0, l1 * l1 - a * a));
+  const pd = pole.x * dx + pole.y * dy + pole.z * dz;
+  let px = pole.x - dx * pd, py = pole.y - dy * pd, pz = pole.z - dz * pd;
+  let pl = px * px + py * py + pz * pz;
+  if (pl < 1e-8) {
+    // Pole along the chain: pick any perpendicular.
+    const tx = Math.abs(dy) > 0.9 ? 1 : 0, ty = Math.abs(dy) > 0.9 ? 0 : 1;
+    px = dy * 0 - dz * ty; py = dz * tx - dx * 0; pz = dx * ty - dy * tx;
+    pl = px * px + py * py + pz * pz;
+  }
+  pl = sqrt(pl); px /= pl; py /= pl; pz /= pl;
+  return { x: root.x + dx * a + px * h, y: root.y + dy * a + py * h, z: root.z + dz * a + pz * h };
+}
+
 /** Closest point on segment a→b to p. */
 export function closestOnSegment(a: Vec3, b: Vec3, p: Vec3): Vec3 {
   const ab = v3sub(b, a);

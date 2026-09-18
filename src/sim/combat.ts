@@ -6,7 +6,7 @@
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, whiffMult } from './state';
+import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, touchedBlock, whiffMult } from './state';
 import { applyReaction } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -213,7 +213,11 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     }
     return false;
   };
-  const part = sphereCapsuleOverlap(d.headBox, sweep) ? 'head' : bodyHit() ? 'body' : null;
+  // A fist stopped at a blocking glove or forearm (solid block, 2026-09-18)
+  // never reaches the head sphere: the guard covered the head, so it is a
+  // blocked head punch, not a whiff.
+  const stoppedByGuard = d.block && touchedBlock(a, a.punch.hand === 'lead' ? 0 : 1);
+  const part = sphereCapsuleOverlap(d.headBox, sweep) ? 'head' : bodyHit() ? 'body' : stoppedByGuard ? 'head' : null;
   if (part === null) {
     events.push({ type: 'punchWhiff', side, punch: type });
     setWhiffMult(a, whiffRecoveryMult(def, cfg));
@@ -229,6 +233,10 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
       const home = { x: d.headBox.x - fr.right.x * lat + fr.fwd.x * back, y: d.headBox.y, z: d.headBox.z - fr.right.z * lat + fr.fwd.z * back, r: d.headBox.r };
       if (sphereCapsuleOverlap(home, sweep)) {
         events.push({ type: 'slip', side: target, dir: d.slip.dir, dodged: true });
+        // The read (2026-09-18): a beat of hit-stop as the fist passes the
+        // ear, so a well-timed slip is felt — Fight Night's brief slow moment
+        // that opens the counter — without anything on screen.
+        s.hitStop = Math.max(s.hitStop, cfg.slipDodgeHitStop);
         // The slip punish: the attacker is pinned exposed, and the counter
         // machinery does the rest. Survives the stretched recovery above —
         // the spike is a floor under the curve, on its own clock.

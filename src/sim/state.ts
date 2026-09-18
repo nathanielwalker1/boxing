@@ -25,6 +25,8 @@
  *   moveHist[14] seconds of health-regen pause left after a hit
  *   moveHist[15] second buffered punch (queued behind [2]; 0 = none)
  *   moveHist[16] move.x at that second press
+ *   moveHist[17] lead glove met the other fighter's blocking glove/forearm this tick (1) — the hit test reads it
+ *   moveHist[18] the same for the rear glove
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
@@ -46,6 +48,10 @@ const HIST_HEALTH_CAP = 13;
 const HIST_HEALTH_DELAY = 14;
 const HIST_BUF2_MASK = 15;
 const HIST_BUF2_X = 16;
+const HIST_TOUCH_BLOCK = 17;   // +hand (0 lead, 1 rear): 1 if that glove met the other's BLOCKING glove/forearm this tick
+
+export function touchedBlock(f: FighterState, hand: number): boolean { return (f.moveHist[HIST_TOUCH_BLOCK + hand] ?? 0) !== 0; }
+export function setTouchedBlock(f: FighterState, hand: number, on: boolean): void { f.moveHist[HIST_TOUCH_BLOCK + hand] = on ? 1 : 0; }
 
 export const MASK_JAB = 1, MASK_CROSS = 2, MASK_HOOK = 4, MASK_UPPERCUT = 8;
 
@@ -92,7 +98,7 @@ export function getUpAt(f: FighterState): number { return f.moveHist[HIST_GET_UP
 export function setGetUpAt(f: FighterState, t: number): void { f.moveHist[HIST_GET_UP_AT] = t; }
 
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0]; }
 /** The ceiling health regenerates toward this round (Fight Night's recoverable health); every hit lowers it. */
 export function healthCap(f: FighterState): number { const v = f.moveHist[HIST_HEALTH_CAP]; return v === undefined ? 1 : v; }
 export function setHealthCap(f: FighterState, c: number): void { f.moveHist[HIST_HEALTH_CAP] = c; }

@@ -21,7 +21,7 @@ import { cloneState, initialMoveHist } from './state';
 import { resolveSeparation, stepFacing, stepLocomotion } from './movement';
 import { advancePunch, resolvePunch, stepActions } from './combat';
 import { computeBoxes, stepReaction } from './reaction';
-import { clampGloves, settleGloves, stepGloves } from './gloves';
+import { clampGloves, resolveGloveContacts, settleGloves, stepGloves } from './gloves';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip } from './slip';
 import { stepVulnerability } from './vulnerability';
@@ -92,6 +92,7 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   // or gloves. Before the hit test, which sees the surface contact it leaves.
   clampGloves(s.fighters[0], s.fighters[1], cfg);
   clampGloves(s.fighters[1], s.fighters[0], cfg);
+  resolveGloveContacts(s.fighters[0], s.fighters[1], cfg);   // gloves and forearms: soft guard, stiff block
   for (const side of SIDES) { const t = peaked[side]; if (t !== null) resolvePunch(s, side, t, cfg, events); }
   stepCount(s, cfg, dt, events);
   stepBetween(s, cfg, dt, events);

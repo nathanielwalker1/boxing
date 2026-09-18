@@ -9,9 +9,10 @@
  * relaxes for the recovery and overshoots on the way back.
  */
 import type { Config, FighterState, GloveState, Hand, Side, Vec3 } from '../core';
-import { TAU, closestOnSegment, frameOf, localToWorld, sin, sqrt } from '../core';
+import { TAU, closestOnSegment, frameOf, handLateralSign, localToWorld, sin, sqrt, twoBoneMid } from '../core';
 import { PUNCHES, blockLocal, guardLocal, punchLocal, whiffPhases, type LocalPose } from './punches';
 import { slipBack, slipLateral } from './slip';
+import { setTouchedBlock } from './state';
 
 const HANDS: [Hand, Hand] = ['lead', 'rear'];
 /**
@@ -159,6 +160,7 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
 export function clampGloves(f: FighterState, other: FighterState, cfg: Config): void {
   if (cfg.contactSolid <= 0) return;
   const sink = f.body.gloveR * cfg.contactSquash;
+  const arms = simArms(other, cfg);
   for (const g of f.gloves) {
     // Head and body overlap at the chin, so a push out of one can land in
     // the other; a few passes settle it (measured: one pass left 4–5 cm).
@@ -166,14 +168,133 @@ export function clampGloves(f: FighterState, other: FighterState, cfg: Config): 
       pushOut(g, other.headBox, other.headBox.r + f.body.gloveR - sink);
       const c = closestOnSegment(other.bodyBox.a, other.bodyBox.b, g.pos);
       pushOut(g, c, other.bodyBox.r + f.body.gloveR - sink);
+      // The upper arms hang off the shoulders: solid, like the body.
+      for (const arm of arms) pushOut(g, closestOnSegment(arm.shoulder, arm.elbow, g.pos), arm.upperR + f.body.gloveR - sink);
     }
   }
-  // Not the other fighter's gloves: a relaxed guard sits a hand's width off
-  // the face and a jab passes it, as in every boxing game. A block stopping
-  // the fist at the gloves is its own feature (blockLocal is solid then).
 }
 /** Constraint passes per glove per tick — integration detail, not a tunable. */
 const CLAMP_PASSES = 3;
+
+/**
+ * Arms and gloves are SOFT (2026-09-18, "punches still go through my
+ * opponent's arms"): the other fighter's gloves and forearms are obstacles
+ * too, but a relaxed guard is not a wall — a jab through it knocks the guard
+ * hand aside (the fist takes contactPunchShare of the separation, the guard
+ * glove the rest, and the forearm, drawn from that glove by the rig, goes
+ * with it). A BLOCKING glove is stiff (contactBlockShare) so a fist stops at
+ * it; two punching fists split the push. A punching glove that met a block
+ * glove or forearm is flagged for the hit test (a stopped fist is a blocked
+ * punch, not a whiff). Runs once per tick for the pair, after clampGloves.
+ */
+export function resolveGloveContacts(a: FighterState, b: FighterState, cfg: Config): void {
+  for (const f of [a, b]) { setTouchedBlock(f, 0, false); setTouchedBlock(f, 1, false); }
+  if (cfg.contactSolid <= 0) return;
+  const armsA = simArms(a, cfg), armsB = simArms(b, cfg);
+  for (let pass = 0; pass < CLAMP_PASSES; pass++) {
+    for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
+      const ga = a.gloves[i]!, gb = b.gloves[j]!;
+      const sink = Math.min(a.body.gloveR, b.body.gloveR) * cfg.contactSquash;
+      // Glove vs glove.
+      if (pushApart(ga, gb, gb.pos, a.body.gloveR + b.body.gloveR - sink, share(a, i, cfg), share(b, j, cfg))) touched(a, i, b);
+      // A glove vs the other's forearm (dragged by the glove at its end).
+      const cb = closestOnSegment(armsB[j]!.elbow, gb.pos, ga.pos);
+      if (pushApart(ga, gb, cb, armsB[j]!.foreR + a.body.gloveR - sink, share(a, i, cfg), share(b, j, cfg))) touched(a, i, b);
+      const ca = closestOnSegment(armsA[i]!.elbow, ga.pos, gb.pos);
+      if (pushApart(gb, ga, ca, armsA[i]!.foreR + b.body.gloveR - sink, share(b, j, cfg), share(a, i, cfg))) touched(b, j, a);
+    }
+    // A hand never enters its own head or body (a shoved guard glove stops at the face).
+    for (const f of [a, b]) {
+      const sink = f.body.gloveR * cfg.contactSquash;
+      for (const g of f.gloves) {
+        pushOut(g, f.headBox, f.headBox.r + f.body.gloveR - sink);
+        pushOut(g, closestOnSegment(f.bodyBox.a, f.bodyBox.b, g.pos), f.bodyBox.r + f.body.gloveR - sink);
+      }
+    }
+  }
+}
+function touched(f: FighterState, hand: number, other: FighterState): void {
+  if (other.block) setTouchedBlock(f, hand, true);
+}
+/**
+ * How much of a separation this glove yields: a blocking glove least, a
+ * punching fist (through the hold) little, a guard hand more, and a
+ * RETRACTING arm most — it is relaxed, so it slides round a guard hand it
+ * meets on the way home rather than shoving it.
+ */
+function share(f: FighterState, hand: number, cfg: Config): number {
+  if (f.block) return cfg.contactBlockShare;
+  if (armActive(f, hand, cfg)) return cfg.contactPunchShare;
+  const p = f.punch;
+  if (p.type !== null && (p.hand === 'lead') === (hand === 0)) return 1;   // coming home: gives way
+  return cfg.contactGuardShare;
+}
+/** Force behind this arm: a block, or a punch through its cock, extend and hold. */
+function armActive(f: FighterState, hand: number, cfg: Config): boolean {
+  if (f.block) return true;
+  const p = f.punch;
+  if (p.type === null || (p.hand === 'lead') !== (hand === 0)) return false;
+  if (p.phase !== 'recover') return true;
+  const ph = PUNCHES[p.type].phases(cfg);
+  return p.t < ph.hold * ph.recover;
+}
+
+/**
+ * Separate glove `g` from the point `p` (on `other`'s glove or forearm) to
+ * `minDist`, `g` moving its share and `other`'s glove the rest, both losing
+ * the velocity that closes the gap. Returns whether they were in contact.
+ */
+function pushApart(g: GloveState, other: GloveState, p: Vec3, minDist: number, sg: number, so: number): boolean {
+  let nx = g.pos.x - p.x, ny = g.pos.y - p.y, nz = g.pos.z - p.z;
+  const d = sqrt(nx * nx + ny * ny + nz * nz);
+  if (d >= minDist || d < 1e-6) return false;
+  nx /= d; ny /= d; nz /= d;
+  const push = minDist - d, tot = sg + so;
+  const mg = push * sg / tot, mo = push * so / tot;
+  g.pos = { x: g.pos.x + nx * mg, y: g.pos.y + ny * mg, z: g.pos.z + nz * mg };
+  other.pos = { x: other.pos.x - nx * mo, y: other.pos.y - ny * mo, z: other.pos.z - nz * mo };
+  const vin = g.vel.x * nx + g.vel.y * ny + g.vel.z * nz;
+  if (vin < 0) g.vel = { x: g.vel.x - vin * nx, y: g.vel.y - vin * ny, z: g.vel.z - vin * nz };
+  const von = other.vel.x * nx + other.vel.y * ny + other.vel.z * nz;
+  if (von > 0) other.vel = { x: other.vel.x - von * nx, y: other.vel.y - von * ny, z: other.vel.z - von * nz };
+  return true;
+}
+
+export interface SimArm { shoulder: Vec3; elbow: Vec3; upperR: number; foreR: number }
+/**
+ * The sim's own arms (2026-09-18): shoulder joints on the twisted shoulder
+ * line, elbows from the same analytic two-bone solve the rig uses with its
+ * guard pole (down, a little out, a little forward). Radii from the rig's
+ * config so hit geometry stays drawn geometry within a few cm — the rig's
+ * pole springs and hook/uppercut poles are not reproduced, so a punching
+ * arm's own elbow may sit further out than this; the OTHER fighter's guard
+ * arms, which fists were passing through, match.
+ */
+export function simArms(f: FighterState, cfg: Config): [SimArm, SimArm] {
+  const fr = frameOf(f.yaw);
+  const b = f.body;
+  const c = Math.cos(f.torsoTwist), s = Math.sin(f.torsoTwist);
+  const upperR = b.bodyR * cfg.rigUpperArmR, foreR = b.bodyR * cfg.rigForearmR;
+  const out: SimArm[] = [];
+  for (let i = 0; i < 2; i++) {
+    const side = handLateralSign(i === 0 ? 'lead' : 'rear', f.stance) * b.shoulderW / 2;
+    // The shoulder line turns with the torso (yawPose convention: +twist turns fwd toward the fighter's left).
+    const fwdOff = side * s, latOff = side * c;
+    const sh: Vec3 = {
+      x: f.bodyBox.b.x + fr.fwd.x * fwdOff + fr.right.x * latOff,
+      y: f.bodyBox.b.y,
+      z: f.bodyBox.b.z + fr.fwd.z * fwdOff + fr.right.z * latOff,
+    };
+    const outSign = handLateralSign(i === 0 ? 'lead' : 'rear', f.stance);
+    const pole: Vec3 = {
+      x: fr.fwd.x * -cfg.rigElbowPoleBack + fr.right.x * outSign * cfg.rigElbowPoleOut * 0.7,
+      y: -cfg.rigElbowPoleDown,
+      z: fr.fwd.z * -cfg.rigElbowPoleBack + fr.right.z * outSign * cfg.rigElbowPoleOut * 0.7,
+    };
+    out.push({ shoulder: sh, elbow: twoBoneMid(sh, f.gloves[i]!.pos, b.upperArm, b.forearm, pole, cfg.rigArmStretchMax), upperR, foreR });
+  }
+  return out as [SimArm, SimArm];
+}
 
 /** Move `g` so its centre is at least `minDist` from `p`, and drop the velocity component heading into `p`. */
 function pushOut(g: GloveState, p: Vec3, minDist: number): void {
