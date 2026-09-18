@@ -283,7 +283,10 @@ function hookPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): Punc
   // (across the centreline, elbow ~90°, reach as measured before) and
   // inverse-rotated by the peak twist, so the fist gets there BY the turn:
   // the arc is the shoulders coming round, nothing is drawn wide.
-  const cockedF = { fwd: body.upperArm * 0.55, up: chin - body.headR * 0.1, lat: side * (body.shoulderW / 2 + body.upperArm * 0.15) };
+  // Fist a hand's width in front of and below the chin (2026-09-18): at
+  // fwd 0.55 / chin height the fist sat 21 cm from the shoulder and the arm
+  // folded to 30° — a wing. ~25 cm gives a ~55° fold, the elbow hanging.
+  const cockedF = { fwd: body.upperArm * 0.85, up: chin - body.headR * 0.5, lat: side * (body.shoulderW / 2 + body.upperArm * 0.15) };
   const peakF = { fwd: (body.upperArm + body.forearm * 0.75) * cfg.hookReachScale, up: chin, lat: -side * body.shoulderW * 0.12 };
   return {
     cocked: yawPose(cockedF, -(-def.coil) * thetaPeak),   // the body is coiled to −coil × turn when the fist sits here

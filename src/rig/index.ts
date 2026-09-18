@@ -38,6 +38,8 @@ export interface RigProbe {
   stats(): { calls: number; shadowCalls: number; tris: number };
   /** Step phase per foot (0..1, 1 = planted), index 0 = lead foot. */
   feet(): [number, number];
+  /** Shoulder / elbow / glove joints per arm (index 0 = lead) and whether the torso-clearance re-solve fired this frame (probes). */
+  arms(): [{ shoulder: Vec3; elbow: Vec3; glove: Vec3; cleared: boolean }, { shoulder: Vec3; elbow: Vec3; glove: Vec3; cleared: boolean }];
 }
 
 declare global {
@@ -136,6 +138,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const v2 = new THREE.Vector3();
   const pole = new THREE.Vector3();
   const shoulderJ = [new THREE.Vector3(), new THREE.Vector3()] as const;
+  const elbowJ = [new THREE.Vector3(), new THREE.Vector3()] as const;   // last solved elbows (probes)
+  const elbowCleared = [false, false];
   const hipJ = [new THREE.Vector3(), new THREE.Vector3()] as const;
   const ankle = new THREE.Vector3();
   const ik: TwoBone = { mid: new THREE.Vector3(), end: new THREE.Vector3(), stretch: 1 };
@@ -199,6 +203,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       return { calls, shadowCalls, tris };
     },
     feet: () => [feet[0].phase, feet[1].phase],
+    arms: () => [0, 1].map(i => ({ shoulder: { x: shoulderJ[i]!.x, y: shoulderJ[i]!.y, z: shoulderJ[i]!.z }, elbow: { x: elbowJ[i]!.x, y: elbowJ[i]!.y, z: elbowJ[i]!.z }, glove: { x: gloveL[i]!.x, y: gloveL[i]!.y, z: gloveL[i]!.z }, cleared: elbowCleared[i]! })) as ReturnType<RigProbe['arms']>,
   };
   window.__rig = window.__rig ?? {};
   window.__rig[side] = probe;
@@ -474,8 +479,18 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       // Level through the wind-up, the swing and the hold; the elbow drops
       // with the fist as it folds home (2026-09-17 — it used to stay up until
       // the punch state ended, then fall).
+      // …and it does not come up until the drive (2026-09-18): measured with
+      // the level pole on from the first tick, the wind-up had the elbow at
+      // shoulder height, 28 cm out, the arm folded to 30° — a wing. Now the
+      // elbow stays down by the ribs through the load (the first
+      // rigHookElbowRiseAt of the cock) and rises with the body's turn.
       const hookHold = next.punch.phase !== 'recover' || next.punch.t < c.punchHoldFrac * c.hookRecover * c.punchTimeScale;
-      const hooking = next.punch.type === 'hook' && mine && hookHold ? c.rigHookElbowLevel : 0;
+      let hookRise = 1;
+      if (next.punch.phase === 'cock') {
+        const cock = Math.max(1e-3, c.hookCock * c.punchTimeScale);
+        hookRise = Math.min(1, Math.max(0, (next.punch.t / cock - c.rigHookElbowRiseAt) / Math.max(0.05, 1 - c.rigHookElbowRiseAt)));
+      }
+      const hooking = next.punch.type === 'hook' && mine && hookHold ? c.rigHookElbowLevel * hookRise : 0;
       // Through an uppercut's wind-up and drive the elbow pole points back,
       // so the fold keeps the elbow behind and below the fist. Not through
       // the recovery: with the fist up at the face a back pole bends the
@@ -494,12 +509,15 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       pole.set(poleFwd, -c.rigElbowPoleDown * (1 - flare * 0.8) * (1 - level), 0)
         .addScaledVector(v2, c.rigElbowPoleOut * (0.6 + flare * 0.6 + level * 0.8));
       solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
+      elbowCleared[i] = false;
       if (v3dist(closestOnSegment(H, S, ik.mid), ik.mid) < clearance) {
         // Forearm would enter the torso: push the elbow out, but keep it hanging
         // down so a tucked guard reads as tucked, not as a chicken wing.
         pole.copy(v2).addScaledVector(DOWN, c.rigElbowPoleDown);
         solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
+        elbowCleared[i] = true;
       }
+      elbowJ[i]!.copy(ik.mid);
       placeLimb(i === 0 ? BONE.upperArm0 : BONE.upperArm1, sh, ik.mid);
       placeLimb(i === 0 ? BONE.forearm0 : BONE.forearm1, ik.mid, gl, ik.stretch);
       const bGlove = bone(i === 0 ? BONE.glove0 : BONE.glove1);
