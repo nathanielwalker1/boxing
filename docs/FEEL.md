@@ -94,8 +94,24 @@ pull, dip), not the drawing.
   Measured before: a jab at 0.85 m sat 11 cm inside the head; at 0.7 m the
   fist passed 13 cm beyond the head centre ("fists go through the head like
   it's translucent… light and cheap"). After: ≤ 2.9 cm everywhere, never
-  behind the head. Other gloves are NOT solid (a relaxed guard is not a
-  wall); a block that stops the fist at the gloves is still to do.
+  behind the head.
+- **Soft arms** (2026-09-18, `simArms`, `resolveGloveContacts`): the sim
+  has arms now — shoulders on the twisted shoulder line, elbows from
+  `twoBoneMid` (a pure twin of the rig's solver) with the guard pole. Upper
+  arms are solid; forearms and gloves are soft contacts resolved by share:
+  block `contactBlockShare` 0.05, punching fist `contactPunchShare` 0.12,
+  guard hand `contactGuardShare` 0.3, retracting arm 1. A jab through a
+  relaxed guard knocks the hand aside; a fist stops at a block (and still
+  counts as blocked — `touchedBlock`); no hand enters its own head. Method
+  lesson: measure a knocked guard hand in the DEFENDER's frame — in world
+  terms the stumble and the head snapping back off the gloves look like a
+  40 cm shove and cost an hour of chasing a wiper effect that wasn't there.
+- **The hook elbow** (2026-09-18): the level elbow pole was on from the first
+  tick, so the wind-up had the elbow at shoulder height, 28 cm out, the arm
+  folded to 30° — the wing Nate saw. `rigHookElbowRiseAt` 0.4 keeps it down
+  through the load; the cocked fist sits a hand's width in front of and
+  below the chin so the fold is ~55°. The rig probe `arms()` (shoulder /
+  elbow / glove / clearance flag) is how to check an elbow in numbers.
 
 **Hit performance** (`src/sim/reaction.ts`, `src/rig/index.ts`, `src/ui/audio.ts`)
 - Springs ~2.5x slower than v1 (`reactionHeadK` 160 / C 9 …): jab settles in
@@ -138,6 +154,9 @@ pull, dip), not the drawing.
   shot; the margins are ~2 cm.
 - Guard vs block are two different poses (`guardLocal` relaxed, face visible;
   `blockLocal` covered, hunch 18°, chin tuck).
+- The read (2026-09-18): a slipped punch adds `slipDodgeHitStop` 0.05 s as
+  the fist passes the ear and plays `slipNear` (the whiff, close and
+  bright). Nothing drawn — Fight Night's beat, not a flash.
 
 **AI** (`src/ai/index.ts`)
 - Footwork modes on a seeded timer: press / probe (1.05 m) / circle / hold /
@@ -196,6 +215,11 @@ pull, dip), not the drawing.
   penetration, then solid bodies (target cut + position clamp). The
   "thunderous" half — hit-stop, sound and flash tiers on a solid landing —
   is not done; the numbers are unchanged. NOT yet feel-tested.
+- 2026-09-18, later: "punches still go through their arms… the hook
+  elbow looks really bad… I can't tell if I've slipped a punch — very
+  subtle, like Fight Night." → soft arms, the elbow diagnosed in numbers
+  (wing: level pole from tick 0) and fixed, the slip beat + close whoosh.
+  NOT yet feel-tested.
 
 ## Open
 
