@@ -42,6 +42,7 @@ export class Stage {
   private punchDur = 1;
   private shakeAmp = 0;   // camera shake on a landed punch, m (decays over camShakeRecover)
   private shakeT = 0;
+  private az = NaN;       // smoothed follow-camera azimuth, radians (NaN = not yet placed)
 
   constructor(container: HTMLElement, private cfg: Config) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -200,9 +201,28 @@ export class Stage {
     this.fill.intensity = c.fillIntensity;
     this.rim.intensity = c.rimIntensity;
 
-    // Broadcast camera: orbit at azimuth/elevation around the fighters' midpoint.
+    // Follow camera (2026-09-17, Fight Night Champion): the orbit angle rides
+    // the player→opponent line, camBehindDeg round from side-on toward the
+    // player's back, so the player is always seen from the same angle and
+    // never stands between the lens and the opponent. The azimuth chases the
+    // line through a rate-capped lambda so circling swings the room, never
+    // whips it. Fixed broadcast seat (camAzimuthDeg) when following is off or
+    // a single fighter is focused (a and b coincide — pose grids, filmstrips).
     // Dolly and FOV chase `closeness`; the punch-in envelope rides on the dolly.
-    const az = c.camAzimuthDeg * Math.PI / 180;
+    const abx = b.x - a.x, abz = b.z - a.z;
+    let azTarget = c.camAzimuthDeg * Math.PI / 180;
+    if (c.camFollow > 0 && abx * abx + abz * abz > 1e-4) {
+      // Camera at (cos az, sin az) from the look point; bearing + 90° is the
+      // side view with the player screen-left, + camBehindDeg goes round behind.
+      azTarget = Math.atan2(abz, abx) + (90 + c.camBehindDeg) * Math.PI / 180;
+    }
+    if (Number.isNaN(this.az)) this.az = azTarget;
+    let dAz = azTarget - this.az;
+    dAz = Math.atan2(Math.sin(dAz), Math.cos(dAz));   // shortest way round
+    const maxStep = c.camOrbitMaxRate * Math.PI / 180 * dt;
+    const step = dAz * (1 - Math.exp(-c.camOrbitLambda * dt));
+    this.az += Math.max(-maxStep, Math.min(maxStep, step));
+    const az = this.az;
     const el = c.camElevationDeg * Math.PI / 180;
     const distTarget = c.camDistMax + (c.camDistMin - c.camDistMax) * closeness;
     const fovTarget = c.camFovMax + (c.camFovMin - c.camFovMax) * closeness;
