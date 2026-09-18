@@ -235,6 +235,10 @@ export class Stage {
     else {
       let dAz = azTarget - this.az;
       dAz = Math.atan2(Math.sin(dAz), Math.cos(dAz));   // shortest way round
+      // Dead zone: only the drift beyond camOrbitDeadDeg is chased, so the
+      // camera sits still through footwork and moves once the line has turned.
+      const dead = c.camOrbitDeadDeg * Math.PI / 180;
+      dAz = Math.sign(dAz) * Math.max(0, Math.abs(dAz) - dead);
       const maxStep = c.camOrbitMaxRate * Math.PI / 180 * dt;
       const step = dAz * (1 - Math.exp(-c.camOrbitLambda * dt));
       this.az += Math.max(-maxStep, Math.min(maxStep, step));

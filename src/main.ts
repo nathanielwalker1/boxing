@@ -42,6 +42,8 @@ declare global {
     /** -1 = frame both fighters (default); 0/1 = centre the camera on that fighter (pose grid). */
     __focus: -1 | Side;
     __states: () => readonly FighterState[];
+    /** The azimuth the stick maps against (the follow camera's orbit less camBehindDeg), radians (tests). */
+    __camAz: () => number;
   }
 }
 
@@ -134,6 +136,7 @@ window.__replay = (dist, script, ticks) => {
 };
 window.__focus = -1;
 window.__states = () => [posed[0] ?? next.fighters[0], posed[1] ?? next.fighters[1]];
+window.__camAz = () => stage.inputAzimuth;
 
 // ── Loop: fixed-step accumulator (CONTRACT §3), render every rAF ──────────────
 window.__tick = { frames: 0, simTicks: 0, gameTime: 0, ready: false };
