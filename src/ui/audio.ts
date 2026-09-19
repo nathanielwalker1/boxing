@@ -79,7 +79,7 @@ const RECIPES: Record<string, Recipe> = {
   // Slipped — the whiff, close: a fist past the ear. Shorter, brighter, a
   // little louder than a miss in space (2026-09-18, the read).
   slipNear: {
-    gain: 3.2,
+    gain: 4.5,
     layers: [
       { type: 'noise', gain: 0.6, attack: 0.008, decay: 0.09, filter: { type: 'bandpass', freq: 900, freqEnd: 3800, q: 1.6 } },
       { type: 'noise', gain: 0.3, attack: 0.004, decay: 0.06, filter: { type: 'highpass', freq: 2600, q: 0.8 } },
