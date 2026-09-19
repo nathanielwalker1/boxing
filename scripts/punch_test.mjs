@@ -71,8 +71,14 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
   check('jab inside smotherDist still lands (a cramped jab is still a jab)', o?.type === 'punchLand', o?.type);
   check('…at reduced power', o?.power < midJab?.power * 0.9, `${o?.power?.toFixed(3)} vs ${midJab?.power?.toFixed(3)} at MID`);
   check('…and still hurts the defender', evs.some(e => e.type === 'hurt' && e.side === 1));
-  const c = outcome(run(fresh(CLOSE), 40, tapThen('cross')).evs);
-  check('cross inside smotherDist lands too, reduced', c?.type === 'punchLand' && c?.power < midCross?.power * 0.9, `${c?.type} ${c?.power?.toFixed(3)} vs ${midCross?.power?.toFixed(3)}`);
+  // Soft arms (2026-09-19): at CLOSE the cross meets the guard glove pinned
+  // against the face — the fist on the gloves on the head — and is absorbed
+  // as a plain block (never a perfect one: nobody held a block). The jab
+  // above still splits the guard and lands.
+  const closeCross = run(fresh(CLOSE), 40, tapThen('cross')).evs;
+  const c = outcome(closeCross);
+  check('cross inside smotherDist is absorbed by the guard gloves pinned on the face (a block, not a miss)', c?.type === 'punchBlock', `${c?.type} ${c?.power?.toFixed(3)} vs ${midCross?.power?.toFixed(3)}`);
+  check('…and not a perfect block (the guard was not held)', !closeCross.some(e => e.type === 'perfectBlock'));
   check('no punchSmother is emitted any more', !evs.some(e => e.type === 'punchSmother'));
 }
 {
@@ -248,8 +254,10 @@ function reachOf(type, moveX = 0) {
 }
 {
   // A hook sends the head sideways: its impulse follows the fist across the face.
-  const lead = outcome(run(fresh(0.7), 40, tapWith('hook', -1)).evs);
-  const rear = outcome(run(fresh(0.7), 40, tapWith('hook', 1)).evs);
+  // 0.75 m (was 0.7): with the arms in the sim (2026-09-18) the rear hook at
+  // 0.7 meets the dummy's guard forearm and is absorbed as a block.
+  const lead = outcome(run(fresh(0.75), 40, tapWith('hook', -1)).evs);
+  const rear = outcome(run(fresh(0.75), 40, tapWith('hook', 1)).evs);
   check('lead hook (from -z) carries a +z impulse component; rear hook (from +z) carries -z', lead?.impulse.z > 0 && rear?.impulse.z < 0, `${lead?.impulse.z?.toFixed(0)} / ${rear?.impulse.z?.toFixed(0)}`);
   check('…and both still drive the defender back (+x)', lead?.impulse.x > 0 && rear?.impulse.x > 0);
   check('the sideways part of a hook is comparable to the back part (≈45°, swing 0.85 on a 55° arc)', Math.abs(lead?.impulse.z) > Math.abs(lead?.impulse.x) * 0.7, `${lead?.impulse.z?.toFixed(0)} vs ${lead?.impulse.x?.toFixed(0)}`);

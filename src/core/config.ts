@@ -243,7 +243,8 @@ export const SCHEMA = {
   perfectBlockPunishVuln: num(0.85, 0, 1, 0.05, 'counter', 'the attacker\'s vulnerability is pinned at (at least) this after a perfect block', 'perfectBlockPunishVulnerability'),
   perfectBlockPunishDuration: num(0.45, 0, 2, 0.05, 'counter', 'seconds that pin is held', 'perfectBlockPunishDuration'),
   perfectBlockHitStop: num(0.05, 0, 0.2, 0.005, 'counter', 'hit-stop on a perfect block, s — deliberately under a counter\'s', 'perfectBlockHitStop'),
-  slipDodgeHitStop: num(0.05, 0, 0.2, 0.005, 'counter', 'hit-stop when a punch is SLIPPED (the head was where the fist went), s — the read: a beat as the fist passes the ear, then the counter window (2026-09-18, "I can\'t tell if I\'ve slipped a punch"). Under perfectBlockHitStop'),
+  slipDodgeHitStop: num(0.08, 0, 0.2, 0.005, 'counter', 'hit-stop when a punch is SLIPPED (the head was where the fist went), s — the read: a beat as the fist passes the ear, then the counter window (2026-09-18, "I can\'t tell if I\'ve slipped a punch"). Was 0.05: "still unnoticeable"'),
+  slipOverreach:    num(0.18, 0, 0.5, 0.01, 'counter', 'a slipped punch\'s thrower falls into the space: a lunge of this many metres on the stagger channel, so they go past your ear off balance and the counter window is visible, not just a number (2026-09-18). 0 = none'),
   slipPunishVuln:   num(1, 0, 1, 0.05, 'counter','the attacker\'s vulnerability is pinned at (at least) this after a punch is slipped. Higher than the perfect block\'s: a slip is a timed flick that commits the head', 'slipPunishVulnerability'),
   slipPunishDuration: num(0.7, 0, 2, 0.05, 'counter', 'seconds that pin is held — long enough to step in and counter after the slip unwinds; the number to argue with first', 'slipPunishDuration'),
 

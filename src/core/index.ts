@@ -7,3 +7,4 @@ export * from './body';
 export * from './roster';
 export * from './events';
 export * from './fixtures';
+export * from './arms';

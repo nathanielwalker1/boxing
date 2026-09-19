@@ -178,6 +178,28 @@ export function twoBoneMid(root: Vec3, target: Vec3, l1: number, l2: number, pol
   return { x: root.x + dx * a + px * h, y: root.y + dy * a + py * h, z: root.z + dz * a + pz * h };
 }
 
+/** Closest points between segments p0→p1 and q0→q1 (Ericson, Real-Time Collision Detection 5.1.9). */
+export function closestSegSeg(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3): { p: Vec3; q: Vec3 } {
+  const d1 = v3sub(p1, p0), d2 = v3sub(q1, q0), r = v3sub(p0, q0);
+  const a = d1.x * d1.x + d1.y * d1.y + d1.z * d1.z, e = d2.x * d2.x + d2.y * d2.y + d2.z * d2.z;
+  const f = d2.x * r.x + d2.y * r.y + d2.z * r.z;
+  let s = 0, t = 0;
+  if (a <= 1e-12 && e <= 1e-12) return { p: v3copy(p0), q: v3copy(q0) };
+  if (a <= 1e-12) { t = clamp01(f / e); }
+  else {
+    const c = d1.x * r.x + d1.y * r.y + d1.z * r.z;
+    if (e <= 1e-12) { s = clamp01(-c / a); }
+    else {
+      const b = d1.x * d2.x + d1.y * d2.y + d1.z * d2.z;
+      const denom = a * e - b * b;
+      s = denom !== 0 ? clamp01((b * f - c * e) / denom) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) { t = 0; s = clamp01(-c / a); } else if (t > 1) { t = 1; s = clamp01((b - c) / a); }
+    }
+  }
+  return { p: v3add(p0, v3scale(d1, s)), q: v3add(q0, v3scale(d2, t)) };
+}
+
 /** Closest point on segment a→b to p. */
 export function closestOnSegment(a: Vec3, b: Vec3, p: Vec3): Vec3 {
   const ab = v3sub(b, a);

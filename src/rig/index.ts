@@ -138,7 +138,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const v2 = new THREE.Vector3();
   const pole = new THREE.Vector3();
   const shoulderJ = [new THREE.Vector3(), new THREE.Vector3()] as const;
-  const elbowJ = [new THREE.Vector3(), new THREE.Vector3()] as const;   // last solved elbows (probes)
+  const elbowJ = [new THREE.Vector3(), new THREE.Vector3()] as const;   // drawn elbows (the sim's; probes)
+  const shoulderFall = [new THREE.Vector3(), new THREE.Vector3()] as const;   // chest-frame shoulders, for the knockdown flop
   const elbowCleared = [false, false];
   const hipJ = [new THREE.Vector3(), new THREE.Vector3()] as const;
   const ankle = new THREE.Vector3();
@@ -442,10 +443,12 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // pulls back — keyed on the forward weight, so it peaks with the fist.
     const shrug = blk * c.rigBlockShrug;
     const leanN = Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean);
+    // The chest-frame shoulder is kept only for the knockdown flop (the sim's
+    // shoulders, drawn below, do not fall with the chest).
     for (let i = 0; i < 2; i++) {
       const mine = next.punch.type !== null && (next.punch.hand === 'lead') === (i === 0);
       const reach = next.punch.type === null ? 0 : leanN * c.rigPunchShoulderReach * (mine ? 1 : -0.5);
-      shoulderJ[i]!.set(reach, shrug, latSign[i]! * body.shoulderW / 2).applyQuaternion(qChest).add(S);
+      shoulderFall[i]!.set(reach, shrug, latSign[i]! * body.shoulderW / 2).applyQuaternion(qChest).add(S);
     }
     neckBase.set(0, body.chestLen * 0.05 + shrug, 0).applyQuaternion(qChest).add(S);
     const bNeck = bone(BONE.neck);
@@ -468,58 +471,34 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     squashHead.applyTo(scl);
     bHead.scale.copy(scl);
 
-    // Arms: 2-bone IK from the shoulder to the glove centre. The elbow pole
-    // blends down (guard, straight punches) → out/up (hooks) through a spring.
-    const clearance = (body.bodyR + d.forearmR) * c.rigElbowClearance;
+    // Arms: drawn on the SIM's joints (2026-09-18 — hit geometry is drawn
+    // geometry: the sim places shoulders and elbows in sim/arms.ts with the
+    // pole logic that used to live here, and resolves arm contacts on them,
+    // so what you see cross is what the sim keeps apart). The rig's own
+    // two-bone solve remains only for the knockdown flop, where the sim's
+    // gloves do not follow the fall.
     for (let i = 0; i < 2; i++) {
       const sh = shoulderJ[i]!, gl = gloveL[i]!;
-      // A hooking arm lies flat: elbow up to the glove line, pole level, so the
-      // forearm is parallel to the floor and the glove leads the elbow.
-      const mine = (next.punch.hand === 'lead') === (i === 0);
-      // Level through the wind-up, the swing and the hold; the elbow drops
-      // with the fist as it folds home (2026-09-17 — it used to stay up until
-      // the punch state ended, then fall).
-      // …and it does not come up until the drive (2026-09-18): measured with
-      // the level pole on from the first tick, the wind-up had the elbow at
-      // shoulder height, 28 cm out, the arm folded to 30° — a wing. Now the
-      // elbow stays down by the ribs through the load (the first
-      // rigHookElbowRiseAt of the cock) and rises with the body's turn.
-      const hookHold = next.punch.phase !== 'recover' || next.punch.t < c.punchHoldFrac * c.hookRecover * c.punchTimeScale;
-      let hookRise = 1;
-      if (next.punch.phase === 'cock') {
-        const cock = Math.max(1e-3, c.hookCock * c.punchTimeScale);
-        hookRise = Math.min(1, Math.max(0, (next.punch.t / cock - c.rigHookElbowRiseAt) / Math.max(0.05, 1 - c.rigHookElbowRiseAt)));
-      }
-      const hooking = next.punch.type === 'hook' && mine && hookHold ? c.rigHookElbowLevel * hookRise : 0;
-      // Through an uppercut's wind-up and drive the elbow pole points back,
-      // so the fold keeps the elbow behind and below the fist. Not through
-      // the recovery: with the fist up at the face a back pole bends the
-      // elbow behind the body.
-      const uppercutting = next.punch.type === 'uppercut' && mine && next.punch.phase !== 'recover' ? 1 : 0;
-      const kMul = i === 1 ? 1 + c.rigTwinSkew : 1;
-      const level = chase1(hookLevel[i]!, hooking, c.rigElbowK * kMul * 2, c.rigElbowZeta, dt);
-      const back = chase1(upBack[i]!, uppercutting, c.rigElbowK * kMul * 2, c.rigElbowZeta, dt);
-      const flareTarget = Math.max(level, Math.min(1, Math.max(0, c.rigElbowFlareBias + (gl.y - sh.y) / body.upperArm)));
-      const flare = chase1(elbowFlare[i]!, flareTarget, c.rigElbowK * kMul, c.rigElbowZeta, dt);
-      // Outward in the FIGHTER's frame, not the chest's (2026-09-16): with
-      // the chest turned 80° through a hook, "outward" in its frame pointed
-      // at the opponent and the lead hook's elbow folded inward.
-      v2.set(0, 0, latSign[i]!);
-      const poleFwd = lerp(-c.rigElbowPoleBack, -c.rigUppercutElbowBack, back);
-      pole.set(poleFwd, -c.rigElbowPoleDown * (1 - flare * 0.8) * (1 - level), 0)
-        .addScaledVector(v2, c.rigElbowPoleOut * (0.6 + flare * 0.6 + level * 0.8));
-      solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
+      lerpLocal(prev.arms[i]!.shoulder, next.arms[i]!.shoulder, alpha, sh);
+      lerpLocal(prev.arms[i]!.elbow, next.arms[i]!.elbow, alpha, elbowJ[i]!);
       elbowCleared[i] = false;
-      if (v3dist(closestOnSegment(H, S, ik.mid), ik.mid) < clearance) {
-        // Forearm would enter the torso: push the elbow out, but keep it hanging
-        // down so a tucked guard reads as tucked, not as a chicken wing.
+      let stretch = 1;
+      if (fallK > 1e-3) {
+        sh.lerp(shoulderFall[i]!, fallK);
+        // Falling: the flopped glove needs its own elbow. Blend toward it.
+        v2.set(0, 0, latSign[i]!);
         pole.copy(v2).addScaledVector(DOWN, c.rigElbowPoleDown);
         solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
-        elbowCleared[i] = true;
+        elbowJ[i]!.lerp(ik.mid, fallK);
+        stretch = lerp(1, ik.stretch, fallK);
+      } else {
+        // The drawn forearm is the sim's bone; if the glove sits beyond it (a
+        // stretched reach) the mesh stretches the same way the solve did.
+        const l = v3dist(elbowJ[i]!, gl);
+        if (l > body.forearm) stretch = Math.min(c.rigArmStretchMax, l / body.forearm);
       }
-      elbowJ[i]!.copy(ik.mid);
-      placeLimb(i === 0 ? BONE.upperArm0 : BONE.upperArm1, sh, ik.mid);
-      placeLimb(i === 0 ? BONE.forearm0 : BONE.forearm1, ik.mid, gl, ik.stretch);
+      placeLimb(i === 0 ? BONE.upperArm0 : BONE.upperArm1, sh, elbowJ[i]!);
+      placeLimb(i === 0 ? BONE.forearm0 : BONE.forearm1, elbowJ[i]!, gl, stretch);
       const bGlove = bone(i === 0 ? BONE.glove0 : BONE.glove1);
       bGlove.position.copy(gl);                             // exact
       bGlove.quaternion.copy(bone(i === 0 ? BONE.forearm0 : BONE.forearm1).quaternion);

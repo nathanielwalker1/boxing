@@ -38,7 +38,7 @@ declare global {
      * `ticks` ticks, and freeze both fighters there. Deterministic, so a landing
      * and the reaction that follows can be captured frame by frame.
      */
-    __replay: (dist: number, script: readonly Partial<FrameInput>[], ticks: number) => void;
+    __replay: (dist: number, script: readonly Partial<FrameInput>[], ticks: number, script1?: readonly Partial<FrameInput>[]) => void;
     /** -1 = frame both fighters (default); 0/1 = centre the camera on that fighter (pose grid). */
     __focus: -1 | Side;
     __states: () => readonly FighterState[];
@@ -125,14 +125,15 @@ window.__pose = (side, punch, hand, progress) => {
   if (punch === 'rest') { posed[side] = restFighterState(spec, cfg, f.pos, f.yaw); return; }
   posed[side] = simPunchPose(side, f.pos, f.yaw, punch, hand, progress) ?? punchFixture(spec, cfg, f.pos, f.yaw, punch, hand, progress);
 };
-window.__replay = (dist, script, ticks) => {
+window.__replay = (dist, script, ticks, script1 = []) => {
   let s = createState([specs[0], specs[1]], cfg, 1);
   s.fighters[0].pos = { x: -dist / 2, z: 0 }; s.fighters[1].pos = { x: dist / 2, z: 0 };
   const idle = cloneInput(NULL_INPUT);
   for (let i = 0; i < 30; i++) s = step(s, [idle, idle], cfg).state;
   for (let i = 0; i < ticks; i++) {
     const a: FrameInput = { ...cloneInput(NULL_INPUT), ...(script[i] ?? {}) };
-    s = step(s, [a, idle], cfg).state;
+    const b: FrameInput = { ...cloneInput(NULL_INPUT), ...(script1[i] ?? {}) };
+    s = step(s, [a, b], cfg).state;
   }
   posed[0] = s.fighters[0]; posed[1] = s.fighters[1];
 };

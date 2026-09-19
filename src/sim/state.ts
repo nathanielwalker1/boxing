@@ -27,6 +27,10 @@
  *   moveHist[16] move.x at that second press
  *   moveHist[17] lead glove met the other fighter's blocking glove/forearm this tick (1) — the hit test reads it
  *   moveHist[18] the same for the rear glove
+ *   moveHist[19..21] lead arm's elbow pole lags: level, back, flare (sim/arms.ts)
+ *   moveHist[22..24] the same for the rear arm
+ *   moveHist[25] lead glove's target was clipped by the other's head/body this tick (the punch was going to arrive)
+ *   moveHist[26] the same for the rear glove
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
@@ -52,6 +56,20 @@ const HIST_TOUCH_BLOCK = 17;   // +hand (0 lead, 1 rear): 1 if that glove met th
 
 export function touchedBlock(f: FighterState, hand: number): boolean { return (f.moveHist[HIST_TOUCH_BLOCK + hand] ?? 0) !== 0; }
 export function setTouchedBlock(f: FighterState, hand: number, on: boolean): void { f.moveHist[HIST_TOUCH_BLOCK + hand] = on ? 1 : 0; }
+
+const HIST_TARGET_CUT = 25;   // + hand: 1 if the other's head/body clipped this glove's target this tick (the punch was going to arrive)
+export function targetCut(f: FighterState, hand: number): boolean { return (f.moveHist[HIST_TARGET_CUT + hand] ?? 0) !== 0; }
+export function setTargetCut(f: FighterState, hand: number, on: boolean): void { f.moveHist[HIST_TARGET_CUT + hand] = on ? 1 : 0; }
+
+const HIST_ARM_POSE = 19;   // + hand × 3: level, back, flare (the elbow pole lags, sim/arms.ts)
+export function armPose(f: FighterState, hand: number): { level: number; back: number; flare: number } {
+  const b = HIST_ARM_POSE + hand * 3;
+  return { level: f.moveHist[b] ?? 0, back: f.moveHist[b + 1] ?? 0, flare: f.moveHist[b + 2] ?? 0 };
+}
+export function setArmPose(f: FighterState, hand: number, p: { level: number; back: number; flare: number }): void {
+  const b = HIST_ARM_POSE + hand * 3;
+  f.moveHist[b] = p.level; f.moveHist[b + 1] = p.back; f.moveHist[b + 2] = p.flare;
+}
 
 export const MASK_JAB = 1, MASK_CROSS = 2, MASK_HOOK = 4, MASK_UPPERCUT = 8;
 
@@ -98,7 +116,7 @@ export function getUpAt(f: FighterState): number { return f.moveHist[HIST_GET_UP
 export function setGetUpAt(f: FighterState, t: number): void { f.moveHist[HIST_GET_UP_AT] = t; }
 
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; }
 /** The ceiling health regenerates toward this round (Fight Night's recoverable health); every hit lowers it. */
 export function healthCap(f: FighterState): number { const v = f.moveHist[HIST_HEALTH_CAP]; return v === undefined ? 1 : v; }
 export function setHealthCap(f: FighterState, c: number): void { f.moveHist[HIST_HEALTH_CAP] = c; }
@@ -141,6 +159,7 @@ export function cloneFighter(f: FighterState): FighterState {
     knockdowns: f.knockdowns,
     headBox: { ...f.headBox },
     bodyBox: { a: v3c(f.bodyBox.a), b: v3c(f.bodyBox.b), r: f.bodyBox.r },
+    arms: [{ shoulder: v3c(f.arms[0].shoulder), elbow: v3c(f.arms[0].elbow) }, { shoulder: v3c(f.arms[1].shoulder), elbow: v3c(f.arms[1].elbow) }],
   };
 }
 

@@ -6,10 +6,11 @@
  * Glove placement here is a plausible guard / extension, authored by hand. The
  * sim's kinetic chain replaces it at runtime; these are fixtures, not spec.
  */
-import type { BodyDims, FighterSpec, FighterState, Hand, PunchType, Vec2 } from './types';
+import type { ArmJoints, BodyDims, FighterSpec, FighterState, GloveState, Hand, PunchType, Vec2 } from './types';
 import type { Config } from './config';
 import { bodyDims } from './body';
 import { frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, triangle, v3copy } from './math';
+import { armFlareTarget, solveArm } from './arms';
 
 /** Guard position in the fighter's local frame: lead glove a little forward at
  *  chin height, rear glove tucked by the cheek. */
@@ -31,6 +32,10 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
   const body = bodyDims(spec, cfg);
   const f = frameOf(yaw);
   const head = localToWorld(pos, f, 0, body.headY, 0);
+  const gloves: [GloveState, GloveState] = [gloveAtRest(body, pos, yaw, 'lead', spec.stance), gloveAtRest(body, pos, yaw, 'rear', spec.stance)];
+  const chest = localToWorld(pos, f, 0, body.shoulderY, 0), hips = localToWorld(pos, f, 0, body.hipY, 0);
+  const armAt = (hand: Hand, i: 0 | 1): ArmJoints =>
+    solveArm(body, cfg, spec.stance, hand, chest, hips, f, 0, 0, gloves[i].pos, { level: 0, back: 0, flare: armFlareTarget(0, gloves[i].pos.y, chest.y, body, cfg) });
   return {
     specId: spec.id,
     body,
@@ -52,14 +57,15 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
     moveHist: [],
     vuln: 0,
     counterWindow: 0,
-    gloves: [gloveAtRest(body, pos, yaw, 'lead', spec.stance), gloveAtRest(body, pos, yaw, 'rear', spec.stance)],
+    gloves,
     reaction: { head: spring3(), torso: spring3(), tilt: spring1(), spin: spring1() },
     stagger: { x: 0, z: 0 },
     down: false,
     downT: 0,
     knockdowns: 0,
     headBox: { ...head, r: body.headR },
-    bodyBox: { a: localToWorld(pos, f, 0, body.hipY, 0), b: localToWorld(pos, f, 0, body.shoulderY, 0), r: body.bodyR },
+    bodyBox: { a: hips, b: chest, r: body.bodyR },
+    arms: [armAt('lead', 0), armAt('rear', 1)],
   };
 }
 
@@ -122,9 +128,11 @@ export function punchFixture(spec: FighterSpec, cfg: Config, pos: Vec2, yaw: num
       break;
     }
   }
-  const g = s.gloves[hand === 'lead' ? 0 : 1];
+  const gi = hand === 'lead' ? 0 : 1;
+  const g = s.gloves[gi];
   g.pos = localToWorld(pos, f, fwd, up, lat);
   g.target = v3copy(g.pos);
+  s.arms[gi] = solveArm(body, cfg, spec.stance, hand, s.bodyBox.b, s.bodyBox.a, f, 0, 0, g.pos, { level: type === 'hook' ? ext : 0, back: 0, flare: armFlareTarget(type === 'hook' ? ext : 0, g.pos.y, s.bodyBox.b.y, body, cfg) });
   s.punch = { type, hand, phase: progress < 0.25 ? 'cock' : progress < 0.6 ? 'extend' : 'recover', t: 0, progress, resolved: false, contact: null };
   s.lean.fwd = 0.5 * ext;
   s.torsoTwist = (hand === 'lead' ? 1 : -1) * handLateralSign('lead', spec.stance) * 0.5 * ext;

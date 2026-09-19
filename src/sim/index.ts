@@ -21,7 +21,8 @@ import { cloneState, initialMoveHist } from './state';
 import { resolveSeparation, stepFacing, stepLocomotion } from './movement';
 import { advancePunch, resolvePunch, stepActions } from './combat';
 import { computeBoxes, stepReaction } from './reaction';
-import { clampGloves, resolveGloveContacts, settleGloves, stepGloves } from './gloves';
+import { integrateGloves, settleGloves, stepGloves } from './gloves';
+import { stepArms } from './arms';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip } from './slip';
 import { stepVulnerability } from './vulnerability';
@@ -52,6 +53,7 @@ export function createState(specs: [FighterSpec, FighterSpec], cfg: Config, seed
     computeBoxes(f, cfg);
   }
   for (const side of SIDES) settleGloves(s.fighters[side], s.fighters[side === 0 ? 1 : 0], side, 0, cfg);
+  for (const side of SIDES) stepArms(s.fighters[side], cfg, 0);
   return s;
 }
 
@@ -87,12 +89,14 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     stepVulnerability(f, cfg, dt);
   }
   for (const side of SIDES) { stepReaction(s.fighters[side], cfg, dt); computeBoxes(s.fighters[side], cfg); }
+  // Glove targets, then the springs integrated with the contacts (head,
+  // body, arms, gloves) resolved inside each sub-step; the arm joints the
+  // rig draws are placed from the final gloves. Before the hit test, which
+  // sees the surface contact all this leaves.
   for (const side of SIDES) stepGloves(s.fighters[side], s.fighters[side === 0 ? 1 : 0], side, s.time, cfg, dt);
-  // Solid bodies: no glove ends a tick inside the other fighter's head, body
-  // or gloves. Before the hit test, which sees the surface contact it leaves.
-  clampGloves(s.fighters[0], s.fighters[1], cfg);
-  clampGloves(s.fighters[1], s.fighters[0], cfg);
-  resolveGloveContacts(s.fighters[0], s.fighters[1], cfg);   // gloves and forearms: soft guard, stiff block
+  for (const side of SIDES) stepArms(s.fighters[side], cfg, dt);   // the elbow-pole lags advance once a tick
+  integrateGloves(s.fighters[0], s.fighters[1], cfg, dt);
+  for (const side of SIDES) stepArms(s.fighters[side], cfg, 0);
   for (const side of SIDES) { const t = peaked[side]; if (t !== null) resolvePunch(s, side, t, cfg, events); }
   stepCount(s, cfg, dt, events);
   stepBetween(s, cfg, dt, events);

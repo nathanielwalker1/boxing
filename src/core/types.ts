@@ -172,7 +172,11 @@ export interface FighterState {
   // ── derived every step by the sim, read by rig/render/ai — never written elsewhere
   headBox: Sphere;
   bodyBox: Capsule;
+  /** Shoulder and elbow per arm (index 0 = lead); the hand is gloves[i].pos. The rig draws the arms on these; contacts use them (2026-09-18). */
+  arms: [ArmJoints, ArmJoints];
 }
+
+export interface ArmJoints { shoulder: Vec3; elbow: Vec3 }
 
 export type RoundPhase = 'intro' | 'fighting' | 'between' | 'count' | 'over';
 

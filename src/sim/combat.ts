@@ -6,7 +6,7 @@
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, touchedBlock, whiffMult } from './state';
+import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, targetCut, touchedBlock, whiffMult } from './state';
 import { applyReaction } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -213,10 +213,14 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     }
     return false;
   };
-  // A fist stopped at a blocking glove or forearm (solid block, 2026-09-18)
-  // never reaches the head sphere: the guard covered the head, so it is a
-  // blocked head punch, not a whiff.
-  const stoppedByGuard = d.block && touchedBlock(a, a.punch.hand === 'lead' ? 0 : 1);
+  // A fist stopped at the guard (2026-09-18/19): a held block, or a guard
+  // hand pinned against the face so the fist sits on the gloves on the head
+  // — the fist never reaches the head sphere, but if its line would have
+  // (the sweep carried on by its own length) the guard absorbed it: a
+  // BLOCKED head punch, not a whiff. A guard hand knocked freely aside sets
+  // no flag, and a slipped head is off the line, so those stay what they are.
+  const hand = a.punch.hand === 'lead' ? 0 : 1;
+  const stoppedByGuard = touchedBlock(a, hand) && (d.block || targetCut(a, hand));
   const part = sphereCapsuleOverlap(d.headBox, sweep) ? 'head' : bodyHit() ? 'body' : stoppedByGuard ? 'head' : null;
   if (part === null) {
     events.push({ type: 'punchWhiff', side, punch: type });
@@ -235,8 +239,15 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
         events.push({ type: 'slip', side: target, dir: d.slip.dir, dodged: true });
         // The read (2026-09-18): a beat of hit-stop as the fist passes the
         // ear, so a well-timed slip is felt — Fight Night's brief slow moment
-        // that opens the counter — without anything on screen.
+        // that opens the counter — and the attacker falls into the space:
+        // a slipOverreach lunge on the stagger channel, so you SEE them go
+        // past your ear, off balance, into the counter window.
         s.hitStop = Math.max(s.hitStop, cfg.slipDodgeHitStop);
+        if (cfg.slipOverreach > 0) {
+          const v = cfg.slipOverreach * cfg.staggerDecay;   // a burst that covers slipOverreach metres as it decays
+          a.stagger.x += afr.fwd.x * v;
+          a.stagger.z += afr.fwd.z * v;
+        }
         // The slip punish: the attacker is pinned exposed, and the counter
         // machinery does the rest. Survives the stretched recovery above —
         // the spike is a floor under the curve, on its own clock.
@@ -316,10 +327,11 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // and younger than perfectBlockLateFrac of the punch's flight, so it read
   // the ARRIVAL, not the start (see config). It absorbs the punch (stagger
   // and reaction stay) but costs nothing, and the attacker is pinned exposed.
-  const blocked = d.block;
+  const blocked = d.block || (stoppedByGuard && !sphereCapsuleOverlap(d.headBox, sweep));   // held up, or the gloves pinned on the face
   const ph = def.phases(cfg);
   const flight = ph.cock * cockMult(a) + ph.extend;
-  const perfect = blocked && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight);
+  // Only a HELD block can be perfect — a fist absorbed by a relaxed guard pinned on the face is a plain block.
+  const perfect = d.block && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight);
   if (blocked) mag *= 1 - cfg.blockReduction;
   const power = mag / cfg.punchImpulseBase;
   const dir: Vec3 = { x: dirX, y: 0, z: dirZ };

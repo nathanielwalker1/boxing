@@ -23,6 +23,7 @@ import type { Config, FighterState, Side, SimEvent, SimState, Vec2 } from '../co
 import { healthCap, initialMoveHist, setHealthCap } from './state';
 import { computeBoxes } from './reaction';
 import { settleGloves } from './gloves';
+import { stepArms } from './arms';
 
 /** Where the fighters start every round (createState uses the same). */
 export const CORNER_X = 1.2;
@@ -67,6 +68,7 @@ export function startRound(s: SimState, index: number, cfg: Config, events: SimE
     for (const side of [0, 1] as const) toCorner(s.fighters[side], side, s.time, cfg);
     // Both sets of boxes first: a glove settles clear of the OTHER fighter.
     for (const side of [0, 1] as const) settleGloves(s.fighters[side], s.fighters[side === 0 ? 1 : 0], side, s.time, cfg);
+    for (const side of [0, 1] as const) stepArms(s.fighters[side], cfg, 0);
   }
   events.push({ type: 'roundStart', index });
   events.push({ type: 'bell' });
