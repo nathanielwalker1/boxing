@@ -106,6 +106,19 @@ pull, dip), not the drawing.
   lesson: measure a knocked guard hand in the DEFENDER's frame — in world
   terms the stumble and the head snapping back off the gloves look like a
   40 cm shove and cost an hour of chasing a wiper effect that wasn't there.
+- **The sim owns the arms** (2026-09-19, `core/arms.ts`, `sim/arms.ts`,
+  `FighterState.arms`): shoulders and elbows are placed by the sim with the
+  rig's old pole logic (lags in `moveHist[19..24]`) and the rig draws
+  exactly them — hit geometry = drawn geometry for arms too. Contacts:
+  forearm/forearm, glove/forearm (capped lever), gloves out of upper arms;
+  all of it inside the glove springs' sub-steps (`integrateGloves`) —
+  once-per-tick contacts let the jab's 5× snap-back re-drive 10 cm into a
+  forearm every tick. Not forearm vs upper arm (deflecting a cross along
+  the lead shoulder threw it off the chin). A fist stopped on a guard hand
+  pinned against the face, when the punch was going to arrive (the target
+  was cut), is a plain block. Measured: 20 exchange pairings ≤ 3.4 cm; a
+  20 s spar 1 tick in 1064 beyond give + 1 cm. Filmstrips with both sides
+  scripted: `__replay(dist, script0, ticks, script1)`.
 - **The hook elbow** (2026-09-18): the level elbow pole was on from the first
   tick, so the wind-up had the elbow at shoulder height, 28 cm out, the arm
   folded to 30° — the wing Nate saw. `rigHookElbowRiseAt` 0.4 keeps it down
@@ -154,9 +167,11 @@ pull, dip), not the drawing.
   shot; the margins are ~2 cm.
 - Guard vs block are two different poses (`guardLocal` relaxed, face visible;
   `blockLocal` covered, hunch 18°, chin tuck).
-- The read (2026-09-18): a slipped punch adds `slipDodgeHitStop` 0.05 s as
-  the fist passes the ear and plays `slipNear` (the whiff, close and
-  bright). Nothing drawn — Fight Night's beat, not a flash.
+- The read (2026-09-18/19): a slipped punch adds `slipDodgeHitStop` 0.08 s
+  as the fist passes the ear, plays `slipNear` (the whiff, close and
+  bright), and the thrower lunges `slipOverreach` 0.18 m past your ear off
+  balance into the counter window. Nothing drawn — Fight Night's beat.
+  First cut (0.05 s + sound only) was "still unnoticeable".
 
 **AI** (`src/ai/index.ts`)
 - Footwork modes on a seeded timer: press / probe (1.05 m) / circle / hold /
@@ -220,6 +235,11 @@ pull, dip), not the drawing.
   subtle, like Fight Night." → soft arms, the elbow diagnosed in numbers
   (wing: level pole from tick 0) and fixed, the slip beat + close whoosh.
   NOT yet feel-tested.
+- 2026-09-19: "arms still go through each other when exchanging punches…
+  meat and bone… the slip is still unnoticeable." → the sim owns the arms
+  and draws them, contacts in the sub-steps, forearm/forearm; the slipped
+  puncher over-reaches past the ear, longer beat, louder whoosh. NOT yet
+  feel-tested.
 
 ## Open
 
