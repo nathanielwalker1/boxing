@@ -92,12 +92,13 @@ function throwAndWatch(type, n = 120, dist = MID, moveX = 0) {
   let ok = true, worst = 0;
   for (const s of snaps) {
     const d = s.d, fr = frameOf(d.yaw), r = d.reaction;
-    const head = localToWorld(d.pos, fr, 0, d.body.headY, 0);
+    // The legs give under a hit (reaction.sink, 2026-09-19): the whole body sits down by it.
+    const head = localToWorld(d.pos, fr, 0, d.body.headY - r.sink.x, 0);
     const ex = head.x + r.torso.x + r.head.x, ey = head.y + r.torso.y + r.head.y, ez = head.z + r.torso.z + r.head.z;
     const err = Math.abs(d.headBox.x - ex) + Math.abs(d.headBox.y - ey) + Math.abs(d.headBox.z - ez);
     worst = Math.max(worst, err);
     if (err > 1e-9 || d.headBox.r !== d.body.headR) ok = false;
-    const hip = localToWorld(d.pos, fr, 0, d.body.hipY, 0), sh = localToWorld(d.pos, fr, 0, d.body.shoulderY, 0);
+    const hip = localToWorld(d.pos, fr, 0, d.body.hipY - r.sink.x, 0), sh = localToWorld(d.pos, fr, 0, d.body.shoulderY - r.sink.x, 0);
     // The hips take reactionHipFollow of the torso offset (the body bends back from the waist), the shoulders all of it.
     if (Math.abs(d.bodyBox.a.x - hip.x - r.torso.x * cfg.reactionHipFollow) > 1e-9 || Math.abs(d.bodyBox.b.y - sh.y - r.torso.y) > 1e-9 || d.bodyBox.r !== d.body.bodyR) ok = false;
   }

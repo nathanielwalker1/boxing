@@ -21,7 +21,7 @@ import { cloneState, initialMoveHist } from './state';
 import { resolveSeparation, stepFacing, stepLocomotion } from './movement';
 import { advancePunch, resolvePunch, stepActions } from './combat';
 import { computeBoxes, stepReaction } from './reaction';
-import { integrateGloves, settleGloves, stepGloves } from './gloves';
+import { integrateGloves, settleContacts, settleGloves, stepGloves } from './gloves';
 import { stepArms } from './arms';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip } from './slip';
@@ -98,6 +98,14 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   integrateGloves(s.fighters[0], s.fighters[1], cfg, dt);
   for (const side of SIDES) stepArms(s.fighters[side], cfg, 0);
   for (const side of SIDES) { const t = peaked[side]; if (t !== null) resolvePunch(s, side, t, cfg, events); }
+  // A land applies the impact pose at once (reaction.ts): the struck body's
+  // boxes and arms move on the land tick, so re-derive them and re-settle
+  // the contacts, so the frame the rig draws (and the freeze holds) is clean.
+  if (peaked[0] !== null || peaked[1] !== null) {
+    for (const side of SIDES) { computeBoxes(s.fighters[side], cfg); stepArms(s.fighters[side], cfg, 0); }
+    settleContacts(s.fighters[0], s.fighters[1], cfg);
+    for (const side of SIDES) stepArms(s.fighters[side], cfg, 0);
+  }
   stepCount(s, cfg, dt, events);
   stepBetween(s, cfg, dt, events);
 

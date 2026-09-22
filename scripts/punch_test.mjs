@@ -54,8 +54,9 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
   check('power is positive and near the jab multiplier', o?.power > 0.5 && o?.power < 1.2, `${o?.power}`);
   const landTick = o.tick;
   const { s: atLand } = run(fresh(MID), landTick + 1, tapThen('jab'));
+  const { s: preLand } = run(fresh(MID), landTick, tapThen('jab'));   // the head as the fist found it (the impact pose moves it on the land tick)
   check('`at` equals the lead glove position on the land tick', v3dist(o.at, atLand.fighters[0].gloves[0].pos) < 1e-9);
-  check('the glove sphere really overlaps the head box on the land tick', v3dist(atLand.fighters[0].gloves[0].pos, atLand.fighters[1].headBox) <= atLand.fighters[0].body.gloveR + atLand.fighters[1].headBox.r + 1e-9);
+  check('the glove sphere really overlaps the head box as it was at the impact', v3dist(atLand.fighters[0].gloves[0].pos, preLand.fighters[1].headBox) <= atLand.fighters[0].body.gloveR + preLand.fighters[1].headBox.r + 1e-9);
   const hurt = evs.find(e => e.type === 'hurt');
   check('hurt event on the defender with the same impulse', hurt?.side === 1 && hurt?.part === 'head' && near(v3len(hurt.impulse), v3len(o.impulse), 1e-9));
   check('the defender is staggered away (+x)', s.fighters[1].pos.x > MID / 2 + 0.02, `${s.fighters[1].pos.x.toFixed(3)}`);
@@ -270,10 +271,8 @@ function reachOf(type, moveX = 0) {
   // Contact rests where the glove touched: on the head surface along the
   // line from the head's centre to the glove. A hook finishes just past the
   // centreline, so it rests on the point of the chin, mirrored per hand.
-  const heldAfter = (type, moveX, dist = 0.7) => {
-    const landTick = outcome(run(fresh(dist), 40, tapWith(type, moveX)).evs).tick;
-    return run(fresh(dist), landTick + 2, tapWith(type, moveX)).s;
-  };
+  const landTickOf = (type, moveX, dist = 0.7) => outcome(run(fresh(dist), 40, tapWith(type, moveX)).evs).tick;
+  const heldAfter = (type, moveX, dist = 0.7) => run(fresh(dist), landTickOf(type, moveX, dist) + 2, tapWith(type, moveX)).s;
   const held = heldAfter('hook', -1);
   const a = held.fighters[0], d = held.fighters[1];
   const r = d.headBox.r + a.body.gloveR * (1 - cfg.contactSquash);
@@ -286,7 +285,9 @@ function reachOf(type, moveX = 0) {
     const s = run(fresh(0.7, soft), landTick + 2, tapWith('hook', -1), soft).s;
     check('contactSolid 0: the old way, the glove target moves to the contact point for the hold', v3dist(s.fighters[0].gloves[0].target, s.fighters[0].punch.contact) < 1e-9);
   }
-  check('the contact point sits one (squashed) glove radius off the head surface', near(v3dist(a.punch.contact, d.headBox), r, 0.03), `${v3dist(a.punch.contact, d.headBox).toFixed(3)} vs ${r.toFixed(3)}`);
+  // Against the head as it was when the fist arrived: the impact pose (2026-09-19) moves the head on the land tick itself.
+  const before = run(fresh(0.7), landTickOf('hook', -1), tapWith('hook', -1)).s.fighters[1];
+  check('the contact point sits one (squashed) glove radius off the head surface (where the head was at the impact)', near(v3dist(a.punch.contact, before.headBox), r, 0.03), `${v3dist(a.punch.contact, before.headBox).toFixed(3)} vs ${r.toFixed(3)}`);
   check('…on the attacker\'s side of the head', a.punch.contact.x < d.headBox.x, `${(a.punch.contact.x - d.headBox.x).toFixed(3)}`);
   const rear = heldAfter('hook', 1).fighters[0];
   check('lead and rear hooks rest on mirrored sides of the chin', a.punch.contact.z > rear.punch.contact.z, `${a.punch.contact.z.toFixed(3)} vs ${rear.punch.contact.z.toFixed(3)}`);

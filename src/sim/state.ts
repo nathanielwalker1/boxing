@@ -127,7 +127,7 @@ const v3c = (a: Vec3): Vec3 => ({ x: a.x, y: a.y, z: a.z });
 const s3c = (s: Spring3): Spring3 => ({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz });
 const s1c = (s: Spring1): Spring1 => ({ x: s.x, v: s.v });
 const gc = (g: GloveState): GloveState => ({ pos: v3c(g.pos), vel: v3c(g.vel), target: v3c(g.target) });
-const rc = (r: ReactionState): ReactionState => ({ head: s3c(r.head), torso: s3c(r.torso), tilt: s1c(r.tilt), spin: s1c(r.spin ?? { x: 0, v: 0 }) });
+const rc = (r: ReactionState): ReactionState => ({ head: s3c(r.head), torso: s3c(r.torso), tilt: s1c(r.tilt), spin: s1c(r.spin ?? { x: 0, v: 0 }), sink: s1c(r.sink ?? { x: 0, v: 0 }) });
 
 export function cloneFighter(f: FighterState): FighterState {
   return {

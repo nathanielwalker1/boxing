@@ -228,6 +228,13 @@ const CLAMP_PASSES = 2;
  * glove or forearm is flagged for the hit test (a stopped fist is a blocked
  * punch, not a whiff). Runs once per tick for the pair, after clampGloves.
  */
+/** One contact pass with no spring step — after a land's impact pose moved a body under the gloves. Keeps the tick's guard-touch flags. */
+export function settleContacts(a: FighterState, b: FighterState, cfg: Config): void {
+  if (cfg.contactSolid <= 0) return;
+  clampGloves(a, b, cfg); clampGloves(b, a, cfg);
+  resolveGloveContacts(a, b, cfg);
+}
+
 /** Clear the per-tick contact flags (guard touches accumulate over the sub-steps). */
 function resetContactFlags(a: FighterState, b: FighterState): void {
   for (const f of [a, b]) { setTouchedBlock(f, 0, false); setTouchedBlock(f, 1, false); pinned.set(f, [false, false]); }
@@ -283,7 +290,11 @@ export function resolveGloveContacts(a: FighterState, b: FighterState, cfg: Conf
  * punch goes on to land (or, slipped, to miss).
  */
 function touched(f: FighterState, hand: number, other: FighterState, oh: number): void {
-  if (other.block || pinned.get(other)?.[oh]) setTouchedBlock(f, hand, true);
+  // Any guard contact counts; the hit test pairs it with the target cut
+  // (the punch was going to arrive) so a knocked-aside hand that let the
+  // punch through and a slipped head (no cut) are untouched by it.
+  void oh;
+  setTouchedBlock(f, hand, true);
 }
 /** Per resolve: which of a fighter's gloves the own-body clamp had to push this pass — a guard hand with nowhere left to go. (The resting guard already touches the big head, so "near the head" is no test.) */
 const pinned = new WeakMap<FighterState, [boolean, boolean]>();
@@ -318,7 +329,9 @@ function armActive(f: FighterState, hand: number, cfg: Config): boolean {
 function pushApart(g: GloveState, other: GloveState, p: Vec3, minDist: number, sg: number, so: number): boolean {
   let nx = g.pos.x - p.x, ny = g.pos.y - p.y, nz = g.pos.z - p.z;
   const d = sqrt(nx * nx + ny * ny + nz * nz);
-  if (d >= minDist || d < 1e-6) return false;
+  // In contact (for the guard-touch flag) a little before a push is needed:
+  // a fist resting inside the give on a pinned guard hand is touching it.
+  if (d >= minDist || d < 1e-6) return d < minDist + CONTACT_MARGIN;
   nx /= d; ny /= d; nz /= d;
   const push = minDist - d, tot = sg + so;
   const mg = push * sg / tot, mo = push * so / tot;
@@ -340,7 +353,7 @@ function pushApart(g: GloveState, other: GloveState, p: Vec3, minDist: number, s
 function pushApartAt(g: GloveState, other: GloveState, pa: Vec3, pb: Vec3, minDist: number, sg: number, so: number, ea: Vec3 | null = null, eb: Vec3 | null = null, resist = 0): boolean {
   let nx = pa.x - pb.x, ny = pa.y - pb.y, nz = pa.z - pb.z;
   const d = sqrt(nx * nx + ny * ny + nz * nz);
-  if (d >= minDist || d < 1e-6) return false;
+  if (d >= minDist || d < 1e-6) return d < minDist + CONTACT_MARGIN;
   nx /= d; ny /= d; nz /= d;
   // `resist`: a share for something that cannot move (an upper arm), so the
   // mover takes only sg / (sg + resist) of the separation per pass.
@@ -364,6 +377,8 @@ function pushApartAt(g: GloveState, other: GloveState, pa: Vec3, pb: Vec3, minDi
   return true;
 }
 
+/** Gloves/forearms this close beyond their resting separation still count as touching (the guard-touch flag), m. */
+const CONTACT_MARGIN = 0.015;
 /** Smallest bone fraction a forearm contact is levered from — below this the hand cannot fix it, so it is treated as here. */
 const LEVER_MIN = 0.35;
 /** Cap on the lever gain: ×2.9 threw a cross off the chin when its forearm brushed an upper arm near the elbow (2026-09-19). */

@@ -26,18 +26,55 @@ export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: 
   const s = def.react(cfg);
   const v = mag * cfg.reactionForceScale;
   const r = f.reaction;
-  r.head.vx += dir.x * s.back * v;
-  r.head.vz += dir.z * s.back * v;
-  r.head.vy += s.lift * v;
-  r.torso.vx += dir.x * s.back * s.torso * v;
-  r.torso.vz += dir.z * s.back * s.torso * v;
-  r.torso.vy += s.lift * s.torso * v;
-  r.tilt.v += s.twist * mag * cfg.reactionTwistScale;
-  // Sideways component of the impulse in the defender's frame (+ = toward their right) → yaw the other way.
   const fr = frameOf(f.yaw);
+  // Sideways component of the impulse in the defender's frame (+ = toward their right) → yaw the other way.
   const side = dir.x * fr.right.x + dir.z * fr.right.z;
-  r.spin.v += -side * s.spin * mag * cfg.reactionSpinScale;
+  const dv = {
+    head: { x: dir.x * s.back * v, y: s.lift * v, z: dir.z * s.back * v },
+    torso: { x: dir.x * s.back * s.torso * v, y: s.lift * s.torso * v, z: dir.z * s.back * s.torso * v },
+    tilt: s.twist * mag * cfg.reactionTwistScale,
+    spin: -side * s.spin * mag * cfg.reactionSpinScale,
+    sink: mag * cfg.reactionSinkScale,
+  };
+  // The pose below pre-integrates the first reactionImpactPose seconds of
+  // the kick, so the velocity that follows is what remains of a swing that
+  // peaks in about POSE_PEAK_T — otherwise the pose stacks on the full swing
+  // and every punch pins the neck clamp.
+  const remain = Math.max(0.3, 1 - cfg.reactionImpactPose / POSE_PEAK_T);
+  r.head.vx += dv.head.x * remain; r.head.vy += dv.head.y * remain; r.head.vz += dv.head.z * remain;
+  r.torso.vx += dv.torso.x; r.torso.vy += dv.torso.y; r.torso.vz += dv.torso.z;
+  r.tilt.v += dv.tilt;
+  r.spin.v += dv.spin;
+  r.sink.v += dv.sink;
+  // The impact pose (2026-09-19): hit-stop freezes the sim right after the
+  // land, and a spring that has only velocity shows nothing frozen — the
+  // head then jumped 17 cm in one tick when time resumed ("laggy, a few
+  // frames"). The first reactionImpactPose seconds of the kick are applied
+  // as displacement at once, so the frozen frames are the impact.
+  // The neck snap is the impact; the torso's share is smaller so the fist,
+  // which follows the head only as far as its own reach, stays on the face.
+  const p = cfg.reactionImpactPose, pt = cfg.reactionImpactPoseTorso;
+  r.head.x += dv.head.x * p; r.head.y += dv.head.y * p; r.head.z += dv.head.z * p;
+  r.torso.x += dv.torso.x * pt; r.torso.y += dv.torso.y * pt; r.torso.z += dv.torso.z * pt;
+  r.tilt.x += dv.tilt * pt;   // the turn of the shoulders is the torso's: the smaller share (a 26° instant whip swung the arms through the other's)
+  r.spin.x += dv.spin * pt;
+  r.sink.x += dv.sink * p;
+  clampReaction(r, cfg);
   setReactionSnap(f, s.snap);
+}
+
+/** About when the head's swing peaks after a kick, s — shape, for the impact-pose bookkeeping only. */
+const POSE_PEAK_T = 0.1;
+
+function clampReaction(r: FighterState['reaction'], cfg: Config): void {
+  // The head offset rides on top of the torso offset (see computeBoxes), so
+  // its clamp is the neck: how far the head may leave the shoulders.
+  const m = cfg.reactionMaxOffset, n = cfg.reactionMaxNeck;
+  r.head.x = clamp(r.head.x, -n, n); r.head.y = clamp(r.head.y, -n, n); r.head.z = clamp(r.head.z, -n, n);
+  r.torso.x = clamp(r.torso.x, -m, m); r.torso.y = clamp(r.torso.y, -m, m); r.torso.z = clamp(r.torso.z, -m, m);
+  r.tilt.x = clamp(r.tilt.x, -cfg.reactionMaxTilt, cfg.reactionMaxTilt);
+  r.spin.x = clamp(r.spin.x, -cfg.reactionMaxSpin, cfg.reactionMaxSpin);
+  r.sink.x = clamp(r.sink.x, -cfg.reactionSinkMax * 0.3, cfg.reactionSinkMax);   // the legs give down; a little spring back up
 }
 
 export function stepReaction(f: FighterState, cfg: Config, dt: number): void {
@@ -47,13 +84,8 @@ export function stepReaction(f: FighterState, cfg: Config, dt: number): void {
   stepSpring3(r.torso, 0, 0, 0, cfg.reactionTorsoK * snap, cfg.reactionTorsoC, dt);
   stepSpring1(r.tilt, 0, cfg.reactionTiltK * snap, cfg.reactionTiltC, dt);
   stepSpring1(r.spin, 0, cfg.reactionSpinK * snap, cfg.reactionSpinC, dt);
-  // The head offset rides on top of the torso offset (see computeBoxes), so
-  // its clamp is the neck: how far the head may leave the shoulders.
-  const m = cfg.reactionMaxOffset, n = cfg.reactionMaxNeck;
-  r.head.x = clamp(r.head.x, -n, n); r.head.y = clamp(r.head.y, -n, n); r.head.z = clamp(r.head.z, -n, n);
-  r.torso.x = clamp(r.torso.x, -m, m); r.torso.y = clamp(r.torso.y, -m, m); r.torso.z = clamp(r.torso.z, -m, m);
-  r.tilt.x = clamp(r.tilt.x, -cfg.reactionMaxTilt, cfg.reactionMaxTilt);
-  r.spin.x = clamp(r.spin.x, -cfg.reactionMaxSpin, cfg.reactionMaxSpin);
+  stepSpring1(r.sink, 0, cfg.reactionSinkK, cfg.reactionSinkC, dt);
+  clampReaction(r, cfg);
 }
 
 /**
@@ -67,8 +99,12 @@ export function stepReaction(f: FighterState, cfg: Config, dt: number): void {
  */
 export function computeBoxes(f: FighterState, cfg: Config): void {
   const fr = frameOf(f.yaw);
-  const b = f.body, r = f.reaction, c = f.crouch;
+  const b = f.body, r = f.reaction;
   const slipLat = slipLateral(f);
+  // The body sits down through a punch's dip, a hit (the legs give, `sink`)
+  // and a lateral slip (slipCrouch — the whole body goes under the punch,
+  // not just the head; 2026-09-19). The hips carry it, so the knees bend.
+  const c = f.crouch + r.sink.x + (f.slip.dir === -1 || f.slip.dir === 1 ? cfg.slipCrouch * slipShape(f, cfg) : 0);
   // The weight transfer moves the BODY, not just the drawing (2026-09-16):
   // head and shoulders go forward by lean.fwd × punchLeanShift (back through
   // the load), the hips by half. So a punch reaches further and the head is

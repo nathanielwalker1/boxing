@@ -170,7 +170,10 @@ check('control: the jab lands', L !== undefined);
   const evs = [];
   const COUNTER_AT = L + 3;
   for (let i = 0; i < 70; i++) {
-    const r = sim.step(s, [inp({ jab: i === 0 }), inp({ jab: i === COUNTER_AT, move: { x: i >= start && i < release ? -1 : 0, y: 0 } })], QUIET);
+    // The counter is a CROSS (2026-09-19): with soft arms a counter jab met the
+    // attacker's rear guard glove resting on its cheek and was absorbed as a
+    // block; the cross comes to the lead side, which the whiffed jab left open.
+    const r = sim.step(s, [inp({ jab: i === 0 }), inp({ cross: i === COUNTER_AT, move: { x: i >= start && i < release ? -1 : 0, y: 0 } })], QUIET);
     s = r.state;
     for (const e of r.events) evs.push({ ...e, tick: i });
     if (i >= start && i <= release + 1) { s.fighters[1].pos = { ...ctrlPos[i] }; s.fighters[1].vel = { x: 0, z: 0 }; }
@@ -182,7 +185,7 @@ check('control: the jab lands', L !== undefined);
   check('the spike survives the attacker\'s stretched whiff recovery', after && after.w0 > 0 && near(after.v0, cfg.slipPunishVuln, 1e-9), `punch ended tick ${after?.i}: v ${after?.v0}, ${after?.w0.toFixed(2)} s left`);
   const hot = evs.find(e => e.type === 'punchLand' && e.side === 1);
   const hotHurt = evs.find(e => e.type === 'hurt' && e.side === 0);
-  const cold = run(fresh(MID, QUIET), 70, i => [NONE, inp({ jab: i === COUNTER_AT })], null, QUIET);
+  const cold = run(fresh(MID, QUIET), 70, i => [NONE, inp({ cross: i === COUNTER_AT })], null, QUIET);
   const coldHurt = cold.evs.find(e => e.type === 'hurt' && e.side === 0);
   const vAtHit = trace[hot?.tick]?.v0;
   const ratio = v3len(hotHurt.impulse) / v3len(coldHurt.impulse);

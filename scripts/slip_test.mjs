@@ -113,7 +113,7 @@ const HOLD = T(cfg.slipFlickMax) + 4;  // past the flick window
     const trace = [];
     run(fresh(), 40, push(FLICK, 1), (st, i) => trace.push(st.fighters[0]));
     const mid = trace[FLICK + T(cfg.slipRise) + 2];
-    check('a lateral slip dips the head by slipDip', near(mid.headBox.y, mid.body.headY - cfg.slipDip, 1e-6), `${mid.headBox.y.toFixed(3)} vs ${(mid.body.headY - cfg.slipDip).toFixed(3)}`);
+    check('a lateral slip dips the head by slipDip and takes the whole body down slipCrouch', near(mid.headBox.y, mid.body.headY - cfg.slipDip - cfg.slipCrouch, 1e-6), `${mid.headBox.y.toFixed(3)} vs ${(mid.body.headY - cfg.slipDip - cfg.slipCrouch).toFixed(3)}`);
   }
   check('a diagonal flick that is more forward than sideways is not a slip', slips(run(fresh(), 40, push(FLICK, 0.5, 0.8)).evs).length === 0);
   check('a diagonal flick that is more sideways than forward slips', slips(run(fresh(), 40, push(FLICK, 0.8, 0.5)).evs).length === 1);
