@@ -338,7 +338,13 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const surgeF = vSpd > 1e-3 ? stepSurge * vFwd / vSpd : 0, surgeL = vSpd > 1e-3 ? stepSurge * vLat / vSpd : 0;
 
     // 2. Secondary motion — springs, hips stiffest → elbows loosest.
-    chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift + surgeF, bob - rDip + stepUp, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7 + surgeL, c.rigHipK, c.rigHipZeta, dt);
+    // A lateral slip loads the leg on that side (2026-09-19): the drawn hips
+    // shift toward the head's side by rigSlipHipShift of the head's move,
+    // and (below) that knee bends in. The sim lowers the whole body
+    // (slipCrouch) so the knees bend for real.
+    const slipLat = next.slip.dir === -1 || next.slip.dir === 1 ? headL.z - shoulderL.z : 0;
+    const slipAmt = Math.min(1, Math.abs(slipLat) / Math.max(1e-3, c.slipHeadOffset));
+    chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift + surgeF, bob - rDip + stepUp - slipAmt * c.rigSlipDip, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7 + surgeL + slipLat * c.rigSlipHipShift, c.rigHipK, c.rigHipZeta, dt);
     chase3(spineBend, leanF * c.rigLeanChest + mvFwd * c.rigMoveLeanShift * 0.6 + weaveX * 0.6, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3 + mvLat * c.rigMoveLeanShift * 0.4 + weaveZ * 0.6, c.rigSpineK, c.rigSpineZeta, dt);
     // Circling: the head leads the travel.
     headL.z += mvLat * c.rigMoveHeadLead;
@@ -350,7 +356,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
 
     // Chest: on the capsule top + sim torso reaction + spine spring, yawed by the
     // shoulder line, pitched by lean and the sim's tilt (positive = leaning back).
-    S.copy(shoulderL).add(torsoOffL).add(spineBend as unknown as THREE.Vector3Like);
+    // (bodyBox.b already carries the sim's torso reaction offset — adding
+    // torsoOffL here too moved the chest twice as far as the head and hips
+    // on every hit, the "out of sync" look. Fixed 2026-09-19.)
+    S.copy(shoulderL).add(spineBend as unknown as THREE.Vector3Like);
     // The torso BENDS with the hip→shoulder line (rigTorsoBend): a slip, a
     // pull, the lean shift and a hit all move S relative to H in the sim, and
     // the chest mesh now tilts to follow instead of shearing sideways upright.
@@ -499,6 +508,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       }
       placeLimb(i === 0 ? BONE.upperArm0 : BONE.upperArm1, sh, elbowJ[i]!);
       placeLimb(i === 0 ? BONE.forearm0 : BONE.forearm1, elbowJ[i]!, gl, stretch);
+      const bShoulder = bone(i === 0 ? BONE.shoulder0 : BONE.shoulder1);   // the deltoid ball sits on the arm root
+      bShoulder.position.copy(sh);
+      bShoulder.quaternion.copy(qChest);
+      bShoulder.scale.set(1, 1, 1);
       const bGlove = bone(i === 0 ? BONE.glove0 : BONE.glove1);
       bGlove.position.copy(gl);                             // exact
       bGlove.quaternion.copy(bone(i === 0 ? BONE.forearm0 : BONE.forearm1).quaternion);
@@ -570,7 +583,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
           ankle.x = hipJ[i]!.x; ankle.z = hipJ[i]!.z; ankle.y = hipJ[i]!.y - maxD;
         }
       }
-      pole.set(c.rigKneePoleFwd * Math.cos(yawL), 0, -c.rigKneePoleFwd * Math.sin(yawL)).addScaledVector(ZAXIS, s * c.rigKneePoleOut);
+      // The knee on the slip's side turns in as the weight lands on it.
+      const slipKnee = slipLat !== 0 && Math.sign(slipLat) === Math.sign(s) ? Math.min(1, Math.abs(slipLat) / Math.max(1e-3, c.slipHeadOffset)) * c.rigSlipKneeIn : 0;
+      pole.set(c.rigKneePoleFwd * Math.cos(yawL), 0, -c.rigKneePoleFwd * Math.sin(yawL)).addScaledVector(ZAXIS, s * (c.rigKneePoleOut - slipKnee));
       solveTwoBone(hipJ[i]!, ankle, body.thigh, body.shin, pole, 1, ik);
       placeLimb(i === 0 ? BONE.thigh0 : BONE.thigh1, hipJ[i]!, ik.mid);
       placeLimb(i === 0 ? BONE.shin0 : BONE.shin1, ik.mid, ankle);

@@ -30,8 +30,9 @@ export const BONE = {
   upperArm1: 7, forearm1: 8, glove1: 9,
   thigh0: 10, shin0: 11, boot0: 12,
   thigh1: 13, shin1: 14, boot1: 15,
+  shoulder0: 16, shoulder1: 17,   // the deltoid balls, on the arm roots (the sim's shoulders), not the chest
 } as const;
-export const BONE_COUNT = 16;
+export const BONE_COUNT = 18;
 
 /** Derived sizes the pose solver also needs (radii for clearance, boot box). */
 export interface RigDims {
@@ -145,9 +146,11 @@ export function buildRigMesh(
   const chestDepth = d.chestDepth * 2;
   const taper = Math.min(1, d.waistW / (body.shoulderW * 0.92));
   add(prism(chestDepth, body.chestLen * 1.1, body.shoulderW * 0.92, taper), BONE.chest, skin, at(0, -body.chestLen * 0.45, 0));
-  for (const s of latSign) {
-    add(new THREE.SphereGeometry(d.upperArmR * 1.4, 10, 7), BONE.chest, skin, at(0, 0, s * body.shoulderW / 2));
-  }
+  // The shoulder balls ride their own bones, placed on the arm roots (2026-09-19:
+  // on the chest they sat a few cm off the arm the sim now places).
+  add(new THREE.SphereGeometry(d.upperArmR * 1.4, 10, 7), BONE.shoulder0, skin, at(0, 0, 0));
+  add(new THREE.SphereGeometry(d.upperArmR * 1.4, 10, 7), BONE.shoulder1, skin, at(0, 0, 0));
+  void latSign;
   add(prism(chestDepth * 0.88, body.spineLen * 0.9, d.waistW, 0.98), BONE.hips, skin, at(0, body.spineLen * 0.68, 0));
   const pelvisH = body.spineLen * 0.38 + body.bodyR * 0.6;
   add(prism(chestDepth * 0.98, pelvisH, d.waistW * 1.08), BONE.hips, spec.trunksPrimary, at(0, (body.spineLen * 0.38 - body.bodyR * 0.6) / 2, 0));
