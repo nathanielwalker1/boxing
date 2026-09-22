@@ -129,6 +129,22 @@ pull, dip), not the drawing.
 **Hit performance** (`src/sim/reaction.ts`, `src/rig/index.ts`, `src/ui/audio.ts`)
 - Springs ~2.5x slower than v1 (`reactionHeadK` 160 / C 9 …): jab settles in
   0.23 s, cross 0.32, hook 0.58, uppercut 0.62.
+- **The impact pose** (2026-09-20): `reactionImpactPose` 0.02 s of the kick
+  (0.012 for torso/tilt/spin) is applied as displacement on the land tick,
+  so the hit-stop freeze shows the snapped head and bent body; the velocity
+  that follows is scaled so the pose does not stack on the swing. Measured
+  before: the freeze showed < 5 cm, then a 17 cm jump in one tick ("laggy,
+  a few frames"). After: 18 cm on the frozen frame for a cross.
+- **A coherent body**: `reactionMaxNeck` 0.16 (was 0.17 with the torso at
+  10 — the head left the body), torso shares up (jab 0.12, cross 0.6, hook
+  0.55, uppercut 0.5), `reactionHipFollow` 0.6, `crossReactTwist` 0.7, lifts
+  cut to 0.04–0.06 on non-uppercuts (heads "bobbed too high"). The rig bug
+  that made it worse: the chest added the torso offset twice.
+- **The legs give**: `ReactionState.sink` — a hit sits the body down
+  (`reactionSinkScale`: cross ≈ 5 cm, hook 7) and springs back; the hips
+  carry it so the knees bend. "Real physics with punches."
+- Method: `scripts/_debug.mjs` probe per punch — frozen-frame displacement,
+  peak neck vs torso, sink, rise, tilt, biggest single-tick head jump.
 - `ReactionState.spin`: a yaw whip from the sideways impulse (`hookReactSpin`
   1.0, `reactionSpinScale`); the drawn head whips 1.5x the shoulders.
 - `reactionHipFollow` 0.45: a hit bends the body back from the waist (the rig's
@@ -167,6 +183,11 @@ pull, dip), not the drawing.
   shot; the margins are ~2 cm.
 - Guard vs block are two different poses (`guardLocal` relaxed, face visible;
   `blockLocal` covered, hunch 18°, chin tuck).
+- The slip's legs (2026-09-20): the sim takes the whole body down
+  `slipCrouch` 0.02 (capped: the shoulder must still catch a jab slipped
+  into the hand), the rig shifts the drawn hips toward the slip
+  (`rigSlipHipShift`), dips them (`rigSlipDip`) and turns the loaded knee
+  in (`rigSlipKneeIn`).
 - The read (2026-09-18/19): a slipped punch adds `slipDodgeHitStop` 0.08 s
   as the fist passes the ear, plays `slipNear` (the whiff, close and
   bright), and the thrower lunges `slipOverreach` 0.18 m past your ear off
@@ -240,6 +261,12 @@ pull, dip), not the drawing.
   and draws them, contacts in the sub-steps, forearm/forearm; the slipped
   puncher over-reaches past the ear, longer beat, louder whoosh. NOT yet
   feel-tested.
+- 2026-09-20: "shoulder is a ball separated from the arm… getting punched
+  looks glitchy, body parts out of sync, the head bobs too high, cartoonish,
+  laggy like a few frames… slips: the whole body lower, the lead knee bends
+  in." → shoulder balls on the arm roots; the chest's double torso offset
+  fixed; the impact pose; a coherent body; the legs give; slip legs. NOT
+  yet feel-tested.
 
 ## Open
 
