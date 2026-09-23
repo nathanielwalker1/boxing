@@ -400,6 +400,12 @@ export const SCHEMA = {
   aiChaseDelay:     num(0.4, 0, 2, 0.05, 'ai', 'after the player backs off fast it does not close the gap for this long — the space opens before it follows'),
   aiComboChance:    num(0.5, 0, 1, 0.05, 'ai', 'odds a throw opens a BURST: up to aiComboMax punches chained through the sim\'s combo window, then the usual wait (and the reset roll). Bursts and lulls, not a metronome'),
   aiComboMax:       num(3, 1, 5, 1, 'ai', 'most punches in a burst'),
+  // Reading the hit states (2026-09-22): the counter, the cover, the follow-up. Before, the AI read none of vuln / stumble / stuff.
+  aiCounterVuln:    num(0.5, 0, 1, 0.05, 'ai', 'the opponent\'s exposure (vuln: deep in their own punch, or the punish window after a slip / perfect block) at or above which the AI sees an OPENING to counter. Rising-edge: one roll per opening'),
+  aiCounterChance:  num(0.6, 0, 1, 0.05, 'ai', 'odds it takes an opening: after aiReactionTime it arms a straight on the spot (the cross if the opening is still wide, else the jab) and throws if in range. 0 = it never counters'),
+  aiCoverChance:    num(0.5, 0, 1, 0.05, 'ai', 'after its own punch is STUFFED or it takes a solid shot (aiHitResetDamage), odds it covers: the guard comes up for aiCoverTime (once the sim lets it) and whatever it had armed is dropped. Independent of the reset roll'),
+  aiCoverTime:      num(0.5, 0.1, 2, 0.05, 'ai', 'seconds the cover guard stays up'),
+  aiStumbleSpeed:   num(0.6, 0, 3, 0.05, 'ai', 'stagger speed, m/s, above which a fighter counts as STUMBLING (a clean cross starts a stumble at ~3 m/s, a jab ~1.5, both decaying at staggerDecay). A stumbling opponent drains the attack timer aiAggressionMult faster (stacks with the other openings); the AI itself throws nothing while stumbling'),
   aiComboGap:       num(0.05, 0, 1, 0.01, 'ai', 'seconds before the next punch of a burst is armed (it still waits for range and the chain window)'),
 
   // ── debug (UI) ──

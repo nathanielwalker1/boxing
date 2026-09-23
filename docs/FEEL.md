@@ -216,6 +216,21 @@ pull, dip), not the drawing.
   `aiComboMax` 3 through the sim's combo window. Guard comes up
   `aiReactionTime` after it notices a punch (jabs get through, hooks meet it).
 - Per-fighter styles = these weights and distances per roster entry (not yet).
+- Reads the hit states (2026-09-22; before, none of vuln / stumble / stuff):
+  COUNTER — the player's exposure crossing `aiCounterVuln` 0.5 (their punch
+  deep in its flight, a whiffed recovery hanging, the punish window after a
+  slip or perfect block) is an opening; one roll at `aiCounterChance` 0.6,
+  the decision lands `aiReactionTime` later and arms a straight on the spot
+  (cross if still wide open, else jab). Measured: a whiffed jab's exposure
+  is gone before a 0.2 s reaction, a whiffed uppercut's (stretched recovery)
+  is countered and lands as a counter. COVER — its punch stuffed or a solid
+  shot taken → `aiCoverChance` 0.5 the guard comes up for `aiCoverTime` 0.5
+  (the sim raises it the tick after the rewound arm is home) and the armed
+  punch / burst is dropped. FOLLOW-UP — an opponent stumbling above
+  `aiStumbleSpeed` 0.6 m/s drains the attack timer `aiAggressionMult`
+  faster (stacks: unguarded × stumbling = 3.24×); it throws nothing while
+  stumbling itself. This is what makes range, slips and the block the
+  competitive edge: over-commit and the AI now takes it.
 
 ## How to judge a motion change (the method that found the real problems)
 
@@ -283,8 +298,12 @@ pull, dip), not the drawing.
 - 2026-09-22 (no feel-test possible; Nate's direction: better punch
   animation, combos that land, realism, movement/slips as the competitive
   edge, and "punching them mid wind-up should break their punch momentum")
-  → the interrupt (sim + test only; nothing new drawn or heard). NOT yet
-  feel-tested.
+  → the interrupt (sim + test only; nothing new drawn or heard). Then, on
+  "what's next you can work on, can't test": the chained-body blend
+  (`comboBlend`: a 1-2's twist reversals 2 → 0, start step 0.37 → 0.02
+  rad) and the AI reading the hit states (counter / cover / follow-up).
+  All sim-side, all NOT yet feel-tested. If the AI now feels unfair, turn
+  `aiCounterChance` down first, then `aiCoverChance`.
 
 ## Open
 
@@ -297,12 +316,10 @@ pull, dip), not the drawing.
   ~25 before the player can start to cover the opponent at the far edge),
   less AI circling, or a longer dolly so the background parallax per degree
   drops.
-- A chained punch's twist snaps from the last punch's peak to the new one's
-  load in the sim (the rig's shoulder spring smooths it). If a 2-3 reads as a
-  pop at the shoulders, blend the twist from where it was over the chained
-  cock.
-- The AI reads none of the new hit states (spin, stumble) and has no per-punch
-  hit-stop; hit-stop is power-scaled only.
+- Hit-stop is power-scaled only, no per-punch tiers; no audio / flash tiers
+  on a solid landing, and no read (sound or flash) for a stuff or a counter
+  the AI takes. (The chained-twist snap and the AI's blindness to the hit
+  states were closed 2026-09-22.)
 - At Nate's ~0.85 m play distance a straight's fist stops at the head before
   full stretch (contact hold); the stretch shows at ~1.0 m.
 - The weave is drawn-head only (up to 5 cm off the hit sphere) — a deliberate

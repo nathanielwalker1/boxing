@@ -38,9 +38,16 @@
  *   3. Reactive block   — the tick after the opponent's punch starts it rolls
  *                         aiBlockChance; on success the guard is up for
  *                         aiBlockWindow seconds. Never re-rolled while up.
- *   4. Opening punish   — an unguarded in-range or gassed opponent drains the
- *                         attack timer faster (the two stack multiplicatively),
- *                         so the punish tracks an opening appearing mid-wait.
+ *   4. Opening punish   — an unguarded in-range, gassed or stumbling opponent
+ *                         drains the attack timer faster (they stack
+ *                         multiplicatively), so the punish tracks an opening
+ *                         appearing mid-wait.
+ *   5. The hit states   — (2026-09-22) COUNTER: the opponent's exposure
+ *                         (vuln) crossing aiCounterVuln is an opening; after
+ *                         aiReactionTime it arms a straight on the spot.
+ *                         COVER: its punch stuffed, or a solid shot taken →
+ *                         guard up for aiCoverTime, armed punch dropped.
+ *                         Nothing is thrown while it is stumbling itself.
  *
  * Timers run on the sim's clock: during hit-stop they slow with it.
  */
@@ -95,6 +102,14 @@ export interface AiState {
   chaseHold: number;
   /** The opponent was retreating faster than aiPressureSpeed last tick (the chase hold is set on the rising edge). */
   oppRetreating: boolean;
+  /** The opponent's exposure was at or above aiCounterVuln last tick (one counter roll per opening, on the rising edge). */
+  oppExposed: boolean;
+  /** Seconds until a counter it has decided on is armed (0 = none pending). */
+  counterReact: number;
+  /** Own unresolved punch's progress last tick, -1 if none (a drop = it was stuffed and is rewinding). */
+  lastProgress: number;
+  /** Counters armed so far. Read by tests. */
+  counterCount: number;
 }
 
 /** A fresh AI for `side`. Its rng stream is derived from the fight seed so two sides never share one. */
@@ -124,6 +139,10 @@ export function createAi(side: Side, seed: number, cfg: Config): AiState {
     pressureCooldown: 0,
     chaseHold: 0,
     oppRetreating: false,
+    oppExposed: false,
+    counterReact: 0,
+    lastProgress: -1,
+    counterCount: 0,
   };
 }
 
@@ -181,6 +200,14 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   a.oppPunching = oppPunching;
   const hurt = a.lastHealth - me.health;
   a.lastHealth = me.health;
+  // Stuffed (2026-09-22): its punch is still the same one but its clock ran
+  // backwards this tick — the sim's interrupt. Read off progress, not events.
+  // Only an UNRESOLVED punch is tracked (-1 otherwise): a chained punch
+  // starts from a resolved one, so its low progress is never a false drop.
+  const stuffed = me.punch.type !== null && !me.punch.resolved && a.lastProgress >= 0 && me.punch.progress < a.lastProgress - 1e-9;
+  a.lastProgress = me.punch.type !== null && !me.punch.resolved ? me.punch.progress : -1;
+  const meStumbling = Math.hypot(me.stagger.x, me.stagger.z) > cfg.aiStumbleSpeed;
+  const oppStumbling = Math.hypot(opp.stagger.x, opp.stagger.z) > cfg.aiStumbleSpeed;
 
   // Perception (2026-09-16): what it steers by is the opponent's position
   // lagged by aiReactionTime (a first-order lag, so it is one number per axis
@@ -198,8 +225,39 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   if (s.round.phase !== 'fighting' || me.down) return { ai: a, input };
 
   const punching = me.punch.type !== null;
-  // The sim's own chain window (hit confirm on a touch, later on a miss).
-  const canThrow = canStartPunch(me, cfg);
+  // The sim's own chain window (hit confirm on a touch, later on a miss) —
+  // and nothing is thrown off stumbling feet.
+  const canThrow = canStartPunch(me, cfg) && !meStumbling;
+
+  // ── Reading the hit states (2026-09-22) ────────────────────────────────────
+  // The cover: stuffed, or a solid shot taken → with aiCoverChance the guard
+  // comes up for aiCoverTime (the sim raises it once the punch has cleared)
+  // and the armed punch is dropped — it stops swinging and covers.
+  if ((stuffed || (hurt >= cfg.aiHitResetDamage && cfg.aiHitResetDamage > 0)) && rngChance(a.rng, cfg.aiCoverChance)) {
+    a.blockTimer = Math.max(a.blockTimer, cfg.aiCoverTime);
+    a.blockReact = 0;
+    if (a.armed !== null) { a.armed = null; a.attackTimer = rngRange(a.rng, cfg.aiAttackDelayMin, cfg.aiAttackDelayMax); }
+    a.burst = 0;
+  }
+  // The counter: the opponent's exposure crossing aiCounterVuln is an
+  // OPENING (their punch deep in its flight or hanging in a whiffed recovery,
+  // or the punish window after they were slipped or perfectly blocked). One
+  // roll per opening; the decision lands aiReactionTime later and arms a
+  // straight on the spot — the cross if the opening is still wide, the jab
+  // if it is closing — which the throw below fires if in range. A fast jab's
+  // peak is gone before a human reaction lands; a whiffed hook and a slipped
+  // punch are not. That is the point.
+  const oppExposed = opp.vuln >= cfg.aiCounterVuln && !opp.down;
+  if (oppExposed && !a.oppExposed && a.counterReact === 0 && rngChance(a.rng, cfg.aiCounterChance)) a.counterReact = Math.max(cfg.aiReactionTime, 1e-6);
+  a.oppExposed = oppExposed;
+  if (a.counterReact > 0) {
+    a.counterReact = Math.max(0, a.counterReact - dt);
+    if (a.counterReact === 0 && opp.vuln > 0 && !opp.down && a.blockTimer === 0 && a.mode !== 'reset') {
+      a.armed = opp.vuln >= cfg.aiCounterVuln ? 'cross' : 'jab';
+      a.attackTimer = 0;
+      a.counterCount += 1;
+    }
+  }
 
   // ── Reading the opponent (2026-09-16) ──────────────────────────────────────
   // Closing speed of the opponent along the line (positive = coming at me).
@@ -259,6 +317,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   let aggression = 1;
   if (inRange && !opp.block) aggression *= cfg.aiAggressionMult;
   if (opp.stamina < cfg.lowStamina) aggression *= cfg.aiAggressionMult;
+  if (oppStumbling) aggression *= cfg.aiAggressionMult;   // the follow-up: a stumbling opponent is pressed (2026-09-22)
   a.aggression = aggression;
   a.attackTimer = Math.max(0, a.attackTimer - dt * aggression);
   if (a.attackTimer === 0 && a.armed === null) {

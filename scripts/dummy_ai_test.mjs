@@ -19,7 +19,8 @@ const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // the footwork modes sit on top of; §6 covers the modes with the defaults.
 const defaults = { ...createConfig(), healthDamagePerImpulse: 0 };
 // …and no reaction lag, rush response, chase delay or bursts either (§7 covers those).
-const base = { ...defaults, aiProbeWeight: 0, aiCircleWeight: 0, aiHoldWeight: 0, aiResetChance: 0, aiHitResetChance: 0, aiReactionTime: 0, aiPressureSpeed: 999, aiChaseDelay: 0, aiComboChance: 0 };
+// …nor the hit-state reads (§8): the stumble multiplier would otherwise stack onto §4's aggression numbers.
+const base = { ...defaults, aiProbeWeight: 0, aiCircleWeight: 0, aiHoldWeight: 0, aiResetChance: 0, aiHitResetChance: 0, aiReactionTime: 0, aiPressureSpeed: 999, aiChaseDelay: 0, aiComboChance: 0, aiCounterChance: 0, aiCoverChance: 0, aiStumbleSpeed: 999 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
@@ -383,6 +384,130 @@ console.log('\n=== 7. Reaction time, rush, retreat, bursts ===');
   const spar = seed => { const x = fresh(defaults, seed); run(x, ticks(15), i => inp({ jab: i % 120 === 0, move: { x: 0, y: i % 300 < 60 ? 1 : i % 300 < 120 ? -1 : 0 } })); return x; };
   const a = spar(11), b = spar(11);
   check('reaction, rush and bursts are seeded: same seed → identical', JSON.stringify(a.a) === JSON.stringify(b.a) && JSON.stringify(a.throws) === JSON.stringify(b.throws));
+}
+
+// ─── 8. Reading the hit states (2026-09-22): counter, cover, follow-up ───────
+console.log('\n=== 8. Counter, cover, follow-up ===');
+// §1–7 run with the reads off, so nothing above changes; here they are on one at a time.
+const quiet = base;
+// Straights from 0.75 m are often absorbed by the other's resting guard glove
+// on the cheek (a plain block, no interrupt), so these run at 0.85 m, where a
+// jab still lands (to 0.97) and a hook is let off the leash with a wider gate.
+{
+  // The counter: pinned, never arming by itself. The player, 0.85 m off,
+  // throws an uppercut that whiffs (reach 0.65) and hangs exposed through its
+  // stretched recovery; the AI's jab reaches 0.97 m.
+  const counterRun = (chance, rt) => {
+    const cfg = { ...quiet, aiCounterChance: chance, aiReactionTime: rt, aiSpeedScale: 0, aiAttackDelayMin: 999, aiAttackDelayMax: 999, aiBlockChance: 0 };
+    const w = fresh(cfg);
+    w.s.fighters[0].pos = { x: -0.425, z: 0 }; w.s.fighters[1].pos = { x: 0.425, z: 0 };
+    run(w, ticks(0.5));
+    w.a = { ...w.a, attackTimer: 999, armed: null };
+    w.evs.length = 0;
+    let openedAt = -1;
+    // (sim ticks throughout, as the events are tagged)
+    run(w, ticks(1.5), i => inp({ uppercut: i === 0 }), x => { if (openedAt < 0 && you(x).vuln >= cfg.aiCounterVuln) openedAt = x.s.tick; });
+    const whiff = w.evs.find(e => e.type === 'punchWhiff' && e.side === 0);
+    const start = w.evs.find(e => e.type === 'punchStart' && e.side === 1);
+    const land = w.evs.find(e => e.type === 'punchLand' && e.side === 1);
+    return { whiff, start, land, openedAt, counters: w.a.counterCount };
+  };
+  const c = counterRun(1, 0);
+  check('the player\'s uppercut whiffs from 0.85 m and leaves them exposed', c.whiff && c.openedAt >= 0, `whiff=${!!c.whiff}, opened @${c.openedAt}`);
+  check('aiCounterChance 1, no reaction lag: it fires the tick after the opening appears', c.start && c.start.tick === c.openedAt + 1, `opening @${c.openedAt}, punchStart @${c.start?.tick}, counters ${c.counters}`);
+  check('…a straight that lands as a COUNTER (the target was still exposed)', c.land && c.land.counter === true, `land ${JSON.stringify(c.land && { punch: c.land.punch, counter: c.land.counter })}`);
+  const slow = counterRun(1, 0.2);
+  check('aiReactionTime 0.2: the counter comes ~12 ticks after the opening, not the tick after', slow.start && slow.start.tick - slow.openedAt >= 12 && slow.start.tick - slow.openedAt <= 15, `${slow.start ? slow.start.tick - slow.openedAt : '-'} ticks`);
+  const never = counterRun(0, 0);
+  check('aiCounterChance 0: nothing is thrown at the opening', !never.start && never.counters === 0);
+  // A fast jab's exposure is over before a human reaction: no counter is armed off it.
+  {
+    const cfg = { ...quiet, aiCounterChance: 1, aiReactionTime: 0.2, aiSpeedScale: 0, aiAttackDelayMin: 999, aiAttackDelayMax: 999, aiBlockChance: 0 };
+    const w = fresh(cfg);
+    w.s.fighters[0].pos = { x: -0.5, z: 0 }; w.s.fighters[1].pos = { x: 0.5, z: 0 };   // 1.0 m: the player's jab whiffs, cheaply
+    run(w, ticks(0.5));
+    w.a = { ...w.a, attackTimer: 999, armed: null };
+    w.evs.length = 0;
+    run(w, ticks(1.0), i => inp({ jab: i === 0 }));
+    check('a whiffed JAB\'s exposure is gone before a 0.2 s reaction lands: no counter armed', w.a.counterCount === 0 && !w.evs.some(e => e.type === 'punchStart' && e.side === 1), `counters ${w.a.counterCount}`);
+  }
+}
+{
+  // The cover after a stuff: the AI, hook-only, throws from 0.75 m; the player
+  // jabs into its wind-up (the sim stuffs it), and with aiCoverChance 1 the
+  // guard comes up as soon as the rewound arm is home, the armed burst dropped.
+  const coverRun = chance => {
+    const cfg = { ...quiet, aiCoverChance: chance, aiSpeedScale: 0, aiBlockChance: 0, aiJabWeight: 0, aiCrossWeight: 0, aiHookWeight: 1, aiUppercutWeight: 0, aiHookEngageDist: 0.95, aiAttackDelayMin: 999, aiAttackDelayMax: 999, aiComboChance: 1, aiComboMax: 3, aiReactionTime: 0 };
+    const w = fresh(cfg);
+    w.s.fighters[0].pos = { x: -0.425, z: 0 }; w.s.fighters[1].pos = { x: 0.425, z: 0 };
+    run(w, ticks(0.5));
+    w.a = { ...w.a, attackTimer: 0.05, armed: null };   // the hook starts AFTER the settle, so the jab meets its wind-up
+    w.evs.length = 0;
+    let jabbed = false, stuffTick = -1, blockTick = -1, clearTick = -1;
+    run(w, ticks(2), (i) => { const go = !jabbed && me(w).punch.type === 'hook' && me(w).punch.progress > 0.05; if (go) jabbed = true; return inp({ jab: go }); },
+      (x, i) => {
+        if (stuffTick < 0 && x.evs.some(e => e.type === 'punchStuffed' && e.side === 1)) stuffTick = i;
+        if (stuffTick >= 0 && clearTick < 0 && me(x).punch.type === null) clearTick = i;
+        if (stuffTick >= 0 && blockTick < 0 && me(x).block) blockTick = i;
+      });
+    const outcome = w.evs.filter(e => e.side === 0 && e.type !== 'punchStart' && e.type !== 'hurt').map(e => `${e.type}@${e.tick}`).join(',');
+    return { stuffTick, clearTick, blockTick, armed: w.a.armed, burst: w.a.burst, outcome, throwsAfter: w.evs.filter(e => e.type === 'punchStart' && e.side === 1 && e.tick > (stuffTick >= 0 ? w.evs.find(e2 => e2.type === 'punchStuffed').tick : 1e9)).length };
+  };
+  const cov = coverRun(1);
+  check('the player\'s jab stuffs the AI\'s hook (punchStuffed on side 1)', cov.stuffTick >= 0, `stuff @${cov.stuffTick}; the jab: ${cov.outcome}`);
+  check('aiCoverChance 1: the guard is up the tick after the rewound arm is home', cov.blockTick >= 0 && cov.blockTick === cov.clearTick + 1, `stuffed @${cov.stuffTick}, home @${cov.clearTick}, guard @${cov.blockTick}`);
+  check('…and the burst it was in is dropped (nothing thrown for the cover)', cov.burst === 0 && cov.throwsAfter === 0, `burst ${cov.burst}, thrown after ${cov.throwsAfter}`);
+  const no = coverRun(0);
+  check('aiCoverChance 0: stuffed, but no cover', no.stuffTick >= 0 && no.blockTick < 0, `guard @${no.blockTick}`);
+}
+{
+  // The follow-up: the AI lands a cross on the idle player and, with the
+  // stumble read on, its aggression jumps to mult² (unguarded × stumbling)
+  // on the tick after; with it off it stays at mult.
+  const followRun = stumbleSpeed => {
+    const cfg = { ...quiet, aiStumbleSpeed: stumbleSpeed, aiSpeedScale: 0, aiBlockChance: 0, aiJabWeight: 0, aiCrossWeight: 1, aiHookWeight: 0, aiUppercutWeight: 0, aiAttackDelayMin: 999, aiAttackDelayMax: 999, aiComboChance: 0 };
+    const w = fresh(cfg);
+    w.s.fighters[0].pos = { x: -0.425, z: 0 }; w.s.fighters[1].pos = { x: 0.425, z: 0 };
+    run(w, ticks(0.5));
+    w.a = { ...w.a, attackTimer: 0, armed: 'cross' };
+    w.evs.length = 0;
+    let peak = 0, landTick = -1, stumbleSpeedSeen = 0;
+    run(w, ticks(1.0), () => NONE, (x, i) => {
+      if (landTick < 0 && x.evs.some(e => e.type === 'punchLand' && e.side === 1)) landTick = i;
+      if (landTick >= 0) { peak = Math.max(peak, x.a.aggression); stumbleSpeedSeen = Math.max(stumbleSpeedSeen, Math.hypot(you(x).stagger.x, you(x).stagger.z)); }
+    });
+    return { peak, landTick, stumbleSpeedSeen };
+  };
+  const on = followRun(defaults.aiStumbleSpeed), off = followRun(999);
+  check(`its cross lands and the player stumbles at up to ${on.stumbleSpeedSeen.toFixed(2)} m/s (threshold ${defaults.aiStumbleSpeed})`, on.landTick >= 0 && on.stumbleSpeedSeen > defaults.aiStumbleSpeed);
+  check('stumble read on: aggression reaches mult² (unguarded × stumbling) after the land', near(on.peak, base.aiAggressionMult ** 2, 1e-9), `${on.peak.toFixed(2)}`);
+  check('stumble read off: it stays at mult', near(off.peak, base.aiAggressionMult, 1e-9), `${off.peak.toFixed(2)}`);
+  // Its own stumble: hit by a cross, it throws nothing until its feet are
+  // back — then walks back into range (the stumble carried it out) and fires the jab it had armed.
+  {
+    const cfg = { ...quiet, aiStumbleSpeed: defaults.aiStumbleSpeed, aiBlockChance: 0, aiAttackDelayMin: 999, aiAttackDelayMax: 999 };
+    const w = fresh(cfg);
+    w.s.fighters[0].pos = { x: -0.425, z: 0 }; w.s.fighters[1].pos = { x: 0.425, z: 0 };
+    run(w, ticks(0.5));
+    w.evs.length = 0;
+    let landTick = -1, threwWhileStumbling = false, stumbledTicks = 0, threwAfter = false;
+    run(w, ticks(1.5), i => inp({ cross: i === 0 }), (x, i) => {
+      if (landTick < 0 && x.evs.some(e => e.type === 'punchLand' && e.side === 0)) { landTick = i; x.a = { ...x.a, attackTimer: 0, armed: 'jab' }; }
+      if (landTick >= 0) {
+        const stumbling = Math.hypot(me(x).stagger.x, me(x).stagger.z) > cfg.aiStumbleSpeed;
+        if (stumbling) { stumbledTicks++; if (x.last.jab) threwWhileStumbling = true; }
+        else if (x.last.jab) threwAfter = true;
+      }
+    });
+    check(`hit by a cross it throws nothing through its ${stumbledTicks} stumbling ticks, then fires the jab it had armed`, landTick >= 0 && stumbledTicks > 0 && !threwWhileStumbling && threwAfter, `stumbled ${stumbledTicks}, threw during=${threwWhileStumbling}, after=${threwAfter}`);
+  }
+}
+{
+  // Determinism with the reads on.
+  const spar = seed => { const x = fresh(defaults, seed); run(x, ticks(15), i => inp({ jab: i % 120 === 0, hook: i % 200 === 50, move: { x: 0, y: i % 300 < 60 ? 1 : i % 300 < 120 ? -1 : 0 } })); return x; };
+  const a = spar(23), b = spar(23);
+  check('counter, cover and follow-up are seeded: same seed → identical', JSON.stringify(a.a) === JSON.stringify(b.a) && JSON.stringify(a.throws) === JSON.stringify(b.throws));
+  console.log(`     15 s spar with everything on: ${a.throws.length} throws, ${a.a.counterCount} counters armed`);
 }
 
 done();
