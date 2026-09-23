@@ -131,7 +131,7 @@ step(state: SimState, inputs: [FrameInput, FrameInput], config: Config): { state
 `step` must not mutate its input — return a new state (structural sharing is fine).
 
 `SimEvent` is a discriminated union: `punchStart`, `punchLand`, `punchBlock`,
-`perfectBlock`, `punchWhiff`, `slip`, `counter`, `knockdown`, `getUp`, `roundStart`,
+`perfectBlock`, `punchWhiff`, `punchStuffed`, `slip`, `counter`, `knockdown`, `getUp`, `roundStart`,
 `roundEnd`, `bell`, `ko`, `tko`, `decision`. RENDER, AUDIO, and UI subscribe to events;
 they never poll sim internals for "did something just happen."
 
@@ -404,3 +404,13 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   half), so a punch reaches further and the head is out over the front knee; the hit
   test is swept along the extension. **Health regenerates** to a per-round cap that
   each hit lowers (`healthRegen`, `healthCapLoss`; the cap lives in `moveHist`).
+- 2026-09-22 — **The interrupt.** A clean (unblocked) land on a fighter whose own
+  punch has not reached its hit test breaks that punch. At or before
+  `interruptStuffBefore` of its flight it is STUFFED: a new `punchStuffed` event
+  (`side` = whose punch, `by` = who landed), the punch never resolves, its clock runs
+  backwards at `interruptRewindRate` so every pose retraces (no jump), and neither a
+  punch nor the guard can start until it is home (`phase` is never `recover`, so
+  `canStartPunch` stays false). Later in the flight it still arrives, minus up to
+  `interruptPowerLoss` of its impulse, fading to none at the arrival; a same-tick
+  trade lands clean both ways. Nate's ask ("punching them mid wind-up should break
+  their punch momentum"). `scripts/interrupt_test.mjs`.

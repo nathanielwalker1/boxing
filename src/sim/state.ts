@@ -31,6 +31,8 @@
  *   moveHist[22..24] the same for the rear arm
  *   moveHist[25] lead glove's target was clipped by the other's head/body this tick (the punch was going to arrive)
  *   moveHist[26] the same for the rear glove
+ *   moveHist[27] 1 while the punch in flight is STUFFED: it was hit mid-flight and is rewinding home (combat.ts)
+ *   moveHist[28] impulse multiplier of the punch in flight (<1 = it was hit late in its flight and lands weakened)
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
@@ -60,6 +62,13 @@ export function setTouchedBlock(f: FighterState, hand: number, on: boolean): voi
 const HIST_TARGET_CUT = 25;   // + hand: 1 if the other's head/body clipped this glove's target this tick (the punch was going to arrive)
 export function targetCut(f: FighterState, hand: number): boolean { return (f.moveHist[HIST_TARGET_CUT + hand] ?? 0) !== 0; }
 export function setTargetCut(f: FighterState, hand: number, on: boolean): void { f.moveHist[HIST_TARGET_CUT + hand] = on ? 1 : 0; }
+
+const HIST_STUFFED = 27;      // 1 while the punch in flight is rewinding after a hit broke it
+const HIST_BROKEN_MULT = 28;  // impulse multiplier of the punch in flight (a hit late in the flight bleeds it)
+export function stuffed(f: FighterState): boolean { return (f.moveHist[HIST_STUFFED] ?? 0) !== 0; }
+export function setStuffed(f: FighterState, on: boolean): void { f.moveHist[HIST_STUFFED] = on ? 1 : 0; }
+export function brokenMult(f: FighterState): number { const v = f.moveHist[HIST_BROKEN_MULT]; return v === undefined ? 1 : v; }
+export function setBrokenMult(f: FighterState, m: number): void { f.moveHist[HIST_BROKEN_MULT] = m; }
 
 const HIST_ARM_POSE = 19;   // + hand × 3: level, back, flare (the elbow pole lags, sim/arms.ts)
 export function armPose(f: FighterState, hand: number): { level: number; back: number; flare: number } {
@@ -116,7 +125,7 @@ export function getUpAt(f: FighterState): number { return f.moveHist[HIST_GET_UP
 export function setGetUpAt(f: FighterState, t: number): void { f.moveHist[HIST_GET_UP_AT] = t; }
 
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]; }
 /** The ceiling health regenerates toward this round (Fight Night's recoverable health); every hit lowers it. */
 export function healthCap(f: FighterState): number { const v = f.moveHist[HIST_HEALTH_CAP]; return v === undefined ? 1 : v; }
 export function setHealthCap(f: FighterState, c: number): void { f.moveHist[HIST_HEALTH_CAP] = c; }

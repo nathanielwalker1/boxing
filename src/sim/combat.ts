@@ -6,7 +6,7 @@
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, cockMult, prevPunchMask, punchBuffer, punchMask, setCockMult, setPrevPunchMask, setPunchBuffer, setWhiffMult, targetCut, touchedBlock, whiffMult } from './state';
+import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, brokenMult, cockMult, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult } from './state';
 import { applyReaction } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -47,6 +47,8 @@ function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number,
   const chained = f.punch.type !== null;
   setCockMult(f, (f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1) * (chained ? cfg.comboCockScale : 1));
   setWhiffMult(f, 1);
+  setStuffed(f, false);
+  setBrokenMult(f, 1);
   f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost);
   f.punch = { type, hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
   // The step-in (2026-09-16): a straight thrown with the stick pushed forward
@@ -135,9 +137,21 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   // the phase table itself is untouched, so every pose still reads off
   // `progress`, and the exposure curve stretches with the recovery for free.
   const was = p.progress * ph.total;
-  const rate = was < ph.cock - PHASE_EPS ? 1 / cockMult(f) : was >= ph.cock + ph.extend - PHASE_EPS ? 1 / whiffMult(f) : 1;
-  const elapsed = Math.min(ph.total, was + dt * rate);
+  // A STUFFED punch (hit clean mid-flight, see interruptPunch) runs its clock
+  // BACKWARDS: every pose — fist, twist, lean, crouch — reads off progress,
+  // so the arm retraces its path and the body unwinds through its load with
+  // no jump anywhere; the jolt of the hit rides on top through the reaction
+  // springs. It reaches home when the clock reaches 0. Nothing chains off it
+  // and the guard waits (phase is never 'recover'): the momentum is gone.
+  const rate = stuffed(f) ? -cfg.interruptRewindRate
+    : was < ph.cock - PHASE_EPS ? 1 / cockMult(f) : was >= ph.cock + ph.extend - PHASE_EPS ? 1 / whiffMult(f) : 1;
+  const elapsed = clamp(was + dt * rate, 0, ph.total);
   p.progress = elapsed / ph.total;
+  if (stuffed(f) && elapsed <= 0) {
+    f.punch = { type: null, hand: p.hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null };
+    f.lean.fwd = 0; f.lean.lat = 0; f.torsoTwist = 0; f.crouch = 0;
+    return false;
+  }
   // Phase boundaries with a float epsilon: twelve ticks of 1/60 sum to a hair
   // under 0.2, and a phase that ends exactly on a tick must end ON that tick,
   // not one later (the whiff stretch and the hit test both key off it).
@@ -174,6 +188,36 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
 }
 
 /**
+ * The interrupt (2026-09-22, Nate: "when you punch the opponent mid wind-up,
+ * that should break their punch momentum"). `d` has just been hit CLEAN by
+ * `by`. If `d`'s own punch is still in flight (not yet at its hit test), the
+ * hit breaks it, by how far along it was:
+ *   - at or before interruptStuffBefore of the flight → STUFFED: the punch
+ *     never resolves, its clock runs backwards (advancePunch) so the fist and
+ *     body come home the way they went, and nothing can start until it has.
+ *   - later → it still arrives, but bleeds interruptPowerLoss of its impulse
+ *     at the stuff line, fading to none at the arrival. A same-tick trade
+ *     lands clean both ways (side 0 resolves first; its own punch has already
+ *     resolved by the time side 1's lands, so it cannot be weakened — the one
+ *     asymmetry, only on an exact-tick tie).
+ * A punch in its hold or recovery has already happened: untouched.
+ */
+function interruptPunch(d: FighterState, target: Side, by: Side, cfg: Config, events: SimEvent[]): void {
+  const p = d.punch;
+  if (p.type === null || p.resolved || stuffed(d)) return;
+  const ph = PUNCHES[p.type].phases(cfg);
+  const u = clamp(p.progress / Math.max(1e-6, ph.peakAt), 0, 1);   // how far through the flight (0 = just pressed, 1 = arriving)
+  if (u <= cfg.interruptStuffBefore) {
+    setStuffed(d, true);
+    events.push({ type: 'punchStuffed', side: target, by, punch: p.type });
+    return;
+  }
+  const span = Math.max(1e-6, 1 - cfg.interruptStuffBefore);
+  const loss = cfg.interruptPowerLoss * clamp((1 - u) / span, 0, 1);
+  setBrokenMult(d, Math.min(brokenMult(d), 1 - loss));
+}
+
+/**
  * The hit test, run once at the resolve moment against the defender's
  * current boxes. Outcomes: beyond rangeMax = whiff; otherwise the attacking
  * glove sphere against head then body — a miss is a whiff, a hit is a land
@@ -188,6 +232,9 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const target: Side = side === 0 ? 1 : 0;
   const a = s.fighters[side], d = s.fighters[target];
   if (d.down) return;
+  // Reached its hit-test tick and was stuffed on that same tick by the other
+  // side's resolve (side 0 resolves first): it is already rewinding.
+  if (stuffed(a)) return;
 
   const dist = v2dist(a.pos, d.pos);
   // A miss is paid for in the recovery: the arm comes back whiffRecoveryMult
@@ -294,6 +341,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   mag = Math.max(cfg.punchImpulseBase * cfg.punchImpulseFloor, mag);
   mag *= 1 + a.lean.fwd * cfg.punchLeanScale;
   mag *= def.impulseMult(cfg);
+  // A punch hit late in its own flight arrives with less behind it (interruptPunch).
+  mag *= brokenMult(a);
   // Context (2026-09-16): a defender moving AWAY along the impulse rolls with
   // it — less impulse — but stumbles further for it (below).
   const retreat = cfg.moveSpeed > 1e-6 ? clamp(((d.vel.x + d.stagger.x) * dirX + (d.vel.z + d.stagger.z) * dirZ) / cfg.moveSpeed, 0, 1) : 0;
@@ -348,6 +397,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   }
   events.push({ type: 'hurt', side: target, part, impulse });
   if (counter && !blocked) events.push({ type: 'counter', side, target, punch: type });
+  if (!blocked) interruptPunch(d, target, side, cfg, events);
 
   const stumble = 1 + retreat * cfg.punchRetreatStumble;   // hit while backing off: the feet go
   d.stagger.x += impulse.x / d.body.massKg * stumble;

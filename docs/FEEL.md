@@ -150,6 +150,19 @@ pull, dip), not the drawing.
 - `reactionHipFollow` 0.45: a hit bends the body back from the waist (the rig's
   `rigTorsoBend` draws the chest along the capsule).
 - `staggerDecay` 8: the stumble is long enough that the feet step to catch it.
+- **The interrupt** (2026-09-22, Nate: "when you punch the opponent mid
+  wind-up, that should break their punch momentum"; principle 2 — a punch is
+  a committed load-and-drive, and a clean hit into the load takes it away).
+  A clean land on a fighter still in their flight: at or before
+  `interruptStuffBefore` 0.7 of it the punch is STUFFED — the clock runs
+  backwards at `interruptRewindRate` 1.6, so the fist and the whole body
+  retrace their path (measured: 12 cm/tick home vs 7 out, no jump in lean or
+  twist), nothing chains off it and the guard waits until the arm is home
+  (~5 ticks for a hook caught half-way). Later in the flight the punch
+  still lands minus up to `interruptPowerLoss` 0.5 of its impulse, fading to
+  none at the arrival (a jab into a cross at 0.83 of its flight took 28%
+  off). A same-tick trade lands clean both ways. `punchStuffed` event; no
+  audio/flash consumer yet. `scripts/interrupt_test.mjs`.
 - Audio is synthesized (no files): sharp / heavy / body / blocked / counter
   sting / whiff / knockdown / bell. Camera punch-in and `camShake` per hit.
 - Camera (2026-09-17, Fight Night Champion): `camFollow` 1 orbits on the
@@ -267,6 +280,11 @@ pull, dip), not the drawing.
   in." → shoulder balls on the arm roots; the chest's double torso offset
   fixed; the impact pose; a coherent body; the legs give; slip legs. NOT
   yet feel-tested.
+- 2026-09-22 (no feel-test possible; Nate's direction: better punch
+  animation, combos that land, realism, movement/slips as the competitive
+  edge, and "punching them mid wind-up should break their punch momentum")
+  → the interrupt (sim + test only; nothing new drawn or heard). NOT yet
+  feel-tested.
 
 ## Open
 
