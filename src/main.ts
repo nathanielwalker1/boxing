@@ -18,6 +18,7 @@ import { FpsOverlay } from './ui/fps';
 import { Hud } from './ui/hud';
 import { InputManager, wantsTouch } from './ui/input';
 import { CombatAudio } from './ui/audio';
+import { ReadOverlay } from './ui/read';
 
 declare global {
   interface Window {
@@ -28,6 +29,10 @@ declare global {
       /** Override one side's input until cleared with null (tests). */
       input: (side: Side, input: FrameInput | null) => void;
       reset: (seed?: number) => void;
+      /** Fighters `dist` m apart, facing, settled (tests). */
+      place: (dist: number) => void;
+      /** Tick-exact input for one side: `inputs[i]` (merged over NULL_INPUT) is fed on the i-th sim tick from now, then the side goes back to its live/AI input (tests). */
+      script: (side: Side, inputs: readonly Partial<FrameInput>[]) => void;
     };
     /** The side-1 AI's state (tests). Stale while side 1 is overridden or aiEnabled is off. */
     __ai: { state: () => AiState };
@@ -72,6 +77,7 @@ const views = [
   createFighterView(1, specs[1], cfg, stage.scene),
 ] as const;
 const hud = new Hud(document.body, [specs[0].name, specs[1].name]);
+const read = new ReadOverlay(document.body, cfg, bus);   // the slip / counter read (flash, window glow, tag)
 
 // Inputs: side 0 is the player (InputManager → liveInput[0] each frame), side 1
 // is the AI (aiStep each sim tick; the frozen-guard dummy when aiEnabled is off).
@@ -85,7 +91,26 @@ window.__sim = {
   state: () => next,
   input: (side, input) => { overrideInput[side] = input ? cloneInput(input) : null; },
   reset: (s = 1) => { prev = next = createState([specs[0], specs[1]], cfg, s); ai = createAi(1, s, cfg); },
+  place: (dist) => {
+    // Tests: put the fighters `dist` apart on the x axis, facing, gloves settled (a fresh, seeded state).
+    let s = createState([specs[0], specs[1]], cfg, next.seed);
+    s.fighters[0].pos = { x: -dist / 2, z: 0 }; s.fighters[1].pos = { x: dist / 2, z: 0 };
+    const idle = cloneInput(NULL_INPUT);
+    for (let i = 0; i < 30; i++) s = step(s, [idle, idle], cfg).state;
+    prev = next = s;
+    ai = createAi(1, s.seed, cfg);
+  },
+  script: (side, inputs) => { scriptInput[side] = inputs.map(i => ({ ...cloneInput(NULL_INPUT), ...i })); },
 };
+const scriptInput: [FrameInput[] | null, FrameInput[] | null] = [null, null];
+/** The next scripted tick for `side`, or null once the script is spent. */
+function takeScript(side: Side): FrameInput | null {
+  const q = scriptInput[side];
+  if (!q) return null;
+  const i = q.shift() ?? null;
+  if (q.length === 0) scriptInput[side] = null;
+  return i;
+}
 window.__ai = { state: () => ai };
 
 // Pose override (pose grid): while any side is posed the sim is paused and the
@@ -159,12 +184,12 @@ function loop(nowMs: number): void {
   if (!paused) {
     acc += dt;
     while (acc >= SIM_DT) {
-      let side1 = overrideInput[1];
+      let side1 = takeScript(1) ?? overrideInput[1];
       if (side1 === null) {
         if (cfg.aiEnabled) { const d = aiStep(ai, next, cfg); ai = d.ai; side1 = d.input; }
         else side1 = liveInput[1];
       }
-      const inputs: [FrameInput, FrameInput] = [overrideInput[0] ?? liveInput[0], side1];
+      const inputs: [FrameInput, FrameInput] = [takeScript(0) ?? overrideInput[0] ?? liveInput[0], side1];
       const r = step(next, inputs, cfg);
       prev = next;
       next = r.state;
@@ -201,6 +226,7 @@ function loop(nowMs: number): void {
 
   hud.visible = !paused;
   hud.update(next);
+  read.update(next, dt);
   fps.visible = cfg.debugFps;
   const info = stage.info;
   fps.tick(info.calls, info.triangles);

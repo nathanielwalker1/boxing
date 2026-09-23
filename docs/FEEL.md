@@ -206,6 +206,22 @@ pull, dip), not the drawing.
   bright), and the thrower lunges `slipOverreach` 0.18 m past your ear off
   balance into the counter window. Nothing drawn — Fight Night's beat.
   First cut (0.05 s + sound only) was "still unnoticeable".
+- THE READ, drawn (2026-09-22, `src/ui/read.ts`, config group `read`; Nate:
+  "I still can't tell if I slipped a punch successfully"). Researched
+  first: Fight Night Champion marks the window with a whiff-then-FREEZE
+  and flashes the screen white when the counter lands — its "simulation"
+  presentation setting exists to turn exactly those two off; Round 4 gave a
+  landed counter a yellow glow and a dazed state; Undisputed flashes white
+  on every counter. Ours: the freeze `slipDodgeHitStop` 0.12 (was 0.08), a
+  white wash `readSlipFlash` 0.35 + a SLIPPED tag + a bright ping
+  (`counterOpen`) the instant the slip takes the punch away, an amber edge
+  glow at the opponent's `counterWindow` remaining fraction (the clock you
+  can see, fades as it closes), and on the counter landing the bigger wash
+  `readCounterFlash` 0.7 + COUNTER! on top of the sting and hit-stop. A
+  perfect block gets the same open. DOM layers, hidden when idle.
+  `scripts/read_check.mjs` scripts a real slip + counter (`__sim.script`)
+  and screenshots the window. Not done: Fight Night's dazed state on the
+  countered fighter (a mechanic — ask), a red wash when the AI counters you.
 
 **AI** (`src/ai/index.ts`)
 - Footwork modes on a seeded timer: press / probe (1.05 m) / circle / hold /
@@ -304,6 +320,11 @@ pull, dip), not the drawing.
   rad) and the AI reading the hit states (counter / cover / follow-up).
   All sim-side, all NOT yet feel-tested. If the AI now feels unfair, turn
   `aiCounterChance` down first, then `aiCoverChance`.
+- 2026-09-22, later: "improve the slip time window for counters, I still
+  can't tell if I slipped successfully… see how Fight Night does it" →
+  research, then the read drawn (wash + window glow + tags + ping, freeze
+  0.12). The window's mechanics (0.7 s at full exposure, 1.9× counter) are
+  untouched. NOT yet feel-tested.
 
 ## Open
 

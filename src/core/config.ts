@@ -245,7 +245,7 @@ export const SCHEMA = {
   perfectBlockPunishVuln: num(0.85, 0, 1, 0.05, 'counter', 'the attacker\'s vulnerability is pinned at (at least) this after a perfect block', 'perfectBlockPunishVulnerability'),
   perfectBlockPunishDuration: num(0.45, 0, 2, 0.05, 'counter', 'seconds that pin is held', 'perfectBlockPunishDuration'),
   perfectBlockHitStop: num(0.05, 0, 0.2, 0.005, 'counter', 'hit-stop on a perfect block, s — deliberately under a counter\'s', 'perfectBlockHitStop'),
-  slipDodgeHitStop: num(0.08, 0, 0.2, 0.005, 'counter', 'hit-stop when a punch is SLIPPED (the head was where the fist went), s — the read: a beat as the fist passes the ear, then the counter window (2026-09-18, "I can\'t tell if I\'ve slipped a punch"). Was 0.05: "still unnoticeable"'),
+  slipDodgeHitStop: num(0.12, 0, 0.3, 0.005, 'counter', 'hit-stop when a punch is SLIPPED (the head was where the fist went), s — Fight Night Champion\'s "whiff… freeze": a beat as the fist passes the ear, then the counter window (2026-09-18, "I can\'t tell if I\'ve slipped a punch"). Was 0.05: "still unnoticeable"; 0.08 → 0.12 with the on-screen read (2026-09-22)'),
   slipOverreach:    num(0.18, 0, 0.5, 0.01, 'counter', 'a slipped punch\'s thrower falls into the space: a lunge of this many metres on the stagger channel, so they go past your ear off balance and the counter window is visible, not just a number (2026-09-18). 0 = none'),
   slipPunishVuln:   num(1, 0, 1, 0.05, 'counter','the attacker\'s vulnerability is pinned at (at least) this after a punch is slipped. Higher than the perfect block\'s: a slip is a timed flick that commits the head', 'slipPunishVulnerability'),
   slipPunishDuration: num(0.7, 0, 2, 0.05, 'counter', 'seconds that pin is held — long enough to step in and counter after the slip unwinds; the number to argue with first', 'slipPunishDuration'),
@@ -408,6 +408,14 @@ export const SCHEMA = {
   aiStumbleSpeed:   num(0.6, 0, 3, 0.05, 'ai', 'stagger speed, m/s, above which a fighter counts as STUMBLING (a clean cross starts a stumble at ~3 m/s, a jab ~1.5, both decaying at staggerDecay). A stumbling opponent drains the attack timer aiAggressionMult faster (stacks with the other openings); the AI itself throws nothing while stumbling'),
   aiComboGap:       num(0.05, 0, 1, 0.01, 'ai', 'seconds before the next punch of a burst is armed (it still waits for range and the chain window)'),
 
+  // ── the read (UI, src/ui/read.ts) — Fight Night's counter presentation (2026-09-22): a flash when your slip takes a punch away, an edge glow for the counter window, a bigger flash when the counter lands ──
+  readEnabled:      bool(true, 'read', 'the on-screen read of a slip / perfect block / counter (Fight Night\'s "simulation" presentation is this off)'),
+  readSlipFlash:    num(0.35, 0, 1, 0.05, 'read', 'white-wash alpha the instant a slip (or perfect block) takes a punch away'),
+  readCounterFlash: num(0.7, 0, 1, 0.05, 'read', 'white-wash alpha when the player\'s COUNTER lands (Fight Night Champion: the screen flashes)'),
+  readFlashDecay:   num(0.16, 0.03, 0.6, 0.01, 'read', 'the wash decays with this time constant, s'),
+  readGlowAlpha:    num(0.8, 0, 1, 0.05, 'read', 'strength of the amber edge glow that marks the counter window (it fades as the window closes)'),
+  readGlowWidth:    num(90, 10, 300, 5, 'read', 'width of the edge glow at a full window, px'),
+  readTagTime:      num(0.7, 0.2, 2, 0.05, 'read', 'seconds the SLIPPED / PERFECT BLOCK / COUNTER! tag stays on screen'),
   // ── debug (UI) ──
   debugHitboxes:    bool(false, 'debug', 'draw sim hit spheres and capsules'),
   debugSkeleton:    bool(false, 'debug', 'draw rig joints and bones'),

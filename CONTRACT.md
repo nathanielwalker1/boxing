@@ -414,3 +414,6 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   `interruptPowerLoss` of its impulse, fading to none at the arrival; a same-tick
   trade lands clean both ways. Nate's ask ("punching them mid wind-up should break
   their punch momentum"). `scripts/interrupt_test.mjs`.
+- 2026-09-22 — **Test hooks** `window.__sim.place(dist)` (fighters `dist` apart,
+  settled) and `window.__sim.script(side, inputs[])` (tick-exact input for one side,
+  then back to live/AI) — so a browser check can stage a real exchange.

@@ -85,6 +85,16 @@ const RECIPES: Record<string, Recipe> = {
       { type: 'noise', gain: 0.3, attack: 0.004, decay: 0.06, filter: { type: 'highpass', freq: 2600, q: 0.8 } },
     ],
   },
+  // The window opens (2026-09-22): a short bright ping under the slip's whoosh
+  // — Fight Night's "you read it" cue; the counter sting answers it if the
+  // counter lands.
+  counterOpen: {
+    gain: 0.5,
+    layers: [
+      { type: 'tone', gain: 0.6, attack: 0.002, decay: 0.16, wave: 'sine', freq: 1320, freqEnd: 1980 },
+      { type: 'tone', gain: 0.25, attack: 0.002, decay: 0.10, wave: 'triangle', freq: 2640, freqEnd: 3300 },
+    ],
+  },
   // Knockdown — the heavy hit plus the canvas.
   knockdown: {
     gain: 0.9,
@@ -128,7 +138,8 @@ export class CombatAudio {
     bus.on('perfectBlock', () => this.play('impactBlocked', 1.3));
     bus.on('punchWhiff', () => this.play('whiff'));
     // A slipped punch: the whiff fires too (the attacker missed); this is the close pass by the ear on top.
-    bus.on('slip', e => { if (e.dodged) this.play('slipNear'); });
+    bus.on('slip', e => { if (e.dodged) { this.play('slipNear'); if (e.side === 0) this.play('counterOpen'); } });
+    bus.on('perfectBlock', e => { if (e.target === 0) this.play('counterOpen'); });
     bus.on('knockdown', () => this.play('knockdown'));
     bus.on('bell', () => this.play('bell'));
   }
