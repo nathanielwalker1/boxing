@@ -1,13 +1,14 @@
 /**
- * read_check.mjs — the slip / counter READ (src/ui/read.ts) in the real app.
- * A tick-exact script (window.__sim.script) has the dummy jab and the player
- * flick away from it, then cross into the counter window:
- *   - the slip takes the jab away → SLIPPED tag, a white wash, the amber edge
- *     glow up while the opponent's counterWindow runs
- *   - the cross lands as a counter → COUNTER! tag, the bigger wash
+ * read_check.mjs — the slip / counter READ (src/ui/read.ts + the rig's warm
+ * rim) in the real app. A tick-exact script (window.__sim.script) has the
+ * dummy jab and the player flick away from it, then cross into the window:
+ *   - the slip takes the jab away → the dummy's rim warms (glow[1] up) while
+ *     its counterWindow runs; the player's does not
+ *   - the cross lands as a counter (the only kind there is: inside a slip's window)
  *   - the glow is gone once the window closes; readEnabled 0 shows nothing
- * Screenshots (+ greyscale) of the window and of the counter flash go to
- * scripts/output/read_*.png. Console must be clean.
+ *   - nothing is drawn on the screen itself: no overlay elements exist
+ * Screenshot (+ greyscale) of the window → scripts/output/read_window.png.
+ * Console must be clean.
  */
 import { chromium } from 'playwright';
 import { mkdirSync } from 'fs';
@@ -43,40 +44,33 @@ const exchange = (crossAt) => page.evaluate(({ crossAt }) => {
 
 // ── 1. The slip and the window ───────────────────────────────────────────────
 await exchange(12);
-const slipped = await until(page, () => window.__read().tag === 'SLIPPED', undefined, { label: 'SLIPPED tag', timeout: 8000 }).then(() => true, () => false);
+const slipped = await until(page, () => window.__read().log.includes('slip0'), undefined, { label: 'the slip', timeout: 8000 }).then(() => true, () => false);
 const p1 = await probe();
 const w1 = await oppWindow();
-check('the flick takes the dummy\'s jab away: SLIPPED is popped', slipped && p1.log.includes('SLIPPED'), `log ${JSON.stringify(p1.log)}, state ${JSON.stringify(await page.evaluate(() => { const s = window.__sim.state(); return { d: Math.hypot(s.fighters[1].pos.x - s.fighters[0].pos.x, s.fighters[1].pos.z - s.fighters[0].pos.z), slip: s.fighters[0].slip, p1: s.fighters[1].punch.type }; }))}`);
-check(`the white wash is up on the slip (alpha ${p1.flash.toFixed(3)})`, p1.flash > 0.02);
-check(`the counter window is open on the opponent (${w1.toFixed(2)} s) and the edge glow reads it (${p1.glow.toFixed(2)})`, w1 > 0 && p1.glow > 0.3);
+check('the flick takes the dummy\'s jab away', slipped, `log ${JSON.stringify(p1.log)}`);
+check(`the counter window is open on the dummy (${w1.toFixed(2)} s) and ITS rim warms (glow ${p1.glow[1].toFixed(2)}), not the player's (${p1.glow[0].toFixed(2)})`, w1 > 0 && p1.glow[1] > 0.3 && p1.glow[0] === 0);
+check('nothing is drawn on the screen: no overlay elements', await page.evaluate(() => !document.getElementById('read-flash') && !document.getElementById('read-glow') && !document.getElementById('read-tag')));
 const shot1 = `${OUT}/read_window.png`;
 await page.screenshot({ path: shot1 });
 console.log(`     window → ${shot1}\n              ${await greyscaleCopy(page, shot1)}`);
 
 // ── 2. The counter ───────────────────────────────────────────────────────────
-const countered = await until(page, () => window.__read().tag === 'COUNTER!', undefined, { label: 'COUNTER! tag', timeout: 8000 }).then(() => true, () => false);
+const countered = await until(page, () => window.__read().log.includes('counter0'), undefined, { label: 'the counter', timeout: 8000 }).then(() => true, () => false);
 const p2 = await probe();
-check('the cross into the window lands as a counter: COUNTER! is popped after SLIPPED', countered && p2.log.join('>') === 'SLIPPED>COUNTER!', `log ${JSON.stringify(p2.log)}`);
-// (Asked-for alphas, not the live value: a headless frame outlasts the decay.)
-check(`the counter wash is the bigger one (asked ${p2.alphas[1]} vs the slip's ${p2.alphas[0]})`, p2.alphas.length === 2 && p2.alphas[1] > p2.alphas[0]);
-const shot2 = `${OUT}/read_counter.png`;
-await page.screenshot({ path: shot2 });
-console.log(`     counter → ${shot2}\n               ${await greyscaleCopy(page, shot2)}`);
+check('the cross into the window lands as a counter, after the slip', countered && p2.log.join('>') === 'slip0>counter0', `log ${JSON.stringify(p2.log)}`);
 
 // ── 3. The window closes ─────────────────────────────────────────────────────
-await until(page, () => window.__sim.state().fighters[1].counterWindow === 0 && window.__read().glow === 0, undefined, { label: 'window closed', timeout: 8000 });
+await until(page, () => window.__sim.state().fighters[1].counterWindow === 0 && window.__read().glow[1] === 0, undefined, { label: 'window closed', timeout: 8000 });
 const p3 = await probe();
-const hidden = await page.evaluate(() => ['read-flash', 'read-glow', 'read-tag'].map(id => getComputedStyle(document.getElementById(id)).display));
-await gameTime(page, 0.8);
-check('once the window closes the glow is 0 and every layer is display:none', p3.glow === 0 && (await page.evaluate(() => ['read-flash', 'read-glow', 'read-tag'].map(id => getComputedStyle(document.getElementById(id)).display))).every(d => d === 'none'), `${hidden.join(',')}`);
+check('once the window closes the rim is back to normal (glow 0 both sides)', p3.glow[0] === 0 && p3.glow[1] === 0);
 
 // ── 4. Off switch ────────────────────────────────────────────────────────────
 await page.evaluate(() => { window.__cfg.readEnabled = false; });
-const before = (await probe()).log.length;
 await exchange(12);
-await gameTime(page, 1.2);
+await until(page, () => window.__read().log.filter(l => l === 'slip0').length >= 2, undefined, { label: 'second slip', timeout: 8000 });
 const p4 = await probe();
-check('readEnabled 0: the same exchange pops nothing and draws nothing', p4.log.length === before && p4.flash === 0 && p4.glow === 0 && p4.tag === '', `log ${p4.log.length} vs ${before}`);
+await gameTime(page, 1.0);
+check('readEnabled 0: the same slip warms nothing', p4.glow[0] === 0 && p4.glow[1] === 0, `glow ${p4.glow.join(',')}`);
 
 const benign = t => /GPU stall due to ReadPixels/.test(t);
 const bad = logs.filter(m => (m.type === 'error' || m.type === 'pageerror' || m.type === 'warning') && !benign(m.text));

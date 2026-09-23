@@ -415,7 +415,8 @@ const quiet = base;
   const c = counterRun(1, 0);
   check('the player\'s uppercut whiffs from 0.85 m and leaves them exposed', c.whiff && c.openedAt >= 0, `whiff=${!!c.whiff}, opened @${c.openedAt}`);
   check('aiCounterChance 1, no reaction lag: it fires the tick after the opening appears', c.start && c.start.tick === c.openedAt + 1, `opening @${c.openedAt}, punchStart @${c.start?.tick}, counters ${c.counters}`);
-  check('…a straight that lands as a COUNTER (the target was still exposed)', c.land && c.land.counter === true, `land ${JSON.stringify(c.land && { punch: c.land.punch, counter: c.land.counter })}`);
+  // (It hits harder for the exposure, but it is not a COUNTER: only a landing inside a slip's window is, 2026-09-22.)
+  check('…a straight that lands on the exposed target (harder, but not flagged a counter — no slip)', c.land && c.land.counter === false, `land ${JSON.stringify(c.land && { punch: c.land.punch, counter: c.land.counter })}`);
   const slow = counterRun(1, 0.2);
   check('aiReactionTime 0.2: the counter comes ~12 ticks after the opening, not the tick after', slow.start && slow.start.tick - slow.openedAt >= 12 && slow.start.tick - slow.openedAt <= 15, `${slow.start ? slow.start.tick - slow.openedAt : '-'} ticks`);
   const never = counterRun(0, 0);

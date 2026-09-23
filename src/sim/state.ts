@@ -35,6 +35,7 @@
  *   moveHist[28] impulse multiplier of the punch in flight (<1 = it was hit late in its flight and lands weakened)
  *   moveHist[29] 1 if the punch in flight was CHAINED off another (its wind-up blends from that punch's body pose)
  *   moveHist[30..33] the body pose carried into the chain: torso twist, lean.fwd, lean.lat, crouch at the chained start
+ *   moveHist[34] what opened the punish window: 0 none, 1 a SLIP (the only source that makes a landing a COUNTER), 2 a perfect block
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
@@ -132,6 +133,11 @@ export function setPushState(f: FighterState, p: PushState): void {
 
 export function punishLevel(f: FighterState): number { return f.moveHist[HIST_PUNISH_LEVEL] ?? 0; }
 export function setPunishLevel(f: FighterState, v: number): void { f.moveHist[HIST_PUNISH_LEVEL] = v; }
+const HIST_PUNISH_SRC = 34;
+export const PUNISH_NONE = 0, PUNISH_SLIP = 1, PUNISH_BLOCK = 2;
+/** What opened the current punish window (PUNISH_NONE once it has closed). A landing is a COUNTER only inside a SLIP's window (2026-09-22). */
+export function punishSource(f: FighterState): number { return f.moveHist[HIST_PUNISH_SRC] ?? PUNISH_NONE; }
+export function setPunishSource(f: FighterState, s: number): void { f.moveHist[HIST_PUNISH_SRC] = s; }
 export function whiffMult(f: FighterState): number { return f.moveHist[HIST_WHIFF_MULT] || 1; }
 export function setWhiffMult(f: FighterState, m: number): void { f.moveHist[HIST_WHIFF_MULT] = m; }
 
@@ -139,7 +145,7 @@ export function getUpAt(f: FighterState): number { return f.moveHist[HIST_GET_UP
 export function setGetUpAt(f: FighterState, t: number): void { f.moveHist[HIST_GET_UP_AT] = t; }
 
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]; }
 /** The ceiling health regenerates toward this round (Fight Night's recoverable health); every hit lowers it. */
 export function healthCap(f: FighterState): number { const v = f.moveHist[HIST_HEALTH_CAP]; return v === undefined ? 1 : v; }
 export function setHealthCap(f: FighterState, c: number): void { f.moveHist[HIST_HEALTH_CAP] = c; }

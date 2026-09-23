@@ -77,7 +77,7 @@ const views = [
   createFighterView(1, specs[1], cfg, stage.scene),
 ] as const;
 const hud = new Hud(document.body, [specs[0].name, specs[1].name]);
-const read = new ReadOverlay(document.body, cfg, bus);   // the slip / counter read (flash, window glow, tag)
+const read = new ReadOverlay(cfg, bus, views);   // the slip's counter window, drawn on the exposed fighter's rim
 
 // Inputs: side 0 is the player (InputManager → liveInput[0] each frame), side 1
 // is the AI (aiStep each sim tick; the frozen-guard dummy when aiEnabled is off).
@@ -226,7 +226,7 @@ function loop(nowMs: number): void {
 
   hud.visible = !paused;
   hud.update(next);
-  read.update(next, dt);
+  read.update(next);
   fps.visible = cfg.debugFps;
   const info = stage.info;
   fps.tick(info.calls, info.triangles);

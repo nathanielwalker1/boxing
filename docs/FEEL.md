@@ -206,22 +206,33 @@ pull, dip), not the drawing.
   bright), and the thrower lunges `slipOverreach` 0.18 m past your ear off
   balance into the counter window. Nothing drawn — Fight Night's beat.
   First cut (0.05 s + sound only) was "still unnoticeable".
-- THE READ, drawn (2026-09-22, `src/ui/read.ts`, config group `read`; Nate:
-  "I still can't tell if I slipped a punch successfully"). Researched
-  first: Fight Night Champion marks the window with a whiff-then-FREEZE
-  and flashes the screen white when the counter lands — its "simulation"
+- THE READ (2026-09-22, `src/ui/read.ts`, config group `read`; Nate: "I
+  still can't tell if I slipped a punch successfully"). Researched first:
+  Fight Night Champion marks the window with a whiff-then-FREEZE and
+  flashes the screen white when the counter lands — its "simulation"
   presentation setting exists to turn exactly those two off; Round 4 gave a
-  landed counter a yellow glow and a dazed state; Undisputed flashes white
-  on every counter. Ours: the freeze `slipDodgeHitStop` 0.12 (was 0.08), a
-  white wash `readSlipFlash` 0.35 + a SLIPPED tag + a bright ping
-  (`counterOpen`) the instant the slip takes the punch away, an amber edge
-  glow at the opponent's `counterWindow` remaining fraction (the clock you
-  can see, fades as it closes), and on the counter landing the bigger wash
-  `readCounterFlash` 0.7 + COUNTER! on top of the sting and hit-stop. A
-  perfect block gets the same open. DOM layers, hidden when idle.
-  `scripts/read_check.mjs` scripts a real slip + counter (`__sim.script`)
-  and screenshots the window. Not done: Fight Night's dazed state on the
-  countered fighter (a mechanic — ask), a red wash when the AI counters you.
+  landed counter a yellow glow (on the fighter) and a dazed state;
+  Undisputed flashes white on every counter. FIRST CUT (screen wash +
+  SLIPPED / COUNTER! words + an amber edge glow on the frame) — verdict:
+  "remove the words, the flashing on the screen, too arcadey; the yellow
+  frame looks really ugly; Fight Night's is way more subtle." SECOND CUT,
+  nothing on the screen: the fighter a slip has left exposed catches a
+  warm rim light (`readGlowStrength` 0.5, `readGlowColor`, drawn by the
+  rig through `FighterView.highlight`, per-fighter toon material) at the
+  window's remaining fraction, so it fades as the window closes; the
+  freeze `slipDodgeHitStop` 0.12; the `counterOpen` ping under the whoosh;
+  the counter sting on the land. Both fighters (when the AI slips you, your
+  own rim warms). `scripts/read_check.mjs` scripts a real slip + counter
+  (`__sim.script`) and screenshots the window.
+- THE COUNTER RULE (same verdict: "why is it saying counter when I never
+  slipped? I should only ever have a counter if I've successfully slipped
+  a punch"): a landing is a COUNTER (flag, event, sting, extra hit-stop)
+  only inside the window a SLIP opened (`punishSource`). Hitting someone
+  mid-punch or inside a perfect block's window still hits harder for the
+  exposure (`counterImpulseBonus` on `vuln` is unchanged — punch physics)
+  but is not called a counter and gets no read. counter_test §3 pins it.
+  Not done: Fight Night's dazed state on the countered fighter (a
+  mechanic — ask).
 
 **AI** (`src/ai/index.ts`)
 - Footwork modes on a seeded timer: press / probe (1.05 m) / circle / hold /
@@ -323,8 +334,11 @@ pull, dip), not the drawing.
 - 2026-09-22, later: "improve the slip time window for counters, I still
   can't tell if I slipped successfully… see how Fight Night does it" →
   research, then the read drawn (wash + window glow + tags + ping, freeze
-  0.12). The window's mechanics (0.7 s at full exposure, 1.9× counter) are
-  untouched. NOT yet feel-tested.
+  0.12). Verdict, same night: **"nope, not it. Remove the words, the
+  flashing on the screen — too arcadey. Why is it saying counter when I
+  never slipped? The yellow frame looks really ugly; Fight Night's is way
+  more subtle."** → second cut: nothing on the screen, the exposed
+  fighter's rim warms; counters are slip-only. NOT yet feel-tested.
 
 ## Open
 

@@ -244,5 +244,7 @@ export type SimEventType = SimEvent['type'];
 export interface FighterView {
   readonly side: Side;
   apply(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]): void;
+  /** The read (2026-09-22): how strongly this fighter is marked as exposed this frame, 0..1 — UI decides, RIG draws (a warm rim). */
+  highlight(strength: number): void;
   dispose(): void;
 }

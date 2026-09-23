@@ -6,7 +6,7 @@
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, brokenMult, chainCarry, cockMult, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult } from './state';import { applyReaction } from './reaction';
+import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult } from './state';import { applyReaction } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
 import { applyPunish } from './vulnerability';
@@ -318,7 +318,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
         // The slip punish: the attacker is pinned exposed, and the counter
         // machinery does the rest. Survives the stretched recovery above —
         // the spike is a floor under the curve, on its own clock.
-        applyPunish(a, cfg.slipPunishVuln, cfg.slipPunishDuration);
+        applyPunish(a, cfg.slipPunishVuln, cfg.slipPunishDuration, PUNISH_SLIP);
       }
     }
     return;
@@ -384,12 +384,17 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   if (nlen > 1e-6) { nx /= nlen; ny /= nlen; nz /= nlen; } else { nx = -adX; ny = 0; nz = -adZ; }
   a.punch.contact = { x: centre.x + nx * r, y: centre.y + ny * r, z: centre.z + nz * r };
 
-  // Counter: the target's exposure this tick (0 while blocking, by
-  // construction) scales the ONE impulse value damage, stagger, reaction and
-  // hit-stop all read, so a counter is harder, pushes further and reacts
-  // bigger without three separate multipliers.
+  // Exposure: the target's vulnerability this tick (0 while blocking, by
+  // construction) scales the ONE impulse value damage, stagger and reaction
+  // all read, so a hit into an over-committed punch or a punish window is
+  // harder, pushes further and reacts bigger without three multipliers.
+  // A COUNTER (the flag, the event, the sting, the extra hit-stop) is only a
+  // landing inside the window a SLIP opened (Nate, 2026-09-22: "I should
+  // only ever have a counter if I've successfully slipped a punch"). Hitting
+  // someone mid-punch or after a perfect block still hits harder; it is not
+  // called a counter.
   const targetVuln = d.vuln;
-  const counter = targetVuln > 0;
+  const counter = targetVuln > 0 && d.counterWindow > 0 && punishSource(d) === PUNISH_SLIP;
   mag *= 1 + targetVuln * cfg.counterImpulseBonus;
 
   // Perfect block: a guard younger than perfectBlockWindow at the impact —
@@ -424,10 +429,10 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   d.stagger.z += impulse.z / d.body.massKg * stumble;
   applyReaction(d, type, dir, mag, cfg);
   if (perfect) {
-    applyPunish(a, cfg.perfectBlockPunishVuln, cfg.perfectBlockPunishDuration);
+    applyPunish(a, cfg.perfectBlockPunishVuln, cfg.perfectBlockPunishDuration, PUNISH_BLOCK);
     s.hitStop = Math.max(s.hitStop, cfg.perfectBlockHitStop);
   } else {
     takeHit(s, target, mag, blocked, cfg, events);
-    s.hitStop = Math.max(s.hitStop, clamp(cfg.hitStopBase * power, 0, cfg.hitStopMax) + targetVuln * cfg.counterHitStopBonus);
+    s.hitStop = Math.max(s.hitStop, clamp(cfg.hitStopBase * power, 0, cfg.hitStopMax) + (counter ? targetVuln * cfg.counterHitStopBonus : 0));
   }
 }

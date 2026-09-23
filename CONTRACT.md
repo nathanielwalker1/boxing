@@ -417,3 +417,9 @@ Append here, dated, when a rule is added or changed. Never edit history above si
 - 2026-09-22 — **Test hooks** `window.__sim.place(dist)` (fighters `dist` apart,
   settled) and `window.__sim.script(side, inputs[])` (tick-exact input for one side,
   then back to live/AI) — so a browser check can stage a real exchange.
+- 2026-09-22 — **A counter is slip-only.** `punchLand.counter` and the `counter`
+  event fire only for a landing inside the punish window a SLIP opened; a perfect
+  block's window and a punch's own exposure curve still scale the impulse
+  (`counterImpulseBonus`) but are not counters. Nate's call ("I should only ever have
+  a counter if I've successfully slipped a punch"). **`FighterView.highlight(strength)`**
+  added: UI decides how exposed a fighter reads (0..1), RIG draws it (a warm rim).

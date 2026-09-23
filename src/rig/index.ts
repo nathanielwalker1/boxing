@@ -24,7 +24,7 @@ import {
   type Config, type FighterSpec, type FighterState, type FighterView, type Frame, type PunchType, type Side, type SimEvent, type Vec2, type Vec3,
 } from '../core';
 import { BONE, buildRigMesh, rigGeomKey, type RigMesh } from './mesh';
-import { outlineMaterial, toonMaterial, updateMaterials } from './materials';
+import { outlineMaterial, setGlow, toonMaterial, updateMaterials } from './materials';
 import { solveTwoBone, type TwoBone } from './ik';
 import { chase1, chase3 } from './springs';
 import { Squash } from './squash';
@@ -72,8 +72,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const leadSign = handLateralSign('lead', spec.stance);
   const latSign: readonly [number, number] = [leadSign, -leadSign];   // index 0 = lead, 1 = rear
 
-  const toon = toonMaterial(cfg);
+  const toon = toonMaterial(cfg, side);   // per side: the read's warm rim is per fighter
   const hull = outlineMaterial(cfg);
+  let glowAmt = 0;   // the read: 0..1 from the UI, drawn as a warm rim (readGlowStrength × this)
   let rig: RigMesh | null = null;
   let geomKey = '';
 
@@ -607,8 +608,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       debug.update(dbgPts, DEBUG_BONES);
     }
 
-    // Materials + outline toggle (live).
+    // Materials + outline toggle (live), and this fighter's read.
     updateMaterials(c);
+    setGlow(toon, c.readEnabled ? glowAmt * c.readGlowStrength : 0, c.readGlowColor);
     r.outline.visible = c.outlines;
 
     root.updateMatrixWorld(true);
@@ -618,6 +620,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   return {
     side,
     apply,
+    highlight(strength: number): void { glowAmt = strength > 1 ? 1 : strength < 0 ? 0 : strength; },
     dispose(): void {
       if (rig) { rig.dispose(); rig = null; }
       debug.dispose();

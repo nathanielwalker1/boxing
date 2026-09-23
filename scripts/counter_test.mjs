@@ -125,6 +125,16 @@ check('control: the jab lands', L !== undefined);
   check('…and it is back the tick the guard drops', !trace[28].b0 && near(trace[28].v0, cfg.perfectBlockPunishVuln, 1e-9), `${trace[28].v0}`);
   const expire = trace.find(t => t.i > L && t.w0 === 0);
   check('the spike expires on its own clock and exposure returns to 0', expire && expire.v0 === 0 && expire.i > L + T(cfg.perfectBlockPunishDuration) - 2, `at tick ${expire?.i}`);
+  // A landing inside the perfect block's window hits harder (the exposure) but is NOT a counter: only a slip's window is (2026-09-22).
+  const pbCounter = run(fresh(MID, QUIET), 70, i => [inp({ jab: i === 0 }), inp({ block: i >= L - 1 && i < L + 2, cross: i === L + 4 })], null, QUIET);
+  const pbLand = pbCounter.evs.find(e => e.type === 'punchLand' && e.side === 1);
+  const pbCold = run(fresh(MID, QUIET), 70, i => [NONE, inp({ cross: i === L + 4 })], null, QUIET).evs.find(e => e.type === 'punchLand' && e.side === 1);
+  check('a cross into the perfect block\'s window lands harder than a cold one…', pbLand && pbCold && pbLand.power > pbCold.power * 1.3, `${pbLand?.power.toFixed(3)} vs ${pbCold?.power.toFixed(3)}`);
+  check('…but is NOT flagged a counter and fires no counter event (only a slip\'s window counts)', pbLand && pbLand.counter === false && !pbCounter.evs.some(e => e.type === 'counter'));
+  // Nor is a hit into the attacker's own exposure mid-punch.
+  const mid = run(fresh(MID, QUIET), 40, i => [inp({ hook: i === 0 }), inp({ jab: i === 0 })], null, QUIET);
+  const midLand = mid.evs.find(e => e.type === 'punchLand' && e.side === 1);
+  check('a jab into a hook\'s wind-up is not a counter either', midLand && midLand.counter === false && !mid.evs.some(e => e.type === 'counter'), `${midLand?.counter}`);
 
   // Early guard: up since before the punch, older than the window at the impact.
   const early = run(fresh(MID, QUIET), 40, i => [inp({ jab: i === 0 }), inp({ block: true })], null, QUIET);

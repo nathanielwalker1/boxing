@@ -50,29 +50,47 @@ const rimUniforms = {
   uRimColor: { value: new THREE.Color(0xffffff) },
 };
 
+// The read (2026-09-22): a second, warm rim term per fighter — the one a slip
+// has left exposed catches it, fading with the counter window. Per-material
+// uniforms (one material per fighter, same program) so it is per fighter.
 const RIM_GLSL = `
 {
   float rimF = pow( 1.0 - saturate( dot( normalize( normal ), normalize( vViewPosition ) ) ), uRimPower );
-  outgoingLight += uRimColor * ( rimF * uRimStrength );
+  outgoingLight += uRimColor * ( rimF * uRimStrength ) + uGlowColor * ( rimF * uGlow );
 }
 #include <opaque_fragment>`;
 
-let toon: THREE.MeshToonMaterial | null = null;
+interface GlowUniforms { uGlow: { value: number }; uGlowColor: { value: THREE.Color } }
+const toons = new Map<number, THREE.MeshToonMaterial>();
+const glows = new Map<THREE.MeshToonMaterial, GlowUniforms>();
 
-export function toonMaterial(cfg: Config): THREE.MeshToonMaterial {
-  if (toon) return toon;
-  toon = new THREE.MeshToonMaterial({
+/** One toon material per `key` (a fighter side): the rim is shared, the glow is its own. */
+export function toonMaterial(cfg: Config, key = 0): THREE.MeshToonMaterial {
+  const have = toons.get(key);
+  if (have) return have;
+  const toon = new THREE.MeshToonMaterial({
     color: 0xffffff,
     vertexColors: true,
     gradientMap: gradientMap(cfg.toonBands),
   });
+  const glow: GlowUniforms = { uGlow: { value: 0 }, uGlowColor: { value: new THREE.Color(0xffb070) } };
   toon.onBeforeCompile = shader => {
-    Object.assign(shader.uniforms, rimUniforms);
-    shader.fragmentShader = 'uniform float uRimStrength;\nuniform float uRimPower;\nuniform vec3 uRimColor;\n'
+    Object.assign(shader.uniforms, rimUniforms, glow);
+    shader.fragmentShader = 'uniform float uRimStrength;\nuniform float uRimPower;\nuniform vec3 uRimColor;\nuniform float uGlow;\nuniform vec3 uGlowColor;\n'
       + shader.fragmentShader.replace('#include <opaque_fragment>', RIM_GLSL);
   };
   toon.customProgramCacheKey = () => 'rigToonRim';
+  toons.set(key, toon);
+  glows.set(toon, glow);
   return toon;
+}
+
+/** Set this material's warm rim (the read) for the next draw. */
+export function setGlow(material: THREE.MeshToonMaterial, strength: number, colorHex: string): void {
+  const g = glows.get(material);
+  if (!g) return;
+  g.uGlow.value = strength;
+  if (g.uGlowColor.value.getHexString() !== colorHex.replace('#', '').toLowerCase()) g.uGlowColor.value.set(colorHex);
 }
 
 // ── Outline (inverted hull) ──────────────────────────────────────────────────
@@ -98,12 +116,10 @@ export function outlineMaterial(cfg: Config): THREE.MeshBasicMaterial {
 
 /** Push live config into the shared materials. Cheap; call once per frame per view. */
 export function updateMaterials(cfg: Config): void {
-  if (toon) {
-    rimUniforms.uRimStrength.value = cfg.rimStrength;
-    rimUniforms.uRimPower.value = cfg.rigRimPower;
-    const gm = gradientMap(cfg.toonBands);
-    if (toon.gradientMap !== gm) toon.gradientMap = gm;
-  }
+  rimUniforms.uRimStrength.value = cfg.rimStrength;
+  rimUniforms.uRimPower.value = cfg.rigRimPower;
+  const gm = gradientMap(cfg.toonBands);
+  for (const toon of toons.values()) if (toon.gradientMap !== gm) toon.gradientMap = gm;
   if (outline) {
     outlineUniforms.uOutlineWidth.value = cfg.outlineWidth;
     if (outlineColorKey !== cfg.rigOutlineColor) { outlineColorKey = cfg.rigOutlineColor; outline.color.set(cfg.rigOutlineColor); }

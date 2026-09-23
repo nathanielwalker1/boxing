@@ -86,8 +86,8 @@ const RECIPES: Record<string, Recipe> = {
     ],
   },
   // The window opens (2026-09-22): a short bright ping under the slip's whoosh
-  // — Fight Night's "you read it" cue; the counter sting answers it if the
-  // counter lands.
+  // — the "you read it" cue; the counter sting answers it if the counter
+  // lands. Only a slip opens a counter window (a perfect block does not).
   counterOpen: {
     gain: 0.5,
     layers: [
@@ -139,7 +139,6 @@ export class CombatAudio {
     bus.on('punchWhiff', () => this.play('whiff'));
     // A slipped punch: the whiff fires too (the attacker missed); this is the close pass by the ear on top.
     bus.on('slip', e => { if (e.dodged) { this.play('slipNear'); if (e.side === 0) this.play('counterOpen'); } });
-    bus.on('perfectBlock', e => { if (e.target === 0) this.play('counterOpen'); });
     bus.on('knockdown', () => this.play('knockdown'));
     bus.on('bell', () => this.play('bell'));
   }

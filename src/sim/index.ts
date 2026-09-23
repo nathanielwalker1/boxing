@@ -28,7 +28,7 @@ import { stepSlip } from './slip';
 import { stepVulnerability } from './vulnerability';
 import { cornerOf, endRound, startRound, stepBetween } from './round';
 
-export { healthCap } from './state';
+export { healthCap, PUNISH_SLIP, punishSource } from './state';
 export { canStartPunch } from './combat';
 
 const SIDES: [Side, Side] = [0, 1];
