@@ -4,10 +4,9 @@
  * timer in fighter.js, in SI.
  */
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
-import { clamp, closestOnSegment, frameOf, lerp, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
+import { clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, brokenMult, cockMult, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult } from './state';
-import { applyReaction } from './reaction';
+import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, brokenMult, chainCarry, cockMult, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult } from './state';import { applyReaction } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
 import { applyPunish } from './vulnerability';
@@ -49,6 +48,9 @@ function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number,
   setWhiffMult(f, 1);
   setStuffed(f, false);
   setBrokenMult(f, 1);
+  // The body pose the last punch leaves behind (2026-09-22): a chained
+  // wind-up blends out of it instead of snapping to zero and reloading.
+  setChainCarry(f, { on: chained, twist: f.torsoTwist, fwd: f.lean.fwd, lat: f.lean.lat, crouch: f.crouch });
   f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost);
   f.punch = { type, hand, phase: 'cock', t: 0, progress: 0, resolved: false, contact: null };
   // The step-in (2026-09-16): a straight thrown with the stick pushed forward
@@ -174,6 +176,23 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   f.lean.lat = def.sway * handLateralSign(p.hand, f.stance) * ext;
   f.torsoTwist = (p.hand === 'lead' ? 1 : -1) * handLateralSign('lead', f.stance) * def.turn * punchTwist(def, elapsed, ph);
   f.crouch = punchCrouch(def, elapsed, ph, cfg);
+  // Chained (2026-09-22): through the first comboBlend of the flight the
+  // body blends from where the last punch left it into this punch's own
+  // load and drive — the 1 was at its peak twist when the 2 was pressed;
+  // the cross turns straight through from there instead of snapping to
+  // neutral, coiling and then driving (measured: 2 direction reversals in
+  // the chained wind-up → 0). The peak pose at the hit test is untouched.
+  // A stuffed chained punch rewinds to its own start (the carry is dropped
+  // at the stuff, where the jolt of the hit covers the step).
+  const carry = chainCarry(f);
+  const blendLen = (ph.cock + ph.extend) * cfg.comboBlend;   // over the flight: the extra travel spreads over ~8 ticks, not 5, so no tick is steeper than the drive's own
+  if (carry.on && blendLen > 0 && elapsed < blendLen) {
+    const k = smoothstep(elapsed / blendLen);
+    f.torsoTwist = lerp(carry.twist, f.torsoTwist, k);
+    f.lean.fwd = lerp(carry.fwd, f.lean.fwd, k);
+    f.lean.lat = lerp(carry.lat, f.lean.lat, k);
+    f.crouch = lerp(carry.crouch, f.crouch, k);
+  }
 
   let peak = false;
   if (!p.resolved && p.progress >= ph.peakAt - PHASE_EPS / ph.total) { p.resolved = true; peak = true; }
@@ -209,6 +228,7 @@ function interruptPunch(d: FighterState, target: Side, by: Side, cfg: Config, ev
   const u = clamp(p.progress / Math.max(1e-6, ph.peakAt), 0, 1);   // how far through the flight (0 = just pressed, 1 = arriving)
   if (u <= cfg.interruptStuffBefore) {
     setStuffed(d, true);
+    setChainCarry(d, { on: false, twist: 0, fwd: 0, lat: 0, crouch: 0 });
     events.push({ type: 'punchStuffed', side: target, by, punch: p.type });
     return;
   }

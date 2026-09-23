@@ -123,6 +123,42 @@ const FAR = 1.5;
   check('off a whiff the follow-up still waits for punchChainAt', starts[1] && Math.abs(starts[1].tick - jabChainTick) <= 1, `cross @${starts[1]?.tick}, whiff chain tick ${jabChainTick}`);
 }
 
+// ── 1c. The chained body blends (2026-09-22) ───────────────────────────────
+// The 2 of a 1-2 starts the tick after the jab lands, with the jab's twist at
+// its held peak. Before, the cross's clock started at 0 and the twist snapped
+// to neutral in one tick, then coiled. Now it blends from where the jab left
+// it over comboBlend of the cross's wind-up. Measured per tick, no hit-stop.
+{
+  const trace = c => {
+    const t = [];
+    run(fresh(c), 40, i => inp({ jab: i === 0, cross: i === 3 }), c, s => t.push({ type: s.fighters[0].punch.type, phase: s.fighters[0].punch.phase, twist: s.fighters[0].torsoTwist, fwd: s.fighters[0].lean.fwd, lat: s.fighters[0].lean.lat, crouch: s.fighters[0].crouch }));
+    return t;
+  };
+  const quiet = { ...cfg, hitStopBase: 0, counterHitStopBonus: 0 };
+  const blended = trace(quiet), snapped = trace({ ...quiet, comboBlend: 0 });
+  const start = blended.findIndex(t => t.type === 'cross');
+  const step = (t, i, k) => Math.abs(t[i][k] - t[i - 1][k]);
+  const jabMax = k => Math.max(...blended.slice(1, start).map((_, i) => step(blended, i + 1, k)));
+  check('the cross starts while the jab\'s twist is still at its peak (the snap case)', start > 0 && Math.abs(snapped[start - 1].twist) > 0.3, `twist before the cross ${snapped[start - 1]?.twist.toFixed(3)} @${start}`);
+  check(`comboBlend 0: the twist snaps at the cross start (${step(snapped, start, 'twist').toFixed(3)} rad in one tick)`, step(snapped, start, 'twist') > 0.25);
+  check(`comboBlend 1: the twist at the cross start moves no more than the jab's own biggest tick (${step(blended, start, 'twist').toFixed(3)} vs ${jabMax('twist').toFixed(3)} rad)`, step(blended, start, 'twist') <= jabMax('twist') + 1e-9);
+  const maxOver = (t, k, from, to) => Math.max(...t.slice(from, to).map((_, i) => step(t, from + i, k)));
+  const cockEnd = blended.findIndex((t, i) => i > start && t.phase !== 'cock');
+  // The chained cross's own drive turns ~1.15 rad in ~5 ticks, so the per-tick
+  // rate inside the wind-up is the drive's, blended or not: the blend must add
+  // no jump to it, and must remove the POP — the jab's twist unwinding to
+  // neutral and re-coiling before the drive, a direction reversal.
+  const reversals = (t, k, from, to) => { let n = 0, prev = 0; for (let i = from; i < to; i++) { const d = t[i][k] - t[i - 1][k]; if (Math.abs(d) < 1e-6) continue; if (prev !== 0 && Math.sign(d) !== Math.sign(prev)) n++; prev = d; } return n; };
+  // (It travels ~0.4 rad further in the same flight, so its steepest tick may run a little over the drive's own; a quarter over is a rate, not a snap.)
+  check(`…and adds no jump inside the wind-up (max per tick blended ${maxOver(blended, 'twist', start, cockEnd).toFixed(3)} vs snapped ${maxOver(snapped, 'twist', start, cockEnd).toFixed(3)} rad)`, maxOver(blended, 'twist', start, cockEnd) <= maxOver(snapped, 'twist', start, cockEnd) * 1.25);
+  check(`…and removes the pop: twist reversals in the chained wind-up ${reversals(blended, 'twist', start, cockEnd + 1)} (blended) vs ${reversals(snapped, 'twist', start, cockEnd + 1)} (snapped)`, reversals(blended, 'twist', start, cockEnd + 1) < reversals(snapped, 'twist', start, cockEnd + 1));
+  const peak = blended.findIndex((t, i) => i > cockEnd && t.phase === 'recover');   // the hit-test tick: the cross's peak pose
+  check('the peak is intact: at the chained cross\'s hit test the blended and snapped bodies agree', peak > cockEnd && ['twist', 'fwd', 'lat', 'crouch'].every(k => Math.abs(blended[peak][k] - snapped[peak][k]) < 1e-9), ['twist', 'fwd', 'lat', 'crouch'].map(k => `${k} ${blended[peak]?.[k].toFixed(4)} vs ${snapped[peak]?.[k].toFixed(4)}`).join(', '));
+  const cold = trace({ ...quiet, punchBuffer: 0 });   // no buffer: the cross press at tick 3 is lost, the jab runs alone — an unchained punch is untouched
+  const coldSnap = trace({ ...quiet, punchBuffer: 0, comboBlend: 0 });
+  check('a punch thrown cold is unchanged by comboBlend', cold.every((t, i) => Math.abs(t.twist - coldSnap[i].twist) < 1e-12 && Math.abs(t.fwd - coldSnap[i].fwd) < 1e-12));
+}
+
 // ── 2. Spam: alternating jab / cross, landing on the dummy (hit-stop and all) ─
 // Every press is a 3-tick tap. The buffer keeps the NEWEST press, so at a
 // cadence faster than the punches themselves the combo still runs at the

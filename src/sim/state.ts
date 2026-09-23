@@ -33,6 +33,8 @@
  *   moveHist[26] the same for the rear glove
  *   moveHist[27] 1 while the punch in flight is STUFFED: it was hit mid-flight and is rewinding home (combat.ts)
  *   moveHist[28] impulse multiplier of the punch in flight (<1 = it was hit late in its flight and lands weakened)
+ *   moveHist[29] 1 if the punch in flight was CHAINED off another (its wind-up blends from that punch's body pose)
+ *   moveHist[30..33] the body pose carried into the chain: torso twist, lean.fwd, lean.lat, crouch at the chained start
  */
 import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
@@ -69,6 +71,18 @@ export function stuffed(f: FighterState): boolean { return (f.moveHist[HIST_STUF
 export function setStuffed(f: FighterState, on: boolean): void { f.moveHist[HIST_STUFFED] = on ? 1 : 0; }
 export function brokenMult(f: FighterState): number { const v = f.moveHist[HIST_BROKEN_MULT]; return v === undefined ? 1 : v; }
 export function setBrokenMult(f: FighterState, m: number): void { f.moveHist[HIST_BROKEN_MULT] = m; }
+
+const HIST_CHAINED = 29;      // 1 if the punch in flight was chained off another
+const HIST_CARRY = 30;        // + 0..3: twist, lean.fwd, lean.lat, crouch carried into the chain
+/** The body pose the previous punch left behind at a chained start (combat.ts blends the new wind-up out of it). */
+export interface ChainCarry { on: boolean; twist: number; fwd: number; lat: number; crouch: number }
+export function chainCarry(f: FighterState): ChainCarry {
+  return { on: (f.moveHist[HIST_CHAINED] ?? 0) !== 0, twist: f.moveHist[HIST_CARRY] ?? 0, fwd: f.moveHist[HIST_CARRY + 1] ?? 0, lat: f.moveHist[HIST_CARRY + 2] ?? 0, crouch: f.moveHist[HIST_CARRY + 3] ?? 0 };
+}
+export function setChainCarry(f: FighterState, c: ChainCarry): void {
+  f.moveHist[HIST_CHAINED] = c.on ? 1 : 0;
+  f.moveHist[HIST_CARRY] = c.twist; f.moveHist[HIST_CARRY + 1] = c.fwd; f.moveHist[HIST_CARRY + 2] = c.lat; f.moveHist[HIST_CARRY + 3] = c.crouch;
+}
 
 const HIST_ARM_POSE = 19;   // + hand × 3: level, back, flare (the elbow pole lags, sim/arms.ts)
 export function armPose(f: FighterState, hand: number): { level: number; back: number; flare: number } {
@@ -125,7 +139,7 @@ export function getUpAt(f: FighterState): number { return f.moveHist[HIST_GET_UP
 export function setGetUpAt(f: FighterState, t: number): void { f.moveHist[HIST_GET_UP_AT] = t; }
 
 /** The scratch layout a fresh fighter starts with. */
-export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]; }
+export function initialMoveHist(): number[] { return [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]; }
 /** The ceiling health regenerates toward this round (Fight Night's recoverable health); every hit lowers it. */
 export function healthCap(f: FighterState): number { const v = f.moveHist[HIST_HEALTH_CAP]; return v === undefined ? 1 : v; }
 export function setHealthCap(f: FighterState, c: number): void { f.moveHist[HIST_HEALTH_CAP] = c; }
