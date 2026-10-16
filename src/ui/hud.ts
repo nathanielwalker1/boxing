@@ -48,7 +48,7 @@ const CSS = `
 }
 `;
 
-interface SidePanel { health: HTMLElement; cap: HTMLElement; stamina: HTMLElement; pips: HTMLElement }
+interface SidePanel { root: HTMLElement; name: HTMLElement; nick: HTMLElement; health: HTMLElement; cap: HTMLElement; stamina: HTMLElement; pips: HTMLElement }
 
 export class Hud {
   private el: HTMLElement;
@@ -77,6 +77,9 @@ export class Hud {
         `<div class="bar stamina"><div class="fill"></div></div>`;
       this.el.appendChild(root);
       return {
+        root,
+        name: root.querySelector('.name')!,
+        nick: root.querySelector('.nick')!,
         health: root.querySelector('.health .fill')!,
         cap: root.querySelector('.health .cap')!,
         stamina: root.querySelector('.stamina .fill')!,
@@ -94,6 +97,16 @@ export class Hud {
   }
 
   set visible(v: boolean) { this.el.hidden = !v; }
+
+  /** A new fight: names, nicknames and bar colours. */
+  setFighters(specs: readonly [FighterSpec, FighterSpec]): void {
+    for (let i = 0; i < 2; i++) {
+      const p = this.sides[i]!, f = specs[i]!;
+      p.root.style.setProperty('--c', f.trunksPrimary);
+      p.name.textContent = f.name;
+      p.nick.textContent = `"${f.nickname}"`;
+    }
+  }
 
   update(s: SimState): void {
     for (let i = 0; i < 2; i++) {

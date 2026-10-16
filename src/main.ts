@@ -7,11 +7,12 @@
  */
 import {
   SIM_DT, NULL_INPUT, EventBus, createConfig, cloneInput, frameOf, punchFixture, restFighterState, ROSTER, v2dist,
-  type Config, type FighterState, type FrameInput, type Hand, type PunchType, type Side, type SimEvent, type SimState,
+  type Config, type FighterSpec, type FighterState, type FighterView, type FrameInput, type Hand, type PunchType, type Side, type SimEvent, type SimState,
 } from './core';
 import { createState, step } from './sim';
 import { aiStep, createAi, type AiState } from './ai';
 import { createFighterView } from './rig';
+import { FightFlow } from './ui/flow';
 import { Stage } from './render/stage';
 import { mountTuningPanel } from './ui/tune';
 import { FpsOverlay } from './ui/fps';
@@ -65,19 +66,36 @@ const fps = new FpsOverlay(document.getElementById('fps')!);
 if (params.get('tune') === '1') mountTuningPanel(cfg);
 
 // ── Sim + views ──────────────────────────────────────────────────────────────
-const specs = [ROSTER[0]!, ROSTER[1]!] as const;
+let specs: readonly [FighterSpec, FighterSpec] = [ROSTER[0]!, ROSTER[1]!];
 const bus = new EventBus();
 new CombatAudio(cfg, bus);   // synthesized SFX on the outcome events; silent until the first click/key (autoplay policy)
 const seed = Number(params.get('seed') ?? 1);
 let prev: SimState = createState([specs[0], specs[1]], cfg, seed);
 let next: SimState = prev;
 let ai: AiState = createAi(1, seed, cfg);
-const views = [
+const views: [FighterView, FighterView] = [
   createFighterView(0, specs[0], cfg, stage.scene),
   createFighterView(1, specs[1], cfg, stage.scene),
-] as const;
+];
 const hud = new Hud(document.body, specs, cfg, wantsTouch(params) ? 'top' : 'bottom');
 const read = new ReadOverlay(cfg, bus, views);   // the slip's counter window, drawn on the exposed fighter's rim
+
+// The fight flow (menu → select → tale of the tape → fight → results). Tests
+// and the pose/replay harness drive the sim directly, so under Playwright
+// (navigator.webdriver) or ?menu=0 there is no flow: the fight runs from boot
+// and restarts itself (sparRestartSeconds) as it always has. ?menu=1 forces it.
+const wantsFlow = params.get('menu') === '1' || (!navigator.webdriver && params.get('menu') !== '0');
+let fightNo = 0;
+/** A fresh fight between `a` (the player, side 0) and `b`: new state, AI and rigs; the HUD renamed. The views array is mutated in place — the read overlay holds it. */
+function startFight(a: FighterSpec, b: FighterSpec): void {
+  specs = [a, b];
+  const s = seed + fightNo++;
+  prev = next = createState([a, b], cfg, s);
+  ai = createAi(1, s, cfg);
+  for (const side of [0, 1] as const) { views[side].dispose(); views[side] = createFighterView(side, specs[side], cfg, stage.scene); }
+  hud.setFighters(specs);
+}
+const flow = wantsFlow ? new FightFlow(document.body, ROSTER, cfg, bus, { start: startFight, bell: () => bus.emit([{ type: 'bell' }]) }) : null;
 
 // Inputs: side 0 is the player (InputManager → liveInput[0] each frame), side 1
 // is the AI (aiStep each sim tick; the frozen-guard dummy when aiEnabled is off).
@@ -178,10 +196,11 @@ function loop(nowMs: number): void {
   const dt = Math.min(MAX_FRAME, (nowMs - lastMs) / 1000);
   lastMs = nowMs;
   const paused = posed[0] !== null || posed[1] !== null;
+  const held = paused || (flow !== null && flow.holdsSim);   // a menu / card is up: the sim waits
   frameEvents.length = 0;
   liveInput[0] = input.current();
 
-  if (!paused) {
+  if (!held) {
     acc += dt;
     while (acc >= SIM_DT) {
       let side1 = takeScript(1) ?? overrideInput[1];
@@ -201,7 +220,7 @@ function loop(nowMs: number): void {
     // Sparring shell: once the FIGHT is over (decision, KO or TKO — rounds
     // and the rest between them run inside the sim) start a fresh one after
     // a beat. The Stage 3 menus and results screen replace this.
-    if (next.round.phase === 'over' && cfg.sparRestartSeconds > 0 && next.round.phaseT >= cfg.sparRestartSeconds) {
+    if (flow === null && next.round.phase === 'over' && cfg.sparRestartSeconds > 0 && next.round.phaseT >= cfg.sparRestartSeconds) {
       prev = next = createState([specs[0], specs[1]], cfg, next.seed);
       ai = createAi(1, next.seed, cfg);
     }
@@ -224,8 +243,9 @@ function loop(nowMs: number): void {
   if (f === -1) stage.frame(a.pos, b.pos, closeness, nowMs / 1000, dt);
   else stage.frame(shown[f]!.pos, shown[f]!.pos, 1, nowMs / 1000, dt);
 
-  hud.visible = !paused;
+  hud.visible = !paused && (flow === null || flow.showHud);
   hud.update(next);
+  if (flow) flow.update(next, dt, frameEvents);
   read.update(next);
   fps.visible = cfg.debugFps;
   const info = stage.info;

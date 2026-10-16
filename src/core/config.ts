@@ -349,6 +349,9 @@ export const SCHEMA = {
   getUpJitter:      num(1, 0, 3, 0.5, 'fight', '± counts of seeded randomness on the get-up roll, so a fight is not a spreadsheet'),
   betweenRoundHealthRestore: num(0.1, 0, 1, 0.05, 'fight', 'fraction of the MISSING health that comes back on the stool between rounds'),
   betweenRoundStaminaRestore: num(0.6, 0, 1, 0.05, 'fight', 'fraction of the MISSING stamina that comes back between rounds'),
+  introSeconds:     num(5, 0, 20, 0.5, 'fight', 'tale-of-the-tape card: seconds before the opening bell (Enter skips)'),
+  resultsDelaySeconds: num(3, 0, 10, 0.5, 'fight', 'seconds after the fight ends (last bell, KO or TKO) before the results screen'),
+  lowerThirdSeconds: num(2.5, 0.5, 6, 0.5, 'fight', 'how long the END OF ROUND / ROUND n lower-third stays up'),
   scorePowerWeight: num(0.005, 0, 0.02, 0.0005, 'fight', 'judges: a round is scored on clean landed punches + summed impulse × this (a 230 N·s cross counts 1 + 1.15). 10-point-must: winner 10, loser 9, −1 per knockdown suffered, 10-10 if level. Control is not scored yet'),
 
   // ── ai (SIM: src/ai) — the opponent's four heuristics, ported from legacy dummy.js at 1 px = 0.0122 m ──
