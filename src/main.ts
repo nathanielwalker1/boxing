@@ -76,7 +76,7 @@ const views = [
   createFighterView(0, specs[0], cfg, stage.scene),
   createFighterView(1, specs[1], cfg, stage.scene),
 ] as const;
-const hud = new Hud(document.body, [specs[0].name, specs[1].name]);
+const hud = new Hud(document.body, specs, cfg, wantsTouch(params) ? 'top' : 'bottom');
 const read = new ReadOverlay(cfg, bus, views);   // the slip's counter window, drawn on the exposed fighter's rim
 
 // Inputs: side 0 is the player (InputManager → liveInput[0] each frame), side 1

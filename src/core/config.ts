@@ -338,8 +338,8 @@ export const SCHEMA = {
   hitStopMax:       num(0.1, 0, 0.5, 0.005, 'time', 'hit-stop ceiling so a huge hit never reads as a hang, s', 'hitStopMax'),
 
   // ── fight (SIM) ──
-  roundCount:       num(6, 1, 12, 1, 'fight', 'rounds per fight'),
-  roundSeconds:     num(60, 10, 180, 5, 'fight', 'seconds per round'),
+  roundCount:       num(3, 1, 12, 1, 'fight', 'rounds per fight (3 × 30 s while the Stage 3 surfaces are built — Nate 2026-10-15)'),
+  roundSeconds:     num(30, 10, 180, 5, 'fight', 'seconds per round'),
   betweenRoundSeconds: num(10, 3, 30, 1, 'fight', 'between-round card duration, s'),
   knockdownsForTko: num(3, 1, 5, 1, 'fight', 'knockdowns in one round = TKO'),
   countTickSeconds: num(0.5, 0.2, 1.5, 0.05, 'fight', 'seconds per count of the referee\'s 10-count (both fighters freeze, the clock holds). 0.5 = a 5 s count; 1 = real time (was a flat 2.5 s knockdownDuration)'),
