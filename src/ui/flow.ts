@@ -57,6 +57,8 @@ const CSS = `
 #flow .black.on { opacity: 1; }
 #flow .black .big { font-size: clamp(34px, 7vw, 72px); font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1; }
 #flow .black .sub { margin-top: 14px; font-size: 11px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--gold); }
+#flow .black .count { margin-top: 34px; min-width: 84px; padding: 8px 20px; text-align: center; font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; color: #f3dc8f;
+  background: linear-gradient(#3a2d0c, #15100a 70%, #0a0806); border: 1px solid var(--gold); box-shadow: 0 0 0 1px #000c, 0 4px 14px #000a; }
 #flow .winner { font-size: clamp(30px, 6vw, 60px); font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1; text-align: center; text-shadow: 0 4px 0 #000; }
 #flow .method { margin-top: 10px; font-size: 13px; letter-spacing: 0.35em; text-transform: uppercase; color: var(--gold); text-align: center; }
 #flow table { margin-top: 26px; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -109,7 +111,7 @@ export class FightFlow {
     this.screens.fight.appendChild(this.third);
     this.black = document.createElement('div');
     this.black.className = 'black';
-    this.black.innerHTML = '<div class="big"></div><div class="sub"></div>';
+    this.black.innerHTML = '<div class="big"></div><div class="sub"></div><div class="count"></div>';
     this.screens.fight.appendChild(this.black);
     parent.appendChild(this.el);
     this.fighters = [roster[0]!, roster[1 % roster.length]!];
@@ -274,9 +276,11 @@ export class FightFlow {
     const rest = ph === 'between';
     this.black.classList.toggle('on', rest);
     if (rest) {
-      const late = s.round.phaseT > this.cfg.betweenRoundSeconds * 0.45;
+      const left = Math.max(0, this.cfg.betweenRoundSeconds - s.round.phaseT);
+      const late = s.round.phaseT > this.cfg.betweenRoundSeconds * 0.35;
       this.black.querySelector('.big')!.textContent = late ? `Round ${s.round.index + 2}` : `End of round ${s.round.index + 1}`;
       this.black.querySelector('.sub')!.textContent = late ? `of ${this.cfg.roundCount}` : 'rest';
+      this.black.querySelector('.count')!.textContent = String(Math.ceil(left));
     }
     for (const e of events) {
       if (e.type === 'roundStart' && e.index > 0) this.lowerThird(`Round ${e.index + 1}`);

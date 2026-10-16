@@ -112,7 +112,13 @@ export class Referee {
     const k = 1 - Math.exp(-c.refAccel * dt);
     this.vel.x += (wantX - this.vel.x) * k;
     this.vel.z += (wantZ - this.vel.z) * k;
-    me.pos = { x: me.pos.x + this.vel.x * dt, z: me.pos.z + this.vel.z * dt };
+    // The ropes stop him too: the push away from a fighter could shove him
+    // through them when only the target was clamped (2026-10-15).
+    const nx = Math.max(-bound, Math.min(bound, me.pos.x + this.vel.x * dt));
+    const nz = Math.max(-bound, Math.min(bound, me.pos.z + this.vel.z * dt));
+    if (nx !== me.pos.x + this.vel.x * dt) this.vel.x = 0;
+    if (nz !== me.pos.z + this.vel.z * dt) this.vel.z = 0;
+    me.pos = { x: nx, z: nz };
     me.vel = { x: this.vel.x, z: this.vel.z };
     this.tWalk += dt;
     // Face what he watches; a long walk faces the way he goes.
