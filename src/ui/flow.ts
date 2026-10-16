@@ -53,6 +53,10 @@ const CSS = `
 #flow .third { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 10px 34px; background: linear-gradient(#000c, #000e); border-top: 1px solid var(--gold); border-bottom: 1px solid var(--gold);
   font-size: 18px; font-weight: 900; font-style: italic; letter-spacing: 0.2em; text-transform: uppercase; opacity: 0; transition: opacity .35s; white-space: nowrap; }
 #flow .third.on { opacity: 1; }
+#flow .black { position: absolute; inset: 0; background: #000; opacity: 0; transition: opacity .45s; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+#flow .black.on { opacity: 1; }
+#flow .black .big { font-size: clamp(34px, 7vw, 72px); font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1; }
+#flow .black .sub { margin-top: 14px; font-size: 11px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--gold); }
 #flow .winner { font-size: clamp(30px, 6vw, 60px); font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1; text-align: center; text-shadow: 0 4px 0 #000; }
 #flow .method { margin-top: 10px; font-size: 13px; letter-spacing: 0.35em; text-transform: uppercase; color: var(--gold); text-align: center; }
 #flow table { margin-top: 26px; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -81,6 +85,7 @@ export class FightFlow {
   private el: HTMLElement;
   private screens: Record<Screen, HTMLElement>;
   private third: HTMLElement;
+  private black: HTMLElement;
   private cursor = 0;          // the selected button / card on the current screen
   private pick = 0;            // roster index of the player's fighter
   private fighters: [FighterSpec, FighterSpec];
@@ -102,6 +107,10 @@ export class FightFlow {
     this.third = document.createElement('div');
     this.third.className = 'third';
     this.screens.fight.appendChild(this.third);
+    this.black = document.createElement('div');
+    this.black.className = 'black';
+    this.black.innerHTML = '<div class="big"></div><div class="sub"></div>';
+    this.screens.fight.appendChild(this.black);
     parent.appendChild(this.el);
     this.fighters = [roster[0]!, roster[1 % roster.length]!];
 
@@ -259,10 +268,18 @@ export class FightFlow {
     if (this.screen !== 'fight') return;
     const ph = s.round.phase;
     if (ph === 'fighting') this.lastRound = s.round.index;
-    // The lower-third: the end of a round, the next round's start, the count.
+    // The rest is a black card (2026-10-15, "they're just floating around
+    // waiting"): END OF ROUND n for the first part, ROUND n+1 for the rest,
+    // fading out on the bell. The lower-third marks a round's start.
+    const rest = ph === 'between';
+    this.black.classList.toggle('on', rest);
+    if (rest) {
+      const late = s.round.phaseT > this.cfg.betweenRoundSeconds * 0.45;
+      this.black.querySelector('.big')!.textContent = late ? `Round ${s.round.index + 2}` : `End of round ${s.round.index + 1}`;
+      this.black.querySelector('.sub')!.textContent = late ? `of ${this.cfg.roundCount}` : 'rest';
+    }
     for (const e of events) {
-      if (e.type === 'roundEnd') this.lowerThird(`End of round ${e.index + 1}`);
-      else if (e.type === 'roundStart' && e.index > 0) this.lowerThird(`Round ${e.index + 1}`);
+      if (e.type === 'roundStart' && e.index > 0) this.lowerThird(`Round ${e.index + 1}`);
     }
     this.thirdT -= dt;
     if (this.thirdT <= 0 && this.third.classList.contains('on')) this.third.classList.remove('on');

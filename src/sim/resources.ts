@@ -83,8 +83,9 @@ function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent[]): vo
 }
 
 /**
- * The referee's count, countTickSeconds per count, both fighters frozen and
- * the clock held. The downed fighter rises at the second their roll said
+ * The referee's count, countTickSeconds per count, both fighters frozen; the
+ * round clock keeps running (2026-10-15; a round that runs out mid-count
+ * ends on the get-up). The downed fighter rises at the second their roll said
  * (getUp, part of the bar back, fighting resumes) or hears ten (ko, over).
  */
 export function stepCount(s: SimState, cfg: Config, dt: number, events: SimEvent[]): void {

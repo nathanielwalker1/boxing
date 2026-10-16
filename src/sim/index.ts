@@ -110,12 +110,13 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   stepBetween(s, cfg, dt, events);
 
   s.round.phaseT += dt;
-  // The clock only runs while fighting: it holds through the count (a
-  // knockdown at the bell still gets its count) and stops at the round's end.
-  if (fighting && s.round.phase === 'fighting') {
-    s.round.clock = Math.max(0, s.round.clock - dt);
-    if (s.round.clock <= 0) endRound(s, cfg, events);
-  }
+  // The clock runs while fighting AND through the count (2026-10-15, Nate:
+  // "the round time should still keep going"). A count is never cut short:
+  // a clock that runs out during it holds at 0 and the round ends on the
+  // get-up (stepCount above puts the phase back to fighting the same tick).
+  const ph = s.round.phase;
+  if ((fighting && ph === 'fighting') || ph === 'count') s.round.clock = Math.max(0, s.round.clock - dt);
+  if (s.round.phase === 'fighting' && s.round.clock <= 0) endRound(s, cfg, events);
   s.tick += 1;
   s.time += dt;
   return { state: s, events };

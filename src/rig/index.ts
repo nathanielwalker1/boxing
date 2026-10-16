@@ -424,9 +424,13 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       Sf.y = Math.max(Sf.y, body.bodyR);
       qChestF.copy(qFall).multiply(qChest);
       qHipsF.copy(qFall).multiply(qHips);
-      // The head whips past the torso; the canvas stops it.
-      qHead.setFromAxisAngle(fallAxis, Math.min(thetaMax + 0.35, theta * (1 + c.rigFallHeadLag)));
-      v.subVectors(headL, S).applyQuaternion(qHead);
+      // The head rides the fallen chest at its REST neck length, a little
+      // further round than the torso (rigFallHeadLag). It is rebuilt from the
+      // chest rather than rotated from headL: headL still carries the KO
+      // punch's reaction spring, and rotating that offset as well stretched
+      // the neck like a cartoon (Nate, 2026-10-15).
+      qHead.setFromAxisAngle(fallAxis, Math.min(thetaMax + 0.25, theta * (1 + c.rigFallHeadLag)));
+      v.set(0, body.headY - body.shoulderY, 0).applyQuaternion(qHead);
       headF.copy(Sf).add(v);
       headF.y = Math.max(headF.y, body.headR);
       // Arms flop: from the fallen shoulders, forward-down and out, onto the canvas.

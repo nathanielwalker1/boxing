@@ -4,14 +4,14 @@
  * FighterState of his own (REFEREE spec, same rig, dressed) that the rig draws:
  *
  *   fighting  — keeps refStandoff off the fighters' midpoint on the far side
- *               from the camera, never nearer than refClear to either man
- *   count     — walks to refCountDist from the downed fighter and counts, the
- *               right arm chopping on the sim's count beat (countTickSeconds)
- *   over, KO/TKO — waves it off over the fallen man, then the arms drop
+ *               from the camera (at the ropes), and backs away from any
+ *               fighter nearer than refClear, so he is never in an exchange
+ *   count / KO / TKO — walks to refCountDist from the downed fighter, square to
+ *               the fall line, and stands (no counting gesture: "weird", 2026-10-15)
  *   over, decision — stands between them and raises the arm on the winner's side
  *   between   — walks off to the far rope
  *
- * No hitbox, no collision: the fighters walk through him (flagged). Config
+ * No hitbox: he keeps out of the fighters' way instead (refClear). Config
  * group `referee`. Time comes from the host (slowed with the knockdown).
  */
 import type * as THREE from 'three';
@@ -21,7 +21,7 @@ import {
 } from '../core';
 import { createFighterView } from '../rig';
 
-type Gesture = 'hang' | 'count' | 'wave' | 'point';
+type Gesture = 'hang' | 'point';
 interface HandLocal { fwd: number; up: number; lat: number }
 
 export class Referee {
@@ -29,7 +29,6 @@ export class Referee {
   private state: FighterState;
   private vel: Vec2 = { x: 0, z: 0 };
   private hands: [HandLocal, HandLocal];
-  private tWave = 0;
   private tWalk = 0;
   private winner: 0 | 1 | null = null;
   private method: 'ko' | 'tko' | 'decision' | null = null;
@@ -50,7 +49,7 @@ export class Referee {
     if (!this.view) this.view = createFighterView(1, REFEREE, this.cfg, this.scene, { key: 2, probe: false });
     const c = this.cfg, me = this.state, b = me.body;
     for (const e of events) {
-      if (e.type === 'ko' || e.type === 'tko') { this.method = e.type; this.winner = e.winner; this.tWave = 0; }
+      if (e.type === 'ko' || e.type === 'tko') { this.method = e.type; this.winner = e.winner; }
       else if (e.type === 'decision') { this.method = 'decision'; this.winner = e.winner; }
       else if (e.type === 'roundStart') { this.method = null; this.winner = null; }
     }
@@ -76,8 +75,6 @@ export class Referee {
       if (dx * cam.x + dz * cam.z > 0) { dx = -dx; dz = -dz; }
       target = { x: p.x + dx * c.refCountDist, z: p.z + dz * c.refCountDist };
       face = p;
-      if (ph === 'count') gesture = 'count';
-      else { this.tWave += dt; gesture = this.tWave < c.refWaveSeconds ? 'wave' : 'hang'; }
     } else if (ph === 'over') {
       target = mid;
       face = { x: mid.x + cam.x, z: mid.z + cam.z };   // to the camera, the card in hand
@@ -91,12 +88,7 @@ export class Referee {
       const nl = Math.hypot(nx, nz);
       if (nl < 1e-3) { nx = -cam.x; nz = -cam.z; } else { nx /= nl; nz /= nl; }
       if (nx * cam.x + nz * cam.z > 0) { nx = -nx; nz = -nz; }
-      let off = c.refStandoff;
-      target = { x: mid.x + nx * off, z: mid.z + nz * off };
-      for (let i = 0; i < 4 && (dist(target, a) < c.refClear || dist(target, f1) < c.refClear); i++) {
-        off += 0.25;
-        target = { x: mid.x + nx * off, z: mid.z + nz * off };
-      }
+      target = { x: mid.x + nx * c.refStandoff, z: mid.z + nz * c.refStandoff };
       face = mid;
     }
     target.x = Math.max(-bound, Math.min(bound, target.x));
@@ -107,6 +99,16 @@ export class Referee {
     const toLen = Math.hypot(toX, toZ);
     let wantX = 0, wantZ = 0;
     if (toLen > 0.08) { const sp = Math.min(c.refWalkSpeed, toLen * 2.5); wantX = toX / toLen * sp; wantZ = toZ / toLen * sp; }
+    // Keep out of their way: a fighter inside refClear pushes him straight
+    // back, harder the closer — he has no body, so he gives ground instead.
+    for (const f of s.fighters) {
+      const ax = me.pos.x - f.pos.x, az = me.pos.z - f.pos.z;
+      const dd = Math.hypot(ax, az);
+      if (dd < c.refClear && dd > 1e-3) {
+        const push = c.refWalkSpeed * 1.5 * (1 - dd / c.refClear);
+        wantX += ax / dd * push; wantZ += az / dd * push;
+      }
+    }
     const k = 1 - Math.exp(-c.refAccel * dt);
     this.vel.x += (wantX - this.vel.x) * k;
     this.vel.z += (wantZ - this.vel.z) * k;
@@ -127,26 +129,7 @@ export class Referee {
     // ── Hands: authored local poses, chased ──
     const fr = frameOf(me.yaw);
     const want: [HandLocal, HandLocal] = [this.hangPose('lead'), this.hangPose('rear')];
-    if (gesture === 'count') {
-      // The right hand (rear, orthodox) up, chopping down on each number: the
-      // beat is the downed fighter's downT against countTickSeconds.
-      const downT = downSide !== null ? s.fighters[downSide].downT : 0;
-      const u = (downT % c.countTickSeconds) / c.countTickSeconds;
-      const chop = u < 0.3 ? smooth(u / 0.3) : 1 - smooth((u - 0.3) / 0.7);
-      const sgn = handLateralSign('rear', REFEREE.stance);
-      want[1] = {
-        fwd: 0.22 + 0.3 * chop,
-        up: (b.headY + 0.32) + (b.shoulderY + 0.02 - (b.headY + 0.32)) * chop,
-        lat: sgn * 0.12,
-      };
-    } else if (gesture === 'wave') {
-      // Both arms overhead, crossing and uncrossing: it's over.
-      const sw = Math.cos(this.tWave * 7);
-      for (const i of [0, 1] as const) {
-        const sgn = handLateralSign(i === 0 ? 'lead' : 'rear', REFEREE.stance);
-        want[i] = { fwd: 0.22, up: b.headY + 0.28, lat: sgn * (0.06 + 0.3 * Math.max(0, sw)) - sgn * 0.22 * Math.max(0, -sw) };
-      }
-    } else if (gesture === 'point' && this.winner !== null) {
+    if (gesture === 'point' && this.winner !== null) {
       // The arm on the winner's side goes straight up.
       const w = s.fighters[this.winner].pos;
       const latW = (w.x - me.pos.x) * fr.right.x + (w.z - me.pos.z) * fr.right.z;
@@ -173,7 +156,10 @@ export class Referee {
       const h = this.hands[i];
       const g: Vec3 = localToWorld(me.pos, fr, h.fwd, h.up, h.lat);
       me.gloves[i] = { pos: g, vel: { x: 0, y: 0, z: 0 }, target: { x: g.x, y: g.y, z: g.z } };
-      me.arms[i] = solveArm(b, c, REFEREE.stance, hand, chest, hips, fr, 0, 0, g, { level: 0, back: 0, flare: armFlareTarget(0, g.y, chest.y, b, c) });
+      // `back: 1` sends the elbow pole BEHIND him: the fighters' pole is set
+      // forward for a guard (rigElbowPoleBack < 0), which on a hanging arm
+      // bowed the elbow the wrong way ("arms inverted", 2026-10-15).
+      me.arms[i] = solveArm(b, c, REFEREE.stance, hand, chest, hips, fr, 0, 0, g, { level: 0, back: 1, flare: armFlareTarget(0, g.y, chest.y, b, c) });
     }
     this.view.apply(me, me, 1, dt, []);
   }
@@ -184,5 +170,3 @@ export class Referee {
   dispose(): void { if (this.view) { this.view.dispose(); this.view = null; } }
 }
 
-function dist(a: Vec2, b: Vec2): number { return Math.hypot(a.x - b.x, a.z - b.z); }
-function smooth(u: number): number { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); }

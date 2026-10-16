@@ -75,7 +75,9 @@ for (const [label, dist, fov] of [['close0', 6.5, 42], ['close1', 4.2, 34]]) {
 }
 
 await page.evaluate(() => { window.__cfg.debugFps = true; });
-await frames(page, 70);
+// The overlay publishes a sample once a 60-frame window has landed; wait for
+// the sample itself, however long a loaded headless run takes to render it.
+await until(page, () => !!window.__fps, undefined, { label: 'an fps sample', timeout: 90000 });
 const fps = await page.evaluate(() => window.__fps);
 console.log(`budget: ${fps ? `${fps.calls} calls, ${fps.tris} tris` : 'no fps sample'}`);
 check(!!fps && fps.calls <= MAX_CALLS, `draw calls ≤ ${MAX_CALLS} (${fps?.calls})`);

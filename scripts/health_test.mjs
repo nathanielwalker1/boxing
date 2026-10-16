@@ -146,7 +146,8 @@ console.log('\n=== 4. Knockdown ===');
   // During the count: inputs are ignored, the downed fighter cannot be hit, the clock holds.
   const during = run(s, 30, i => [inp({ jab: i === 0, move: { x: 0, y: 1 } }), inp({ block: true })], heavy);
   check('during the count nobody punches, moves or blocks', !during.evs.some(e => e.type === 'punchStart') && during.s.fighters[0].punch.type === null && !during.s.fighters[1].block && near(during.s.fighters[0].pos.x, s.fighters[0].pos.x, 1e-9));
-  check('…and the clock holds', near(during.s.round.clock, s.round.clock, 1e-9) && during.s.round.clock < clockBefore);
+  // 2026-10-15 (Nate): the clock keeps running through the count.
+  check('…and the clock keeps running', during.s.round.clock < s.round.clock && during.s.round.clock < clockBefore, `${s.round.clock} → ${during.s.round.clock}`);
 
   // The get-up count is rolled from the chin (fight_test covers the roll); here just wait out the longest possible count.
   const up = run(during.s, ticks(10 * heavy.countTickSeconds) + 2, () => [NONE, NONE], heavy);

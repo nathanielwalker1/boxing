@@ -119,7 +119,10 @@ const ROUND = T(cfg.roundSeconds), REST = T(cfg.betweenRoundSeconds);
 }
 
 // ── 4. The referee's count ──────────────────────────────────────────────────
-const heavy = { ...cfg, healthDamagePerImpulse: 1 };   // one landed jab floors the dummy
+// One landed jab floors the dummy. The round is long enough to hold a full
+// count: since 2026-10-15 the clock runs through the count, and a 2 s round
+// would end on the get-up.
+const heavy = { ...cfg, healthDamagePerImpulse: 1, roundSeconds: 20 };
 const TICK = T(cfg.countTickSeconds);
 {
   const trace = [];
@@ -133,7 +136,8 @@ const TICK = T(cfg.countTickSeconds);
   const expect = cfg.getUpCountWorst + (cfg.getUpCountBest - cfg.getUpCountWorst) * chin;
   check(`they rise inside the roll: count ${(expect - cfg.getUpJitter).toFixed(1)}–${(expect + cfg.getUpJitter).toFixed(1)} for chin ${ROSTER[1].chin}`, gu && (gu.tick - kd.tick) / TICK >= expect - cfg.getUpJitter - 0.05 && (gu.tick - kd.tick) / TICK <= expect + cfg.getUpJitter + 0.05, `rose at count ${((gu?.tick - kd?.tick) / TICK).toFixed(2)}`);
   check('the count stops when they rise, and the fight resumes with count 0', ticks.every(t => t.tick <= gu.tick) && trace[gu.tick].ph === 'fighting' && trace[gu.tick].n === 0 && !trace[gu.tick].down);
-  check('the clock held for the whole count', trace.slice(kd.tick, gu.tick).every(t => near(t.clock, trace[kd.tick].clock, 1e-9)));
+  // 2026-10-15 (Nate): the round clock keeps running through the count, as it does in a real round.
+  check('the clock runs through the count (never up, and well down by the get-up)', trace.slice(kd.tick + 1, gu.tick + 1).every((t, k, arr) => k === 0 || t.clock <= arr[k - 1].clock) && trace[gu.tick].clock < trace[kd.tick].clock - 0.5, `${trace[kd.tick].clock.toFixed(3)} → ${trace[gu.tick].clock.toFixed(3)}`);
 }
 {
   // Chin decides the count: the same knockdown, no jitter, an iron chin vs a glass one.

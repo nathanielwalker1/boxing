@@ -31,7 +31,8 @@ page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
 await page.goto(`${DEV_URL}/?menu=1`, { waitUntil: 'networkidle', timeout: 15_000 });
 await bootReady(page);
 await page.evaluate(() => {
-  window.__cfg.roundSeconds = 2; window.__cfg.betweenRoundSeconds = 1; window.__cfg.roundCount = 2;
+  // Short rounds, but a rest long enough that a slow headless frame rate still sees both halves of the card.
+  window.__cfg.roundSeconds = 2; window.__cfg.betweenRoundSeconds = 4; window.__cfg.roundCount = 2;
   window.__cfg.introSeconds = 60; window.__cfg.resultsDelaySeconds = 0.3;
   window.__bells = 0;
 });
@@ -72,9 +73,17 @@ await until(page, () => window.__tick.simTicks > 5, undefined, { label: 'the sim
 check('Enter → the fight: the sim runs and the HUD is up', (await screen()) === 'fight' && !(await page.evaluate(() => document.getElementById('hud').hidden)));
 await until(page, () => window.__sim.state().round.phase === 'between', undefined, { label: 'end of round 1', timeout: 30000 });
 await frames(page, 2);
-const third = await page.evaluate(() => ({ on: document.querySelector('#flow .third').classList.contains('on'), text: document.querySelector('#flow .third').textContent }));
-check('the lower-third marks the end of round 1', third.on && /end of round 1/i.test(third.text), JSON.stringify(third));
+const card = await page.evaluate(() => ({ on: document.querySelector('#flow .black').classList.contains('on'), text: document.querySelector('#flow .black').textContent }));
+check('the rest is a black card: END OF ROUND 1', card.on && /end of round 1/i.test(card.text), JSON.stringify(card));
+await until(page, () => window.__sim.state().round.phaseT > window.__cfg.betweenRoundSeconds * 0.5, undefined, { label: 'the second half of the rest', timeout: 15000 });
+await frames(page, 2);
+const card2 = await page.evaluate(() => document.querySelector('#flow .black').textContent);
+check('…then ROUND 2', /round 2/i.test(card2), card2);
 await shot('round_end');
+// A 2 s round can pass between two slow polls, so accept anything past the rest.
+await until(page, () => window.__sim.state().round.phase !== 'between', undefined, { label: 'the rest to end', timeout: 20000 });
+await frames(page, 2);
+check('the card is gone at the bell', await page.evaluate(() => !document.querySelector('#flow .black').classList.contains('on')));
 
 // ── 5. Results ───────────────────────────────────────────────────────────────
 await until(page, () => document.querySelector('#flow .screen.results.on') !== null, undefined, { label: 'the results screen', timeout: 30000 });
