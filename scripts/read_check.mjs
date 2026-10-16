@@ -57,7 +57,8 @@ console.log(`     window → ${shot1}\n              ${await greyscaleCopy(page,
 // ── 2. The counter ───────────────────────────────────────────────────────────
 const countered = await until(page, () => window.__read().log.includes('counter0'), undefined, { label: 'the counter', timeout: 8000 }).then(() => true, () => false);
 const p2 = await probe();
-check('the cross into the window lands as a counter, after the slip', countered && p2.log.join('>') === 'slip0>counter0', `log ${JSON.stringify(p2.log)}`);
+// (A counter at ×1.9 clears the dummy's stun threshold, so 'rocked1' follows — sim/stun.ts, 2026-10-15.)
+check('the cross into the window lands as a counter, after the slip', countered && p2.log.slice(0, 2).join('>') === 'slip0>counter0', `log ${JSON.stringify(p2.log)}`);
 
 // ── 3. The window closes ─────────────────────────────────────────────────────
 await until(page, () => window.__sim.state().fighters[1].counterWindow === 0 && window.__read().glow[1] === 0, undefined, { label: 'window closed', timeout: 8000 });

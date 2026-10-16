@@ -339,6 +339,30 @@ pull, dip), not the drawing.
   never slipped? The yellow frame looks really ugly; Fight Night's is way
   more subtle."** → second cut: nothing on the screen, the exposed
   fighter's rim warms; counters are slip-only. NOT yet feel-tested.
+- 2026-10-15 (back after a month): **"gameplay is fine, playable — stop
+  tweaking that."** Stage 3 began (HUD, flow, referee, knockdown scene; see
+  CONTRACT §13). Then: "one strong punch should stun a boxer, but with a
+  formula so it's not random… the knockouts out of nowhere are what this
+  game is missing" and "I still can't tell when I've slipped and landed in
+  the window — that should be one of the most satisfying parts". →
+  **ROCKED** (`sim/stun.ts`, config group `stun`, `scripts/stun_test.mjs`):
+  a clean head shot over `T = stunBase × chin × health × stamina` factors
+  (fresh chin-70 ≈ 470 N·s; measured standing shots: cross ~270, hook ~415,
+  uppercut ~440, a counter ×1.9) rocks for ~1.6–3 s — speed ×0.5, guard sags
+  0.1 m and absorbs half, exposure held at 1, no punch for 0.5 s; a second
+  rocking-capable shot ≥ 0.5 T while rocked is a knockdown (`cause:
+  'finish'`), one shot ≥ 1.6 T is a flash knockdown; the jab can neither
+  rock nor finish (his call); head only (no body shots yet, his call). The
+  rig: hips drop 6 cm, a 1.1 Hz wobble, the chest rolls with it. **The
+  counter read, third cut** (`ui/read.ts`): while the player's slip has the
+  window open the scene runs at 0.6× (host time), a counter landing gets
+  0.3× for 0.35 s, a bigger camera push and the sting; a rock gets 0.4× for
+  0.4 s, a thud-and-ring; the HUD keeps the health just lost lit as a pale
+  ghost for 0.6 s. When YOU are rocked: the frame's edges warm to red and
+  blur ~1.6 px at the shot (a DOM radial, `readHurtTint`), fading as it
+  clears, and the camera's drift grows. All NOT yet feel-tested. If it
+  rocks too often, raise `stunBase` first; if the window slow-mo feels like
+  a cheat, `readWindowSlowMo` toward 1.
 
 ## Open
 

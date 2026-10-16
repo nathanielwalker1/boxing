@@ -47,6 +47,8 @@ export class Stage {
   private shakeT = 0;
   private az = NaN;       // smoothed follow-camera azimuth, radians (NaN = not yet placed)
   private el = NaN;       // smoothed elevation, radians (the knockdown shot drops it)
+  /** Extra handheld drift amplitude this frame, m (the hurt read: the host sets it from the player's hurt level). */
+  wobble = 0;
   private following = false;   // last frame rode the fighters' line (vs the fixed seat)
 
   /**
@@ -178,6 +180,13 @@ export class Stage {
       } else if (e.type === 'knockdown' || e.type === 'ko' || e.type === 'tko') {
         this.pushPunchIn(c.camKoPunchIn, c.camKoRecover);
         this.shakeAmp = Math.min(0.08, c.camShake * 3); this.shakeT = 0;
+      } else if (e.type === 'counter') {
+        // The counter read: a bigger push than any plain land can make.
+        this.pushPunchIn(c.camCounterPunchIn, c.camKoRecover);
+        this.shakeAmp = Math.min(0.08, c.camShake * 2); this.shakeT = 0;
+      } else if (e.type === 'rocked') {
+        this.pushPunchIn(c.camRockedPunchIn, c.camKoRecover);
+        this.shakeAmp = Math.min(0.08, c.camShake * 2.5); this.shakeT = 0;
       }
     }
   }
@@ -283,7 +292,7 @@ export class Stage {
     else this.lookTarget.set((a.x + b.x) / 2, c.camLookY, (a.z + b.z) / 2);
     const lam = 1 - Math.exp(-c.camFollowLambda * dt);
     this.look.lerp(this.lookTarget, lam);
-    const drift = c.camDriftAmp;
+    const drift = c.camDriftAmp + this.wobble;   // the handheld drift grows while the player is rocked (main.ts sets it)
     this.shakeT += dt;
     const shake = this.shakeAmp * Math.exp(-this.shakeT / Math.max(0.02, c.camShakeRecover));
     const dx = Math.sin(t * c.camDriftHz * TAU) * drift + Math.sin(this.shakeT * c.camShakeHz * TAU) * shake;

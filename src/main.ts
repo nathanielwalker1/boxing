@@ -9,7 +9,7 @@ import {
   SIM_DT, NULL_INPUT, EventBus, createConfig, cloneInput, frameOf, punchFixture, restFighterState, ROSTER, v2dist,
   type Config, type FighterSpec, type FighterState, type FighterView, type FrameInput, type Hand, type PunchType, type Side, type SimEvent, type SimState,
 } from './core';
-import { createState, step } from './sim';
+import { createState, hurtLevel, step } from './sim';
 import { aiStep, createAi, type AiState } from './ai';
 import { createFighterView } from './rig';
 import { FightFlow } from './ui/flow';
@@ -195,7 +195,7 @@ window.__camEl = () => stage.elevation;
 window.__tick = { frames: 0, simTicks: 0, gameTime: 0, ready: false };
 let acc = 0;
 let lastMs = 0;
-let slowT = 0;              // wall seconds of knockdown slow motion left
+let slowMo = { t: 0, scale: 1 };   // wall seconds of slow motion left, and its rate (knockdown, counter, rocked)
 let referee: Referee | null = null;
 window.__ref = () => referee ? referee.pose : null;
 const MAX_FRAME = 0.25;   // clamp so a background tab doesn't spiral
@@ -213,8 +213,11 @@ function loop(nowMs: number): void {
   // of wall time after a knockdown the sim is fed knockdownSlowMo of each
   // frame. The sim is unchanged; the referee and the camera take the same
   // slowed time so the whole scene slows together.
-  const slow = slowT > 0 ? cfg.knockdownSlowMo : 1;
-  slowT = Math.max(0, slowT - dt);
+  // The reads add their own: a counter or a rock gets a beat of slow motion,
+  // and the player's open counter window slows the scene (ui/read.ts). The
+  // slowest wins; none of it touches the sim's own clock.
+  const slow = Math.min(slowMo.t > 0 ? slowMo.scale : 1, read.timeScale);
+  slowMo.t = Math.max(0, slowMo.t - dt);
   const sdt = dt * slow;
 
   if (!held) {
@@ -245,7 +248,11 @@ function loop(nowMs: number): void {
   if (frameEvents.length) {
     bus.emit(frameEvents);
     stage.handleEvents(frameEvents);
-    if (frameEvents.some(e => e.type === 'knockdown')) slowT = cfg.knockdownSlowMoSeconds;
+    for (const e of frameEvents) {
+      if (e.type === 'counter') slowMo = { t: cfg.readCounterSlowMoSeconds, scale: cfg.readCounterSlowMo };
+      else if (e.type === 'rocked') slowMo = { t: cfg.readRockedSlowMoSeconds, scale: cfg.readRockedSlowMo };
+    }
+    if (frameEvents.some(e => e.type === 'knockdown')) slowMo = { t: cfg.knockdownSlowMoSeconds, scale: cfg.knockdownSlowMo };
   }
 
   const alpha = paused ? 1 : acc / SIM_DT;
@@ -272,9 +279,10 @@ function loop(nowMs: number): void {
   else stage.frame(shown[f]!.pos, shown[f]!.pos, 1, nowMs / 1000, dt);
 
   hud.visible = !paused && (flow === null || flow.showHud);
-  hud.update(next);
+  hud.update(next, dt);
   if (flow) flow.update(next, dt, frameEvents);
   read.update(next);
+  stage.wobble = hurtLevel(next.fighters[0]) * cfg.readHurtWobble;   // you are rocked: the lens drifts more
   fps.visible = cfg.debugFps;
   const info = stage.info;
   fps.tick(info.calls, info.triangles);

@@ -103,6 +103,15 @@ const RECIPES: Record<string, Recipe> = {
       { type: 'noise', gain: 0.7, attack: 0.002, decay: 0.25, filter: { type: 'lowpass', freq: 300, q: 0.7 } },
     ],
   },
+  // ROCKED (2026-10-15): a deep thud under the land and a dull ring that hangs — the legs went.
+  rocked: {
+    gain: 0.7,
+    layers: [
+      { type: 'tone', gain: 0.9, attack: 0.004, decay: 0.5, wave: 'sine', freq: 70, freqEnd: 40 },
+      { type: 'tone', gain: 0.25, attack: 0.03, decay: 1.4, wave: 'sine', freq: 2900, freqEnd: 2800 },
+      { type: 'noise', gain: 0.4, attack: 0.002, decay: 0.2, filter: { type: 'lowpass', freq: 400, q: 0.8 } },
+    ],
+  },
   // The bell.
   bell: {
     gain: 0.5,
@@ -140,6 +149,7 @@ export class CombatAudio {
     // A slipped punch: the whiff fires too (the attacker missed); this is the close pass by the ear on top.
     bus.on('slip', e => { if (e.dodged) { this.play('slipNear'); if (e.side === 0) this.play('counterOpen'); } });
     bus.on('knockdown', () => this.play('knockdown'));
+    bus.on('rocked', () => this.play('rocked'));
     bus.on('bell', () => this.play('bell'));
   }
 

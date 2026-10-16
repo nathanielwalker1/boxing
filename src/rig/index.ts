@@ -305,6 +305,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const sway = Math.sin(tIdle * c.rigSwayHz * Math.PI * 2 + side * 2.1);
     const bob = Math.sin(tIdle * c.rigSwayHz * Math.PI * 4 + 0.7) * c.rigBobAmp;
     const busy = next.punch.type !== null || next.block || next.down;
+    // ROCKED (sim/stun.ts): 1 at the shot, fading as it clears. Non-hitbox only:
+    // the hips drop (knees give), the weight shift grows and slows to a wobble,
+    // the chest rolls with it — the legs reading as gone.
+    const hurt = next.hurt > 0 && next.hurtMax > 0 ? Math.min(1, next.hurt / next.hurtMax) : 0;
+    const wob = hurt > 0 ? Math.sin(tIdle * c.rigHurtHz * Math.PI * 2) * hurt : 0;
     // …and it dies down as the fighter tires (stamina → rigRhythmTired).
     const freshness = lerp(c.rigRhythmTired, 1, Math.max(0, Math.min(1, next.stamina)));
     const rhythm = chase1(rhythmGate, (busy ? 1 - c.rigRhythmFade : 1) * freshness, c.rigSpineK, c.rigSpineZeta, dt);
@@ -353,7 +358,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // (slipCrouch) so the knees bend for real.
     const slipLat = next.slip.dir === -1 || next.slip.dir === 1 ? headL.z - shoulderL.z : 0;
     const slipAmt = Math.min(1, Math.abs(slipLat) / Math.max(1e-3, c.slipHeadOffset));
-    chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift + surgeF, bob - rDip + stepUp - slipAmt * c.rigSlipDip, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7 + surgeL + slipLat * c.rigSlipHipShift, c.rigHipK, c.rigHipZeta, dt);
+    chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift + surgeF + wob * c.rigHurtSway * 0.4, bob - rDip + stepUp - slipAmt * c.rigSlipDip - hurt * c.rigHurtSink, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7 + surgeL + slipLat * c.rigSlipHipShift + wob * c.rigHurtSway, c.rigHipK, c.rigHipZeta, dt);
     chase3(spineBend, leanF * c.rigLeanChest + mvFwd * c.rigMoveLeanShift * 0.6 + weaveX * 0.6, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3 + mvLat * c.rigMoveLeanShift * 0.4 + weaveZ * 0.6, c.rigSpineK, c.rigSpineZeta, dt);
     // Circling: the head leads the travel.
     headL.z += mvLat * c.rigMoveHeadLead;
@@ -386,7 +391,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // walking (roll into the travel) and the punch's lateral weight transfer
     // (a hook rolls the shoulders across with the weight, an uppercut over the
     // punching hip).
-    qTmp.setFromAxisAngle(XAXIS, -rRoll + (mvLat * c.rigMoveLeanDeg * (lateralTravel ? 1.1 : 0.7) + leanL * c.rigLeanRollDeg) * DEG);   // circling rolls the torso harder into the travel
+    qTmp.setFromAxisAngle(XAXIS, -rRoll + (mvLat * c.rigMoveLeanDeg * (lateralTravel ? 1.1 : 0.7) + leanL * c.rigLeanRollDeg + wob * c.rigHurtRollDeg) * DEG);   // circling rolls the torso harder into the travel; rocked, it rolls with the wobble
     qChest.multiply(qTmp);
 
     // ── Knockdown: rewrite hips, chest, head and gloves from the fall timeline ──

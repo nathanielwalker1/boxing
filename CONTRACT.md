@@ -439,3 +439,23 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   (the knockdown count: low, pushed in on the downed fighter, orbit frozen). **Knockdown
   slow motion** is host time scaling (`knockdownSlowMo`, main.ts): the sim is fed less
   time; determinism untouched. The count ticks are audible (`count` recipe).
+- 2026-10-15 — **Feel-test fixes, same night.** The round clock RUNS through the count
+  (was held; a round that runs out mid-count ends on the get-up). The referee keeps to
+  the ropes and gives ground inside `refClear`; no counting gesture. The rest is a black
+  card with a countdown. The count tick audio was removed.
+- 2026-10-15 — **ROCKED** (`src/sim/stun.ts`, config group `stun`; Nate's design
+  discussion, then "yeah I like this"). A clean head shot from a punch with
+  `PunchDef.rocks` (not the jab) whose impulse clears `stunThreshold(target)` =
+  `stunBase × chin × health × stamina` factors puts the target in the hurt state
+  (`FighterState.hurt` / `hurtMax`, seconds): movement × `stunMoveScale`, the resting
+  guard sags `stunGuardDrop`, the block absorbs `blockReduction × stunBlockScale`,
+  exposure held at `stunVuln`, no punch for `stunPunchLock`. A rocking-capable clean head
+  shot ≥ `stunFinishFrac × T` while rocked is a knockdown; one shot ≥ `stunFlashFrac × T`
+  floors outright. `knockdown.cause` ('health' | 'finish' | 'flash') and a `rocked` event
+  were added to §4. Deterministic (no rng). Head only until body shots exist. The AI
+  treats rocked as stumbling (covers; presses a rocked opponent).
+- 2026-10-15 — **Host time scaling is a presentation tool.** main.ts may feed the sim
+  less than wall time (knockdown, counter and rock beats; the player's open counter
+  window at `readWindowSlowMo`). The sim's clock, hit-stop and determinism are untouched;
+  tests never see it. The hurt read (red edge + blur) is a DOM layer in `ui/read.ts`, not
+  the post pass, so it costs nothing when clear.

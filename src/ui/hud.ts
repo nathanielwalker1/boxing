@@ -33,6 +33,8 @@ const CSS = `
 #hud .r .bar.stamina { margin-left: auto; }
 #hud .fill { position: absolute; inset: 0; transform-origin: left; background: linear-gradient(#fff6, #0000 40%), var(--c, #d8323c); }
 #hud .cap { position: absolute; inset: 0; transform-origin: left; background: #ffffff22; }
+#hud .ghost { position: absolute; inset: 0; transform-origin: left; background: #f6e9c8; }
+#hud .r .ghost { transform-origin: right; }
 #hud .r .fill, #hud .r .cap { transform-origin: right; }
 #hud .stamina .fill { background: linear-gradient(#fff5, #0000 50%), var(--gold); }
 #hud .centre { position: absolute; left: 50%; transform: translateX(-50%); text-align: center; min-width: 118px;
@@ -48,7 +50,7 @@ const CSS = `
 }
 `;
 
-interface SidePanel { root: HTMLElement; name: HTMLElement; nick: HTMLElement; health: HTMLElement; cap: HTMLElement; stamina: HTMLElement; pips: HTMLElement }
+interface SidePanel { root: HTMLElement; name: HTMLElement; nick: HTMLElement; health: HTMLElement; cap: HTMLElement; ghost: HTMLElement; stamina: HTMLElement; pips: HTMLElement }
 
 export class Hud {
   private el: HTMLElement;
@@ -56,6 +58,7 @@ export class Hud {
   private centre: HTMLElement;
   private clock: HTMLElement;
   private round: HTMLElement;
+  private ghost: [{ level: number; hold: number }, { level: number; hold: number }] = [{ level: 1, hold: 0 }, { level: 1, hold: 0 }];
 
   constructor(parent: HTMLElement, specs: readonly [FighterSpec, FighterSpec], private cfg: Config, layout: 'bottom' | 'top' = 'bottom') {
     const style = document.createElement('style');
@@ -73,7 +76,7 @@ export class Hud {
       root.style.setProperty('--c', spec.trunksPrimary);
       root.innerHTML = `<div class="name">${spec.name}</div>` +
         `<div><span class="nick">"${spec.nickname}"</span><span class="pips"></span></div>` +
-        `<div class="bar health"><div class="cap"></div><div class="fill"></div></div>` +
+        `<div class="bar health"><div class="cap"></div><div class="ghost"></div><div class="fill"></div></div>` +
         `<div class="bar stamina"><div class="fill"></div></div>`;
       this.el.appendChild(root);
       return {
@@ -82,6 +85,7 @@ export class Hud {
         nick: root.querySelector('.nick')!,
         health: root.querySelector('.health .fill')!,
         cap: root.querySelector('.health .cap')!,
+        ghost: root.querySelector('.health .ghost')!,
         stamina: root.querySelector('.stamina .fill')!,
         pips: root.querySelector('.pips')!,
       };
@@ -105,14 +109,25 @@ export class Hud {
       p.root.style.setProperty('--c', f.trunksPrimary);
       p.name.textContent = f.name;
       p.nick.textContent = `"${f.nickname}"`;
+      this.ghost[i] = { level: 1, hold: 0 };
     }
   }
 
-  update(s: SimState): void {
+  /** `dt`: frame seconds, for the ghost bar's hold-then-drain. */
+  update(s: SimState, dt = 0): void {
     for (let i = 0; i < 2; i++) {
       const f = s.fighters[i]!, p = this.sides[i]!;
       p.health.style.transform = `scaleX(${f.health})`;
       p.cap.style.transform = `scaleX(${healthCap(f)})`;   // the dim part: what can still come back
+      // The ghost (the counter read, 2026-10-15): health just lost stays lit
+      // pale for readGhostBar seconds, then drains down to the bar — a big
+      // shot reads as a big chunk. A fresh hit restarts the hold.
+      const g = this.ghost[i]!;
+      if (f.health < g.level - 1e-6) { if (g.hold <= 0) g.hold = this.cfg.readGhostBar; }
+      if (f.health >= g.level) { g.level = f.health; g.hold = 0; }
+      else if (g.hold > 0) g.hold -= dt;
+      else g.level = Math.max(f.health, g.level - dt * 0.6);
+      p.ghost.style.transform = `scaleX(${this.cfg.readGhostBar > 0 ? g.level : f.health})`;
       p.stamina.style.transform = `scaleX(${f.stamina})`;
       p.pips.textContent = '●'.repeat(f.knockdowns);
     }
