@@ -186,6 +186,8 @@ export function cloneFighter(f: FighterState): FighterState {
     down: f.down,
     downT: f.downT,
     knockdowns: f.knockdowns,
+    hurt: f.hurt,
+    hurtMax: f.hurtMax,
     headBox: { ...f.headBox },
     bodyBox: { a: v3c(f.bodyBox.a), b: v3c(f.bodyBox.b), r: f.bodyBox.r },
     arms: [{ shoulder: v3c(f.arms[0].shoulder), elbow: v3c(f.arms[0].elbow) }, { shoulder: v3c(f.arms[1].shoulder), elbow: v3c(f.arms[1].elbow) }],

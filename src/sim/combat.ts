@@ -10,6 +10,7 @@ import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BL
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
 import { applyPunish } from './vulnerability';
+import { applyStun, stunPunchLocked } from './stun';
 
 /** Two pressed on the same tick: the faster punch wins. */
 function fastestOf(mask: number): PunchType | null {
@@ -26,6 +27,7 @@ const maskOf = (t: PunchType): number => t === 'jab' ? MASK_JAB : t === 'cross' 
  * one. The AI reads the same rule.
  */
 export function canStartPunch(f: FighterState, cfg: Config): boolean {
+  if (stunPunchLocked(f, cfg)) return false;   // rocked: the first stunPunchLock seconds throw nothing
   const p = f.punch;
   if (p.type === null) return true;
   const at = p.contact ? cfg.punchChainOnHit : cfg.punchChainAt;
@@ -406,7 +408,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const flight = ph.cock * cockMult(a) + ph.extend;
   // Only a HELD block can be perfect — a fist absorbed by a relaxed guard pinned on the face is a plain block.
   const perfect = d.block && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight);
-  if (blocked) mag *= 1 - cfg.blockReduction;
+  if (blocked) mag *= 1 - cfg.blockReduction * (d.hurt > 0 ? cfg.stunBlockScale : 1);   // a rocked guard is loose
   const power = mag / cfg.punchImpulseBase;
   const dir: Vec3 = { x: dirX, y: 0, z: dirZ };
   const impulse: Vec3 = { x: dirX * mag, y: 0, z: dirZ * mag };
@@ -434,5 +436,12 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   } else {
     takeHit(s, target, mag, blocked, cfg, events);
     s.hitStop = Math.max(s.hitStop, clamp(cfg.hitStopBase * power, 0, cfg.hitStopMax) + (counter ? targetVuln * cfg.counterHitStopBonus : 0));
+    // ROCKED (sim/stun.ts): a clean head shot from a punch that can rock is
+    // measured against the target's threshold — rock, finish or flash.
+    if (!blocked && part === 'head' && def.rocks && !d.down) {
+      const n = events.length;
+      applyStun(s, target, side, type, mag, cfg, events);
+      if (events.length > n) s.hitStop = Math.max(s.hitStop, cfg.stunHitStop);
+    }
   }
 }

@@ -14,6 +14,7 @@ import { PUNCHES, blockLocal, guardLocal, punchLocal, whiffPhases, type LocalPos
 import { slipBack, slipLateral } from './slip';
 import { setTargetCut, setTouchedBlock } from './state';
 import { stepArms } from './arms';
+import { hurtLevel } from './stun';
 
 const HANDS: [Hand, Hand] = ['lead', 'rear'];
 /**
@@ -44,7 +45,11 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPos
       return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg, f.torsoTwist), kMul, contact, guard: false };
     }
   }
-  return { pose: f.block ? blockLocal(f.body, hand, f.stance) : guardLocal(f.body, hand, f.stance), kMul: 1, contact: null, guard: true };
+  if (f.block) return { pose: blockLocal(f.body, hand, f.stance), kMul: 1, contact: null, guard: true };
+  const g = guardLocal(f.body, hand, f.stance);
+  // Rocked: the resting guard sags by stunGuardDrop × how rocked (sim/stun.ts) — the chin is open.
+  const sag = f.hurt > 0 ? cfg.stunGuardDrop * hurtLevel(f) : 0;
+  return { pose: sag > 0 ? { fwd: g.fwd, up: g.up - sag, lat: g.lat } : g, kMul: 1, contact: null, guard: true };
 }
 
 /** Is the glove-centre point `p` inside `other`'s head, body or upper arms (the solid parts), inflated by the glove less its give? */

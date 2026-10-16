@@ -26,10 +26,12 @@ import { stepArms } from './arms';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip } from './slip';
 import { stepVulnerability } from './vulnerability';
+import { stepStun } from './stun';
 import { cornerOf, endRound, startRound, stepBetween } from './round';
 
 export { healthCap, PUNISH_SLIP, punishSource } from './state';
 export { canStartPunch } from './combat';
+export { stunThreshold, hurtLevel } from './stun';
 
 const SIDES: [Side, Side] = [0, 1];
 
@@ -85,7 +87,9 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     const type = f.punch.type;
     if (advancePunch(f, cfg, dt)) peaked[side] = type;
     // Exposure is read off this tick's punch progress, so the hit test below
-    // sees the same number a readout would show for this tick.
+    // sees the same number a readout would show for this tick. The hurt
+    // state ticks first so a cleared one no longer holds the exposure.
+    stepStun(f, dt);
     stepVulnerability(f, cfg, dt);
   }
   for (const side of SIDES) { stepReaction(s.fighters[side], cfg, dt); computeBoxes(s.fighters[side], cfg); }

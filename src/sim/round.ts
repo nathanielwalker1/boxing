@@ -51,6 +51,7 @@ function toCorner(f: FighterState, side: Side, time: number, cfg: Config): void 
   f.reaction = { head: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }, torso: { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }, tilt: { x: 0, v: 0 }, spin: { x: 0, v: 0 }, sink: { x: 0, v: 0 } };
   f.stagger = { x: 0, z: 0 };
   f.down = false; f.downT = 0; f.knockdowns = 0;
+  f.hurt = 0; f.hurtMax = 0;
   f.health = Math.min(healthCap(f), f.health + (1 - f.health) * cfg.betweenRoundHealthRestore);
   f.stamina = Math.min(1, f.stamina + (1 - f.stamina) * cfg.betweenRoundStaminaRestore);
   computeBoxes(f, cfg);

@@ -63,6 +63,8 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
     down: false,
     downT: 0,
     knockdowns: 0,
+    hurt: 0,
+    hurtMax: 0,
     headBox: { ...head, r: body.headR },
     bodyBox: { a: hips, b: chest, r: body.bodyR },
     arms: [armAt('lead', 0), armAt('rear', 1)],

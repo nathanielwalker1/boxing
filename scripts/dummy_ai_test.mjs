@@ -17,7 +17,9 @@ const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // stall the long series below (v1 did the same with healthDamagePerForce = 0).
 // Press-only footwork (2026-09-16): §1–5 pin the four v1 heuristics, which
 // the footwork modes sit on top of; §6 covers the modes with the defaults.
-const defaults = { ...createConfig(), healthDamagePerImpulse: 0 };
+// stunBase 0: a rocked opponent reads as stumbling (×aiAggressionMult) and
+// these cadence/aggression numbers are pinned without it (stun_test covers it).
+const defaults = { ...createConfig(), healthDamagePerImpulse: 0, stunBase: 0 };
 // …and no reaction lag, rush response, chase delay or bursts either (§7 covers those).
 // …nor the hit-state reads (§8): the stumble multiplier would otherwise stack onto §4's aggression numbers.
 const base = { ...defaults, aiProbeWeight: 0, aiCircleWeight: 0, aiHoldWeight: 0, aiResetChance: 0, aiHitResetChance: 0, aiReactionTime: 0, aiPressureSpeed: 999, aiChaseDelay: 0, aiComboChance: 0, aiCounterChance: 0, aiCoverChance: 0, aiStumbleSpeed: 999 };

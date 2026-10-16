@@ -206,8 +206,11 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // starts from a resolved one, so its low progress is never a false drop.
   const stuffed = me.punch.type !== null && !me.punch.resolved && a.lastProgress >= 0 && me.punch.progress < a.lastProgress - 1e-9;
   a.lastProgress = me.punch.type !== null && !me.punch.resolved ? me.punch.progress : -1;
-  const meStumbling = Math.hypot(me.stagger.x, me.stagger.z) > cfg.aiStumbleSpeed;
-  const oppStumbling = Math.hypot(opp.stagger.x, opp.stagger.z) > cfg.aiStumbleSpeed;
+  // Rocked (sim/stun.ts) reads as stumbling both ways: it throws nothing while
+  // rocked and covers; a rocked opponent is pressed for the finish.
+  const meStumbling = Math.hypot(me.stagger.x, me.stagger.z) > cfg.aiStumbleSpeed || me.hurt > 0;
+  const oppStumbling = Math.hypot(opp.stagger.x, opp.stagger.z) > cfg.aiStumbleSpeed || opp.hurt > 0;
+  if (me.hurt > 0) a.blockTimer = Math.max(a.blockTimer, cfg.aiCoverTime);
 
   // Perception (2026-09-16): what it steers by is the opponent's position
   // lagged by aiReactionTime (a first-order lag, so it is one number per axis

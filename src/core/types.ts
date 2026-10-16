@@ -171,6 +171,9 @@ export interface FighterState {
   down: boolean;
   downT: number;          // seconds on the canvas
   knockdowns: number;     // this round
+  /** ROCKED (sim/stun.ts, 2026-10-15): seconds of the hurt state left (0 = clear) and the length it started at. */
+  hurt: number;
+  hurtMax: number;
 
   // ── derived every step by the sim, read by rig/render/ai — never written elsewhere
   headBox: Sphere;
@@ -223,7 +226,9 @@ export type SimEvent =
   | { type: 'slip';        side: Side; dir: -1 | 1 | 2; dodged: boolean }
   | { type: 'counter';     side: Side; target: Side; punch: PunchType }
   | { type: 'hurt';        side: Side; part: BodyPart; impulse: Vec3 }
-  | { type: 'knockdown';   side: Side; count: number }
+  | { type: 'knockdown';   side: Side; count: number; cause: 'health' | 'finish' | 'flash' }
+  /** A clean head shot cleared the target's stun threshold (sim/stun.ts): `seconds` of the hurt state. */
+  | { type: 'rocked';      side: Side; by: Side; punch: PunchType; impulse: number; threshold: number; seconds: number }
   | { type: 'countTick';   side: Side; n: number }
   | { type: 'getUp';       side: Side }
   | { type: 'roundStart';  index: number }

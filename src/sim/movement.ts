@@ -21,7 +21,7 @@ export function stepLocomotion(f: FighterState, input: Readonly<FrameInput>, cfg
   const massScale = cfg.moveMassRef / f.body.massKg;
   // The legs go first (2026-09-16): at zero stamina top speed and the push-off
   // are moveTiredScale of fresh, linearly in between. Both fighters.
-  const tired = lerp(cfg.moveTiredScale, 1, clamp(f.stamina, 0, 1));
+  const tired = lerp(cfg.moveTiredScale, 1, clamp(f.stamina, 0, 1)) * (f.hurt > 0 ? cfg.stunMoveScale : 1);   // rocked: the legs go (sim/stun.ts)
   const accelRate = cfg.moveAccel * massScale * tired;
   const frictionRate = cfg.moveFriction * massScale;
   let mx = input.move.x, my = input.move.y;

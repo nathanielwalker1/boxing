@@ -39,6 +39,8 @@ export interface PunchDef {
   hand: Hand | 'input';
   /** Straight punches lose power inside smotherDist; hooks/uppercuts do not. */
   smotherable: boolean;
+  /** Can this punch ROCK or FINISH a fighter (sim/stun.ts)? The jab cannot (Nate, 2026-10-15). */
+  rocks: boolean;
   /** Torso twist at full extension, radians about y (legacy PUNCHES.turn; 1 = full torque). */
   turn: number;
   /**
@@ -123,7 +125,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // lead shoulder still drives it (turn 0.45, raised from v1's 0.15 at the
   // 2026-09-03 feel-test) and the body's turn snaps back with the fist.
   jab: {
-    hand: 'lead', smotherable: true, torsoFrame: false, turn: 0.45, coil: 0.05, swing: 0, lean: 0.8, sway: 0, dip: 0.02, load: 0.15,
+    hand: 'lead', smotherable: true, rocks: false, torsoFrame: false, turn: 0.45, coil: 0.05, swing: 0, lean: 0.8, sway: 0, dip: 0.02, load: 0.15,
     path: (b, h, s) => straightPath(b, h, s, 0.04),
     phases: cfg => phases(cfg.jabCock, cfg.jabExtend, cfg.jabRecover, cfg.punchTimeScale, cfg.jabHoldFrac),
     recoverK: cfg => cfg.jabChainRecoverK,
@@ -132,7 +134,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
     react: cfg => ({ back: cfg.jabReactBack, lift: cfg.jabReactLift, twist: cfg.jabReactTwist, torso: cfg.jabReactTorso, snap: cfg.jabReactSnap, spin: cfg.jabReactSpin }),
   },
   cross: {
-    hand: 'rear', smotherable: true, torsoFrame: false, turn: 1.15, coil: 0.15, swing: 0, lean: 1.0, sway: -0.15, dip: 0.03, load: 0.5,   // turn 1.15 (was 1.0): "not enough twisting", 2026-09-16
+    hand: 'rear', smotherable: true, rocks: true, torsoFrame: false, turn: 1.15, coil: 0.15, swing: 0, lean: 1.0, sway: -0.15, dip: 0.03, load: 0.5,   // turn 1.15 (was 1.0): "not enough twisting", 2026-09-16
     path: (b, h, s) => straightPath(b, h, s, 0.35),
     phases: cfg => phases(cfg.crossCock, cfg.crossExtend, cfg.crossRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     recoverK: cfg => cfg.chainRecoverK,
@@ -146,7 +148,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // the centreline with the elbow at ~90°. Turn raised from v1's 0.70 to the
   // cross's 1.0 — the hook IS the hip turn — and the weight goes across.
   hook: {
-    hand: 'input', smotherable: false, torsoFrame: true, turn: 1.45, coil: 0.3, swing: 0.5, lean: 0.6, sway: -0.5, dip: 0.05, load: 0.4,   // swing 0.5 on the turn's tangent ≈ 45° (was 0.85 on the glove's own velocity)   // turn 1.45 (1.3 at the 2026-09-09 feel-test): the shoulders come right round, and now the fist rides them
+    hand: 'input', smotherable: false, rocks: true, torsoFrame: true, turn: 1.45, coil: 0.3, swing: 0.5, lean: 0.6, sway: -0.5, dip: 0.05, load: 0.4,   // swing 0.5 on the turn's tangent ≈ 45° (was 0.85 on the glove's own velocity)   // turn 1.45 (1.3 at the 2026-09-09 feel-test): the shoulders come right round, and now the fist rides them
     path: hookPath,
     phases: cfg => phases(cfg.hookCock, cfg.hookExtend, cfg.hookRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     recoverK: cfg => cfg.chainRecoverK,
@@ -159,7 +161,7 @@ export const PUNCHES: Record<PunchType, PunchDef> = {
   // above it with the elbow low. Shortest reach of the four (legacy: turn
   // 0.70, dip 6 px ≈ 0.07 m; 0.09 here so the sit-down reads at the play camera).
   uppercut: {
-    hand: 'input', smotherable: false, torsoFrame: true, turn: 0.85, coil: 0.15, swing: 0, lean: 0.4, sway: 0.55, dip: 0.09, load: 0.6,   // sway 0.55 (was 0.3): the body loads and rolls hard over the punching hip (Tyson reference, 2026-09-16); turn 0.85 (was 0.7)
+    hand: 'input', smotherable: false, rocks: true, torsoFrame: true, turn: 0.85, coil: 0.15, swing: 0, lean: 0.4, sway: 0.55, dip: 0.09, load: 0.6,   // sway 0.55 (was 0.3): the body loads and rolls hard over the punching hip (Tyson reference, 2026-09-16); turn 0.85 (was 0.7)
     path: uppercutPath,
     phases: cfg => phases(cfg.uppercutCock, cfg.uppercutExtend, cfg.uppercutRecover, cfg.punchTimeScale, cfg.punchHoldFrac),
     recoverK: cfg => cfg.chainRecoverK,

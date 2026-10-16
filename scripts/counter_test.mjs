@@ -38,7 +38,7 @@ const phases = (type, c = cfg) => {
   return { cock: c[`${k}Cock`], extend: c[`${k}Extend`], recover: c[`${k}Recover`] };
 };
 const NO_STRETCH = { ...cfg, whiffRecoveryMult: 1 };
-const NO_HITSTOP = { ...cfg, hitStopBase: 0 };
+const NO_HITSTOP = { ...cfg, hitStopBase: 0, stunHitStop: 0 };   // a hook can ROCK the dummy; its hit-stop would count as recovery ticks
 const isNaNDeep = v => typeof v === 'number' ? Number.isNaN(v) : v && typeof v === 'object' ? Object.values(v).some(isNaNDeep) : false;
 
 // ── 1. The curve: 0 at rest, ~0 through the early cock, peak at full extension, 0 after ──

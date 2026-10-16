@@ -45,12 +45,14 @@ export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean
   d.health = Math.max(0, d.health - damage);
   setHealthCap(d, Math.max(d.health, healthCap(d) - damage * cfg.healthCapLoss));
   setHealthRegenDelay(d, Math.max(healthRegenDelay(d), cfg.healthRegenDelay));
-  if (d.health <= 0) knockDown(s, target, cfg, events);
+  if (d.health <= 0) knockDown(s, target, cfg, events, 'health');
 }
 
-function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent[]): void {
+/** Down: the bar emptied ('health'), a shot finished a rocked fighter ('finish'), or one shot was enough ('flash') — sim/stun.ts. */
+export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent[], cause: 'health' | 'finish' | 'flash'): void {
   const d = s.fighters[side];
   d.down = true;
+  d.hurt = 0; d.hurtMax = 0;   // the canvas ends the hurt state; the count is its own thing
   d.downT = 0;
   d.knockdowns += 1;
   d.block = false;
@@ -61,7 +63,7 @@ function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent[]): vo
   d.stagger.x = 0; d.stagger.z = 0;
   d.slip = { active: false, dir: 0, t: 0, offset: 0 };
   clearPunish(d);   // the knockdown supersedes any punish window
-  events.push({ type: 'knockdown', side, count: d.knockdowns });
+  events.push({ type: 'knockdown', side, count: d.knockdowns, cause });
   if (d.knockdowns >= cfg.knockdownsForTko) {
     events.push({ type: 'tko', winner: side === 0 ? 1 : 0 });
     s.round.phase = 'over';
