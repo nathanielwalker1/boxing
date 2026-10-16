@@ -12,7 +12,7 @@ import { readFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { DEV_URL } from './devUrl.js';
-import { bootReady, frames } from './waits.js';
+import { bootReady, frames, until } from './waits.js';
 import { greyscaleCopy } from './greyscale.js';
 
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), 'output');
@@ -61,7 +61,10 @@ for (const [label, dist, fov] of [['close0', 6.5, 42], ['close1', 4.2, 34]]) {
     window.__cfg.camDistMin = window.__cfg.camDistMax = dist;
     window.__cfg.camFovMin = window.__cfg.camFovMax = fov;
   }, { dist, fov });
-  await frames(page, 40);                         // dolly smoothing (camDollyLambda 4/s) settles
+  // The dolly settles on its own clock (camDollyLambda), so wait for the
+  // distance, not a frame count — 40 frames was a 20 s timeout at the fps a
+  // cold parallel run leaves headless GL with (2026-10-15).
+  await until(page, d => Math.abs(window.__camDist() - d) < 0.05, dist, { label: `dolly at ${dist} m`, timeout: 60000 });
   const shot = `${OUT}/arena_${label}.png`;
   await page.screenshot({ path: shot });
   const grey = await greyscaleCopy(page, shot);
