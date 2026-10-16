@@ -58,6 +58,8 @@ export interface FighterSpec {
   hair: 'none' | 'short' | 'afro' | 'braids' | 'long' | 'mohawk';
   facialHair: 'none' | 'goatee' | 'beard';
   tattoos?: ('chest' | 'back' | 'leftArm' | 'rightArm')[];
+  /** A dressed figure (the referee; contract addition 2026-10-15): shirt over the torso and upper arms, trousers to the boots, a bow tie, bare hands. */
+  outfit?: { shirt: string; trousers: string; tie: string };
   power: number; speed: number; chin: number; stamina: number; defense: number; // 0–100
   style: AiStyle;
 }

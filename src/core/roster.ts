@@ -28,6 +28,19 @@ export const ROSTER: readonly FighterSpec[] = [
   },
 ];
 
+/** The third man in the ring (Stage 3). Never a sim fighter: ui/referee.ts drives a FighterState for the rig to draw. */
+export const REFEREE: FighterSpec = {
+  id: 'referee', name: 'Referee', nickname: '', hometown: '',
+  stance: 'orthodox',
+  heightM: 1.76, reachM: 1.78, massKg: 74, build: 'lean',
+  skin: '#d9a57a', trunksPrimary: '#1b1b22', trunksSecondary: '#101014', trunksStyle: 'long',
+  gloves: '#d9a57a', boots: '#15151a',
+  hair: 'short', facialHair: 'none',
+  outfit: { shirt: '#9fb6d8', trousers: '#1b1b22', tie: '#101014' },
+  power: 0, speed: 0, chin: 0, stamina: 0, defense: 0,
+  style: 'outboxer',
+};
+
 export function specById(id: string): FighterSpec {
   const s = ROSTER.find(f => f.id === id);
   if (!s) throw new Error(`roster: no fighter '${id}'`);

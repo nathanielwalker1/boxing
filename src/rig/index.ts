@@ -64,15 +64,20 @@ const DEBUG_BONES: readonly (readonly [number, number])[] = [
   [J.hips, J.hp1], [J.hp1, J.kn1], [J.kn1, J.an1],
 ];
 
-export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, parent: THREE.Object3D): FighterView {
+/**
+ * `opts.key`: the toon-material key (default the side). A non-fighter figure
+ * drawn with this rig (the referee) passes its own so the read's rim never
+ * warms it, and `probe: false` so it does not take over window.__rig[side].
+ */
+export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, parent: THREE.Object3D, opts: { key?: number; probe?: boolean } = {}): FighterView {
   const root = new THREE.Group();
-  root.name = `fighter${side}`;
+  root.name = opts.key !== undefined && opts.key !== side ? spec.id : `fighter${side}`;
   parent.add(root);
 
   const leadSign = handLateralSign('lead', spec.stance);
   const latSign: readonly [number, number] = [leadSign, -leadSign];   // index 0 = lead, 1 = rear
 
-  const toon = toonMaterial(cfg, side);   // per side: the read's warm rim is per fighter
+  const toon = toonMaterial(cfg, opts.key ?? side);   // per side: the read's warm rim is per fighter
   const hull = outlineMaterial(cfg);
   let glowAmt = 0;   // the read: 0..1 from the UI, drawn as a warm rim (readGlowStrength × this)
   let rig: RigMesh | null = null;
@@ -207,8 +212,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     feet: () => [feet[0].phase, feet[1].phase],
     arms: () => [0, 1].map(i => ({ shoulder: { x: shoulderJ[i]!.x, y: shoulderJ[i]!.y, z: shoulderJ[i]!.z }, elbow: { x: elbowJ[i]!.x, y: elbowJ[i]!.y, z: elbowJ[i]!.z }, glove: { x: gloveL[i]!.x, y: gloveL[i]!.y, z: gloveL[i]!.z }, cleared: elbowCleared[i]! })) as ReturnType<RigProbe['arms']>,
   };
-  window.__rig = window.__rig ?? {};
-  window.__rig[side] = probe;
+  const probing = opts.probe ?? true;
+  if (probing) {
+    window.__rig = window.__rig ?? {};
+    window.__rig[side] = probe;
+  }
 
   // ── Events → squash ──
   const onEvents = (events: readonly SimEvent[], body: FighterState['body']): void => {
@@ -625,7 +633,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       if (rig) { rig.dispose(); rig = null; }
       debug.dispose();
       root.removeFromParent();
-      if (window.__rig) delete window.__rig[side];
+      if (probing && window.__rig) delete window.__rig[side];
     },
   };
 }

@@ -84,6 +84,10 @@ export const SCHEMA = {
   camShake:         num(0.012, 0, 0.05, 0.001, 'camera', 'camera shake amplitude on a landed punch, m per unit impulse (a hook ≈ 1.4, a jab ≈ 0.7) — decays over camShakeRecover (2026-09-16)'),
   camShakeHz:       num(17, 4, 40, 0.5, 'camera', 'camera shake frequency'),
   camShakeRecover:  num(0.3, 0.05, 1, 0.01, 'camera', 'camera shake decay time, s'),
+  camCountElevationDeg: num(5, 0, 30, 0.5, 'camera', 'the knockdown shot (Stage 3): elevation while the referee counts, degrees — low, the canvas in frame'),
+  camCountDist:     num(4.2, 2, 8, 0.1, 'camera', 'knockdown shot: dolly distance from the downed fighter, m'),
+  camCountLookY:    num(0.85, 0.2, 1.5, 0.01, 'camera', 'knockdown shot: look-at height, m (the fighter is on the canvas, the standing one and the referee above him)'),
+  camCountLambda:   num(2.2, 0.3, 10, 0.1, 'camera', 'knockdown shot: how fast the lens pushes in to the count and eases back out, 1/s'),
 
   // ── audio (UI) — synthesized combat SFX, ported from v1 audio.js: master knobs here, recipes in src/ui/audio.ts ──
   audioEnabled:     bool(true, 'audio', 'combat sounds on (they need one click or key press first — browser autoplay policy)', 'audioEnabled'),
@@ -336,6 +340,8 @@ export const SCHEMA = {
   hitStopScale:     num(0.05, 0, 0.5, 0.01, 'time', 'sim time rate during hit-stop (0 = frozen)', 'hitStopTimeScale'),
   hitStopBase:      num(0.06, 0, 0.3, 0.005, 'time', 'hit-stop duration on a clean land at power 1, s', 'hitStopDuration'),
   hitStopMax:       num(0.1, 0, 0.5, 0.005, 'time', 'hit-stop ceiling so a huge hit never reads as a hang, s', 'hitStopMax'),
+  knockdownSlowMo:  num(0.3, 0.05, 1, 0.05, 'time', 'the fall plays at this fraction of real time (Stage 3 presentation, main.ts — the sim is unchanged, it is fed less time)'),
+  knockdownSlowMoSeconds: num(1.2, 0, 4, 0.1, 'time', 'wall seconds of slow motion after a knockdown (0 = off)'),
 
   // ── fight (SIM) ──
   roundCount:       num(3, 1, 12, 1, 'fight', 'rounds per fight (3 × 30 s while the Stage 3 surfaces are built — Nate 2026-10-15)'),
@@ -420,6 +426,15 @@ export const SCHEMA = {
   debugSkeleton:    bool(false, 'debug', 'draw rig joints and bones'),
   debugFps:         bool(true, 'debug', 'show the frame-time overlay'),
   sparRestartSeconds: num(2, 0, 10, 0.5, 'debug', 'sparring shell: seconds after the fight ends (decision, KO or TKO) before a fresh one starts (0 = never; the Stage 3 menus replace this)'),
+  refEnabled:       bool(true, 'referee', 'the third man in the ring (ui/referee.ts). Presentation only: he has no hitbox and the fighters walk through him (flagged)'),
+  refStandoff:      num(1.9, 1, 3.5, 0.05, 'referee', 'how far off the fighters\' midpoint he keeps during the round, m, on the far side from the camera'),
+  refClear:         num(1.15, 0.6, 2, 0.05, 'referee', 'minimum distance he keeps from either fighter, m'),
+  refCountDist:     num(1.25, 0.6, 2.5, 0.05, 'referee', 'how far from the downed fighter he stands to count, m'),
+  refWalkSpeed:     num(1.6, 0.5, 4, 0.1, 'referee', 'walking speed, m/s'),
+  refAccel:         num(6, 1, 20, 0.5, 'referee', 'velocity chase rate toward the walk target, 1/s'),
+  refTurnRate:      num(5, 1, 15, 0.5, 'referee', 'turn rate toward what he faces, rad/s'),
+  refArmLambda:     num(10, 2, 30, 0.5, 'referee', 'how fast the hands move between poses (hang, count, point, wave), 1/s'),
+  refWaveSeconds:   num(2.2, 0.5, 6, 0.1, 'referee', 'how long he waves it off after a KO / TKO before the arms drop'),
 
   // ── input (UI) — touch joystick, touch buttons, gamepad. src/ui/input.ts ──
   joyRadius:        num(70, 30, 160, 1, 'input', 'floating joystick max knob travel, px (full deflection = 1)'),

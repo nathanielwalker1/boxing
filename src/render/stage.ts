@@ -15,6 +15,9 @@ import { Arena, arenaKey } from './arena';
 import { PostPass } from './post';
 import { disposeTree } from './util';
 
+/** A framing the host asks for instead of the two-fighter default: the knockdown count, looking at the downed fighter. */
+export interface CameraShot { focus: Vec2 }
+
 export class Stage {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -43,6 +46,7 @@ export class Stage {
   private shakeAmp = 0;   // camera shake on a landed punch, m (decays over camShakeRecover)
   private shakeT = 0;
   private az = NaN;       // smoothed follow-camera azimuth, radians (NaN = not yet placed)
+  private el = NaN;       // smoothed elevation, radians (the knockdown shot drops it)
   private following = false;   // last frame rode the fighters' line (vs the fixed seat)
 
   /**
@@ -55,6 +59,12 @@ export class Stage {
    */
   /** The lens's current distance from the look point after the punch-in, m (probes). */
   get dollyDistance(): number { return Math.max(1, this.dist - this.punchIn); }
+
+  /** The camera's current orbit angle, radians: the lens sits at (cos, sin) of this from the look point on the floor. */
+  get orbitAzimuth(): number { return Number.isNaN(this.az) ? this.cfg.camAzimuthDeg * Math.PI / 180 : this.az; }
+
+  /** The camera's current elevation, radians (probes: the knockdown shot drops it). */
+  get elevation(): number { return Number.isNaN(this.el) ? this.cfg.camElevationDeg * Math.PI / 180 : this.el; }
 
   get inputAzimuth(): number {
     if (this.following && !Number.isNaN(this.az)) return this.az - this.cfg.camBehindDeg * Math.PI / 180;
@@ -196,7 +206,7 @@ export class Stage {
    * `closeness` 0..1 = how near the fighters are (drives dolly + FOV).
    * `t`: wall seconds for the handheld drift. `dt`: frame seconds.
    */
-  frame(a: Vec2, b: Vec2, closeness: number, t: number, dt: number): void {
+  frame(a: Vec2, b: Vec2, closeness: number, t: number, dt: number, shot: CameraShot | null = null): void {
     const c = this.cfg;
     this.renderer.info.reset();
     if (ringKey(c) !== this.ringKey) this.rebuildRing();
@@ -235,6 +245,7 @@ export class Stage {
       azTarget = Math.atan2(abz, abx) + (90 + c.camBehindDeg) * Math.PI / 180;
     }
     if (Number.isNaN(this.az) || !this.following) this.az = azTarget;   // the fixed seat is placed, not chased
+    else if (shot) { /* the knockdown shot holds its orbit: nothing circles while a man is down */ }
     else {
       // The band (2026-09-17, "still too much panning… and still blocked"):
       // the camera sits wherever the line last left it, and is dragged only
@@ -251,17 +262,25 @@ export class Stage {
       this.az = azTarget + off;
     }
     const az = this.az;
-    const el = c.camElevationDeg * Math.PI / 180;
-    const distTarget = c.camDistMax + (c.camDistMin - c.camDistMax) * closeness;
-    const fovTarget = c.camFovMax + (c.camFovMin - c.camFovMax) * closeness;
+    // The knockdown shot (Stage 3): the lens drops to the canvas and pushes
+    // in on the downed fighter while the referee counts, then eases back to
+    // the ringside seat. Same orbit, so it is a push, never a cut.
+    const elTarget = (shot ? c.camCountElevationDeg : c.camElevationDeg) * Math.PI / 180;
+    const distTarget = shot ? c.camCountDist : c.camDistMax + (c.camDistMin - c.camDistMax) * closeness;
+    const fovTarget = shot ? c.camFovMin : c.camFovMax + (c.camFovMin - c.camFovMax) * closeness;
     if (this.dist < 0) { this.dist = distTarget; this.fov = fovTarget; }
-    const dl = 1 - Math.exp(-c.camDollyLambda * dt);
+    if (Number.isNaN(this.el)) this.el = elTarget;
+    const easing = shot !== null || Math.abs(this.el - elTarget) > 0.003;   // into the shot, and back out of it, at the shot's rate
+    const dl = 1 - Math.exp(-(easing ? c.camCountLambda : c.camDollyLambda) * dt);
     this.dist += (distTarget - this.dist) * dl;
     this.fov += (fovTarget - this.fov) * dl;
+    this.el += (elTarget - this.el) * dl;
+    const el = this.el;
     this.punchT += dt;
     const dist = Math.max(1, this.dist - this.punchIn);
 
-    this.lookTarget.set((a.x + b.x) / 2, c.camLookY, (a.z + b.z) / 2);
+    if (shot) this.lookTarget.set(shot.focus.x, c.camCountLookY, shot.focus.z);
+    else this.lookTarget.set((a.x + b.x) / 2, c.camLookY, (a.z + b.z) / 2);
     const lam = 1 - Math.exp(-c.camFollowLambda * dt);
     this.look.lerp(this.lookTarget, lam);
     const drift = c.camDriftAmp;

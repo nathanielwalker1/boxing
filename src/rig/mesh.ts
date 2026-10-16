@@ -58,6 +58,7 @@ export function rigDims(body: BodyDims, cfg: Config): RigDims {
 export function rigGeomKey(spec: FighterSpec, body: BodyDims, cfg: Config): string {
   return [
     spec.id, spec.hair, spec.facialHair, spec.trunksStyle, spec.skin, spec.trunksPrimary, spec.trunksSecondary, spec.gloves, spec.boots,
+    spec.outfit ? `${spec.outfit.shirt}/${spec.outfit.trousers}/${spec.outfit.tie}` : '',
     body.headR, body.gloveR, body.bodyR, body.shoulderW, body.hipW, body.neckLen, body.chestLen, body.spineLen,
     body.upperArm, body.forearm, body.thigh, body.shin, body.bootH,
     cfg.rigUpperArmR, cfg.rigForearmR, cfg.rigThighR, cfg.rigShinR, cfg.rigNeckR, cfg.rigChestDepth, cfg.rigWaistRatio,
@@ -141,17 +142,27 @@ export function buildRigMesh(
 
   const R = body.headR;
   const skin = spec.skin, hair = cfg.rigHairColor, eye = cfg.rigEyeColor;
+  // A dressed figure (the referee): the torso and upper arms take the shirt,
+  // the legs the trousers, the hands are bare. Same bones, same geometry.
+  const outfit = spec.outfit;
+  const torsoCol = outfit ? outfit.shirt : skin;
+  const legCol = outfit ? outfit.trousers : skin;
 
   // ── Torso ──
   const chestDepth = d.chestDepth * 2;
   const taper = Math.min(1, d.waistW / (body.shoulderW * 0.92));
-  add(prism(chestDepth, body.chestLen * 1.1, body.shoulderW * 0.92, taper), BONE.chest, skin, at(0, -body.chestLen * 0.45, 0));
+  add(prism(chestDepth, body.chestLen * 1.1, body.shoulderW * 0.92, taper), BONE.chest, torsoCol, at(0, -body.chestLen * 0.45, 0));
+  if (outfit) {
+    // Bow tie at the collar: a knot and two wings, on the chest's front face.
+    add(new THREE.BoxGeometry(R * 0.16, R * 0.22, R * 0.2), BONE.chest, outfit.tie, at(chestDepth * 0.5 + R * 0.04, -R * 0.1, 0));
+    add(new THREE.BoxGeometry(R * 0.12, R * 0.3, R * 0.62), BONE.chest, outfit.tie, at(chestDepth * 0.5 + R * 0.02, -R * 0.1, 0));
+  }
   // The shoulder balls ride their own bones, placed on the arm roots (2026-09-19:
   // on the chest they sat a few cm off the arm the sim now places).
-  add(new THREE.SphereGeometry(d.upperArmR * 1.4, 10, 7), BONE.shoulder0, skin, at(0, 0, 0));
-  add(new THREE.SphereGeometry(d.upperArmR * 1.4, 10, 7), BONE.shoulder1, skin, at(0, 0, 0));
+  add(new THREE.SphereGeometry(d.upperArmR * 1.4, 10, 7), BONE.shoulder0, torsoCol, at(0, 0, 0));
+  add(new THREE.SphereGeometry(d.upperArmR * 1.4, 10, 7), BONE.shoulder1, torsoCol, at(0, 0, 0));
   void latSign;
-  add(prism(chestDepth * 0.88, body.spineLen * 0.9, d.waistW, 0.98), BONE.hips, skin, at(0, body.spineLen * 0.68, 0));
+  add(prism(chestDepth * 0.88, body.spineLen * 0.9, d.waistW, 0.98), BONE.hips, torsoCol, at(0, body.spineLen * 0.68, 0));
   const pelvisH = body.spineLen * 0.38 + body.bodyR * 0.6;
   add(prism(chestDepth * 0.98, pelvisH, d.waistW * 1.08), BONE.hips, spec.trunksPrimary, at(0, (body.spineLen * 0.38 - body.bodyR * 0.6) / 2, 0));
   const bandH = body.bodyR * 0.32 * (spec.trunksStyle === 'belt' ? 1.9 : 1);
@@ -206,8 +217,13 @@ export function buildRigMesh(
     const ua = i === 0 ? BONE.upperArm0 : BONE.upperArm1;
     const fa = i === 0 ? BONE.forearm0 : BONE.forearm1;
     const gl = i === 0 ? BONE.glove0 : BONE.glove1;
-    add(limb(body.upperArm, d.upperArmR), ua, skin);
+    add(limb(body.upperArm, d.upperArmR), ua, torsoCol);
     add(limb(body.forearm, d.forearmR), fa, skin);
+    if (outfit) {
+      // A bare hand: a smaller sphere, no cuff.
+      add(new THREE.SphereGeometry(body.gloveR * 0.72, 10, 8), gl, skin);
+      continue;
+    }
     const g = new THREE.SphereGeometry(body.gloveR, 12, 9);
     g.scale(1, cfg.rigGloveElongate, 1);
     add(g, gl, spec.gloves);
@@ -216,16 +232,16 @@ export function buildRigMesh(
   }
 
   // ── Legs + boots ──
-  const trunkLen = body.thigh * (spec.trunksStyle === 'long' ? 0.72 : 0.46);
+  const trunkLen = body.thigh * (outfit ? 1.0 : spec.trunksStyle === 'long' ? 0.72 : 0.46);
   for (let i = 0; i < 2; i++) {
     const th = i === 0 ? BONE.thigh0 : BONE.thigh1;
     const sh = i === 0 ? BONE.shin0 : BONE.shin1;
     const bt = i === 0 ? BONE.boot0 : BONE.boot1;
     const s = latSign[i]!;
-    add(limb(body.thigh, d.thighR), th, skin);
+    add(limb(body.thigh, d.thighR), th, legCol);
     add(new THREE.CylinderGeometry(d.thighR * 1.12, d.thighR * 1.06, trunkLen, 10), th, spec.trunksPrimary, at(0, -trunkLen / 2 + body.bodyR * 0.12, 0));
-    add(new THREE.BoxGeometry(d.thighR * 0.5, trunkLen * 0.85, d.thighR * 0.3), th, spec.trunksSecondary, at(0, -trunkLen / 2 + body.bodyR * 0.1, s * d.thighR * 1.1));
-    add(limb(body.shin, d.shinR), sh, skin);
+    if (!outfit) add(new THREE.BoxGeometry(d.thighR * 0.5, trunkLen * 0.85, d.thighR * 0.3), th, spec.trunksSecondary, at(0, -trunkLen / 2 + body.bodyR * 0.1, s * d.thighR * 1.1));
+    add(limb(body.shin, d.shinR), sh, legCol);
     add(new THREE.BoxGeometry(d.footLen, body.bootH, d.footW), bt, spec.boots, at(d.footLen * 0.22, -body.bootH / 2, 0));
     add(new THREE.CylinderGeometry(d.shinR * 1.18, d.shinR * 1.3, body.bootH * 1.5, 8), bt, spec.boots, at(0, body.bootH * 0.35, 0));
   }

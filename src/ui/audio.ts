@@ -103,6 +103,14 @@ const RECIPES: Record<string, Recipe> = {
       { type: 'noise', gain: 0.7, attack: 0.002, decay: 0.25, filter: { type: 'lowpass', freq: 300, q: 0.7 } },
     ],
   },
+  // The referee's count (Stage 3): a dry wood-block tap per number, under the HUD's COUNT n.
+  count: {
+    gain: 0.35,
+    layers: [
+      { type: 'tone', gain: 0.7, attack: 0.001, decay: 0.07, wave: 'triangle', freq: 640, freqEnd: 520 },
+      { type: 'noise', gain: 0.3, attack: 0.001, decay: 0.02, filter: { type: 'highpass', freq: 2200, q: 0.7 } },
+    ],
+  },
   // The bell.
   bell: {
     gain: 0.5,
@@ -141,6 +149,7 @@ export class CombatAudio {
     bus.on('slip', e => { if (e.dodged) { this.play('slipNear'); if (e.side === 0) this.play('counterOpen'); } });
     bus.on('knockdown', () => this.play('knockdown'));
     bus.on('bell', () => this.play('bell'));
+    bus.on('countTick', () => this.play('count'));
   }
 
   /** Autoplay policy: create the context inside a real user gesture and resume it there; unhook once it runs. */

@@ -13,6 +13,7 @@ import { createState, step } from './sim';
 import { aiStep, createAi, type AiState } from './ai';
 import { createFighterView } from './rig';
 import { FightFlow } from './ui/flow';
+import { Referee } from './ui/referee';
 import { Stage } from './render/stage';
 import { mountTuningPanel } from './ui/tune';
 import { FpsOverlay } from './ui/fps';
@@ -52,6 +53,10 @@ declare global {
     __camAz: () => number;
     /** The camera's current dolly distance from the look point, m (tests). */
     __camDist: () => number;
+    /** The camera's current elevation, radians (tests: the knockdown shot). */
+    __camEl: () => number;
+    /** The referee's floor position and yaw, or null when he is off (tests). */
+    __ref: () => { pos: { x: number; z: number }; yaw: number } | null;
   }
 }
 
@@ -184,11 +189,15 @@ window.__focus = -1;
 window.__states = () => [posed[0] ?? next.fighters[0], posed[1] ?? next.fighters[1]];
 window.__camAz = () => stage.inputAzimuth;
 window.__camDist = () => stage.dollyDistance;
+window.__camEl = () => stage.elevation;
 
 // ── Loop: fixed-step accumulator (CONTRACT §3), render every rAF ──────────────
 window.__tick = { frames: 0, simTicks: 0, gameTime: 0, ready: false };
 let acc = 0;
 let lastMs = 0;
+let slowT = 0;              // wall seconds of knockdown slow motion left
+let referee: Referee | null = null;
+window.__ref = () => referee ? referee.pose : null;
 const MAX_FRAME = 0.25;   // clamp so a background tab doesn't spiral
 const frameEvents: SimEvent[] = [];
 
@@ -200,8 +209,16 @@ function loop(nowMs: number): void {
   frameEvents.length = 0;
   liveInput[0] = input.current();
 
+  // The fall in slow motion (Stage 3 presentation): for knockdownSlowMoSeconds
+  // of wall time after a knockdown the sim is fed knockdownSlowMo of each
+  // frame. The sim is unchanged; the referee and the camera take the same
+  // slowed time so the whole scene slows together.
+  const slow = slowT > 0 ? cfg.knockdownSlowMo : 1;
+  slowT = Math.max(0, slowT - dt);
+  const sdt = dt * slow;
+
   if (!held) {
-    acc += dt;
+    acc += sdt;
     while (acc >= SIM_DT) {
       let side1 = takeScript(1) ?? overrideInput[1];
       if (side1 === null) {
@@ -225,7 +242,11 @@ function loop(nowMs: number): void {
       ai = createAi(1, next.seed, cfg);
     }
   }
-  if (frameEvents.length) { bus.emit(frameEvents); stage.handleEvents(frameEvents); }
+  if (frameEvents.length) {
+    bus.emit(frameEvents);
+    stage.handleEvents(frameEvents);
+    if (frameEvents.some(e => e.type === 'knockdown')) slowT = cfg.knockdownSlowMoSeconds;
+  }
 
   const alpha = paused ? 1 : acc / SIM_DT;
   const shown = window.__states();
@@ -239,8 +260,15 @@ function loop(nowMs: number): void {
   const d = v2dist(a.pos, b.pos);
   const closeness = 1 - Math.min(1, Math.max(0, (d - 0.6) / 3.0));
   stage.drawHitboxes(shown);
+  // The referee walks on the slowed clock, off while a pose grid / filmstrip is up.
+  if (cfg.refEnabled && !referee) referee = new Referee(cfg, stage.scene);
+  else if (!cfg.refEnabled && referee) { referee.dispose(); referee = null; }
+  if (referee) referee.update(next, frameEvents, sdt, stage.orbitAzimuth, !paused);
+  // The knockdown shot: while a man is down (the count, or the KO / TKO he did not beat) the lens goes to him.
+  const downSide = next.fighters[0].down ? 0 : next.fighters[1].down ? 1 : -1;
+  const shot = !paused && downSide >= 0 && (next.round.phase === 'count' || next.round.phase === 'over') ? { focus: shown[downSide]!.pos } : null;
   const f = window.__focus;
-  if (f === -1) stage.frame(a.pos, b.pos, closeness, nowMs / 1000, dt);
+  if (f === -1) stage.frame(a.pos, b.pos, closeness, nowMs / 1000, dt, shot);
   else stage.frame(shown[f]!.pos, shown[f]!.pos, 1, nowMs / 1000, dt);
 
   hud.visible = !paused && (flow === null || flow.showHud);

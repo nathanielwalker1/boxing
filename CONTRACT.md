@@ -423,3 +423,19 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   (`counterImpulseBonus`) but are not counters. Nate's call ("I should only ever have
   a counter if I've successfully slipped a punch"). **`FighterView.highlight(strength)`**
   added: UI decides how exposed a fighter reads (0..1), RIG draws it (a warm rim).
+- 2026-10-15 — **Stage 3 begins** (Nate: "feels fine, stop tweaking, make the other
+  factors good"). Fights default to 3 × 30 s while the surfaces are built. **The fight
+  flow** (`src/ui/flow.ts`): menu → select → tale of the tape → fight → results; the UI
+  holds the sim behind every screen but the fight (§8's "intro is presentation"). Off
+  under Playwright (`navigator.webdriver`) and `?menu=0`; `?menu=1` forces it. The HUD
+  is the Fight Night bottom bar. `Hud.setFighters` and `main.startFight` rebuild the
+  rigs for a new pairing; `views` is mutated in place because the read overlay holds it.
+- 2026-10-15 — **The referee** (`src/ui/referee.ts`, config group `referee`): a third
+  figure drawn by the fighter rig from a `FighterState` the UI walks each frame. Never in
+  the sim: no hitbox, no collision (fighters walk through him — flagged). **`FighterSpec.
+  outfit?`** (shirt / trousers / tie) dresses a figure; `createFighterView(…, opts)` takes
+  a toon-material `key` and `probe: false` so a non-fighter never takes `window.__rig`.
+  **`CameraShot`** (`render/stage.ts`): the host may ask `frame()` to hold a shot
+  (the knockdown count: low, pushed in on the downed fighter, orbit frozen). **Knockdown
+  slow motion** is host time scaling (`knockdownSlowMo`, main.ts): the sim is fed less
+  time; determinism untouched. The count ticks are audible (`count` recipe).
