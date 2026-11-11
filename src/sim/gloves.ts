@@ -9,7 +9,7 @@
  * relaxes for the recovery and overshoots on the way back.
  */
 import type { Config, FighterState, GloveState, Hand, Side, Vec3 } from '../core';
-import { TAU, closestOnSegment, closestSegSeg, frameOf, localToWorld, sin, sqrt } from '../core';
+import { GUARDS, TAU, closestOnSegment, closestSegSeg, frameOf, localToWorld, sin, sqrt } from '../core';
 import { PUNCHES, blockLocal, guardLocal, punchEnvelope, punchLocal, whiffPhases, type LocalPose } from './punches';
 import { slipBack, slipLateral } from './slip';
 import { setTargetCut, setTouchedBlock } from './state';
@@ -33,6 +33,7 @@ const BOB_PHASE_SIDE = [0, 2.6];
 /** `guard`: the hand is at rest or blocking (it rides the shoulders through a slip); a punching hand aims from the fighter's frame. */
 function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterState): { pose: LocalPose; kMul: number; contact: Vec3 | null; guard: boolean } {
   const p = f.punch;
+  const shape = cfg.stylesOn ? f.guardShape : 'high';   // the fighter's guard (phase 2, core/styles.ts)
   if (p.type !== null && p.hand === hand) {
     const def = PUNCHES[p.type];
     if (def) {
@@ -44,7 +45,7 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterSta
       // contactSolid 0, where it is all that stops the fist floating inside.
       const rt = (p.progress * ph.total - ph.cock - ph.extend) / ph.recover;
       const contact = cfg.contactSolid <= 0 && p.contact && p.phase === 'recover' && rt < ph.hold ? p.contact : null;
-      const pose = punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg, f.torsoTwist, VARIANTS[p.variant], p.aim);
+      const pose = punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg, f.torsoTwist, VARIANTS[p.variant], p.aim, shape, p.type === 'jab' ? GUARDS[shape].jabReach : 1);
       // Aim (overhaul): punch paths are authored at the thrower's own height. The lane is lifted (or lowered) by
       // punchAimTrack of the difference to the OPPONENT's standing height — head lane to head, body lane to body —
       // riding the punch's own envelope, so the guard is untouched and the fist arrives on his lane, not mine.
@@ -61,8 +62,8 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterSta
       return { pose, kMul, contact, guard: false };
     }
   }
-  if (f.block) return { pose: blockLocal(f.body, hand, f.stance), kMul: 1, contact: null, guard: true };
-  const g = guardLocal(f.body, hand, f.stance);
+  if (f.block) return { pose: blockLocal(f.body, hand, f.stance, shape), kMul: 1, contact: null, guard: true };
+  const g = guardLocal(f.body, hand, f.stance, shape);
   // Rocked: the resting guard sags by stunGuardDrop × how rocked (sim/stun.ts) — the chin is open.
   // Overhaul: it also hangs by guardDroop (fatigue, body wear, winded) and, through a guard break, is knocked down and apart.
   const broken = f.guardBroken > 0 ? cfg.guardBreakDrop : 0;

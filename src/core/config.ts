@@ -513,6 +513,13 @@ export const SCHEMA = {
   aiFinishPower:    num(0.7, 0, 1, 0.05, 'ai', 'against a HURT opponent: odds each armed punch is replaced by a power shot (cross / hook / uppercut by their weights) — it smells it'),
   aiFeintChance:    num(0.12, 0, 1, 0.01, 'ai', 'odds an armed heavy punch is FEINTED first (thrown and cancelled into the guard), then thrown for real'),
   aiBurstChance:    num(0.35, 0, 1, 0.05, 'ai', 'odds a reset (stepping out after an exchange) starts with a BURST back'),
+  // Phase 2 (styles, difficulty): the default style's share of the fixes the bot table asked for. Per-style values are in ai/style.ts.
+  aiDifficulty:     num(1, 0, 2, 1, 'ai', 'AI difficulty: 0 easy, 1 medium, 2 hard (ai/style.ts DIFFICULTY scales reaction time, defence rates, counter chance, tempo and the mistake rate; medium is the style as written)'),
+  aiInsideGuard:    num(0.75, 0, 1, 0.05, 'ai', 'the inside fight: odds (rolled each time the opponent gets inside) that it keeps its guard up in there whenever it is not throwing'),
+  aiInsideBlock:    num(0.8, 0, 1, 0.05, 'ai', 'odds it defends a punch it reads at inside range (aiBlockChance is for range)'),
+  aiLeadPursuit:    num(0.35, 0, 1, 0.05, 'ai', 'cutting off a mover: it steers for where the opponent WILL be this many seconds on (his walking velocity), not where he is'),
+  aiWildRate:       num(2.2, 0.5, 8, 0.1, 'ai', 'an opponent starting more than this many punches a second (measured over the last ~1.5 s) is RUSHING: it covers up, lets him miss, and counters every opening'),
+  aiCombos:         bool(true, 'ai', 'the AI throws its style\'s SIGNATURE combinations (ai/style.ts) instead of random punches when it opens a burst'),
 
   // ══ OVERHAUL 2026-11-11 (SIM) — the fight systems of brief Part A. Every system has an …On toggle (default on) so it can be A/B'd; docs/OVERHAUL_SIM.md lists them. ══
   // ── footing (SIM, sim/footing.ts + movement.ts): flat-footed, the burst, the pivot, ropes and corners, the angle ──
@@ -751,6 +758,29 @@ export const SCHEMA = {
   whiffCapLoss:     num(0.006, 0, 0.05, 0.001, 'fatigue', 'stamina ceiling lost per missed punch (FighterState.staminaCap) — the round has an arc'),
   wearRestore:      num(0.5, 0, 1, 0.05, 'fatigue', 'fraction of that work-rate wear that comes back on the stool between rounds (body wear never does)'),
   staminaCapFloor:  num(0.45, 0.1, 1, 0.05, 'fatigue', 'the stamina ceiling never falls below this'),
+
+  // ── ratings (SIM, sim/ratings.ts) — phase 2: the five 0–100 ratings do something. effect = 1 + span × (rating − ratingNeutral) / ratingRange, clamped ±1 ──
+  ratingsOn:        bool(true, 'ratings', 'RATINGS: power, speed, stamina and defense (and chin, as before) change how a fighter fights. Off = everybody is rated ratingNeutral'),
+  ratingNeutral:    num(65, 30, 90, 1, 'ratings', 'the rating at which every effect is × 1 — today\'s numbers. 65 is about the middle of the roster'),
+  ratingRange:      num(35, 10, 70, 1, 'ratings', 'this many points above / below neutral is the full span (100 = +span, 30 = −span)'),
+  ratingPowerImpulse: num(0.25, 0, 0.6, 0.01, 'ratings', 'POWER: impulse of every punch ± this (power 90 hits 18% harder than neutral, 40 18% softer — and the rock / flash bars are that much nearer or further)'),
+  ratingSpeedHands: num(0.22, 0, 0.5, 0.01, 'ratings', 'SPEED: wind-up and recovery of every punch ÷ (1 ± this). The 3-tick extension is untouched; tellMinHeavy still holds'),
+  ratingSpeedFeet:  num(0.14, 0, 0.4, 0.01, 'ratings', 'SPEED: walking speed and burst length ± this'),
+  ratingStaminaCost: num(0.3, 0, 0.6, 0.01, 'ratings', 'STAMINA: what a punch, a miss and holding the guard cost ∓ this'),
+  ratingStaminaRegen: num(0.3, 0, 0.6, 0.01, 'ratings', 'STAMINA: how fast wind comes back ± this'),
+  ratingStaminaFatigue: num(0.25, 0, 0.6, 0.01, 'ratings', 'STAMINA: fatigueFrom ∓ this — a high-stamina fighter starts to tire later'),
+  ratingDefenseGuard: num(0.35, 0, 0.7, 0.01, 'ratings', 'DEFENSE: guard meter wear taken ∓ this'),
+  ratingDefenseBlock: num(0.12, 0, 0.3, 0.01, 'ratings', 'DEFENSE: what a held block absorbs ± this (capped at 95%)'),
+  ratingDefenseStun: num(0.3, 0, 0.7, 0.01, 'ratings', 'DEFENSE: block stun taken ∓ this'),
+  ratingDefenseSlip: num(0.25, 0, 0.6, 0.01, 'ratings', 'DEFENSE: the slip window (slipDuration) ± this — the head stays off the line longer'),
+  ratingChinBody:   num(0.2, 0, 0.6, 0.01, 'ratings', 'CHIN: the body threshold (winded, liver drop) ± this, on top of what chin already does to the rock threshold'),
+
+  // ── styles (SIM + core/styles.ts) — phase 2: a fighter's style is his guard, his stance and his rhythm, for the player's fighter too ──
+  stylesOn:         bool(true, 'styles', 'STYLES: each fighter holds his style\'s guard shape (core/styles.ts GUARDS: high / shell / peekaboo / long / low) with its own resting hands, block, coverage and jab. Off = everybody holds the high guard'),
+  jabStopOn:        bool(true, 'styles', 'INSIDE IS EARNED: a jab that lands on a man walking straight in STOPS him — his forward speed is killed and he is knocked back further the faster he was coming. Off = walking in through the jab is free'),
+  jabStopSpeed:     num(0.35, 0, 1, 0.05, 'styles', 'closing speed (fraction of moveSpeed) above which a landed jab stops the walker'),
+  jabStopScale:     num(0.9, 0, 3, 0.05, 'styles', 'the stopped walker\'s stumble is × (1 + this × his closing speed fraction)'),
+  jabStopStun:      num(0.14, 0, 0.5, 0.01, 'styles', '…and he cannot start a punch for this long, s (the jab bought the space)'),
 
   // ── the read (UI, src/ui/read.ts) — the counter window, in the world (2026-09-22): the fighter a slip has left exposed catches a warm rim light that fades as the window closes. No words, no screen flash ("too arcadey"), nothing on the frame ("ugly") — Nate's verdict on the first cut ──
   readEnabled:      bool(true, 'read', 'the in-world read of a slip\'s counter window (the exposed fighter\'s rim warms) — off is Fight Night\'s "simulation" presentation'),

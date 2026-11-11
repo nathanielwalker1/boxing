@@ -60,9 +60,10 @@ export function stepLocomotion(f: FighterState, input: Readonly<FrameInput>, cfg
   }
 
   const spd = v2len(f.vel);
-  if (spd > cfg.moveSpeed) {
-    f.vel.x = (f.vel.x / spd) * cfg.moveSpeed;
-    f.vel.z = (f.vel.z / spd) * cfg.moveSpeed;
+  const cap = cfg.moveSpeed * Math.max(1, ms.speed);   // (a fast fighter's top speed is above moveSpeed)
+  if (spd > cap) {
+    f.vel.x = (f.vel.x / spd) * cap;
+    f.vel.z = (f.vel.z / spd) * cap;
   }
 
   // Stagger: impact velocity, decays on its own clock.

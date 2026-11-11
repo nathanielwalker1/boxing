@@ -11,6 +11,7 @@ import type { Config } from './config';
 import { bodyDims } from './body';
 import { frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, triangle, v3copy } from './math';
 import { armFlareTarget, solveArm } from './arms';
+import { STYLES } from './styles';
 
 /** Guard position in the fighter's local frame: lead glove a little forward at
  *  chin height, rear glove tucked by the cheek. */
@@ -66,6 +67,7 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
     hurt: 0,
     hurtMax: 0,
     // Overhaul 2026-11-11 (SIM): the new sim fields at rest.
+    styleId: spec.style, guardShape: cfg.stylesOn ? STYLES[spec.style].guard : 'high',
     level: 0, riseT: 0, range: 'outside', posture: 0,
     stillT: 0, flat: 0, ropes: 0, cornered: false, angle: 0, turned: 0,
     hop: { x: 0, z: 0 }, burstT: 0, burstCd: 0,

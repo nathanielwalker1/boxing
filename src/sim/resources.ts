@@ -27,6 +27,7 @@ import type { BodyPart, Config, FighterState, GetUpPhase, Side, SimEvent, SimSta
 import { clamp, lerp, rngChance, rngRange } from '../core';
 import { getUpAt, healthCap, healthRegenDelay, idlePunch, idleSlip, regenDelay, setGetUpAt, setHealthCap, setHealthRegenDelay, setRegenDelay } from './state';
 import { clearPunish } from './vulnerability';
+import { rated } from './ratings';
 
 /**
  * Per tick: the guard drains stamina, idling regains it (after any post-hit
@@ -42,8 +43,9 @@ export function stepStamina(f: FighterState, cfg: Config, dt: number): void {
   const hDelay = Math.max(0, healthRegenDelay(f) - dt);
   setHealthRegenDelay(f, hDelay);
   if (f.down) return;
-  if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * dt);
-  else if (f.punch.type === null && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + cfg.staminaRegen * dt);
+  // (The stamina rating: the guard costs less to hold and wind comes back faster.)
+  if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * dt);
+  else if (f.punch.type === null && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + cfg.staminaRegen * rated(f, 'stamina', cfg.ratingStaminaRegen, cfg) * dt);
   if (hDelay === 0 && f.health < healthCap(f)) f.health = Math.min(healthCap(f), f.health + cfg.healthRegen * dt);
 }
 

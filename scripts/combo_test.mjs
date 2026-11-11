@@ -16,7 +16,9 @@ const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // stamina cost (a gassed wind-up would change the chain timing under test) and
 // no whiff cost (the FAR cases miss on purpose; a stretched recovery would move
 // the chain window this suite measures — counter_test covers the stretch).
-const cfg = { ...createConfig(), healthDamagePerImpulse: 0, staminaPunchCost: 0, whiffRecoveryMult: 1 };
+// ratingsOn / stylesOn off (overhaul phase 2): this file pins the reference fighters' numbers and margins as they were before
+// ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
+const cfg = { ...({ ...createConfig(), ratingsOn: false, stylesOn: false }), healthDamagePerImpulse: 0, staminaPunchCost: 0, whiffRecoveryMult: 1 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
