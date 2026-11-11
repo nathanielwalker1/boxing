@@ -16,7 +16,7 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 | C — styles, the four unread ratings, AI difficulty, drill opponents | merged 2026-11-11, 40/40 green; not yet connected to the menus (UI workstream) or the rig's stance (RIG phase 2) |
 | Balance on the roster of eight, punch heights, the loaded counter, fight length | phase 3 merged 2026-11-11 (heights, counter retune, fight length, three difficulty matrices); balance still breaks the brief in three places — phase 4 running |
 | D — arena, lighting, haze, crowd, post, audio | merged 2026-11-11 (see `docs/OVERHAUL_SHOW.md`); audio unheard, polish list below |
-| D — title, select, cards, ring walk, replay, ladder, gym, controls card | first pass merged 2026-11-11 and connected to styles, difficulty and the seven drills; polish and input coverage in progress (UI phase 2) |
+| D — title, select, cards, ring walk, replay, ladder, gym, controls card | merged 2026-11-11, both phases (`docs/OVERHAUL_UI.md`): eight drills verified one by one, mouse / touch / stubbed-gamepad paths checked, one difficulty key (`aiDifficulty`) |
 | Sound for the new events; arena polish | merged 2026-11-11 (`docs/OVERHAUL_SHOW.md` phase 2); audio rendered and measured, still unheard |
 
 Workstream logs (each agent keeps its own, merged into this file at integration):
@@ -242,6 +242,31 @@ size in the after-lookbook cells:
   condition and one line of advice.
 - No stool or corner men in the rest; the ring walk is short (1.6 m, no
   tunnel).
+
+**Menus, second pass (UI phase 2, merged)** — supersedes the list above where
+it fixed things: the title has two men sparring and a drawn wordmark; cards
+no longer cover the fighters; the fps overlay is off in the flow; a held
+button is ignored when the fight resumes; pause ducks the crowd; results have
+accuracy and a per-round table; `flowShowScores` (default off) puts the
+judges' running cards on the corner card.
+- Still below standard: the wordmark is a monoline first pass; no stool or
+  corner men in the rest; the ring walk is short with no lighting change; the
+  replay is silent and still interrupts the count at 2; the HUD's round clock
+  is meaningless in a drill; on a phone held sideways the drill strip covers
+  the player's own fighter from the waist up (the worst screen in the set);
+  results are a wall of small numbers.
+- No real gamepad or finger has touched it. A stubbed pad and an emulated
+  touch context prove the code paths, not the feel.
+- A stoppage with no count used to freeze the loser upright (a sim gap:
+  `downT` only advanced during a count). Patched in presentation in main.ts;
+  the sim fix is in phase 4.
+- Drill problems found by the checks and sent to the sim: `survive` floors an
+  idle player in about a second; `cut-off` finishes in four seconds by walking
+  at him; drill partners get floored and take a dead count.
+- Free sparring cuts damage to a fifth for its length (the passive partner
+  was down after six clean punches) and puts it back on leaving.
+- The suite is now about ten minutes of wall time (44 scripts). The four flow
+  checks are the slow ones on headless software GL.
 
 **Styles, ratings, difficulty (SIM phase 2, merged)** — `docs/OVERHAUL_SIM.md`
 "Phase 2".
