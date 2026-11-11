@@ -13,7 +13,7 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 | A — the fighting (sim, AI, tests) | in progress (SIM workstream) |
 | B — bodies and variance (rig, roster, generator) | in progress (RIG workstream) |
 | C — styles | after A + B integrate |
-| D — arena, lighting, haze, crowd, post, audio | in progress (SHOW workstream, started early: independent folders) |
+| D — arena, lighting, haze, crowd, post, audio | merged 2026-11-11 (see `docs/OVERHAUL_SHOW.md`); audio unheard, polish list below |
 | D — title, select, cards, ring walk, replay, ladder | after A + B integrate |
 
 Workstream logs (each agent keeps its own, merged into this file at integration):
@@ -153,3 +153,27 @@ Priority if time runs short: A, then B, then C, then D.
 ## Not done / below standard
 
 (Filled in as the run goes.)
+
+**Arena and audio (SHOW, merged)** — full list in `docs/OVERHAUL_SHOW.md`.
+- Every audio level and recipe (crowd bed, reactions, the three impact
+  grades) is a first guess that nobody has heard. Structure is checked
+  (`audio_check`), sound is not.
+- Seen in `arena_after_play.png`: the two doorways are flat orange
+  rectangles; the whole crowd carries one blue-violet cast; ringside people
+  are a box with a ball on top; at the four diagonal camera angles the near
+  corner post sits bottom-centre of frame.
+- The low tier has no haze, so low and high look different. Headless checks
+  (verify, lookbook, filmstrip) render the LOW tier, because software GL is
+  treated as a low-tier device; a script that wants the desktop look sets
+  `qualityTier = 2`.
+- Not built: ring ambience (footfalls, canvas squeak), a fighter entrance
+  tunnel, rope sag changes. The scoreboard cube exists but shows sponsor art
+  only and was never in a captured frame.
+- fps on the real GPU (M1, headless Metal, vsync-capped): 60 at 960×600 on
+  both tiers; 60 at 1440×900 on a 2× display at the shipped default (pixel
+  ratio 1.5, MSAA 2). Headroom under the cap unknown; no "before" number on
+  the real GPU. Draw calls 30 → 41 (low) / 55 (high); triangles 77k → 117k /
+  150k.
+- The full suite now takes about 4 minutes of wall time (was 77 s): the
+  arena is slow on headless software GL. Boot and frame waits were lengthened
+  to match. CONTRACT's "suite under 60 s" no longer holds.
