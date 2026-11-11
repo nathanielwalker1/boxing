@@ -114,13 +114,14 @@ await shoot('low');
 // 5. The crowd on its feet (only once the show hook exists).
 if (hot) {
   await seat(null);
-  const ok = await page.evaluate(() => { const s = window.__show; if (!s) return false; s.react('knockdown', 1, { x: 0, y: 1, z: 0 }); return true; });
+  // Pinned, not waited for: headless renders a few frames a second, and the real decay would be half over by the capture.
+  const ok = await page.evaluate(() => { const s = window.__show; if (!s) return false; s.setExcitement(0.95); s.react('knockdown', 1, { x: 2, z: 1 }); return true; });
   if (ok) {
-    await until(page, () => window.__show.excitement() > 0.8, undefined, { label: 'crowd up', timeout: 20000 });
-    await frames(page, 30);
+    await until(page, () => window.__show.excitement() > 0.9, undefined, { label: 'crowd up', timeout: 30000 });
     await shoot('play_hot');
     await seat({ az: 62, el: 24, dist: 17, lookY: 1.4, fov: 44 });
     await shoot('wide_hot');
+    await page.evaluate(() => window.__show.setExcitement(null));
   } else console.log('hot: no window.__show hook yet — skipped');
 }
 
@@ -129,6 +130,8 @@ await page.evaluate(() => { window.__cfg.debugFps = true; });
 await until(page, () => !!window.__fps && window.__fps.calls > 0, undefined, { label: 'an fps sample', timeout: 90000 });
 await frames(page, 70);
 const fps = await page.evaluate(() => window.__fps);
+const show = await page.evaluate(() => window.__show ? { tier: window.__show.tier(), post: window.__show.post(), ...window.__show.crowd() } : null);
+if (show) console.log(`show: tier ${show.tier}, post ${show.post ? 'on' : 'off'}, ${show.people} people in ${show.seats} seats`);
 console.log(`budget (play camera${tier ? `, tier ${tier}` : ''}): ${fps.calls} calls, ${fps.tris} tris, headless ${fps.fps} fps / ${fps.msAvg} ms (trend only)`);
 await browser.close();
 if (logs.length) { console.error(`console problems:\n  ${logs.join('\n  ')}`); process.exit(1); }
