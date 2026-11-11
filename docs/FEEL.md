@@ -509,6 +509,36 @@ jab should feel like being held off; if it feels like glue, `jabStopGuard`.
 (4) The 112 kg man walks through jabs: if that reads as unfair rather than
 heavy, `interruptPoise` down.
 
+### Phase 4 changes (2026-11-11; measured in Node and the bot matrix, NOT felt)
+
+docs/OVERHAUL_SIM.md "Phase 4" has the traces behind each of these.
+
+| What | Was | Now | Key |
+| --- | --- | --- | --- |
+| Judging | landed + impulse × 0.005 | landed (a glancing one counts 0.4) + impulse × 0.003 + control: 0.5 for each punch he made the other miss, up to what he landed | `scorePowerWeight`, `scoreGlancing`, `scoreControlWeight` |
+| A jab's exposure | the same as a hook's | 45% of it | `vulnerabilityJab` |
+| A jab's impulse | at most 260 | at most 220 | `jabImpulseCap` |
+| Hit mid-punch, rocked or guard-broken | × 1.9 at full exposure, as a counter | × 1.45; only a counter off a slip keeps × 1.9 | `exposedImpulseBonus` |
+| The finish | ≥ 0.85 T on a rocked man | ≥ 1.3 T (a hook, an uppercut, a counter) | `stunFinishFrac`, `stunVuln` 0.7 |
+| The bar running out | any shot that empties it floors him | only a shot of 330 N·s or more; under that the bar stops at the floor | `knockdownMinImpulse` |
+| Health per N·s | 0.0002 | 0.00015 (≈ 24 crosses / 17 hooks a bar) | `healthDamagePerImpulse` |
+| Getting up | 50% health | 60% | `knockdownHealthRestore` |
+| A loaded counter in flight | stuffed by any clean touch | not by a jab | `slipLoadedPoise` |
+| Tying up while hurt | on the 4 s cooldown like any clinch | always available | `clinchHurtFree` |
+| The jab stop on a heavy man | the same as on anyone | fades over 90 kg, to 30% at 112 kg | `jabStopHeavy`, `jabStopMassSpan` |
+| The power rating | ± 25% | ± 40% | `ratingPowerImpulse` |
+
+What to look for first: (1) out-jabbing a man for a round and not being hit
+should win it on the cards — if it does not, `scorePowerWeight` down or
+`scoreControlWeight` up. (2) Throw the same jab at the counter-puncher at
+the same pace and he should start slipping it and coming back with the
+loaded hand; mixing it up or feinting should stop that. If he feels
+psychic, `readChance` (ai/style.ts) or `READ_LEAD`. (3) A trade should hurt
+less than it did and a real counter as much: if exchanges feel weightless,
+`exposedImpulseBonus` up before `healthDamagePerImpulse`. (4) Knockdowns
+should now come from hooks, uppercuts and counters on a worn or rocked man,
+not from the last jab on an empty bar.
+
 ## Open
 
 - Overhaul (2026-11-11): everything in "Overhaul feel specs" is sim-side and
