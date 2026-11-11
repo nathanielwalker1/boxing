@@ -1,148 +1,61 @@
 /**
- * ui/audio.ts — combat SFX (UI workstream). Port of legacy/src/audio.js:
- * every sound is SYNTHESISED at runtime from the recipes below — no files,
- * no licensing, and every characteristic of every hit is a number here
- * (CONTRACT: no external assets). The three impacts own three parts of the
- * spectrum (sharp = top, heavy = bottom, blocked = middle) so they are
- * tellable apart mid-fight; the counter is a sting layered on top of the
- * punch's own impact; the whiff is a filter sweep.
+ * ui/audio.ts — the game's sound. Every sound is SYNTHESISED at runtime from
+ * the recipes in ui/audio/recipes.ts — no files, no licensing, and every
+ * characteristic of every hit is a number there (CONTRACT: no external
+ * assets). Two buses under one master and a limiter:
+ *   impact  punches by class and GRADE (glancing / clean / flush), blocks,
+ *           whiffs, the counter sting, the bell
+ *   crowd   a continuous bed that rises with the fight (ui/audio/crowd.ts)
+ *           and the house's reactions — oohs, a gasp on a near miss, a roar
+ *           that climbs while a hurt man is chased, an eruption on a
+ *           knockdown, a hush for the count, applause at the bell
+ * The crowd follows render/mood.ts — the same excitement value and the same
+ * reactions the stands are drawn from.
  *
- * NOTHING here decides anything. It subscribes to the event bus and makes a
- * noise about outcomes the sim already resolved. Master knobs (enabled,
- * volume, jitter) live in config; recipes are authored data, like the punch
- * shapes. `window.__audioLog` records what was asked for (name, pitch, gain)
- * so a headless check can assert on it without a sound device.
+ * NOTHING here decides anything. It subscribes to the event bus and the mood
+ * and makes a noise about outcomes the sim already resolved. Knobs live in
+ * config (group `audio`). `window.__audioLog` records what was asked for
+ * (name, pitch, gain) so a headless check can assert on it without a sound
+ * device. Silent until the first user gesture (autoplay policy); a failed
+ * sound is a silent one, never a throw.
  */
-import type { Config, EventBus, PunchType } from '../core';
-
-interface Layer {
-  type: 'noise' | 'tone';
-  gain?: number; attack?: number; decay?: number;
-  wave?: OscillatorType; freq?: number; freqEnd?: number;
-  filter?: { type: BiquadFilterType; freq: number; freqEnd?: number; q?: number };
-}
-interface Recipe { gain: number; layers: Layer[] }
-
-const RECIPES: Record<string, Recipe> = {
-  // Jab / cross — sharp and high. The 3 kHz bandpass layer is the "crack".
-  impactSharp: {
-    gain: 0.62,
-    layers: [
-      { type: 'noise', gain: 0.85, attack: 0.001, decay: 0.060, filter: { type: 'highpass', freq: 1600, q: 0.7 } },
-      { type: 'noise', gain: 0.60, attack: 0.001, decay: 0.035, filter: { type: 'bandpass', freq: 3200, q: 1.5 } },
-      { type: 'tone', gain: 0.35, attack: 0.001, decay: 0.070, wave: 'triangle', freq: 320, freqEnd: 140 },
-    ],
-  },
-  // Hook / uppercut — heavy and low. The deep sine thud carries it.
-  impactHeavy: {
-    gain: 0.60,
-    layers: [
-      { type: 'tone', gain: 1.00, attack: 0.002, decay: 0.240, wave: 'sine', freq: 150, freqEnd: 45 },
-      { type: 'noise', gain: 0.55, attack: 0.001, decay: 0.140, filter: { type: 'lowpass', freq: 500, q: 0.8 } },
-      { type: 'noise', gain: 0.25, attack: 0.001, decay: 0.030, filter: { type: 'bandpass', freq: 1500, q: 1.0 } },
-    ],
-  },
-  // Body shot — the heavy thud without the crack, lower and duller.
-  impactBody: {
-    gain: 0.7,
-    layers: [
-      { type: 'tone', gain: 1.00, attack: 0.003, decay: 0.200, wave: 'sine', freq: 110, freqEnd: 40 },
-      { type: 'noise', gain: 0.6, attack: 0.002, decay: 0.110, filter: { type: 'lowpass', freq: 380, q: 0.7 } },
-    ],
-  },
-  // Blocked — absorbed: mids only, slower attack, no thud and no crack.
-  impactBlocked: {
-    gain: 1.50,
-    layers: [
-      { type: 'noise', gain: 0.90, attack: 0.005, decay: 0.090, filter: { type: 'bandpass', freq: 820, q: 1.3 } },
-      { type: 'noise', gain: 0.20, attack: 0.006, decay: 0.045, filter: { type: 'bandpass', freq: 1150, q: 1.5 } },
-      { type: 'noise', gain: 0.45, attack: 0.006, decay: 0.070, filter: { type: 'bandpass', freq: 520, q: 1.4 } },
-    ],
-  },
-  // Counter — a sting on top of the impact.
-  counter: {
-    gain: 0.55,
-    layers: [
-      { type: 'tone', gain: 0.70, attack: 0.001, decay: 0.110, wave: 'square', freq: 180, freqEnd: 640 },
-      { type: 'tone', gain: 0.45, attack: 0.001, decay: 0.190, wave: 'triangle', freq: 900, freqEnd: 1500 },
-      { type: 'noise', gain: 0.30, attack: 0.001, decay: 0.050, filter: { type: 'bandpass', freq: 2400, freqEnd: 5200, q: 2.2 } },
-    ],
-  },
-  // Whiff — a filter sweep through air.
-  whiff: {
-    gain: 2.60,
-    layers: [
-      { type: 'noise', gain: 0.55, attack: 0.030, decay: 0.160, filter: { type: 'bandpass', freq: 300, freqEnd: 2400, q: 1.4 } },
-      { type: 'noise', gain: 0.28, attack: 0.020, decay: 0.120, filter: { type: 'bandpass', freq: 1800, freqEnd: 500, q: 1.2 } },
-    ],
-  },
-  // Slipped — the whiff, close: a fist past the ear. Shorter, brighter, a
-  // little louder than a miss in space (2026-09-18, the read).
-  slipNear: {
-    gain: 4.5,
-    layers: [
-      { type: 'noise', gain: 0.6, attack: 0.008, decay: 0.09, filter: { type: 'bandpass', freq: 900, freqEnd: 3800, q: 1.6 } },
-      { type: 'noise', gain: 0.3, attack: 0.004, decay: 0.06, filter: { type: 'highpass', freq: 2600, q: 0.8 } },
-    ],
-  },
-  // The window opens (2026-09-22): a short bright ping under the slip's whoosh
-  // — the "you read it" cue; the counter sting answers it if the counter
-  // lands. Only a slip opens a counter window (a perfect block does not).
-  counterOpen: {
-    gain: 0.5,
-    layers: [
-      { type: 'tone', gain: 0.6, attack: 0.002, decay: 0.16, wave: 'sine', freq: 1320, freqEnd: 1980 },
-      { type: 'tone', gain: 0.25, attack: 0.002, decay: 0.10, wave: 'triangle', freq: 2640, freqEnd: 3300 },
-    ],
-  },
-  // Knockdown — the heavy hit plus the canvas.
-  knockdown: {
-    gain: 0.9,
-    layers: [
-      { type: 'tone', gain: 1.00, attack: 0.003, decay: 0.45, wave: 'sine', freq: 90, freqEnd: 30 },
-      { type: 'noise', gain: 0.7, attack: 0.002, decay: 0.25, filter: { type: 'lowpass', freq: 300, q: 0.7 } },
-    ],
-  },
-  // ROCKED (2026-10-15): a deep thud under the land and a dull ring that hangs — the legs went.
-  rocked: {
-    gain: 0.7,
-    layers: [
-      { type: 'tone', gain: 0.9, attack: 0.004, decay: 0.5, wave: 'sine', freq: 70, freqEnd: 40 },
-      { type: 'tone', gain: 0.25, attack: 0.03, decay: 1.4, wave: 'sine', freq: 2900, freqEnd: 2800 },
-      { type: 'noise', gain: 0.4, attack: 0.002, decay: 0.2, filter: { type: 'lowpass', freq: 400, q: 0.8 } },
-    ],
-  },
-  // The bell.
-  bell: {
-    gain: 0.5,
-    layers: [
-      { type: 'tone', gain: 0.8, attack: 0.002, decay: 1.1, wave: 'sine', freq: 1180, freqEnd: 1160 },
-      { type: 'tone', gain: 0.45, attack: 0.002, decay: 0.7, wave: 'triangle', freq: 2360, freqEnd: 2300 },
-      { type: 'noise', gain: 0.25, attack: 0.001, decay: 0.03, filter: { type: 'highpass', freq: 3000, q: 0.7 } },
-    ],
-  },
-};
+import type { Config, EventBus, PunchType, SimEvent } from '../core';
+import { mood, gradeOf, type Grade, type Reaction } from '../render/mood';
+import { RECIPES, type Recipe } from './audio/recipes';
+import { CrowdBed } from './audio/crowd';
 
 const PUNCH_CLASS: Record<PunchType, string> = { jab: 'impactSharp', cross: 'impactSharp', hook: 'impactHeavy', uppercut: 'impactHeavy' };
+const GRADE_SUFFIX: Record<Grade, string> = { glancing: 'Glance', clean: '', flush: 'Flush' };
 
 export interface AudioLogEntry { name: string; pitch: number; gain: number; t: number }
-declare global { interface Window { __audioLog?: AudioLogEntry[] } }
+declare global {
+  interface Window {
+    __audioLog?: AudioLogEntry[];
+    /** Probes for scripts/audio_check.mjs: the context's state (null before the first gesture) and whether the crowd bed is playing. */
+    __audio?: { state: () => string | null; bed: () => boolean };
+  }
+}
 const LOG_MAX = 50;
+const BED_TICK_MS = 100;
 
 export class CombatAudio {
   private ctx: AudioContext | null = null;
   private noise: AudioBuffer | null = null;
   private unavailable = false;
+  private impactBus: GainNode | null = null;
+  private crowdBus: GainNode | null = null;
+  private bed: CrowdBed | null = null;
   readonly log: AudioLogEntry[] = [];
 
   constructor(private readonly cfg: Config, bus: EventBus) {
     window.__audioLog = this.log;
+    window.__audio = { state: () => this.ctx?.state ?? null, bed: () => this.bed?.running ?? false };
     // The context is created inside the first user gesture (not at boot):
     // Chrome logs a warning for a context created before any gesture, and a
     // headless check with no gesture at all must stay silent, not warn.
     this.installUnlock();
     // Outcomes → sounds. A counter is a sting ON TOP of the punch's own impact.
-    bus.on('punchLand', e => { this.play(e.part === 'body' ? 'impactBody' : PUNCH_CLASS[e.punch], e.power); if (e.counter) this.play('counter'); });
+    bus.on('punchLand', e => this.land(e));
     bus.on('punchBlock', () => this.play('impactBlocked'));
     bus.on('perfectBlock', () => this.play('impactBlocked', 1.3));
     bus.on('punchWhiff', () => this.play('whiff'));
@@ -150,7 +63,43 @@ export class CombatAudio {
     bus.on('slip', e => { if (e.dodged) { this.play('slipNear'); if (e.side === 0) this.play('counterOpen'); } });
     bus.on('knockdown', () => this.play('knockdown'));
     bus.on('rocked', () => this.play('rocked'));
-    bus.on('bell', () => this.play('bell'));
+    // The bell also reaches the bus from the fight flow, which the stage never sees: tell the mood (it applauds once per bell).
+    bus.on('bell', () => { this.play('bell'); mood.bell(this.cfg); });
+    // The house.
+    mood.on(r => this.crowdReact(r));
+  }
+
+  /** One landed punch: the recipe for its class and grade; a body shot is its own family, with the breath after it. */
+  private land(e: Extract<SimEvent, { type: 'punchLand' }>): void {
+    const c = this.cfg;
+    const grade = gradeOf(e);
+    const power = e.power * (grade === 'glancing' ? c.audioGlanceGain : 1);
+    if (e.part === 'body') {
+      this.play(`impactBody${GRADE_SUFFIX[grade]}`, power);
+      if (grade !== 'glancing') this.play('bodyExhale', e.power * c.audioExhaleGain);
+      if (grade === 'flush') this.play('bodyGrunt', e.power * c.audioExhaleGain);
+    } else {
+      this.play(`${PUNCH_CLASS[e.punch]}${GRADE_SUFFIX[grade]}`, power);
+    }
+    if (e.counter) this.play('counter');
+  }
+
+  /** The crowd answers a reaction from the mood. Small ones are left to the bed (it has already risen). */
+  private crowdReact(r: Reaction): void {
+    const s = r.strength;
+    switch (r.kind) {
+      case 'land': if (s >= 0.5) this.play('crowdOh', s); break;
+      case 'flush': this.play('crowdOoh', s); break;
+      case 'body': this.play('crowdOof', s); break;
+      case 'nearMiss': this.play('crowdGasp', s); break;
+      case 'counter': this.play('crowdCheer', s); break;
+      case 'rocked': this.play('crowdRoar', s); break;
+      case 'knockdown': this.play('crowdEruption', s); break;
+      case 'ko': this.play('crowdEruption', s * 1.2); this.play('crowdOvation', s); break;
+      case 'getUp': this.play('crowdCheer', s); this.play('crowdApplause', s); break;
+      case 'bell': this.play('crowdApplause', s); break;
+      case 'decision': this.play('crowdOvation', s); break;
+    }
   }
 
   /** Autoplay policy: create the context inside a real user gesture and resume it there; unhook once it runs. */
@@ -162,6 +111,7 @@ export class CombatAudio {
           const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
           this.ctx = Ctor ? new Ctor() : null;
           if (!this.ctx) { this.unavailable = true; return; }
+          this.buildGraph(this.ctx);
         }
         if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
         if (this.ctx.state === 'running') for (const ev of ['pointerdown', 'touchstart', 'keydown']) window.removeEventListener(ev, unlock);
@@ -173,16 +123,42 @@ export class CombatAudio {
     for (const ev of ['pointerdown', 'touchstart', 'keydown']) window.addEventListener(ev, unlock);
   }
 
+  /** impact + crowd → limiter → out; then the crowd bed, and the slow tick that keeps levels on the config and the mood. */
+  private buildGraph(ctx: AudioContext): void {
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -9; limiter.knee.value = 6; limiter.ratio.value = 8; limiter.attack.value = 0.003; limiter.release.value = 0.2;
+    limiter.connect(ctx.destination);
+    this.impactBus = ctx.createGain(); this.impactBus.connect(limiter);
+    this.crowdBus = ctx.createGain(); this.crowdBus.connect(limiter);
+    this.levels();
+    try { this.bed = new CrowdBed(ctx, this.cfg, this.crowdBus, this.noiseBuffer(ctx)); } catch { this.bed = null; }
+    window.setInterval(() => {
+      try { this.levels(); this.bed?.update(mood.value, mood.hush); } catch { /* feedback, never state */ }
+    }, BED_TICK_MS);
+  }
+
+  private levels(): void {
+    const c = this.cfg;
+    if (!this.ctx || !this.impactBus || !this.crowdBus) return;
+    const t = this.ctx.currentTime;
+    this.impactBus.gain.setTargetAtTime(c.audioImpactVolume, t, 0.05);
+    this.crowdBus.gain.setTargetAtTime(c.audioCrowdEnabled ? c.audioCrowdVolume * c.audioMasterVolume : 0, t, 0.05);
+  }
+
   /** Play one logical sound; `power` scales the gain a little (a hard hit is louder). Jitter is random on purpose: audio is not sim. */
   play(name: string, power = 1): void {
     const recipe = RECIPES[name];
     if (!recipe) return;
     const c = this.cfg;
+    const crowd = recipe.bus === 'crowd';
     const pitch = 1 + (Math.random() * 2 - 1) * c.audioPitchJitter;
-    const gain = Math.max(0, c.audioMasterVolume * recipe.gain * (0.75 + 0.25 * Math.min(2, power)) * (1 + (Math.random() * 2 - 1) * c.audioVolumeJitter));
+    // Impacts carry the master in their own gain (the log shows what was asked for); the crowd bus carries it for its sounds.
+    const level = crowd ? c.audioReactionGain : c.audioMasterVolume;
+    const gain = Math.max(0, level * recipe.gain * (0.75 + 0.25 * Math.min(2, power)) * (1 + (Math.random() * 2 - 1) * c.audioVolumeJitter));
     this.log.push({ name, pitch: +pitch.toFixed(4), gain: +gain.toFixed(4), t: performance.now() });
     if (this.log.length > LOG_MAX) this.log.splice(0, this.log.length - LOG_MAX);
     if (!c.audioEnabled || gain <= 0 || this.unavailable || !this.ctx || this.ctx.state !== 'running') return;
+    if (crowd && !c.audioCrowdEnabled) return;
     try { this.playRecipe(recipe, pitch, gain); } catch { /* feedback, never state: a failed sound is a silent one */ }
   }
 
@@ -195,30 +171,36 @@ export class CombatAudio {
     return buf;
   }
 
-  /** Every layer is source → [filter] → gain → destination with its own AD envelope, all starting on one timestamp. */
+  /** Every layer is source → [filter] → gain → its bus, with its own delay / attack / hold / decay envelope. */
   private playRecipe(recipe: Recipe, pitch: number, master: number): void {
     const ctx = this.ctx!;
-    const t0 = ctx.currentTime;
+    const out: AudioNode = (recipe.bus === 'crowd' ? this.crowdBus : this.impactBus) ?? ctx.destination;
+    const now = ctx.currentTime;
     const nyq = ctx.sampleRate / 2 - 100;
     const clampF = (hz: number): number => Math.min(Math.max(20, hz), nyq);
     for (const layer of recipe.layers) {
-      const attack = layer.attack ?? 0.001, decay = layer.decay ?? 0.1;
-      const peak = Math.max(0.0001, (layer.gain ?? 1) * master);
+      const t0 = now + (layer.delay ?? 0);
+      const attack = layer.attack ?? 0.001, hold = layer.hold ?? 0, decay = layer.decay ?? 0.1;
+      const end = t0 + attack + hold + decay;
+      const peak = Math.max(0.0001, (layer.gain ?? 1) * master * (layer.sub ? this.cfg.audioFlushSub : 1));
       let src: AudioScheduledSourceNode;
-      let startOffset = 0;
-      if (layer.type === 'noise') {
-        const n = ctx.createBufferSource();
-        n.buffer = this.noiseBuffer(ctx);
-        n.playbackRate.value = pitch;
-        startOffset = Math.random() * 0.5;
-        src = n;
-      } else {
+      if (layer.type === 'tone') {
         const o = ctx.createOscillator();
         o.type = layer.wave ?? 'sine';
         const f0 = (layer.freq ?? 200) * pitch, f1 = (layer.freqEnd ?? layer.freq ?? 200) * pitch;
         o.frequency.setValueAtTime(f0, t0);
-        if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + attack + decay);
+        if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), end);
+        o.start(t0);
         src = o;
+      } else {
+        // The crowd's loops, or plain noise until they exist (the walla is rendered just after the first gesture).
+        const buffer = (layer.type === 'walla' ? this.bed?.walla : layer.type === 'applause' ? this.bed?.applause : null) ?? this.noiseBuffer(ctx);
+        const n = ctx.createBufferSource();
+        n.buffer = buffer;
+        n.loop = true;
+        n.playbackRate.value = pitch;
+        n.start(t0, Math.random() * Math.max(0.01, buffer.duration - 0.01));
+        src = n;
       }
       let node: AudioNode = src;
       if (layer.filter) {
@@ -227,19 +209,18 @@ export class CombatAudio {
         biq.Q.value = layer.filter.q ?? 1;
         const c0 = layer.filter.freq * pitch, c1 = (layer.filter.freqEnd ?? layer.filter.freq) * pitch;
         biq.frequency.setValueAtTime(clampF(c0), t0);
-        if (c1 !== c0) biq.frequency.linearRampToValueAtTime(clampF(c1), t0 + attack + decay);
+        if (c1 !== c0) biq.frequency.linearRampToValueAtTime(clampF(c1), end);
         src.connect(biq);
         node = biq;
       }
       const env = ctx.createGain();
       env.gain.setValueAtTime(0.0001, t0);
       env.gain.exponentialRampToValueAtTime(peak, t0 + attack);
-      env.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay);
+      if (hold > 0) env.gain.setValueAtTime(peak, t0 + attack + hold);
+      env.gain.exponentialRampToValueAtTime(0.0001, end);
       node.connect(env);
-      env.connect(ctx.destination);
-      const stopAt = t0 + attack + decay + 0.02;
-      if (layer.type === 'noise') (src as AudioBufferSourceNode).start(t0, startOffset); else src.start(t0);
-      src.stop(stopAt);
+      env.connect(out);
+      src.stop(end + 0.02);
       src.onended = () => { try { src.disconnect(); node.disconnect(); env.disconnect(); } catch { /* torn down */ } };
     }
   }
