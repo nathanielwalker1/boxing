@@ -102,10 +102,10 @@ console.log('\n=== 4. Counter flash ===');
   };
   const base = exchange(cfg);
   check('a slip-counter cross ROCKS a fresh man but does not floor him', base.evs.some(e => e.type === 'counter') && base.evs.some(e => e.type === 'rocked' && e.side === 0) && of(base.evs, 'knockdown').length === 0);
-  // (Phase 3: stunFlashFrac 1.85 → 3.2, so the scale that makes this cross a flash is 0.45, was 0.7.)
-  const eager = { ...cfg, counterFlashScale: 0.45 };
+  // (Phase 3: stunFlashFrac 1.85 → 3.2 and a hit costs less wind, so the scale that makes this cross a flash is 0.4, was 0.7.)
+  const eager = { ...cfg, counterFlashScale: 0.4 };
   const fl = exchange(eager), flOff = exchange({ ...eager, counterFlashOn: false });
-  check('with the counter flash threshold lower (counterFlashScale 0.45) the same counter floors him: cause flash', first(fl.evs, 'knockdown')?.cause === 'flash' && first(fl.evs, 'knockdown').side === 0);
+  check('with the counter flash threshold lower (counterFlashScale 0.4) the same counter floors him: cause flash', first(fl.evs, 'knockdown')?.cause === 'flash' && first(fl.evs, 'knockdown').side === 0);
   check('…and with counterFlashOn off it is back to a rock', of(flOff.evs, 'knockdown').length === 0 && flOff.evs.some(e => e.type === 'rocked'));
 }
 
@@ -166,6 +166,10 @@ console.log('\n=== 6. The get-up ===');
   let midPhase = null;
   run(fresh(huge, MID, 20), ph[1].tick + 3, i => [inp({ cross: i === 0 }), NONE], huge, s => { midPhase = s.fighters[1].getUp; });
   check('the phase is on the state while he is down, and cleared when he is up', midPhase.phase === 'knee' && midPhase.tries === 1 && r.s.fighters[1].getUp.phase === 'none');
+  // Phase 3: the count is a breather. He goes down with an empty tank and gets up with knockdownStaminaRestore of it.
+  const windAtGetUp = c => { const s0 = fresh(c, MID, 20); s0.fighters[1].stamina = 0.02; let w = null; run(s0, T(10 * c.countTickSeconds) + 60, i => [inp({ cross: i === 0 }), NONE], c, (s, i, ev) => { if (w === null && ev.some(e => e.type === 'getUp')) w = s.fighters[1].stamina; }); return w; };
+  const wOn = windAtGetUp(huge), wOff = windAtGetUp({ ...huge, knockdownStaminaRestore: 0 });
+  check(`floored with an empty tank he gets up with wind (${wOn?.toFixed(2)}; ${wOff?.toFixed(2)} with knockdownStaminaRestore 0)`, wOn !== null && wOff !== null && wOn >= Math.min(huge.knockdownStaminaRestore, 0.45) - 1e-9 && wOff < 0.1);
   // The first try fails.
   // (A short slump so it fits this ~2.5 s get-up; at the default 0.4 s it plays only on the longer counts.)
   const slumpy = { ...huge, getUpSlumpChance: 3, getUpSlumpSeconds: 0.15 };

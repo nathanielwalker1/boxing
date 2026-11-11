@@ -116,7 +116,7 @@ console.log('\n=== 2. Getting hit ===');
     if (landTick === null && ev.some(e => e.type === 'punchLand')) { landTick = i; peak = st.fighters[1].stamina; return; }
     if (landTick !== null && i <= landTick + ticks(cfg.staminaRegenDelay) - 1 && st.fighters[1].stamina > peak + 1e-12) rose = true;
   });
-  check('regen is paused for staminaRegenDelay after a hit, then resumes', !rose && after.fighters[1].stamina > peak + 0.03, `held at ${peak.toFixed(4)}, then ${after.fighters[1].stamina.toFixed(4)} at 1.5 s`);
+  check('regen is paused for staminaRegenDelay after a hit, then resumes', !rose && after.fighters[1].stamina > peak + 0.02 /* phase 3: a jab now takes 0.029, so there is only that much to come back (was 0.03) */, `held at ${peak.toFixed(4)}, then ${after.fighters[1].stamina.toFixed(4)} at 1.5 s`);
   // Phase 2: a jab pauses the wind for staminaRegenDelayLight of that; a cross for all of it.
   {
     const lightCfg = { ...cfg, staminaRegenDelayLight: createConfig().staminaRegenDelayLight };
@@ -127,7 +127,8 @@ console.log('\n=== 2. Getting hit ===');
 
   const zero = fresh(); zero.fighters[1].stamina = 0;
   const { s: z } = run(zero, 40, i => [inp({ jab: i === 0 }), NONE]);
-  check('getting hit at 0 stamina clamps rather than going negative', z.fighters[1].stamina === 0);
+  // (Phase 3, staminaHitCost 0.00026 → 0.00015: the 7 ticks of regen before the jab lands are now worth a little more than the jab takes, so "at 0" is "at or just over 0".)
+  check('getting hit at 0 stamina clamps rather than going negative', z.fighters[1].stamina >= 0 && z.fighters[1].stamina < 0.02, `${z.fighters[1].stamina.toFixed(4)}`);
 
   // No spiral: the heaviest hit in the build vs the headroom above the gassed line.
   const worst = (cfg.punchImpulseBase + ROSTER[0].massKg * cfg.moveSpeed * cfg.punchMomentumScale) * (1 + cfg.punchLeanScale) * cfg.uppercutImpulseMult;

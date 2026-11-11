@@ -555,6 +555,10 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const cover = !guarded ? 0 : perfect ? 1 : !d.block ? (cfg.guardShapeOn ? cfg.guardPinnedCover : 1) : guardCover(d, type, part, dirX, dirZ, cfg);
   const through = guarded && !perfect && cfg.guardShapeOn && cover < cfg.guardThroughAt;   // it came round or through: a land, at what the guard left of it
   const blocked = guarded && !through;
+  // A jab is a jab (phase 3): whatever stacked on it — the step, his walking onto it, his exposure, the combination —
+  // it carries at most jabImpulseCap. MEASURED before: step jabs landing at 310–480 N·s (a standing cross is 272) on
+  // a man walking in; the inside-fighter bot took most of every style's health bar with the jab alone.
+  if (type === 'jab' && cfg.jabImpulseCap > 0) mag = Math.min(mag, cfg.jabImpulseCap);
   const raw = mag;   // what arrived at the guard — block stun, guard wear and the chip threshold read this
   // (What a block absorbs rises a little with the blocker's defense rating, capped.)
   if (guarded) mag *= 1 - Math.min(BLOCK_MAX, cfg.blockReduction * rated(d, 'defense', cfg.ratingDefenseBlock, cfg)) * cover * (d.hurt > 0 ? cfg.stunBlockScale : 1);   // a rocked guard is loose
@@ -577,6 +581,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     }
     combo = a.combo;
   } else missed(a, cfg, false);
+  if (type === 'jab' && cfg.jabImpulseCap > 0) mag = Math.min(mag, cfg.jabImpulseCap);   // …and again after the grade and the combination
 
   const power = mag / cfg.punchImpulseBase;
   const rawPower = raw / cfg.punchImpulseBase;
@@ -616,7 +621,9 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   }
   events.push({ type: 'hurt', side: target, part, impulse });
   if (counter && !blocked) events.push({ type: 'counter', side, target, punch: type });
-  if (!blocked) interruptPunch(d, target, side, cfg, events);
+  // (Phase 3, weight: a big man is not stopped by a light shot. Under interruptPoise N·s for every kg he carries over
+  // interruptPoiseMass the hit lands — damage, reaction, all of it — but his own punch keeps coming.)
+  if (!blocked && mag >= cfg.interruptPoise * Math.max(0, d.body.massKg - cfg.interruptPoiseMass)) interruptPunch(d, target, side, cfg, events);
 
   let stumble = 1 + retreat * cfg.punchRetreatStumble;   // hit while backing off: the feet go
   // INSIDE IS EARNED (phase 2): a jab that lands on a man walking straight in stops him — his forward speed is
@@ -627,6 +634,12 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     if (toward < 0) { d.vel.x -= dirX * toward; d.vel.z -= dirZ * toward; }
     d.hop.x = 0; d.hop.z = 0;
     d.blockStun = Math.max(d.blockStun, cfg.jabStopStun);
+  } else if (cfg.jabStopOn && cfg.jabStopGuard > 0 && type === 'jab' && blocked && !perfect && closing >= cfg.jabStopSpeed) {
+    // …and on his GUARD (phase 3): walking in behind the gloves is not free either. The jab on the guard takes
+    // jabStopGuard of his forward speed — no stumble, no stun: he keeps his hands, he loses the step.
+    const toward = d.vel.x * dirX + d.vel.z * dirZ;
+    if (toward < 0) { d.vel.x -= dirX * toward * cfg.jabStopGuard; d.vel.z -= dirZ * toward * cfg.jabStopGuard; }
+    d.hop.x *= 1 - cfg.jabStopGuard; d.hop.z *= 1 - cfg.jabStopGuard;
   }
   d.stagger.x += impulse.x / d.body.massKg * stumble;
   d.stagger.z += impulse.z / d.body.massKg * stumble;

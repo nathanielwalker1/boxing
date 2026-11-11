@@ -140,6 +140,13 @@ const rockedState = () => { const s0 = fresh(soft); s0.fighters[1].health = LOW;
   check('…and the canvas clears the hurt state', out.fighters[1].hurt === 0 && out.fighters[1].hurtMax === 0);
 }
 {
+  // Phase 3: the finish needs him to have been rocked for stunFinishGrace. Rocked THIS tick, the cross that follows
+  // 0.2 s later (the rest of the same combination) does not finish him; with the grace at 0 it does.
+  const justRocked = () => { const s = rockedState(); const d = s.fighters[1]; d.hurt = 1.5; d.hurtMax = 1.5; return s; };
+  const grace = cross(justRocked(), soft, 40), none = cross(justRocked(), { ...soft, stunFinishGrace: 0 }, 40);
+  check(`a cross landing inside stunFinishGrace (${soft.stunFinishGrace} s) of the rock does not finish; with the grace at 0 it does`, of(grace.evs, 'punchLand').length === 1 && of(grace.evs, 'knockdown').length === 0 && of(none.evs, 'knockdown')[0]?.cause === 'finish');
+}
+{
   const s = rockedState();
   const { s: out, evs } = run(s, 40, i => [inp({ jab: i === 0 }), NONE], soft);
   check('a jab while rocked lands but does not finish', of(evs, 'punchLand').length === 1 && of(evs, 'knockdown').length === 0 && !out.fighters[1].down);
