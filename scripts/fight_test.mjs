@@ -80,12 +80,20 @@ const ROUND = T(cfg.roundSeconds), REST = T(cfg.betweenRoundSeconds);
   // (The first jab stumbles the dummy back ~30 cm now, so the player walks in before the second.)
   const two = run(fresh(), left, i => [inp({ jab: i === 0 || i === 40, move: { x: 0, y: i > 12 && i < 38 ? 1 : 0 } }), NONE], (st, i, ev) => { if (st.round.phase === 'fighting' && !ev.some(e => e.type === 'roundEnd')) tally = { landed: [...st.round.landed], power: [...st.round.power] }; });
   const card = of(two.evs, 'roundEnd')[0]?.score;
-  check('two clean jabs: the tally counts them and their impulse', two.s.round.score.length === 1 && of(two.evs, 'punchLand').length === 2 && tally?.landed[0] === 2 && tally?.landed[1] === 0 && tally?.power[0] > 200 && tally?.power[1] === 0, `${of(two.evs, 'punchLand').length} lands, tally ${JSON.stringify(tally)}`);
+  check('two clean jabs: the tally counts them and their impulse', two.s.round.score.length === 1 && of(two.evs, 'punchLand').length === 2 && Math.abs(tally?.landed[0] - of(two.evs, 'punchLand').reduce((n, e) => n + (e.grade === 'glancing' ? cfg.scoreGlancing : 1), 0)) < 1e-9 /* phase 4: a glancing land counts scoreGlancing */ && tally?.landed[1] === 0 && tally?.power[0] > 200 && tally?.power[1] === 0, `${of(two.evs, 'punchLand').length} lands, tally ${JSON.stringify(tally)}`);
   check('the busier fighter takes the round 10-9', card && card[0] === 10 && card[1] === 9, JSON.stringify(card));
   const next = run(two.s, REST + 5, () => [NONE, NONE]);
   check('the tallies reset at the next bell', next.s.round.index === 1 && next.s.round.landed[0] === 0 && next.s.round.power[0] === 0);
   const other = run(fresh(), left, i => [NONE, inp({ jab: i === 0 })]);
   check('…either way round', JSON.stringify(of(other.evs, 'roundEnd')[0]?.score) === '[9,10]');
+  // Phase 4, control: a punch he makes the other man miss is credit to him. Side 0 swings at air from 2 m; nobody lands.
+  let ctl = null;
+  const air = run(fresh(2.0), left, i => [inp({ cross: i === 0 }), NONE], (st, i, ev) => { if (st.round.phase === 'fighting' && !ev.some(e => e.type === 'roundEnd')) ctl = [...st.round.control]; });
+  check('a miss is control for the man who was not there (the tally), but with nothing landed it wins no round: control counts only up to what he landed', of(air.evs, 'punchWhiff').length === 1 && ctl?.[1] === 1 && ctl?.[0] === 0 && JSON.stringify(of(air.evs, 'roundEnd')[0]?.score) === '[10,10]', `control ${JSON.stringify(ctl)}, card ${JSON.stringify(of(air.evs, 'roundEnd')[0]?.score)}`);
+  const card2 = (landed, power, control, c = cfg) => { const st = fresh(); st.round.landed = landed; st.round.power = power; st.round.control = control; return JSON.stringify(sim.scoreRound(st, c)); };
+  check('level on punches and power, the man who made the other miss takes the round', card2([3, 3], [600, 600], [0, 2]) === '[9,10]' && card2([3, 3], [600, 600], [2, 0]) === '[10,9]');
+  check('…and scoreControlWeight 0 makes it level again', card2([3, 3], [600, 600], [0, 2], { ...cfg, scoreControlWeight: 0 }) === '[10,10]');
+  check(`three clean jabs out-score two crosses (scorePowerWeight ${cfg.scorePowerWeight})`, card2([3, 2], [3 * 195, 2 * 272], [0, 0]) === '[10,9]');
   // Blocked punches are not landed punches.
   const blocked = run(fresh(), left, i => [inp({ jab: i === 0 }), inp({ block: true })]);
   check('a blocked punch does not score', of(blocked.evs, 'punchBlock').length === 1 && JSON.stringify(of(blocked.evs, 'roundEnd')[0]?.score) === '[10,10]');

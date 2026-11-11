@@ -108,7 +108,8 @@ console.log('\n=== 4. The wrong way ===');
   const L = landOf(run(fresh(cfg, MID, 20), 20, i => [inp({ jab: i === 0 }), NONE]).evs).tick;
   void L;
   // (30 ticks of settle, as slip_test: the shoulder catches this jab by ~2 cm and the idle bob is part of that.)
-  const into = c => run(fresh(c, MID, 30), 30, i => [inp({ jab: i === 0 }), inp({ move: flick(1, 0)(i) })], c);
+  // (jabImpulseCap 0 in this section: the wrong-way multiplier is measured on the jab without the cap.)
+  const into = c0 => { const c = { ...c0, jabImpulseCap: 0 }; return run(fresh(c, MID, 30), 30, i => [inp({ jab: i === 0 }), inp({ move: flick(1, 0)(i) })], c); };
   // Phase 3: with the lane on his head the fist clears the capsule by ~6 cm; the shoulder he leaned onto it is counted
   // wrongWayShoulder higher. So with the rule off this is now a clean dodge (it used to clip the shoulder, glancing).
   const on = landOf(into(cfg).evs), offRun = into({ ...cfg, wrongWayOn: false }), plain = landOf(into({ ...cfg, slipWrongWayMult: 1 }).evs);

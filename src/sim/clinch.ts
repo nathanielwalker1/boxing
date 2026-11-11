@@ -87,7 +87,8 @@ export function stepClinch(s: SimState, inputs: readonly [Readonly<FrameInput>, 
   for (const side of [0, 1] as const) {
     const f = s.fighters[side], o = s.fighters[other(side)], input = inputs[side];
     const wants = cfg.clinchOn && cfg.levelOn && input.block && input.level && !f.down && !o.down
-      && f.clinch.cd === 0 && f.punch.type === null && f.pivot.dir === 0 && dist <= cfg.clinchRange;
+      // (Phase 4: a HURT man can always hold on — the cooldown does not apply to him. It is the oldest way to survive.)
+      && (f.clinch.cd === 0 || (cfg.clinchHurtFree && f.hurt > 0)) && f.punch.type === null && f.pivot.dir === 0 && dist <= cfg.clinchRange;
     f.clinch.reach = wants ? f.clinch.reach + dt : 0;
     if (!wants || f.clinch.reach < cfg.clinchReach || o.clinch.active) continue;
     // Tied up: whatever either was doing stops.

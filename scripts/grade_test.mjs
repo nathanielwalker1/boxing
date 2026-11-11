@@ -69,7 +69,8 @@ console.log('\n=== 3. Flush ===');
     const r = run(fresh(c, 1.7, 10), 80, (i, s) => { const go = !pressed && k.dist(s) < 1.12; if (go) pressed = true; return [inp({ jab: go }), inp({ move: { x: 0, y: 1 } })]; }, c);
     return landOf(r.evs);
   };
-  const w = walkIn(cfg), wp = walkIn(plain);
+  // (jabImpulseCap 0: the ratio is the grade's, measured without the cap that phase 3 / 4 put on every jab.)
+  const w = walkIn({ ...cfg, jabImpulseCap: 0 }), wp = walkIn({ ...plain, jabImpulseCap: 0 });
   check(`a jab on a man walking onto it is FLUSH (${w?.grade})`, w?.grade === 'flush' && near(w.power / wp.power, cfg.gradeFlushPower, 1e-6));
   // Rocked: exposure is held, so every square shot is flush.
   const rocked = hit('jab', MID, cfg, () => NONE, s => { const d = s.fighters[1]; d.hurt = 1.5; d.hurtMax = 1.5; d.hurtKind = 'head'; return run(s, 2).s; });

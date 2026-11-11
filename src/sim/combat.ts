@@ -361,7 +361,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // A miss is paid for in the recovery: the arm comes back whiffRecoveryMult
   // (weighted per type) times slower, the next punch and the guard wait for
   // it, and the exposure curve decays over the longer window.
-  const whiff = (): void => { events.push({ type: 'punchWhiff', side, punch: type, variant }); setWhiffMult(a, whiffRecoveryMult(def, cfg)); missed(a, cfg, true); };
+  // (A miss is credit to the man who was not there: control, on the judges' card — round.ts.)
+  const whiff = (): void => { events.push({ type: 'punchWhiff', side, punch: type, variant }); setWhiffMult(a, whiffRecoveryMult(def, cfg)); missed(a, cfg, true); s.round.control[target] += 1; };
   if (dist > cfg.rangeMax) { whiff(); return; }
 
   const g = a.gloves[a.punch.hand === 'lead' ? 0 : 1];
@@ -532,7 +533,11 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // called a counter.
   const targetVuln = d.vuln;
   const counter = targetVuln > 0 && d.counterWindow > 0 && punishSource(d) === PUNISH_SLIP;
-  mag *= 1 + targetVuln * cfg.counterImpulseBonus;
+  // (Phase 4: the full bonus is the COUNTER's. A man merely caught mid-punch, rocked, or with his guard broken is
+  // exposed at exposedImpulseBonus — a trade hurts more than a clean shot on a set man, but it is not a counter.
+  // MEASURED at one bonus for both: in an inside exchange both men are always mid-punch, every shot landed at up to
+  // × 1.9, and the finish was 25 of the 33 knockdowns the 1.98 m man took in 8 fights.)
+  mag *= 1 + targetVuln * (counter ? cfg.counterImpulseBonus : cfg.exposedImpulseBonus);
   // Overhaul: what the target's FEET were doing. Flat-footed he rides nothing; on the ropes there is nowhere for the head to go.
   if (cfg.flatFootedOn) mag *= 1 + cfg.flatImpulseBonus * d.flat;
   if (cfg.ropesOn) mag *= 1 + cfg.ropeImpulseBonus * d.ropes;
@@ -615,7 +620,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   else {
     events.push({ type: 'punchLand', side, target, punch: type, hand: a.punch.hand, part, at, impulse, power, counter, variant, grade, combo, liver, through, wrongWay });
     // The judges see clean lands and how hard they were (round.ts scoring).
-    s.round.landed[side] += 1;
+    s.round.landed[side] += grade === 'glancing' ? cfg.scoreGlancing : 1;
     s.round.power[side] += mag;
     d.clinch.reach = 0;   // a clean shot breaks a grab that had not taken
   }
@@ -623,7 +628,11 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   if (counter && !blocked) events.push({ type: 'counter', side, target, punch: type });
   // (Phase 3, weight: a big man is not stopped by a light shot. Under interruptPoise N·s for every kg he carries over
   // interruptPoiseMass the hit lands — damage, reaction, all of it — but his own punch keeps coming.)
-  if (!blocked && mag >= cfg.interruptPoise * Math.max(0, d.body.massKg - cfg.interruptPoiseMass)) interruptPunch(d, target, side, cfg, events);
+  // (Phase 4, the counter: a LOADED punch — thrown with the hand a slip, pull or roll had just loaded — is not broken
+  // by a light shot either. The weight is already coming back; under slipLoadedPoise the hit lands and the counter
+  // still arrives. MEASURED before: 29% and 42% of the counter style's punches were stuffed by jabs.)
+  const poise = Math.max(cfg.interruptPoise * Math.max(0, d.body.massKg - cfg.interruptPoiseMass), cfg.slipLoadedOn && d.punch.loaded ? cfg.slipLoadedPoise : 0);
+  if (!blocked && mag >= poise) interruptPunch(d, target, side, cfg, events);
 
   let stumble = 1 + retreat * cfg.punchRetreatStumble;   // hit while backing off: the feet go
   // INSIDE IS EARNED (phase 2): a jab that lands on a man walking straight in stops him — his forward speed is

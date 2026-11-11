@@ -78,6 +78,7 @@ export function startRound(s: SimState, index: number, cfg: Config, events: SimE
   s.round.phaseT = 0;
   s.round.landed = [0, 0];
   s.round.power = [0, 0];
+  s.round.control = [0, 0];
   s.round.count = 0;
   if (index > 0) {
     for (const side of [0, 1] as const) toCorner(s.fighters[side], side, s.time, cfg);
@@ -92,7 +93,10 @@ export function startRound(s: SimState, index: number, cfg: Config, events: SimE
 /** The judges' card for the round just fought. */
 export function scoreRound(s: SimState, cfg: Config): [number, number] {
   const r = s.round;
-  const pts = (side: Side) => r.landed[side] + r.power[side] * cfg.scorePowerWeight;
+  // Landed (a glancing one counts scoreGlancing of a clean one), power, and control: what he made the other man miss.
+  // (Control is credit for hitting and not being hit: it counts only up to what he landed himself. MEASURED without
+  // that cap: the turtle, who never throws, took 6 of 8 decisions from the outboxer on his misses alone.)
+  const pts = (side: Side) => r.landed[side] + r.power[side] * cfg.scorePowerWeight + Math.min(r.control[side], r.landed[side]) * cfg.scoreControlWeight;
   const p0 = pts(0), p1 = pts(1);
   let a = 10, b = 10;
   if (p0 > p1 + 1e-9) b = 9; else if (p1 > p0 + 1e-9) a = 9;

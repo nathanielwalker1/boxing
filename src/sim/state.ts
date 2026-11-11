@@ -230,6 +230,7 @@ export function cloneState(s: SimState): SimState {
       score: s.round.score.map(p => [p[0], p[1]] as [number, number]),
       landed: [s.round.landed[0], s.round.landed[1]],
       power: [s.round.power[0], s.round.power[1]],
+      control: [s.round.control[0], s.round.control[1]],
     },
     fighters: [cloneFighter(s.fighters[0]), cloneFighter(s.fighters[1])],
   };

@@ -57,7 +57,7 @@ for (const type of TYPES) {
   const ph = phases(type);
   const cockEnd = ph.cock / (ph.cock + ph.extend + ph.recover);
   // The peak sits at peakAt exactly, between two 60 Hz samples: the higher sample is the resolve tick or the one before it.
-  check(`${type}: maximum lands at full extension (the resolve tick, within a sample)`, Math.abs(arg - resolve) <= 1 && trace[arg].v >= 0.75 * cfg.vulnerabilityPeak, `max ${trace[arg].v.toFixed(3)} at tick ${arg}, resolved at ${resolve}`);
+  check(`${type}: maximum lands at full extension (the resolve tick, within a sample)`, Math.abs(arg - resolve) <= 1 && trace[arg].v >= 0.75 * cfg.vulnerabilityPeak * (type === 'jab' ? cfg.vulnerabilityJab : 1) /* phase 4: a jab exposes vulnerabilityJab of the peak */, `max ${trace[arg].v.toFixed(3)} at tick ${arg}, resolved at ${resolve}`);
   check(`${type}: effectively 0 through the early cock`, trace.filter((t, i) => t.live && t.p <= cockEnd / 2).every(t => t.v <= 0.05), trace.filter(t => t.live && t.p <= cockEnd / 2).map(t => t.v.toFixed(3)).join(','));
   const rise = trace.slice(0, arg + 1).every((t, i, a) => i === 0 || t.v >= a[i - 1].v - 1e-9);
   const end = trace.findIndex((t, i) => i > arg && !t.live);
