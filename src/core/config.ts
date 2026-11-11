@@ -461,6 +461,7 @@ export const SCHEMA = {
   flatImpulseBonus: num(0.15, 0, 0.6, 0.01, 'footing', 'a fully flat-footed fighter takes this much more impulse (he is not riding anything)'),
   burstOn:          bool(true, 'footing', 'THE BURST: double-tap the stick (a flick, then push the same way again inside burstTapWindow) = a short fast hop in that direction, then a brief landing. In-and-out'),
   burstTapWindow:   num(0.25, 0.08, 0.5, 0.01, 'footing', 'the second push must begin within this long of the first flick\'s release, s'),
+  burstConfirm:     num(0.03, 0, 0.15, 0.001, 'footing', 'the second push must be down this long, with no punch pressed, before the hop starts, s (2 ticks). Stick + a punch button inside it is that punch\'s hand selection, not a burst — so "slip left, lead hook" works'),
   burstDist:        num(0.45, 0.1, 1, 0.01, 'footing', 'how far a forward burst travels, m'),
   burstBackScale:   num(0.9, 0.3, 1.2, 0.05, 'footing', 'a backward burst covers this fraction of burstDist'),
   burstLateralScale: num(0.85, 0.3, 1.2, 0.05, 'footing', 'a sideways burst covers this fraction of burstDist'),

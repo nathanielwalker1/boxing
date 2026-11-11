@@ -105,7 +105,8 @@ function flick(f: FighterState, side: Side, dir: -1 | 1 | 2 | 3, input: Readonly
  */
 export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput>, cfg: Config, dt: number, events: SimEvent[], req: FlickRequest = { push: false }): void {
   const p = pushState(f);
-  if (f.tap.dir !== 0) { f.tap.t += dt; if (f.tap.t > cfg.burstTapWindow) f.tap = { dir: 0, t: 0 }; }
+  // The tap window runs from the flick's release to the START of the next push; once that push is down the tap waits for its confirm.
+  if (f.tap.dir !== 0 && p.t === 0) { f.tap.t += dt; if (f.tap.t > cfg.burstTapWindow) f.tap = { dir: 0, t: 0 }; }
   if (f.down) {
     // Suspended entirely on the canvas: nothing is tracked and nothing fires.
     p.t = 0; p.dir = 0; p.hold = false;
@@ -120,12 +121,7 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
         // a slip, back is a pull, forward is footwork (or the push-off).
         p.dir = Math.abs(mx) >= Math.abs(my) ? ((mx > 0 ? 1 : -1) * handLateralSign('rear', f.stance)) as -1 | 1 : my < 0 ? 2 : 3;
         p.hold = false;
-        // The double-tap: this push began inside burstTapWindow of a flick
-        // the same way — it is a BURST, and it is spent (never a second flick).
-        if (f.tap.dir === p.dir) {
-          if (startBurst(f, side, p.dir, cfg, events)) p.hold = true;
-          f.tap = { dir: 0, t: 0 };
-        }
+        if (f.tap.dir !== p.dir) f.tap = { dir: 0, t: 0 };   // a push another way ends the double-tap
       }
       p.t += dt;
       if (p.t > cfg.slipFlickMax) p.hold = true;   // outlived the flick window: footwork
@@ -135,7 +131,16 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
       // stick-nudged hook came with a slip, the AI's included, and the slip
       // carried the attacker's own guard off its line. (The step-in reads a
       // forward push the same way.)
-      if (punchMask(input) & ~prevPunchMask(f)) p.hold = true;
+      if (punchMask(input) & ~prevPunchMask(f)) { p.hold = true; f.tap = { dir: 0, t: 0 }; }
+      // The double-tap: this push began inside burstTapWindow of a flick the
+      // same way and has been down burstConfirm without a punch press — it is
+      // a BURST, and it is spent (never a second flick). The confirm is what
+      // lets "slip left, lead hook" (stick left again + the button a tick or
+      // two apart) be a hook and not a hop.
+      if (f.tap.dir === p.dir && f.tap.dir !== 0 && !p.hold && p.t >= cfg.burstConfirm) {
+        if (startBurst(f, side, p.dir, cfg, events)) p.hold = true;
+        f.tap = { dir: 0, t: 0 };
+      }
     } else {
       if (p.t > 0 && !p.hold && p.dir !== 0) {   // let go early = flick
         flick(f, side, p.dir, input, cfg, events, req);

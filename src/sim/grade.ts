@@ -81,7 +81,7 @@ export function gradeHit(g: GradeInput, cfg: Config): GradeResult {
   const bonus = exposure + g.closing * cfg.gradeClosingWeight;
   const quality = Math.min(range, square, timing);
   const grade: HitGrade = !cfg.gradesOn ? 'clean'
-    : quality < cfg.gradeGlanceBelow ? 'glancing'
+    : quality < cfg.gradeGlanceBelow && !g.wrongWay ? 'glancing'   // a man who slipped INTO it never gets the glancing discount: he moved onto the fist
     : quality >= cfg.gradeFlushQuality && bonus >= cfg.gradeFlushAt ? 'flush' : 'clean';
   const out = { grade, quality, bonus, range, square, timing, exposure, closing: g.closing };
   probe.last = out;

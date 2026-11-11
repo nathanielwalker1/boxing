@@ -84,6 +84,8 @@ export function stepFooting(f: FighterState, opp: FighterState, input: Readonly<
     const hold = VARIANTS[p.variant].hold;
     if (hold === 1) want = 1; else if (hold === -1) want = 0;
   }
+  // A roll stays down for its whole U whatever the input does, then comes up (into the rise window: roll, rising hook).
+  if (cfg.levelOn && f.slip.kind === 'roll' && f.slip.active && !f.down) want = 1;
   if (want === 0 && f.level >= cfg.levelAt) f.riseT = cfg.levelRiseWindow; else f.riseT = down0(f.riseT);
   f.level = approach(f.level, want, cfg.levelTime > 0 ? dt / cfg.levelTime : 1);
 

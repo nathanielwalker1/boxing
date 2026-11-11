@@ -57,7 +57,8 @@ console.log('\n=== 2. The burst ===');
   const go = (x, y, c = cfg, tap = doubleTap(x, y)) => { const s0 = fresh(c, FAR, 10); const r = run(s0, 40, i => [inp({ move: tap(i) }), NONE], c); return { r, d: { x: r.s.fighters[0].pos.x - s0.fighters[0].pos.x, z: r.s.fighters[0].pos.z - s0.fighters[0].pos.z }, s0 }; };
   const fwd = go(0, 1);
   const b = first(fwd.r.evs, 'burst');
-  check('a forward double-tap is a burst toward the opponent', b && b.side === 0 && b.x === 0 && b.y === 1 && b.tick === 3, JSON.stringify(b));
+  // (The second push starts on tick 3 and is confirmed burstConfirm later — the window in which a punch press would claim the stick instead.)
+  check('a forward double-tap is a burst toward the opponent', b && b.side === 0 && b.x === 0 && b.y === 1 && b.tick === 4, JSON.stringify(b));
   // The two 2-tick pushes also walk a few cm; the hop itself is burstDist.
   check(`…that travels about burstDist (${fwd.d.x.toFixed(3)} m)`, fwd.d.x > cfg.burstDist * 0.95 && fwd.d.x < cfg.burstDist + 0.15 && Math.abs(fwd.d.z) < 0.01);
   check('…with nothing else: a forward flick is not a slip', of(fwd.r.evs, 'slip').length === 0);
@@ -84,7 +85,9 @@ console.log('\n=== 2. The burst ===');
   check('a second double-tap inside burstCooldown does nothing', of(twice.evs, 'burst').length === 1);
 
   // Momentum: a jab pressed as the hop starts lands harder than a standing one from the same contact distance.
-  const hopJab = first(run(fresh(cfg, 1.25, 10), 30, i => [inp({ move: doubleTap(0, 1)(i), jab: i === 4 }), NONE]).evs, 'punchLand');
+  const hopJab = first(run(fresh(cfg, 1.25, 10), 30, i => [inp({ move: doubleTap(0, 1)(i), jab: i === 5 }), NONE]).evs, 'punchLand');
+  const claimed = run(fresh(cfg, 1.25, 10), 30, i => [inp({ move: doubleTap(0, 1)(i), jab: i === 3 }), NONE]).evs;
+  check('a punch pressed with the second push claims the stick: a step jab, no burst', of(claimed, 'burst').length === 0 && first(claimed, 'punchStart')?.variant === 'stepJab');
   const standJab = first(run(fresh(cfg, 0.8, 10), 30, i => [inp({ jab: i === 0 }), NONE]).evs, 'punchLand');
   check(`a jab off a forward burst carries the hop (${hopJab?.power.toFixed(2)} vs ${standJab?.power.toFixed(2)})`, hopJab && standJab && hopJab.power > standJab.power * 1.1, hopJab ? '' : 'no land');
 
