@@ -117,6 +117,15 @@ await shoot('wide');
 await seat({ az: 115, el: 1.5, dist: 6.4, lookY: 1.5, fov: 48 });
 await shoot('low');
 
+// 4b. The hanging scoreboard, with a round and a clock on it (it is above every other frame here).
+if (await page.evaluate(() => { if (!window.__show) return false; window.__show.setBoardText(['ROUND 2', '1:47']); return true; })) {
+  await seat({ az: 62, el: 12, dist: 15, lookY: 8.4, fov: 34 });
+  await shoot('board');
+}
+// 4c. The fighters' entrance: the tunnel over the blue corner's diagonal and the runway down to the ring.
+await seat({ az: 45, el: 16, dist: 9.5, lookY: 1.6, fov: 50 });
+await shoot('tunnel');
+
 // 5. The crowd on its feet (only once the show hook exists).
 if (hot) {
   await seat(null);
