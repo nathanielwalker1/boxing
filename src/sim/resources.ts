@@ -124,12 +124,23 @@ export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent
  * half-way to the rise, he is down for getUpSlumpSeconds, then back to the
  * knee. A beaten fighter slumps and stays there.
  */
+/** How far between getting to a knee and the rise a failing first try gives way. Shape. */
+const SLUMP_AT = 0.3;
+
+/**
+ * The struggle on the canvas as a pure function of the seconds since the
+ * fall, laid out against the moment he is up (`at`; −1 = he will not beat
+ * the count, so against the count of ten): stir at getUpStirFrac of the way,
+ * a knee at getUpKneeFrac, the rise over the last getUpRiseSeconds. If a
+ * slump is owed the first knee gives way, he is down for getUpSlumpSeconds,
+ * then back to the knee (tries 2). A beaten fighter slumps and stays there.
+ */
 export function getUpPhaseAt(t: number, at: number, owed: boolean, cfg: Config): { phase: GetUpPhase; tries: number } {
   const beaten = at < 0;
   const end = beaten ? 10 * cfg.countTickSeconds : at;
   const stirAt = end * cfg.getUpStirFrac, kneeAt = end * cfg.getUpKneeFrac;
   const riseAt = Math.max(kneeAt, end - cfg.getUpRiseSeconds);
-  const slumpAt = (kneeAt + riseAt) / 2, slumpEnd = slumpAt + cfg.getUpSlumpSeconds;
+  const slumpAt = kneeAt + (riseAt - kneeAt) * SLUMP_AT, slumpEnd = slumpAt + cfg.getUpSlumpSeconds;
   if (t < stirAt) return { phase: 'down', tries: 0 };
   if (t < kneeAt) return { phase: 'stir', tries: 0 };
   // A slump only plays if there is room for it before the rise (a quick get-up has no time to fail).

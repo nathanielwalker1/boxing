@@ -639,7 +639,7 @@ export const SCHEMA = {
   // ── danger (SIM, stun.ts + resources.ts): body hurt, counter flash knockdowns, surviving, the get-up ──
   bodyHurtOn:       bool(true, 'danger', 'WINDED: a clean body shot over the body threshold folds a fighter (hurtKind body): slow feet, hands down, no punch for a beat. Off = the body cannot be hurt, only drained'),
   bodyHurtBase:     num(520, 100, 1200, 10, 'danger', 'impulse a clean body shot needs to wind a fresh fighter, N·s (a standing body hook is ~390: it takes a rising one, momentum, a counter — or investment)'),
-  bodyHurtWornFloor: num(0.55, 0.2, 1, 0.05, 'danger', 'the threshold falls to this fraction as body damage reaches bodyWearFull'),
+  bodyHurtWornFloor: num(0.45, 0.2, 1, 0.05, 'danger', 'the threshold falls to this fraction as body damage reaches bodyWearFull (234 N·s: by then a standing body cross, ~258, folds him)'),
   bodyHurtSeconds:  num(1.4, 0.3, 4, 0.1, 'danger', 'seconds a winded fighter stays folded'),
   bodyHurtMoveScale: num(0.45, 0, 1, 0.05, 'danger', 'winded: walking speed × this'),
   bodyHurtGuardDrop: num(0.2, 0, 0.4, 0.01, 'danger', 'winded: the hands come down this far to the body, m — the head is open'),
@@ -655,8 +655,8 @@ export const SCHEMA = {
   getUpStirFrac:    num(0.35, 0, 0.9, 0.05, 'danger', 'he starts to stir this fraction of the way to his get-up time (or to the count of 10 if he will not make it)'),
   getUpKneeFrac:    num(0.6, 0.1, 0.95, 0.05, 'danger', 'he gets to a knee at this fraction'),
   getUpRiseSeconds: num(0.5, 0.1, 2, 0.05, 'danger', 'the last this-many seconds before the get-up are the rise from the knee'),
-  getUpSlumpChance: num(0.35, 0, 1, 0.05, 'danger', 'odds per earlier knockdown-equivalent (1 + knockdowns this round − chin) that the first try fails and he slumps back before trying again (seeded). A fighter who will not beat the count always slumps'),
-  getUpSlumpSeconds: num(0.6, 0.1, 2, 0.05, 'danger', 'seconds a slump lasts before he tries again'),
+  getUpSlumpChance: num(0.5, 0, 3, 0.05, 'danger', 'odds the first try fails and he slumps back before trying again = this × (knockdowns this round − chin 0..1), rolled once at the knockdown on the seeded rng (chin 60, first knockdown: 0.2; second: 0.7). A fighter who will not beat the count always slumps. It plays only if there is room for it before the rise'),
+  getUpSlumpSeconds: num(0.4, 0.1, 2, 0.05, 'danger', 'seconds a slump lasts before he tries again'),
 
   // ── body (SIM, resources.ts): the investment ──
   bodyDamageOn:     bool(true, 'bodywork', 'THE BODY IS AN INVESTMENT: body shots take less health now but drain stamina hard, lower the stamina ceiling, slow the feet and bring the guard down for the rest of the fight (FighterState.damage). Off = a body shot is a weak head shot'),
