@@ -48,7 +48,7 @@ export const GUARDS: Record<GuardShape, GuardDef> = {
   // The textbook guard: balanced. (arc / body / uppercut values equal the guardArc…, guardBodyCover, guardUppercutCover config defaults.)
   high: {
     rest: HIGH_REST, block: HIGH_BLOCK,
-    arcFullDeg: 50, arcNoneDeg: 85, headCover: 1, bodyCover: 0.45, uppercutCover: 0.45,
+    arcFullDeg: 50, arcNoneDeg: 85, headCover: 1, bodyCover: 0.6, uppercutCover: 0.6,
     wear: 1, stun: 1, raise: 0, jabTime: 1, jabReach: 1, crouch: 0, expose: 0, move: 1, slip: 1,
   },
   // The shell (philly): lead hand low across the body, rear hand by the chin, lead shoulder up. Straights roll off it
@@ -81,7 +81,7 @@ export const GUARDS: Record<GuardShape, GuardDef> = {
   low: {
     rest: { lead: { fwd: 0.5, up: -2.6, lat: 0.4 }, rear: { fwd: 0.4, up: -2.2, lat: 0.38 } },
     block: HIGH_BLOCK,
-    arcFullDeg: 50, arcNoneDeg: 85, headCover: 1, bodyCover: 0.45, uppercutCover: 0.45,
+    arcFullDeg: 50, arcNoneDeg: 85, headCover: 1, bodyCover: 0.6, uppercutCover: 0.6,
     wear: 1, stun: 1.15, raise: 0.12, jabTime: 0.95, jabReach: 1, crouch: 0, expose: 0.2, move: 1.07, slip: 1.2,
   },
 };

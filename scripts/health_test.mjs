@@ -17,7 +17,8 @@ const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT, v3len } = core;
 // jabHealthFloor 0 (overhaul 2026-11-11): the knockdown cases here floor a man with jabs; by default a jab can no longer empty the bar (attrition_test pins that).
 // ratingsOn / stylesOn off (overhaul phase 2): this file pins the reference fighters' numbers and margins as they were before
 // ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
-const cfg = { ...({ ...createConfig(), ratingsOn: false, stylesOn: false }), jabHealthFloor: 0 };
+// (staminaRegenDelayLight 1: these ported assertions hit with the jab and pin the full regen pause; phase 2 shortens it for a jab — see the last section.)
+const cfg = { ...({ ...createConfig(), ratingsOn: false, stylesOn: false }), jabHealthFloor: 0, staminaRegenDelayLight: 1 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
@@ -116,6 +117,13 @@ console.log('\n=== 2. Getting hit ===');
     if (landTick !== null && i <= landTick + ticks(cfg.staminaRegenDelay) - 1 && st.fighters[1].stamina > peak + 1e-12) rose = true;
   });
   check('regen is paused for staminaRegenDelay after a hit, then resumes', !rose && after.fighters[1].stamina > peak + 0.03, `held at ${peak.toFixed(4)}, then ${after.fighters[1].stamina.toFixed(4)} at 1.5 s`);
+  // Phase 2: a jab pauses the wind for staminaRegenDelayLight of that; a cross for all of it.
+  {
+    const lightCfg = { ...cfg, staminaRegenDelayLight: createConfig().staminaRegenDelayLight };
+    const riseAfter = press => { let land = null, base = 0, rise = null; run(fresh(), ticks(1.5), i => [inp({ [press]: i === 0 }), NONE], lightCfg, (st, i, ev) => { if (land === null && ev.some(e => e.type === 'punchLand')) { land = i; base = st.fighters[1].stamina; return; } if (land !== null && rise === null && st.fighters[1].stamina > base + 1e-12) rise = (i - land) * SIM_DT; }); return rise; };
+    const j = riseAfter('jab'), x = riseAfter('cross');
+    check(`a jab pauses the wind for staminaRegenDelayLight of the delay (${j?.toFixed(2)} s), a cross for all of it (${x?.toFixed(2)} s)`, j !== null && x !== null && j < cfg.staminaRegenDelay * lightCfg.staminaRegenDelayLight + 0.12 && x >= cfg.staminaRegenDelay - 1e-9);
+  }
 
   const zero = fresh(); zero.fighters[1].stamina = 0;
   const { s: z } = run(zero, 40, i => [inp({ jab: i === 0 }), NONE]);

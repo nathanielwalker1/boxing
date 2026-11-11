@@ -585,7 +585,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // Stun and wear taken: the base × the blocker's guard shape × his defense rating.
     const gd = guardOf(d, cfg);
     if (cfg.blockStunOn) { stun = Math.min(cfg.blockStunMax, cfg.blockStunBase * rawPower * gd.stun * rated(d, 'defense', -cfg.ratingDefenseStun, cfg)); d.blockStun = Math.max(d.blockStun, stun); }
-    if (cfg.guardWearOn) { d.guardHp = Math.max(0, d.guardHp - cfg.guardWearPerImpulse * raw * gd.wear * rated(d, 'defense', -cfg.ratingDefenseGuard, cfg)); d.guardRest = 0; }
+    if (cfg.guardWearOn) { d.guardHp = Math.max(0, d.guardHp - cfg.guardWearPerImpulse * raw * gd.wear * rated(d, 'defense', -cfg.ratingDefenseGuard, cfg) * (rawPower < cfg.chipMinPower ? cfg.guardWearLight : 1)); d.guardRest = 0; }
     if (blocked && !light) chip = mag * cfg.healthDamagePerImpulse * (part === 'body' && cfg.bodyDamageOn ? cfg.bodyHealthScale : 1);
   }
 

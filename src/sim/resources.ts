@@ -59,7 +59,9 @@ export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean
   if (d.down) return;
   const body = part === 'body' && cfg.bodyDamageOn;
   d.stamina = Math.max(0, d.stamina - mag * cfg.staminaHitCost * (blocked ? cfg.staminaBlockedHitMult : 1) * (body ? cfg.staminaBodyHitMult : 1));
-  setRegenDelay(d, Math.max(regenDelay(d), cfg.staminaRegenDelay));
+  // (Phase 2: a light shot — a jab — pauses the wind for only a fraction of that. At the full pause a man jabbing
+  // twice a second held the other's stamina at zero for the whole fight.)
+  setRegenDelay(d, Math.max(regenDelay(d), cfg.staminaRegenDelay * (light ? cfg.staminaRegenDelayLight : 1)));
   if (noHealth) return;
   const full = mag * cfg.healthDamagePerImpulse;
   // The ledger is in head-shot health fractions for both, so the two are comparable; a blocked shot's chip counts.

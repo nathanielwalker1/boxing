@@ -65,18 +65,27 @@ console.log('\n=== 2. Winded ===');
 console.log('\n=== 3. The liver ===');
 {
   const D = 0.72;
-  const lead = bodyShot('hook', soft, D, -1), rear = bodyShot('hook', soft, D, 1);
+  // Phase 2 (liverMinImpulse 430, was 330): a routine standing body hook (~390 N·s) lands on the liver side but does
+  // not light the fuse; one with something behind it does. This section's hook hits 20% harder than a standing one.
+  const routine = bodyShot('hook', soft, D, -1);
+  check(`a standing lead body hook (${mag(landOf(routine.evs)).toFixed(0)} N·s) is on the liver side but under liverMinImpulse: no fuse`, landOf(routine.evs)?.liver === true && of(routine.evs, 'liverShot').length === 0);
+  const base0 = soft;
+  // eslint-disable-next-line no-shadow
+  const soft2 = { ...base0, hookImpulseMult: base0.hookImpulseMult * 1.2 };
+  const lead = bodyShot('hook', soft2, D, -1), rear = bodyShot('hook', soft2, D, 1);
   const land = landOf(lead.evs), ls = first(lead.evs, 'liverShot');
-  check(`a clean lead body hook (${mag(land).toFixed(0)} N·s) is a liver shot: the fuse is lit`, land?.liver === true && ls && ls.side === 1 && ls.tick === land.tick && near(ls.delay, soft.liverDelay, 1e-9));
+  check(`a clean lead body hook with something behind it (${mag(land).toFixed(0)} N·s) is a liver shot: the fuse is lit`, land?.liver === true && ls && ls.side === 1 && ls.tick === land.tick && near(ls.delay, soft.liverDelay, 1e-9));
   check('the rear body hook is not', landOf(rear.evs)?.part === 'body' && of(rear.evs, 'liverShot').length === 0);
   const bh = first(lead.evs, 'bodyHurt');
   check(`nothing shows until the buckle, liverDelay later (${((bh?.tick - ls.tick) * SIM_DT).toFixed(2)} s, plus the land's hit-stop)`, bh && bh.liver === true && (bh.tick - ls.tick) * SIM_DT >= soft.liverDelay - SIM_DT && (bh.tick - ls.tick) * SIM_DT < soft.liverDelay + 0.2);
   let hurtBefore = 0;
-  run(fresh(soft, D, 20), LV + 70, i => [inp({ hook: i === LV, level: i <= LV, move: { x: i === LV ? -1 : 0, y: 0 } }), NONE], soft, (s, i) => { if (i > ls.tick && i < bh.tick - 1) hurtBefore = Math.max(hurtBefore, s.fighters[1].hurt); });
+  run(fresh(soft2, D, 20), LV + 70, i => [inp({ hook: i === LV, level: i <= LV, move: { x: i === LV ? -1 : 0, y: 0 } }), NONE], soft2, (s, i) => { if (i > ls.tick && i < bh.tick - 1) hurtBefore = Math.max(hurtBefore, s.fighters[1].hurt); });
   check('…he is not hurt in between', hurtBefore === 0);
   check(`the buckle: winded for liverSeconds (${bh.seconds.toFixed(1)} s) and liverStaminaLoss of wind gone`, near(bh.seconds, soft.liverSeconds, 1e-9) && lead.s.fighters[1].stamina < 1 - soft.liverStaminaLoss + 0.2);
   check('the liver has its own line in the damage ledger', lead.s.fighters[1].damage.liver > 0 && rear.s.fighters[1].damage.liver === 0);
-  const huge = { ...soft, hookImpulseMult: 3 };
+  // (Phase 2: a body shot costs less wind — staminaBodyHitMult 2 → 1.2 — so the body threshold at the buckle is higher
+  // than it was and the shot that drops him has to be bigger: ×4, was ×3.)
+  const huge = { ...soft, hookImpulseMult: 4 };
   const drop = bodyShot('hook', huge, D, -1);
   const kd = first(drop.evs, 'knockdown');
   check(`a big liver shot puts him down when the buckle comes (cause ${kd?.cause})`, kd && kd.cause === 'body' && kd.side === 1 && kd.tick > first(drop.evs, 'liverShot').tick + 10);
