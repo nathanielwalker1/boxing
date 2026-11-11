@@ -40,7 +40,7 @@ import * as masher from './bots/masher.mjs';
 export const BOTS = [jabAndMove, insideFighter, counterPuncher, turtle, masher];
 export const STYLES = ['pressure', 'outboxer', 'counter', 'swarmer', 'slugger'];
 /** The roster body the AI fights each style on. */
-export const BODY = { pressure: 'monsoon', outboxer: 'lighthouse', counter: 'alambre', swarmer: 'boiler', slugger: 'raffle' };
+export const BODY = { pressure: ['monsoon', 'red'], outboxer: ['lighthouse', 'blue'], counter: ['alambre', 'grandad'], swarmer: ['boiler'], slugger: ['raffle'] };
 /** The bodies the bot fights on, alternating by seed. */
 export const BOT_BODIES = ['red', 'blue'];
 const args = process.argv.slice(2);
@@ -53,7 +53,7 @@ const opt = {};
 for (const a of args) {
   const m = a.match(/^(\w+)=(.+)$/); if (!m) continue;
   if (m[1] === 'only' || m[1] === 'cols') opt[m[1]] = m[2].split(',');
-  else if (m[1] === 'on') for (const pair of m[2].split(',')) { const [style, id] = pair.split(':'); BODY[style] = id; }   // on=counter:grandad — another roster body for a style
+  else if (m[1] === 'on') for (const pair of m[2].split(',')) { const [style, ids] = pair.split(':'); BODY[style] = ids.split('+'); }   // on=counter:grandad or on=counter:alambre+grandad — the roster bodies for a style
   else cfg[m[1]] = m[2] === 'true' ? true : m[2] === 'false' ? false : Number(m[2]);
 }
 const maxTicks = Math.round((cfg.roundCount * (cfg.roundSeconds + cfg.betweenRoundSeconds) + 40) / k.SIM_DT) * 2;
@@ -61,7 +61,11 @@ const spec = id => k.core.ROSTER.find(f => f.id === id);
 
 /** One fight: `bot` (side 0, on red or blue by seed) against the AI as `style` (side 1, on that style's roster body). */
 export function fight(bot, style, seed, c = cfg) {
-  const specs = [spec(BOT_BODIES[seed % BOT_BODIES.length]), spec(BODY[style])];
+  // (The bot's body alternates every fight, the AI's every two, so each pairing of bodies gets the same share.)
+  let botId = BOT_BODIES[seed % BOT_BODIES.length];
+  const aiId = BODY[style][(seed >> 1) % BODY[style].length];
+  if (botId === aiId) botId = BOT_BODIES[(seed + 1) % BOT_BODIES.length];   // never a man against himself
+  const specs = [spec(botId), spec(aiId)];
   let s = k.sim.createState(specs, c, seed);
   let ai = k.ai.createAi(1, seed, c, k.ai.styleFor(specs[1], c));
   const player = bot.create(k, seed, c);
@@ -81,6 +85,10 @@ export function fight(bot, style, seed, c = cfg) {
     st.ticks = i;
   }
   st.round = s.round.index + 1;                 // the round it ended in, 1-based
+  // In doubt in the last round: it got there, and on the cards of the rounds before it a 10-8 round would have turned it.
+  const before = s.round.score.slice(0, c.roundCount - 1);
+  const margin = Math.abs(before.reduce((t, p) => t + p[0] - p[1], 0));
+  st.inDoubt = st.round >= c.roundCount && before.length === c.roundCount - 1 && margin <= 2;
   st.fightSeconds = fighting * k.SIM_DT;        // seconds of boxing (rests and counts not included)
   st.ai = ai.used;
   return st;
@@ -92,7 +100,7 @@ export function cell(bot, style, n = N, c = cfg) {
     const f = fight(bot, style, seed, c);
     if (f.winner === 0) { t.w++; if (f.how !== 'decision') t.ko++; } else if (f.winner === 1) { t.l++; if (f.how !== 'decision') t.koBy++; } else t.d++;
     t.lands += f.lands[0]; t.taken += f.lands[1]; t.kd += f.kd[1]; t.kdBy += f.kd[0]; t.secs += f.fightSeconds;
-    t.fights.push({ how: f.how, round: f.round, secs: f.fightSeconds, kd: f.kd[0] + f.kd[1] });
+    t.fights.push({ how: f.how, round: f.round, secs: f.fightSeconds, kd: f.kd[0] + f.kd[1], inDoubt: f.inDoubt });
     for (const [key, v] of Object.entries(f.ai)) t.ai[key] = (t.ai[key] ?? 0) + v;
     for (const [key, v] of Object.entries(f.causes)) t.causes[key] = (t.causes[key] ?? 0) + v;
   }
@@ -111,6 +119,8 @@ export function arc(fights, c = cfg) {
     round1: stops.filter(f => f.round === 1).length / Math.max(1, fights.length),
     lastRound: fights.filter(f => f.round >= c.roundCount).length / Math.max(1, fights.length),
     kd: fights.reduce((a, f) => a + f.kd, 0) / Math.max(1, fights.length),
+    kdHist: [0, 1, 2, 3].map(n => fights.filter(f => (n < 3 ? f.kd === n : f.kd >= 3)).length / Math.max(1, fights.length)),
+    inDoubt: fights.filter(f => f.inDoubt).length / Math.max(1, fights.length),
   };
 }
 
@@ -157,9 +167,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const m = matrix(N, cfg, bots, styles);
   const W = 11;
   console.log('win %            legit  ' + m.styles.map(s => s.padStart(W)).join(' ') + '      avg');
-  console.log('                 body   ' + m.styles.map(s => BODY[s].padStart(W)).join(' '));
+  console.log('                 body   ' + m.styles.map(s => BODY[s].map(id => id.slice(0, 5)).join('+').padStart(W)).join(' '));
   for (const r of m.rows) {
     console.log(`${r.bot.name.padEnd(16)} ${(r.bot.legit ? 'yes' : 'no').padEnd(5)}  ${r.cells.map(x => `${Math.round(x.pct * 100)}%`.padStart(W)).join(' ')}   ${`${Math.round(r.avg * 100)}%`.padStart(6)}`);
+    // How each cell was won and lost: bot wins by stoppage/decision · AI wins by stoppage/decision.
+    console.log(`${''.padEnd(16)} ko/dec ${r.cells.map(x => `${x.ko}/${x.w - x.ko}·${x.koBy}/${x.l - x.koBy}`.padStart(W)).join(' ')}`);
     if (args.includes('detail')) {
       console.log(`${''.padEnd(16)} W-L-D  ${r.cells.map(x => `${x.w}-${x.l}-${x.d}`.padStart(W)).join(' ')}`);
       console.log(`${''.padEnd(16)} KO f-a ${r.cells.map(x => `${x.ko}-${x.koBy}`.padStart(W)).join(' ')}`);
@@ -176,7 +188,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log('\nAI tool use by style (all bots):');
     for (const s of m.styles) console.log(`  ${s.padEnd(9)} ${Object.entries(use[s]).filter(([key]) => key !== 'cutOff').map(([key, v]) => `${key} ${v}`).join(' · ')}`);
   }
-  const say = (label, a) => console.log(`${label}: ${a.n} fights · ${Math.round(a.stoppage * 100)}% end by stoppage (median ${Number.isNaN(a.medianStop) ? '—' : a.medianStop.toFixed(0) + ' s of boxing'}) · ${Math.round(a.round1 * 100)}% stopped in round 1 · ${Math.round(a.lastRound * 100)}% reach the last round · ${a.kd.toFixed(1)} knockdowns a fight`);
+  const say = (label, a) => console.log(`${label}: ${a.n} fights · ${Math.round(a.stoppage * 100)}% end by stoppage (median ${Number.isNaN(a.medianStop) ? '—' : a.medianStop.toFixed(0) + ' s of boxing'}) · ${Math.round(a.round1 * 100)}% stopped in round 1 · ${Math.round(a.lastRound * 100)}% reach the last round · ${Math.round(a.inDoubt * 100)}% still in doubt in it · ${a.kd.toFixed(1)} knockdowns a fight (0: ${Math.round(a.kdHist[0] * 100)}%, 1: ${Math.round(a.kdHist[1] * 100)}%, 2: ${Math.round(a.kdHist[2] * 100)}%, 3+: ${Math.round(a.kdHist[3] * 100)}%)`);
   console.log(`\nLegitimate plans average ${Math.round(m.legitAvg * 100)}%.`);
   say('Fight length, legitimate plans', m.arcLegit);
   say('Fight length, all bots        ', m.arcAll);
