@@ -36,7 +36,7 @@ const SUITE = [
   ...onDisk.filter(f => f.endsWith('_test.mjs') && !f.startsWith('_')).map(f => ({ name: f.replace(/_test\.mjs$/, ''), file: f, node: true })),
   ...onDisk.filter(f => f.endsWith('_check.mjs') && !f.startsWith('_')).map(f => ({ name: f.replace(/_check\.mjs$/, ''), file: f })),
 ];
-const KNOWN_NON_TESTS = new Set(['run_tests.mjs', 'devUrl.js', 'waits.js', 'check.js', 'load.mjs', 'greyscale.js', '_debug.mjs', 'pose_grid.mjs', 'lookbook.mjs', 'filmstrip.mjs', 'arena_look.mjs', 'bot_table.mjs']);
+const KNOWN_NON_TESTS = new Set(['run_tests.mjs', 'devUrl.js', 'waits.js', 'check.js', 'load.mjs', 'greyscale.js', '_debug.mjs', 'pose_grid.mjs', 'lookbook.mjs', 'filmstrip.mjs', 'arena_look.mjs', 'bot_table.mjs', 'flow_look.mjs']);
 const stray = onDisk.filter(f => (f.endsWith('.mjs') || f.endsWith('.js')) && !KNOWN_NON_TESTS.has(f) && !SUITE.some(s => s.file === f));
 if (stray.length) console.error(`\n  ⚠  Not a test by convention (rename to *_test.mjs or *_check.mjs, or list in KNOWN_NON_TESTS): ${stray.join(', ')}\n`);
 

@@ -9,7 +9,7 @@
  * module or the export is missing `loadDrills()` returns [] and the gym shows
  * the one built-in drill below, so the shell works before that merge.
  */
-import { NULL_INPUT, cloneInput, type FrameInput, type RngState, type SimEvent, type SimState, type Vec2 } from '../core';
+import { NULL_INPUT, cloneInput, type Config, type FighterSpec, type FrameInput, type RngState, type SimEvent, type SimState, type Vec2 } from '../core';
 
 export interface DrillMetric { progress: number; stat: string }
 export interface Drill {
@@ -20,6 +20,8 @@ export interface Drill {
   /** The controls it trains, in plain words. */
   controls: string;
   placement: { dist?: number; player?: Vec2; opponent?: Vec2 };
+  /** Changes to the opponent's spec for this drill (a taller man, a style). */
+  opponentSpec?: Partial<FighterSpec>;
   /** The opponent's input for this tick; null = let the normal AI drive him. */
   opponent: ((s: SimState, tick: number, rng: RngState) => FrameInput) | null;
   setup: ((s: SimState) => void) | null;
@@ -43,11 +45,42 @@ const vec = (v: unknown): Vec2 | undefined => {
   return o && typeof o.x === 'number' && typeof o.z === 'number' ? { x: o.x, z: o.z } : undefined;
 };
 
-function mapDrill(raw: unknown, i: number): Drill | null {
+/** The seed SIM's drill policies hash their cadences from (fixed: a drill replays the same way every time). */
+const DRILL_SEED = 7;
+
+function mapDrill(raw: unknown, i: number, cfg: Config): Drill | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const id = str(r['id'], `drill-${i}`);
   const title = str(r['title'] ?? r['name'], id);
+  // SIM's shape (src/ai/drills.ts, merged 2026-11-11): placement(cfg), policy(state, tick, seed, cfg),
+  // setup(state, cfg), metric(ALL events since the start, state, cfg), opponent = spec changes.
+  if (typeof r['policy'] === 'function') {
+    const policy = r['policy'] as (s: SimState, tick: number, seed: number, cfg: Config) => FrameInput;
+    const place = typeof r['placement'] === 'function' ? (r['placement'] as (cfg: Config) => { player?: Vec2; opponent?: Vec2 })(cfg) : {};
+    const setup = typeof r['setup'] === 'function' ? r['setup'] as (s: SimState, cfg: Config) => void : null;
+    const metric = typeof r['metric'] === 'function' ? r['metric'] as (ev: readonly SimEvent[], s: SimState, cfg: Config) => DrillMetric : null;
+    const found = CONTROLS.find(([re]) => re.test(id) || re.test(title));
+    const placement: Drill['placement'] = {};
+    const pl = vec(place.player), op = vec(place.opponent);
+    if (pl) placement.player = pl;
+    if (op) placement.opponent = op;
+    const spec = r['opponent'];
+    return {
+      id, title,
+      goal: str(r['goal']),
+      controls: str(r['controls'], found ? found[1] : ''),
+      placement,
+      ...(spec && typeof spec === 'object' ? { opponentSpec: spec as Partial<FighterSpec> } : {}),
+      opponent: (s, tick) => policy(s, tick, DRILL_SEED, cfg),
+      setup: setup ? s => setup(s, cfg) : null,
+      metric: metric ? (s, events, acc) => {
+        const all = (acc['events'] ??= []) as SimEvent[];
+        for (const e of events) all.push(e);
+        return metric(all, s, cfg);
+      } : null,
+    };
+  }
   const p = (r['placement'] ?? {}) as Record<string, unknown>;
   const placement: Drill['placement'] = {};
   if (typeof p['dist'] === 'number') placement.dist = p['dist'];
@@ -88,14 +121,14 @@ export const FREE_SPARRING: Drill = {
 const mods = import.meta.glob('../ai/drills.ts');
 
 /** SIM's drills, or [] when the module / export is not there. */
-export async function loadDrills(): Promise<Drill[]> {
+export async function loadDrills(cfg: Config): Promise<Drill[]> {
   try {
     for (const load of Object.values(mods)) {
       const mod = await load() as Record<string, unknown>;
       let raw: unknown = mod['DRILLS'] ?? mod['drills'] ?? mod['default'];
       if (typeof raw === 'function') raw = (raw as () => unknown)();
       if (!Array.isArray(raw)) continue;
-      return raw.map(mapDrill).filter((d): d is Drill => d !== null);
+      return raw.map((d, i) => mapDrill(d, i, cfg)).filter((d): d is Drill => d !== null);
     }
   } catch { /* the gym falls back to the built-in drill */ }
   return [];

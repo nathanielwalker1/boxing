@@ -160,7 +160,7 @@ export class FightFlow {
     bus.on('tko', e => { this.method = { kind: 'tko', winner: e.winner, round: this.lastRound }; });
     bus.on('decision', e => { this.method = { kind: 'decision', winner: e.winner, cards: e.cards }; });
     window.addEventListener('keydown', e => this.onKey(e));
-    void loadDrills().then(d => { this.drills = [...d, FREE_SPARRING]; if (this.screen === 'gym') this.show('gym'); });
+    void loadDrills(this.cfg).then(d => { this.drills = [...d, FREE_SPARRING]; if (this.screen === 'gym') this.show('gym'); });
     window.__flow = {
       state: () => ({
         screen: this.screen, mode: this.mode, paused: this.paused, card: this.card, replay: this.replaying, beat: this.beat,
@@ -442,12 +442,14 @@ export class FightFlow {
     this.method = null; this.overT = 0; this.seenPhase = 'fighting'; this.cardRound = -1;
     this.stats.reset();
     this.hooks.crowd(null, false);
-    this.hooks.start(this.player, this.opp, {
+    // A drill may change the partner (a taller man, a style): a spec of its own, so the body is rebuilt for it.
+    const partner: FighterSpec = d.opponentSpec ? { ...this.opp, ...d.opponentSpec, id: `${this.opp.id}~${d.id}` } : this.opp;
+    this.hooks.start(this.player, partner, {
       difficulty: this.cfg.difficulty,
       driver: d.opponent ? s => d.opponent!(s, run.tick++, run.rng) : null,
       prepare: s => this.placeDrill(s, d),
     });
-    this.director.setSlots(this.player, this.opp);
+    this.director.setSlots(this.player, partner);
     this.previewWant = null;
     this.show('fight');
     this.syncFight();
