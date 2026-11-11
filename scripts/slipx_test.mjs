@@ -34,14 +34,18 @@ console.log('\n=== 1. Loaded ===');
   run(fresh(cfg, MID, 20), 12, i => [inp({ cross: i === 8, move: flick(1, 0)(i) }), NONE], cfg, s => { if (s.fighters[0].punch.type === 'cross') wasLoaded = s.fighters[0].punch.loaded; });
   check('the cross off a slip to the rear is the LOADED counter (punch.loaded)', wasLoaded && run(fresh(cfg, MID, 20), 12, i => [inp({ cross: i === 8, move: flick(1, 0)(i) }), NONE]).s.fighters[0].loaded === 0);
   check(`…quicker off the mark (${startOf(hot.evs).tell.toFixed(3)} s vs ${startOf(coldX.evs).tell.toFixed(3)} s)`, startOf(hot.evs).tell < startOf(coldX.evs).tell - 0.02);
-  check(`…and harder (${(landOf(hot.evs).power / landOf(coldX.evs).power).toFixed(2)}× = slipLoadedPower)`, near(landOf(hot.evs).power / landOf(coldX.evs).power, cfg.slipLoadedPower, 0.02));
+  // (Phase 3: compared with the SAME cross off the same slip with the load off, not with a cross thrown square. With
+  // the lane tracking his height, the cross from the slipped position meets his resting lead glove and pins it on his
+  // face — a land through the hands (guardPinnedCover) — which the square cross does not; before, red's lane sat 5.5 cm low on
+  // blue and went under that glove either way. Measured: loaded-off-the-slip / square = 0.84.)
+  const off = slipX({ ...cfg, slipLoadedOn: false });
+  check(`…and harder (${(landOf(hot.evs).power / landOf(off.evs).power).toFixed(2)}× = slipLoadedPower)`, near(landOf(hot.evs).power / landOf(off.evs).power, cfg.slipLoadedPower, 0.02));
   const slipJab = run(fresh(cfg, MID, 20), 12, i => [inp({ jab: i === 8, move: flick(1, 0)(i) }), NONE]);
   check('the OTHER hand is not loaded (a jab off a rear-side slip is a jab; the load stays for the cross)', near(startOf(slipJab.evs).tell, cfg.jabCock + cfg.jabExtend, 1e-9) && slipJab.s.fighters[0].loaded === 1);
   const leadHook = run(fresh(cfg, 0.72, 20), 50, i => [inp({ hook: i === 8, move: i === 8 ? { x: -1, y: 0 } : flick(-1, 0)(i) }), NONE]);
   const coldHook = run(fresh(cfg, 0.72, 20), 50, i => [inp({ hook: i === 8, move: { x: i === 8 ? -1 : 0, y: 0 } }), NONE]);
   check(`the lead hook off a slip to the lead side is loaded (${(landOf(leadHook.evs)?.power / landOf(coldHook.evs)?.power).toFixed(2)}×)`, landOf(leadHook.evs) && near(landOf(leadHook.evs).power / landOf(coldHook.evs).power, cfg.slipLoadedPower, 0.03));
-  const off = slipX({ ...cfg, slipLoadedOn: false });
-  check('slipLoadedOn off: no load', near(landOf(off.evs).power, landOf(coldX.evs).power, 0.01) && near(startOf(off.evs).tell, startOf(coldX.evs).tell, 1e-9));
+  check('slipLoadedOn off: no load (the wind-up of a cold cross)', near(startOf(off.evs).tell, startOf(coldX.evs).tell, 1e-9) && landOf(off.evs).power < landOf(hot.evs).power);
 }
 
 // ── 2. Chains ───────────────────────────────────────────────────────────────
@@ -105,12 +109,13 @@ console.log('\n=== 4. The wrong way ===');
   void L;
   // (30 ticks of settle, as slip_test: the shoulder catches this jab by ~2 cm and the idle bob is part of that.)
   const into = c => run(fresh(c, MID, 30), 30, i => [inp({ jab: i === 0 }), inp({ move: flick(1, 0)(i) })], c);
-  const on = landOf(into(cfg).evs), off = landOf(into({ ...cfg, wrongWayOn: false }).evs);
+  // Phase 3: with the lane on his head the fist clears the capsule by ~6 cm; the shoulder he leaned onto it is counted
+  // wrongWayShoulder higher. So with the rule off this is now a clean dodge (it used to clip the shoulder, glancing).
+  const on = landOf(into(cfg).evs), offRun = into({ ...cfg, wrongWayOn: false }), plain = landOf(into({ ...cfg, slipWrongWayMult: 1 }).evs);
   const stand = landOf(run(fresh(cfg, MID, 20), 20, i => [inp({ jab: i === 0 }), NONE]).evs);
-  check(`slipping INTO the jab: it lands (${on?.part}) flagged wrongWay`, on && on.wrongWay === true && off && off.wrongWay === false);
-  // Without the rule this shot only clips the shoulder (glancing); with it, it is never glancing — he moved onto the fist.
-  const gm = g => g === 'glancing' ? cfg.gradeGlancingPower : g === 'flush' ? cfg.gradeFlushPower : 1;
-  check(`…${(on.power / off.power).toFixed(2)}× what it would without the rule: slipWrongWayMult, and ${on.grade} where it was ${off.grade}`, on.grade !== 'glancing' && near(on.power / off.power, cfg.slipWrongWayMult * gm(on.grade) / gm(off.grade), 0.02));
+  check(`slipping INTO the jab: it lands (${on?.part}) flagged wrongWay; with wrongWayOn off the same slip is a dodge`, on && on.part === 'body' && on.wrongWay === true && !landOf(offRun.evs) && offRun.evs.some(e => e.type === 'slip' && e.dodged));
+  check(`…${(on.power / plain.power).toFixed(2)}× = slipWrongWayMult, and ${on.grade}: never glancing — he moved onto the fist`, on.grade !== 'glancing' && near(on.power / plain.power, cfg.slipWrongWayMult, 0.02));
+  check('wrongWayShoulder 0: the capsule alone no longer catches it', !landOf(into({ ...cfg, wrongWayShoulder: 0 }).evs));
   check(`…and more than if he had stood still (${on.power.toFixed(2)} vs ${stand.power.toFixed(2)})`, on.power > stand.power * 1.2);
   const away = run(fresh(cfg, MID, 20), 30, i => [inp({ jab: i === 0 }), inp({ move: flick(-1, 0)(i) })]);
   check('slipping AWAY from it is still the dodge', away.evs.some(e => e.type === 'slip' && e.dodged) && !landOf(away.evs));

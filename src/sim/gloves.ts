@@ -17,6 +17,7 @@ import { stepArms } from './arms';
 import { hurtLevel } from './stun';
 import { VARIANTS } from './variants';
 import { stanceDrop } from './footing';
+import { hitBody } from './reaction';
 
 const HANDS: [Hand, Hand] = ['lead', 'rear'];
 /**
@@ -52,9 +53,11 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterSta
       // His standing height, never where his head is now: a duck or a slip still takes it away.
       if (cfg.punchAimTrack > 0) {
         const v = VARIANTS[p.variant];
-        const raw = v.body
+        // (Standing as he STANDS: the crouch of his guard — the peek-a-boo sits 4 cm down — is part of his height, and of mine.)
+        const sit = GUARDS[shape].crouch - GUARDS[cfg.stylesOn ? other.guardShape : 'high'].crouch;
+        const raw = sit + (v.body
           ? (other.body.shoulderY + other.body.hipY - f.body.shoulderY - f.body.hipY) / 2
-          : other.body.headY - f.body.headY;
+          : other.body.headY - f.body.headY - cfg.punchAimChin);   // the chin, not the middle of the head
         // Inside the dead band the difference is the matchup (a slightly taller man's chin sits higher on your fist).
         const dy = Math.sign(raw) * Math.max(0, Math.abs(raw) - cfg.punchAimDeadband);
         pose.up += dy * cfg.punchAimTrack * punchEnvelope(p.progress * ph.total, ph);
@@ -72,12 +75,12 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterSta
 }
 
 /** Is the glove-centre point `p` inside `other`'s head, body or upper arms (the solid parts), inflated by the glove less its give? */
-function insideOther(p: Vec3, other: FighterState, gloveR: number, sink: number): boolean {
+function insideOther(p: Vec3, other: FighterState, gloveR: number, sink: number, hb: FighterState['bodyBox']): boolean {
   const rh = other.headBox.r + gloveR - sink;
   const dx = p.x - other.headBox.x, dy = p.y - other.headBox.y, dz = p.z - other.headBox.z;
   if (dx * dx + dy * dy + dz * dz < rh * rh) return true;
-  const c = closestOnSegment(other.bodyBox.a, other.bodyBox.b, p);
-  const rb = other.bodyBox.r + gloveR - sink;
+  const c = closestOnSegment(hb.a, hb.b, p);
+  const rb = hb.r + gloveR - sink;
   const ex = p.x - c.x, ey = p.y - c.y, ez = p.z - c.z;
   return ex * ex + ey * ey + ez * ez < rb * rb;
   // Not the arms: cutting targets against the upper arms stopped a
@@ -97,17 +100,17 @@ function insideOther(p: Vec3, other: FighterState, gloveR: number, sink: number)
  * body (the fist is entering sideways), the target is left alone and the
  * position clamp does the rest. Sampled then bisected.
  */
-function cutTarget(from: Vec3, t: Vec3, fwd: { x: number; z: number }, other: FighterState, gloveR: number, sink: number): Vec3 {
+function cutTarget(from: Vec3, t: Vec3, fwd: { x: number; z: number }, other: FighterState, gloveR: number, sink: number, hb: FighterState['bodyBox']): Vec3 {
   // "Blocked": the target is inside the other fighter, or the path from the
   // fist to it passes through them (a jab's spring covers 30 cm a tick, and
   // a target BEHIND the head is outside it — the fist tunnelled). The path
   // test allows TUNNEL_TOL deeper than the endpoint, so a fist sliding along
   // a curved surface (its chord dips a few mm) is not held back.
   const blocked = (p: Vec3): boolean => {
-    if (insideOther(p, other, gloveR, sink)) return true;
+    if (insideOther(p, other, gloveR, sink, hb)) return true;
     for (let i = 1; i < CONTACT_SAMPLES; i++) {
       const u = i / CONTACT_SAMPLES;
-      if (insideOther({ x: from.x + (p.x - from.x) * u, y: from.y + (p.y - from.y) * u, z: from.z + (p.z - from.z) * u }, other, gloveR, sink + TUNNEL_TOL)) return true;
+      if (insideOther({ x: from.x + (p.x - from.x) * u, y: from.y + (p.y - from.y) * u, z: from.z + (p.z - from.z) * u }, other, gloveR, sink + TUNNEL_TOL, hb)) return true;
     }
     return false;
   };
@@ -159,7 +162,7 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     if (!contact) { t.x += f.reaction.torso.x; t.y += f.reaction.torso.y; t.z += f.reaction.torso.z; }
     const g = f.gloves[i]!;
     const free = t;
-    if (solid) t = cutTarget(g.pos, t, fr.fwd, other, f.body.gloveR, sink);
+    if (solid) t = cutTarget(g.pos, t, fr.fwd, other, f.body.gloveR, sink, hitBody(other, cfg));
     // Remember whether the other fighter's head or body clipped this target:
     // the hit test reads it (a fist stopped on a pinned guard hand is only
     // "absorbed" if the punch was going to arrive).
@@ -226,13 +229,14 @@ export function clampGloves(f: FighterState, other: FighterState, cfg: Config): 
   if (cfg.contactSolid <= 0) return;
   const sink = f.body.gloveR * cfg.contactSquash;
   const upperR = other.body.bodyR * cfg.rigUpperArmR;
+  const hb = hitBody(other, cfg);
   for (const g of f.gloves) {
     // Head and body overlap at the chin, so a push out of one can land in
     // the other; a few passes settle it (measured: one pass left 4–5 cm).
     for (let pass = 0; pass < CLAMP_PASSES; pass++) {
       pushOut(g, other.headBox, other.headBox.r + f.body.gloveR - sink);
-      const c = closestOnSegment(other.bodyBox.a, other.bodyBox.b, g.pos);
-      pushOut(g, c, other.bodyBox.r + f.body.gloveR - sink);
+      const c = closestOnSegment(hb.a, hb.b, g.pos);
+      pushOut(g, c, hb.r + f.body.gloveR - sink);
       // The upper arms hang off the shoulders: solid, like the body.
       for (const arm of other.arms) pushOut(g, closestOnSegment(arm.shoulder, arm.elbow, g.pos), upperR + f.body.gloveR - sink);
     }

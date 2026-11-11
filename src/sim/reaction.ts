@@ -133,3 +133,28 @@ export function computeBoxes(f: FighterState, cfg: Config): void {
   f.bodyBox.b.x = sh.x + r.torso.x; f.bodyBox.b.y = sh.y + r.torso.y; f.bodyBox.b.z = sh.z + r.torso.z;
   f.bodyBox.r = b.bodyR;
 }
+
+/**
+ * The body capsule a FIST is tested against (phase 3, heights). bodyBox has
+ * one radius, hips to shoulders; on a thick man (bodyR 23 cm at 112 kg) its
+ * top stood 15 cm above his chin and further forward than his face, so every
+ * cross, hook and uppercut thrown at his head stopped on air above his chest
+ * and scored to the body. A thick torso carries its bulk at the belly: for
+ * fists, the top end comes down the capsule's own axis until, at the height
+ * of the chin, the capsule is no wider than bodyBoxChinSection × the head's
+ * radius — the jaw is not behind the chest. A body inside that (red 0.77,
+ * blue 0.61) gets bodyBox itself. Body-to-body separation and the rig keep
+ * bodyBox.
+ */
+export function hitBody(f: FighterState, cfg: Config): FighterState['bodyBox'] {
+  const b = f.body, box = f.bodyBox;
+  const half = cfg.bodyBoxChinSection * b.headR;
+  const need = b.bodyR > half ? Math.sqrt(b.bodyR * b.bodyR - half * half) : 0;   // how far under the chin the top end must be
+  const over = need - (b.headY - b.headR - b.shoulderY);
+  if (!(over > 0)) return box;
+  const ax = box.b.x - box.a.x, ay = box.b.y - box.a.y, az = box.b.z - box.a.z;
+  const len = Math.hypot(ax, ay, az);
+  if (len < 1e-6) return box;
+  const t = 1 - clamp(over / len, 0, 0.6);
+  return { a: box.a, b: { x: box.a.x + ax * t, y: box.a.y + ay * t, z: box.a.z + az * t }, r: box.r };
+}
