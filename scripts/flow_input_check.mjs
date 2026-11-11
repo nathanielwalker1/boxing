@@ -120,7 +120,7 @@ console.log('\n=== Touch ===');
   await on(page, 'fight');
   await frames(page, 2);
   const dp = await page.evaluate(() => ({ drill: window.__flow.state().drill, cols: [...document.querySelectorAll('#flow .drill .dc th')].filter(t => getComputedStyle(t).display !== 'none').map(t => t.textContent).join('|') }));
-  check(`a tap starts a drill (${dp.drill}); on touch its panel shows the pad and touch columns (${dp.cols})`, dp.drill === 'jab-and-move' && dp.cols === '|Pad|Touch');
+  check(`a tap starts a drill (${dp.drill}); on touch its panel shows the touch column (${dp.cols})`, dp.drill === 'jab-and-move' && dp.cols === '|Touch');
   await page.locator('#flow .drill .dbtn', { hasText: 'Next' }).tap(); await frames(page, 1);
   check('a tap on Next → the next drill', (await page.evaluate(() => window.__flow.state().drill)) === 'cut-off');
   await page.locator('#flow .drill .dbtn', { hasText: 'Gym' }).tap();

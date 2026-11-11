@@ -159,7 +159,9 @@ Phase 2:
 6. **A drill's setup runs after a 30-tick settle** (the hands have to get to
    the guard after the pair is moved). `survive` therefore starts the clock
    at 0.5 s; the player is rocked (3.0 s) and cornered on the first state.
-7. **On touch the drill strip shows the pad and touch columns**, not the keys.
+7. **On touch the drill strip shows the touch column only**, in one column on
+   the left (the punch diamond has the right), and there is no pause button
+   in a drill (the strip has its own Gym button).
 8. **A button held when the fight resumes is ignored until it is let go**
    (after a card, a replay, the walk, a pause). All six flags, not only the
    punches.
@@ -181,8 +183,9 @@ Desktop, 1280 × 720, high tier:
   monoline and a little crude (the G and the C differ only by a spur); it
   reads as a logo sketch, not a finished mark. The fighters are small in the
   right half and at some orbit angles a corner post stands in front of them.
-- **`ui_select`** — Whole body, boots clear of the plates, the sheet complete
-  without scrolling. *The capture is taken with the turntable slowed to
+- **`ui_select`** — Whole body from the front, boots clear of the plates, the
+  sheet complete without scrolling (sizes and ratings side by side; the lower
+  third of the sheet is empty at this height). *The capture is taken with the turntable slowed to
   2°/s*, because a headless frame lasts up to a second and at the real speed
   he is side-on before the shutter; a player sees him from the front for the
   first second or two. The sheet is dense: thirteen rows of small caps before
@@ -203,8 +206,8 @@ Desktop, 1280 × 720, high tier:
 - **`ui_replay`** — As phase 1: low, close, reverse side, both in profile.
 - **`ui_replay_after`** — The live fight after the replay; by the time of the
   capture he was getting up.
-- **`ui_corner`** — The ring and both corners in view on the left, the sheet
-  on the right. The two men are small and simply stand; there is still no
+- **`ui_corner`** — The ring and both corners in view on the left (the lens
+  is square on to the diagonal and only sways), the sheet on the right. The two men are small and simply stand; there is still no
   stool, no corner man, nothing happening in the corner.
 - **`ui_corner_scores`** — `flowShowScores` on: three "Judges" rows between
   the stats and the bars. They look like more stat rows; a reader has to find
@@ -242,17 +245,30 @@ The gym, each drill played by its scripted player (tier the machine picks):
 - **`ui_drill_survive_start`** — First frames: player in the corner, health
   bar already half gone, the other man on him. The red hurt edge is on.
 - **`ui_drill_survive`** — Mid-drill, clock at 7 s, out of the corner.
-- **`ui_drill_free-sparring`** — Taken before the bag fix: the partner is
-  down after six punches. Re-captured in the final run if time allowed; see
-  "not done".
+- **`ui_drill_free-sparring`** — Eleven clean punches in and the partner is
+  still on his feet (before the bag tune he was down after six). He has been
+  driven back to the ropes: nothing walks him back to the middle.
 - In every drill capture the HUD plaque still shows a round clock ("2:55
   ROUND 1 OF 1") that means nothing in a drill and disagrees with the drill's
   own clock.
 
 Phone:
 
-- **`ui_phone_title`**, **`ui_phone_select`**, **`ui_phone_drill`** and the
-  `phoneland` three — see the final-run notes at the end of this file.
+- **`ui_phone_title`** — Works; the spar is small behind the menu.
+- **`ui_phone_select`** — He stands above the sheet, boots just cut by it.
+  Name, sizes, ratings, style name, guard and range are on screen; the three
+  lines start at the fold and need a scroll.
+- **`ui_phone_drill`** — The HUD, then the drill strip (touch controls only),
+  take the top third; the punch diamond covers both men from the knee down.
+  It is usable and crowded. The HUD's names run into the clock plaque at this
+  width (the HUD's own problem, older than this work).
+- **`ui_phoneland_title`** — Works.
+- **`ui_phoneland_select`** — The sheet shows everything down to the second
+  style line; the third needs a scroll. Plates are surnames only and fit.
+- **`ui_phoneland_drill`** — The strip is one column on the left so the
+  diamond is clear, but it sits right over the player's own fighter: from the
+  waist up he is behind the panel. On a phone on its side a drill is the worst
+  screen in the set.
 
 ## Not done / below standard
 
@@ -269,8 +285,9 @@ Phone:
 8. **A real gamepad and a real finger have not touched it.** The stub proves
    the code paths, not the feel (stick thresholds, repeat rate: there is no
    auto-repeat on a held d-pad).
-9. **The select sheet is dense**, and on a phone on its side its style lines
-   still need a scroll.
+9. **The select sheet is dense**, and on a phone (either way up) its style
+   lines still need a scroll. **A drill on a phone on its side** hides the
+   player's fighter behind the strip.
 10. **Results**: no per-round split by punch type; the numbers are counts and
     one percentage.
 11. **The scoreboard text is fed** but has still not been seen in a frame of
@@ -278,5 +295,9 @@ Phone:
 12. **fps**: not measured on a real GPU. The title now steps a second sim and
     two AIs every tick and draws two fighters and a referee, which the empty
     title did not.
-13. **Suite time.** My four checks take 2–5 minutes each on software GL; the
-    full suite is slower for them.
+13. **Suite time.** The full suite is now about ten minutes of wall time
+    (603 s; 44/44). My four checks are the slowest things in it under
+    parallel load: `flow` 511 s, `flow_input` 536 s (three page boots), `gym`
+    388 s, `replay` 96 s. Alone each takes 1.5–4 minutes. They wait on state,
+    not time, so they are slow rather than flaky; splitting `flow_input` into
+    three scripts would let the runner spread it.

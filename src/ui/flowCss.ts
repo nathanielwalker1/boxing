@@ -191,7 +191,9 @@ body.flow-menu #touch-ui { display: none; }
 #flow .drill .dbtns { display: flex; gap: 5px; margin-top: 6px; }
 #flow .drill .dbtn { pointer-events: auto; cursor: pointer; flex: 1; padding: 5px 2px; text-align: center; font-size: 9px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; background: #fff1; border: 1px solid #fff3; color: #fffc; white-space: nowrap; }
 #flow .drill .dbtn:hover { background: #fff; color: #111; }
-#flow.touch .drill { top: 84px; right: 12px; }
+/* touch: the HUD has the top edge and the punch diamond the right side, so the strip is one column on the left, touch controls only */
+#flow.touch .drill { top: 84px; right: auto; width: min(56vw, 520px); grid-template-columns: 1fr; }
+#flow.touch .drill .pd { display: none; } #flow.touch .drill table.dc { margin-top: 6px; }
 
 /* results: the fighter sheet's place; the pair stands to the left of it */
 #flow .resultp { bottom: 24px; width: min(430px, 44vw); }
@@ -247,7 +249,7 @@ body.flow-menu #touch-ui { display: none; }
   #flow .tapecard { grid-template-columns: 1fr; gap: 6px; padding: 8px 12px; } #flow .tapecard .l, #flow .tapecard .r { text-align: left; border: 0; border-left: 6px solid var(--ca); padding: 0 0 0 10px; } #flow .tapecard .r { border-left-color: var(--cb); }
   #flow .ctl { grid-template-columns: 1fr; } #flow .ctl table { font-size: 11px; } #flow .ctl td { padding: 4px 4px; }
   #flow .sheet { padding: 14px 12px; }
-  #flow .drill { grid-template-columns: 1fr; right: 12px; } #flow .drill .pd { display: none; } #flow .drill table.dc { margin-top: 6px; }
+  #flow .drill, #flow.touch .drill { grid-template-columns: 1fr; right: 12px; width: auto; } #flow .drill .pd { display: none; } #flow .drill table.dc { margin-top: 6px; }
 }
 /* a phone on its side: short. The plates lose their second line; the sheet takes more width and its text is smaller. */
 @media (max-height: 460px) and (min-width: 641px) {

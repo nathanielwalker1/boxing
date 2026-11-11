@@ -588,7 +588,8 @@ export class FightFlow {
     this.bug.classList.toggle('on', this.replaying);
     this.skipzone.classList.toggle('on', this.replaying && !this.paused);
     this.drillEl.classList.toggle('on', this.drill !== null && this.screen === 'fight');
-    this.pauseBtn.classList.toggle('on', this.screen === 'fight' && !this.paused && !this.card && !this.replaying);
+    // (A drill has no pause: its strip has its own Gym button, and on a phone the pause button would sit on the strip.)
+    this.pauseBtn.classList.toggle('on', this.screen === 'fight' && !this.paused && !this.card && !this.replaying && !this.drill);
     if (this.drill && this.screen === 'fight' && !this.drillEl.firstChild) this.buildDrillPanel(this.drill.def);
     else if (!this.drill && this.drillEl.firstChild) this.drillEl.innerHTML = '';
   }
