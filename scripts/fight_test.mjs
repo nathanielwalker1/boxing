@@ -194,6 +194,13 @@ const TICK = T(cfg.countTickSeconds);
   check('iron chin, second knockdown: still gets up', of(second.evs, 'getUp').length === 1 && !second.evs.some(e => e.type === 'ko') && second.s.round.phase === 'fighting' && second.s.round.index === 0, `${second.s.round.phase} round ${second.s.round.index}`);
   const third = run(second.s, 40, i => [inp({ jab: i === 0 }), NONE], null, noJitter);
   check('the third is the stoppage: tko, no count', of(third.evs, 'tko')[0]?.winner === 0 && !third.evs.some(e => e.type === 'countTick') && third.s.round.phase === 'over');
+  // Phase 4: with no count, the loser's clock on the canvas still runs once the fight is over (the fall is drawn from it).
+  const tkoTick = of(third.evs, 'tko')[0]?.tick ?? 0;
+  const d0 = third.s.fighters[1];
+  const later = run(third.s, 60, () => [NONE, NONE], null, noJitter);
+  const d1 = later.s.fighters[1];
+  check(`after a stoppage with no count he is down and his downT runs (${d0.downT.toFixed(2)} s, then ${d1.downT.toFixed(2)} s a second later)`, d0.down && d1.down && d0.downT > 0 && Math.abs(d1.downT - d0.downT - 60 * SIM_DT) < 3 * SIM_DT && d0.downT <= (40 - tkoTick) * SIM_DT + 1e-9);
+  check('…and he stays down: no count, no get-up, no get-up phases', later.s.round.phase === 'over' && !later.evs.some(e => e.type === 'countTick' || e.type === 'getUp' || e.type === 'getUpPhase'));
 }
 
 // ── 5. Determinism through the roll ─────────────────────────────────────────

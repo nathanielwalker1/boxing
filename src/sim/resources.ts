@@ -179,6 +179,10 @@ function stepGetUp(f: FighterState, side: Side, cfg: Config, dt: number, events:
  * (getUp, part of the bar back, fighting resumes) or hears ten (ko, over).
  */
 export function stepCount(s: SimState, cfg: Config, dt: number, events: SimEvent[]): void {
+  // The fight is over and a man is on the canvas (phase 4): his clock keeps running, so whatever draws the fall
+  // from downT has a fall to draw. A stoppage with no count (the third knockdown of a round goes straight to
+  // `over`) left downT at 0 and him frozen upright. He stays down: no count, no get-up, no phases.
+  if (s.round.phase === 'over') { for (const f of s.fighters) if (f.down) f.downT += dt; return; }
   if (s.round.phase !== 'count') return;
   for (const side of [0, 1] as const) {
     const f = s.fighters[side];
