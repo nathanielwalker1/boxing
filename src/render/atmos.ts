@@ -173,9 +173,9 @@ export class Haze {
     this.mesh.renderOrder = 9;
   }
 
-  update(c: Config, t: number): void {
+  update(c: Config, t: number, scale = 1): void {
     const u = this.mat.uniforms;
-    u['uTime']!.value = t; u['uDensity']!.value = c.hazeDensity; u['uScroll']!.value = c.hazeScroll;
+    u['uTime']!.value = t; u['uDensity']!.value = c.hazeDensity * scale; u['uScroll']!.value = c.hazeScroll;
     (u['uColor']!.value as THREE.Color).set(c.hazeColor);
   }
 

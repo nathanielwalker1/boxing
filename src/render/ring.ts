@@ -18,7 +18,7 @@ import { makeCanvas, canvasTexture, segmentMatrix, seededRng } from './util';
 export const RING_KEYS = ['ropeCount', 'ropeTopY', 'ropeSag', 'postR', 'matColor', 'matLineColor', 'apronColor',
   'ropeColorA', 'ropeColorB', 'ropeColorC', 'padColorRed', 'padColorBlue', 'padColorNeutral',
   'matGrain', 'matTrimW', 'apronStripeColor', 'apronStripeY', 'sponsorDecalAlpha', 'sponsorDecalTone',
-  'ringScuffs', 'ringApronTone', 'ringCushionW', 'ringCoverLen', 'ringStools'] as const;
+  'ringScuffs', 'ringApronTone', 'ringCushionW', 'ringCoverLen', 'ringStools', 'ringPostFadeNear', 'ringPostFadeFar'] as const;
 
 export function ringKey(c: Config): string { return RING_KEYS.map(k => String(c[k])).join('|'); }
 
@@ -26,6 +26,7 @@ const OUTER = RING_HALF + APRON_W;        // platform half-size
 const PLATFORM_H = 1.0;
 const ROPE_R = 0.022;
 const UP = new THREE.Vector3(0, 1, 0);
+const WHITE_ROPE_COOL = new THREE.Color(0.86, 0.95, 1.0);   // linear multipliers: takes the warm rig's red back out of a white rope
 
 // ── Painters ─────────────────────────────────────────────────────────────────
 
@@ -136,6 +137,29 @@ function paintSkirt(c: Config, panels: { sponsor: Sponsor; slot: 'apronFront' | 
   return canvasTexture(cv, aniso);
 }
 
+/**
+ * Make a material dissolve near the lens (phase 2). The follow camera sits
+ * just outside the ropes and crosses the ring's diagonals, where the near
+ * corner post, its cap and cushion end up bottom-centre of the frame, a metre
+ * from the glass. Real broadcast cameras shoot past that post too, but there
+ * it is out of focus; here it was a hard dark shape over the canvas. A
+ * screen-door dither by view distance needs no blending and no sorting, and
+ * leaves every post further than `far` untouched (the other three always are).
+ */
+function fadeNearLens<M extends THREE.Material>(mat: M, near: number, far: number): M {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms['uFadeNear'] = { value: near };
+    shader.uniforms['uFadeFar'] = { value: Math.max(near + 0.01, far) };
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', /* glsl */`uniform float uFadeNear, uFadeFar;
+        float fadeDither(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }   // interleaved gradient noise
+        void main() {
+          { float keep = smoothstep(uFadeNear, uFadeFar, length(vViewPosition)); if (keep < fadeDither(gl_FragCoord.xy)) discard; }`);
+  };
+  mat.customProgramCacheKey = () => `fadeNearLens:${near}:${far}`;
+  return mat;
+}
+
 // ── Builders ─────────────────────────────────────────────────────────────────
 
 function boxAt(w: number, h: number, d: number, m: THREE.Matrix4): THREE.BufferGeometry {
@@ -203,7 +227,8 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
   ];
   // Post detail (ring dressing, 2026-11-11): a satin steel post on a base plate, under a dark rubber cap — the
   // bare polished top caught the key and was the brightest thing in frame from the corner seats.
-  const postMetal = new THREE.MeshStandardMaterial({ color: 0x8e9098, roughness: 0.55, metalness: 0.6 });
+  const fade = <M extends THREE.Material>(m: M): M => fadeNearLens(m, c.ringPostFadeNear, c.ringPostFadeFar);
+  const postMetal = fade(new THREE.MeshStandardMaterial({ color: 0x8e9098, roughness: 0.55, metalness: 0.6 }));
   const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(c.postR, c.postR, postH, 12), postMetal, 4);
   posts.castShadow = true;
   const tmp = new THREE.Matrix4();
@@ -212,7 +237,7 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
   {
     const cap = new THREE.CylinderGeometry(c.postR * 1.25, c.postR * 1.35, 0.07, 12).translate(0, postH + 0.03, 0);
     const base = new THREE.CylinderGeometry(c.postR * 2.2, c.postR * 2.4, 0.03, 12).translate(0, 0.015, 0);
-    const trim = new THREE.InstancedMesh(mergeGeometries([cap, base]), new THREE.MeshStandardMaterial({ color: 0x15151a, roughness: 0.9 }), 4);
+    const trim = new THREE.InstancedMesh(mergeGeometries([cap, base]), fade(new THREE.MeshStandardMaterial({ color: 0x15151a, roughness: 0.9 })), 4);
     corners.forEach((k, i) => { trim.setMatrixAt(i, tmp.makeTranslation(k.sx * pOff, 0, k.sz * pOff)); });
     trim.castShadow = true;
     ring.add(trim);
@@ -228,9 +253,12 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
     // Two marks up the cushion's face: repeat the texture vertically on the ±z faces only.
     const uv = cushionGeo.attributes['uv']!;
     for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * Math.max(1, Math.round(cushionH / c.ringCushionW / 1.5)));
+    // The narrow side, top and bottom faces (box faces 0–3, four vertices each) carry no mark: on a 0.11 m edge it
+    // came out rotated and stretched. They sample the texture's plain corner instead.
+    for (let i = 0; i < 16; i++) uv.setXY(i, 0.02, 0.02);
   }
   padTex.wrapT = THREE.RepeatWrapping;
-  const pads = new THREE.InstancedMesh(cushionGeo, new THREE.MeshStandardMaterial({ map: padTex, roughness: 0.8 }), 4);
+  const pads = new THREE.InstancedMesh(cushionGeo, fade(new THREE.MeshStandardMaterial({ map: padTex, roughness: 0.8 })), 4);
   pads.castShadow = true;
   {
     const col = new THREE.Color(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
@@ -248,7 +276,7 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
   const h = RING_HALF + c.postR;
   const ropeGeos: THREE.BufferGeometry[] = [];
   // Turnbuckle covers: a padded sleeve over each rope end, in the colour of the corner it runs into.
-  const fittings = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 8), new THREE.MeshStandardMaterial({ roughness: 0.85 }), 8 * c.ropeCount);
+  const fittings = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 8), fade(new THREE.MeshStandardMaterial({ roughness: 0.85 })), 8 * c.ropeCount);
   fittings.castShadow = true;
   const coverCol = new THREE.Color();
   const cornerCol = (p: THREE.Vector3): string => corners.find(k => Math.sign(p.x) === k.sx && Math.sign(p.z) === k.sz)?.col ?? c.padColorNeutral;
@@ -261,6 +289,9 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
   for (let i = 0; i < c.ropeCount; i++) {
     const y = c.ropeTopY * (i + 1) / c.ropeCount;
     const col = new THREE.Color(ropeCols[i % ropeCols.length]);
+    // A near-white rope under the warm key and the red corner's back light read pink (phase 1 note). Lean a
+    // low-saturation rope cool so it lands on white once the rig has warmed it; coloured ropes are left alone.
+    { const hsl = { h: 0, s: 0, l: 0 }; col.getHSL(hsl); if (hsl.s < 0.2 && hsl.l > 0.5) col.multiply(WHITE_ROPE_COOL); }
     for (const [a0, b0] of ends) {
       const a = a0.clone().setY(y), b = b0.clone().setY(y);
       const mid = a.clone().lerp(b, 0.5); mid.y -= c.ropeSag;

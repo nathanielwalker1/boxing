@@ -88,19 +88,31 @@ function personGeometry(lod: 0 | 1 | 2): THREE.BufferGeometry {
     g.translate(side * SHOULDER_X, SHOULDER_Y - ARM_LEN / 2, 0);
     return tag(g, side < 0 ? 2 : 3, [side * SHOULDER_X, SHOULDER_Y, 0], y => (y < SHOULDER_Y - ARM_LEN / 2 ? 1 : 0));
   };
-  const geo = mergeGeometries([
+  const parts = [
     tag(torso, 0, [0, 0, 0], () => 0),
     tag(head, 1, [0, 0, 0], () => hairOf[hi++]!),
     arm(-1), arm(1),
-  ]);
-  return geo;
+  ];
+  // Ringside only (the first rows the play camera sits behind): a neck and rounded shoulders, so the figure reads
+  // as a seated person from a few metres rather than a box with a ball on it.
+  if (lod === 0) {
+    parts.push(tag(new THREE.CylinderGeometry(0.05, 0.065, 0.12, 5, 1, true).translate(0, 1.05, 0), 0, [0, 0, 0], () => 1));
+    for (const side of [-1, 1] as const) {
+      const cap = new THREE.SphereGeometry(0.088, 5, 3).scale(1, 0.85, 1.05).translate(side * (SHOULDER_X - 0.02), SHOULDER_Y - 0.01, 0);
+      parts.push(tag(cap, 0, [0, 0, 0], () => 0));
+    }
+    // A lap: the thighs coming forward from the hips (people in front hide it in the bowl; at ringside it shows).
+    parts.push(tag(new THREE.BoxGeometry(0.4, 0.14, 0.42).translate(0, 0.47, 0.2), 0, [0, 0, 0], () => 0));
+  }
+  return mergeGeometries(parts);
 }
 
 const VERT = /* glsl */`
   uniform float uTime, uExcite, uRestless, uWaveSpeed, uWaveLife, uSway, uStandLift, uStandAt, uArmsAt, uSpread;
   uniform vec4 uWave[${MAX_WAVES}];
   uniform vec3 uLightPos;
-  uniform float uSpill, uSpillR0, uSpillFalloff, uAmbient, uSkinTone, uClapAt;
+  uniform float uSpill, uSpillR0, uSpillFalloff, uAmbient, uSkinTone, uClapAt, uBackLevel, uBackR2, uFlash;
+  uniform vec3 uKeyCol, uCoolCol, uBackA, uBackB, uBackACol, uBackBCol;
   attribute vec3 aPivot;
   attribute float aPart, aSkin;
   attribute vec3 iPos, iColor, iSkin;
@@ -158,7 +170,15 @@ const VERT = /* glsl */`
     vec3 hair = hk < 0.55 ? vec3(0.012, 0.01, 0.01) : hk < 0.82 ? vec3(0.09, 0.05, 0.025) : hk < 0.93 ? vec3(0.32, 0.22, 0.1) : vec3(0.3, 0.3, 0.32);
     vec3 skin = iSkin * uSkinTone;
     vec3 base = aSkin <= 1.0 ? mix(iColor, skin, aSkin) : mix(skin, hair, aSkin - 1.0);
-    vColor = base * (uAmbient * top + spill * lam);
+    // Warm key spill over cool house light, then the two coloured back lights on whoever sits nearest them, and
+    // the camera flashes' own light on the rows the spill reaches. Each person also sits a little warm or cool.
+    vec3 light = uCoolCol * (uAmbient * top) + uKeyCol * (spill * lam);
+    vec3 dA = uBackA - wp, dB = uBackB - wp;
+    light += uBackACol * (max(dot(wn, normalize(dA)) * 0.6 + 0.4, 0.0) / (1.0 + dot(dA, dA) / uBackR2)) * uBackLevel;
+    light += uBackBCol * (max(dot(wn, normalize(dB)) * 0.6 + 0.4, 0.0) / (1.0 + dot(dB, dB) / uBackR2)) * uBackLevel;
+    light += vec3(0.9, 0.95, 1.0) * (uFlash * spill * top);
+    light *= mix(vec3(1.07, 1.0, 0.9), vec3(0.9, 1.0, 1.1), fract(phase * 3.7));
+    vColor = base * light;
 
     vec4 mv = viewMatrix * vec4(wp, 1.0);
     vDepth = -mv.z;
@@ -185,7 +205,7 @@ export class Crowd {
   private waves: THREE.Vector4[] = [];
   private waveNext = 0;
 
-  constructor(seats: readonly Seat[], c: Config, rng: () => number) {
+  constructor(seats: readonly Seat[], c: Config, rng: () => number, rich = true) {
     for (let i = 0; i < MAX_WAVES; i++) this.waves.push(new THREE.Vector4(0, 0, -1e6, 0));
     this.mat = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG,
@@ -196,6 +216,9 @@ export class Crowd {
         uLightPos: { value: new THREE.Vector3(0, 4.5, 0) },
         uSpill: { value: 1 }, uSpillR0: { value: 4 }, uSpillFalloff: { value: 5 }, uAmbient: { value: 0.05 },
         uSkinTone: { value: 0.6 }, uClapAt: { value: 0.3 },
+        uBackLevel: { value: 0.5 }, uBackR2: { value: 60 }, uFlash: { value: 0 },
+        uKeyCol: { value: new THREE.Color() }, uCoolCol: { value: new THREE.Color() },
+        uBackA: { value: new THREE.Vector3() }, uBackB: { value: new THREE.Vector3() }, uBackACol: { value: new THREE.Color() }, uBackBCol: { value: new THREE.Color() },
         uFogColor: { value: new THREE.Color() }, uFogNear: { value: 10 }, uFogFar: { value: 40 },
       },
     });
@@ -206,7 +229,9 @@ export class Crowd {
     for (const lod of [0, 1, 2] as const) {
       const mine = seats.filter(s => s.zone === lod);
       if (!mine.length) continue;
-      const src = personGeometry(lod);
+      // The detailed ringside figure is a high-tier thing: on low, ringside wears the lower bowl's body (the low
+      // tier's triangle budget is the original 150k, and it now has two fighters in it).
+      const src = personGeometry(lod === 0 && !rich ? 1 : lod);
       const geo = new THREE.InstancedBufferGeometry();
       for (const [name, attr] of Object.entries(src.attributes)) geo.setAttribute(name, attr);
       const n = mine.length;
@@ -245,8 +270,18 @@ export class Crowd {
     this.waveNext = (this.waveNext + 1) % MAX_WAVES;
   }
 
-  update(c: Config, t: number, excite: number, fog: THREE.Fog, spillR0: number): void {
+  update(c: Config, t: number, excite: number, fog: THREE.Fog, spillR0: number, flash: number): void {
     const u = this.mat.uniforms;
+    const S = c.trussSize / 2;
+    (u['uKeyCol']!.value as THREE.Color).set(c.keyColor);
+    (u['uCoolCol']!.value as THREE.Color).set(c.fillSkyColor);
+    (u['uBackA']!.value as THREE.Vector3).set(S, c.trussHeight, S);
+    (u['uBackB']!.value as THREE.Vector3).set(-S, c.trussHeight, -S);
+    (u['uBackACol']!.value as THREE.Color).set(c.backColorA);
+    (u['uBackBCol']!.value as THREE.Color).set(c.backColorB);
+    u['uBackLevel']!.value = c.crowdBackLight;
+    u['uBackR2']!.value = c.crowdBackReach * c.crowdBackReach;
+    u['uFlash']!.value = flash * c.crowdFlashLight;
     u['uTime']!.value = t;
     u['uExcite']!.value = excite;
     u['uRestless']!.value = Math.min(1, Math.max(0, (c.exciteBase - excite) / Math.max(0.01, c.exciteBase - c.exciteLull)));
@@ -311,6 +346,8 @@ export class CrowdFlashes {
   private owed = 0;          // fractional flashes carried between frames
   private burstLeft = 0;     // flashes still to fire from a burst
   private burstRate = 0;     // per second
+  /** 0..1: how much flash light is in the room right now (each flash adds, it dies in a fraction of a second). The crowd's nearest rows take it. */
+  pulse = 0;
 
   constructor(private seats: readonly Seat[], private count: number) {
     const geo = new THREE.BufferGeometry();
@@ -341,12 +378,14 @@ export class CrowdFlashes {
     const i = this.next; this.next = (this.next + 1) % this.count;
     this.pos.setXYZ(i, seat.x, seat.y + 1.25, seat.z);
     this.start.setX(i, t);
+    this.pulse = Math.min(1, this.pulse + 0.2);
     this.pos.needsUpdate = true; this.start.needsUpdate = true;
   }
 
   update(c: Config, t: number, dt: number, excite: number, pxPerM: number): void {
     const u = this.mat.uniforms;
     u['uTime']!.value = t; u['uSize']!.value = c.flashSize; u['uPx']!.value = pxPerM;
+    this.pulse *= Math.exp(-Math.min(dt, 0.1) * 7);
     let rate = c.flashRate + c.flashExciteRate * excite * excite;
     if (this.burstLeft > 0) rate += this.burstRate; else this.burstRate = 0;
     this.owed += rate * Math.min(dt, 0.1);

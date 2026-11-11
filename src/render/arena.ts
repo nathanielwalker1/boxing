@@ -29,13 +29,14 @@ export const ARENA_KEYS = ['bowlColor', 'bowlInnerR', 'bowlWallH', 'bowlTiers', 
   'fasciaH', 'upperTiers', 'upperRise', 'upperDepth', 'aisleCount', 'aisleWidth', 'spillIntensity', 'spillFalloff', 'bowlAmbient',
   'practicalBrightness', 'crowdCount', 'crowdColor', 'crowdVariance', 'crowdSaturation', 'crowdSeed', 'flashCount', 'trussHeight', 'trussSize',
   'beamCount', 'beamOpacity', 'beamColor', 'beamRadius', 'backBeamOpacity', 'backColorA', 'backColorB', 'houseBeamCount', 'houseBeamOpacity',
-  'hazeRadius', 'hazeHeight', 'moteCount', 'keyHeight', 'jumbotronSize', 'lowCrowdScale', 'lowBeamCount'] as const;
+  'hazeRadius', 'hazeHeight', 'moteCount', 'keyHeight', 'jumbotronSize', 'lowCrowdScale', 'lowBeamCount', 'lowHazeScale'] as const;
 
 export function arenaKey(c: Config): string { return ARENA_KEYS.map(k => String(c[k])).join('|') + '|' + qualityTier(c); }
 
 const FLOOR_Y = -1.0;
 const OUTER = RING_HALF + APRON_W;
 const SEAT_PITCH = 0.56;           // m between neighbours in a row
+const RUNWAY_W = 1.8;              // m: width of the fighters' runway from the entrance tunnel
 const UP = new THREE.Vector3(0, 1, 0);
 
 type P3 = [number, number, number];
@@ -102,6 +103,7 @@ export class Arena {
   private boardText: readonly string[] | null = null;
   private tmpM = new THREE.Matrix4();
   private clock = 0;
+  private hazeScale = 1;
   /** Seats built and people seated in them (probes, the log). */
   stats = { seats: 0, people: 0 };
 
@@ -127,6 +129,9 @@ export class Arena {
     const warm = new THREE.Color('#ffb46a'), cool = new THREE.Color('#cfe0ff'), exit = new THREE.Color('#58ff9a'), tally = new THREE.Color('#ff3a2a');
     const N = Math.max(4, Math.round(c.aisleCount));
     const SEG = 4;   // arc segments per seating sector
+    // The entrance tunnel is the doorway nearest the blue corner's diagonal (225°): the ring walk comes from there.
+    const TUNNEL_K = Math.max(0, Math.min(N - 1, Math.round(0.625 * N - 0.5)));
+    const tunnelTh = TAU / (2 * N) + TUNNEL_K * TAU / N;
 
     const arc = (rA: number, yA: number, rB: number, yB: number, tA0: number, tA1: number, tB0: number, tB1: number, segs: number, albedo: THREE.Color, light: (p: P3) => number): void => {
       for (let i = 0; i < segs; i++) {
@@ -165,6 +170,8 @@ export class Arena {
           for (let s = 0; s < n; s++) {
             const th = t0 + ha + ((s + 0.5) / n) * span + (rng() - 0.5) * 0.12 / rs;
             const rr = rs + (rng() - 0.5) * 0.12;
+            // nobody sits on the fighters' runway (lower bowl, the entrance tunnel's aisle)
+            if (zone === 1 && Math.abs(Math.atan2(Math.sin(th - tunnelTh), Math.cos(th - tunnelTh))) * rs < RUNWAY_W / 2 + 0.3) continue;
             const x = rr * Math.cos(th), z = rr * Math.sin(th);
             seats.push({ x, y, z, yaw: Math.atan2(-x, -z), zone, role: 'fan' });
           }
@@ -198,18 +205,71 @@ export class Arena {
       return (0.012 + 0.11 * Math.pow(1 - d, 3)) * c.practicalBrightness;
     };
     ring(rL, yL, rBack, yL, concrete, flat(0.03 * c.practicalBrightness));
-    arc(rBack, yL, rBack, ySoffit, 0, TAU, 0, TAU, N * 8, corridor, pool);
     ring(rL - 0.4, ySoffit, rBack, ySoffit, concrete, flat(0.02 * c.practicalBrightness));
     {
-      const doorW = 1.25, ha = doorW / (2 * rBack), yTopDoor = ySoffit - 0.3;
+      // Tunnel mouths (phase 2: the flat orange rectangles read as stickers). Each doorway is a recess cut into the
+      // wall: the light is in the room beyond, so the far wall glows, the side walls and floor fall off toward the
+      // mouth, the floor stays darkest, and a figure or two stands in it in silhouette. The entrance tunnel (the
+      // one over the blue corner's diagonal) is wider, cooler and brighter, under an arch of lamps.
+      const yTopDoor = ySoffit - 0.3, D = 3.2, PB = c.practicalBrightness;
+      const ink = new THREE.Color('#0b0a0c'), entrance = new THREE.Color('#dfe9ff');
+      const halfOf = (k: number): number => (k === TUNNEL_K ? 1.5 : 0.62);
       for (let k = 0; k < N; k++) {
-        const th = doorAt(k);
-        // A doorway is light coming from the room beyond: bright at the floor, dim at the lintel.
-        const glow = (p: P3): number => (p[1] > (yL + yTopDoor) / 2 ? 0.07 : 0.28) * c.practicalBrightness;
-        b.quad(polar(rBack - 0.03, th - ha, yL), polar(rBack - 0.03, th + ha, yL), polar(rBack - 0.03, th + ha, yTopDoor), polar(rBack - 0.03, th - ha, yTopDoor), warm, glow);
+        const th = doorAt(k), hw = halfOf(k), big = k === TUNNEL_K;
+        const haF = hw / rBack, haB = hw / (rBack + D);
+        // the wall from this mouth to the next, and the lintel over this one
+        const next = doorAt(k + 1), nextHa = halfOf((k + 1) % N) / rBack;
+        arc(rBack, yL, rBack, ySoffit, th + haF, next - nextHa, th + haF, next - nextHa, 8, corridor, pool);
+        arc(rBack, yTopDoor, rBack, ySoffit, th - haF, th + haF, th - haF, th + haF, 1, corridor, flat(0.012 * PB));
+        const col = big ? entrance : warm, far = (big ? 0.55 : 0.3) * PB;
+        const depthOf = (p: P3): number => Math.min(1, Math.max(0, (Math.hypot(p[0], p[2]) - rBack) / D));   // 0 at the mouth, 1 at the far wall
+        const wallL = (p: P3): number => far * (0.05 + 0.5 * Math.pow(depthOf(p), 1.6));
+        const floorL = (p: P3): number => far * (0.02 + 0.28 * Math.pow(depthOf(p), 2));
+        const ceilL = (p: P3): number => far * (0.01 + 0.14 * Math.pow(depthOf(p), 2));
+        const farL = (p: P3): number => far * (p[1] > (yL + yTopDoor) / 2 ? 0.55 : 1);
+        const A = (r: number, s: number, y: number): P3 => polar(r, th + s * (r > rBack + 0.01 ? haB : haF), y);
+        b.quad(A(rBack + D, -1, yL), A(rBack + D, 1, yL), A(rBack + D, 1, yTopDoor), A(rBack + D, -1, yTopDoor), col, farL);
+        for (const s of [-1, 1]) b.quad(A(rBack, s, yL), A(rBack + D, s, yL), A(rBack + D, s, yTopDoor), A(rBack, s, yTopDoor), col, wallL);
+        b.quad(A(rBack, -1, yL), A(rBack, 1, yL), A(rBack + D, 1, yL), A(rBack + D, -1, yL), col, floorL);
+        b.quad(A(rBack, -1, yTopDoor), A(rBack, 1, yTopDoor), A(rBack + D, 1, yTopDoor), A(rBack + D, -1, yTopDoor), col, ceilL);
+        // figures in the mouth: legs, body, head — ink against the glow
+        const figures = big ? 3 : rng() < 0.75 ? 1 + Math.floor(rng() * 2) : 0;
+        for (let f = 0; f < figures; f++) {
+          const fr = rBack + 0.5 + rng() * 1.2, fth = th + (rng() - 0.5) * 1.3 * haF, h = 1.05 + rng() * 0.2;
+          const p = polar(fr, fth, yL);
+          b.box(p[0], yL + h * 0.42, p[2], 0.34, h * 0.84, 0.2, -fth - Math.PI / 2, ink, flat(1), 1, 1);
+          b.box(p[0], yL + h * 0.92, p[2], 0.17, h * 0.17, 0.17, -fth - Math.PI / 2, ink, flat(1), 1, 1);
+        }
         const e = polar(rBack - 0.05, th, ySoffit - 0.1);
-        lights.push({ x: e[0], y: e[1], z: e[2], color: exit, size: 0.12, twinkle: 0 });
+        if (!big) lights.push({ x: e[0], y: e[1], z: e[2], color: exit, size: 0.12, twinkle: 0 });
+        else for (let i = 0; i <= 8; i++) {           // the arch: lamps up one side, across, down the other
+          const u = i / 8, s = u * 2 - 1, y = yL + 0.15 + (yTopDoor + 0.18 - yL - 0.15) * Math.min(1, (1 - Math.abs(s)) * 3);
+          const q = polar(rBack - 0.08, th + s * haF * 1.08, y);
+          lights.push({ x: q[0], y: q[1], z: q[2], color: cool, size: 0.14, twinkle: 0 });
+        }
       }
+    }
+
+    // ── The fighters' way in: a runway from the entrance tunnel down its aisle, over the front wall and across the
+    // floor to the blue corner's steps, with lamps along both edges.
+    {
+      const th = doorAt(TUNNEL_K), carpet2 = new THREE.Color('#5a1418'), hw = RUNWAY_W / 2;
+      const strip = (rA: number, yA: number, rB: number, yB: number, light: (p: P3) => number): void => {
+        const a = hw / rA, bb = hw / rB;
+        b.quad(polar(rA, th - a, yA), polar(rA, th + a, yA), polar(rB, th + bb, yB), polar(rB, th - bb, yB), carpet2, light);
+        for (const s of [-1, 1]) for (let u = 0.15; u < 1; u += 0.7 / Math.max(0.7, Math.abs(rB - rA))) {
+          const r = rA + (rB - rA) * u, q = polar(r, th + s * hw / r, yA + (yB - yA) * u + 0.05);
+          lights.push({ x: q[0], y: q[1], z: q[2], color: cool, size: 0.05, twinkle: 0 });
+        }
+      };
+      strip(Math.min(R0 - 2.2, OUTER * Math.SQRT2 + 1.6), FLOOR_Y + 0.012, R0 - 2.0, FLOOR_Y + 0.012, lit(1.1));   // from the foot of the corner steps
+      strip(R0 - 2.0, FLOOR_Y + 0.012, R0 + 0.06, yFront + 0.015, lit(1.1));                                   // the ramp over the wall
+      for (let i = 0; i < Math.round(c.bowlTiers); i++) {
+        const r = R0 + i * c.bowlTierDepth, y = yFront + i * c.bowlTierRise + 0.015;
+        if (i > 0) strip(r, y - c.bowlTierRise, r + 0.001, y, lit(1.2));
+        strip(r, y, r + c.bowlTierDepth, y, lit(0.9));
+      }
+      strip(rL, yL + 0.015, rBack, yL + 0.015, flat(0.1 * c.practicalBrightness));
     }
 
     // ── Upper deck: starts at the ribbon board's top edge, overhanging the lower bowl's back row.
@@ -293,7 +353,7 @@ export class Arena {
       const chosen = cap > 0 ? [...floor, ...bowlKept, ...deck2.filter(() => rng() < keepDeck)] : [];
       this.stats = { seats: seats.length, people: chosen.length };
       if (chosen.length) {
-        this.crowd = new Crowd(chosen, c, rng);
+        this.crowd = new Crowd(chosen, c, rng, high);
         this.group.add(this.crowd.group);
         for (const s of chosen) if (s.role === 'fan' && rng() < 0.008) {
           lights.push({ x: s.x + Math.sin(s.yaw) * 0.25, y: s.y + 1.02, z: s.z + Math.cos(s.yaw) * 0.25, color: cool, size: 0.05, twinkle: 0.05 + rng() });
@@ -377,9 +437,12 @@ export class Arena {
     if (beams.length) { this.beams = new Beams(beams); this.group.add(this.beams.mesh); }
 
     // ── Haze, motes (high tier only).
+    // The haze layer is one back-face cylinder and two texture fetches a pixel: both tiers get it (thinner on low,
+    // lowHazeScale), so the stands sit behind the same veil whichever tier is drawing. Motes stay high-tier.
+    this.haze = new Haze(Math.min(c.hazeRadius, R0 - 0.3), FLOOR_Y, c.hazeHeight);
+    this.group.add(this.haze.mesh);
+    this.hazeScale = high ? 1 : c.lowHazeScale;
     if (high) {
-      this.haze = new Haze(Math.min(c.hazeRadius, R0 - 0.3), FLOOR_Y, c.hazeHeight);
-      this.group.add(this.haze.mesh);
       if (c.moteCount > 0) { this.motes = new Motes(Math.round(c.moteCount), RING_HALF + 0.4, 0.4, c.keyHeight - 0.6, rng); this.group.add(this.motes.points); }
     }
 
@@ -391,7 +454,10 @@ export class Arena {
       this.boardMat = new THREE.MeshBasicMaterial({ map: this.boardTex });
       const faces: THREE.BufferGeometry[] = [];
       for (let k = 0; k < 4; k++) faces.push(new THREE.PlaneGeometry(w, h).applyMatrix4(new THREE.Matrix4().makeRotationY(k * Math.PI / 2).multiply(new THREE.Matrix4().makeTranslation(0, y, w / 2 + 0.02))));
-      const frame = new THREE.BoxGeometry(w + 0.2, h + 0.3, w + 0.2).translate(0, y, 0);
+      // The housing sits INSIDE the screens' square (phase 1 had it 0.1 m outside them: four black faces, found the
+      // first time the board was put in a frame); a rim top and bottom is the bezel.
+      const frame = mergeGeometries([new THREE.BoxGeometry(w - 0.04, h + 0.3, w - 0.04).translate(0, y, 0),
+        new THREE.BoxGeometry(w + 0.16, 0.1, w + 0.16).translate(0, y + h / 2 + 0.05, 0), new THREE.BoxGeometry(w + 0.16, 0.1, w + 0.16).translate(0, y - h / 2 - 0.05, 0)]);
       const hang = new THREE.BoxGeometry(0.06, yRoof - y, 0.06).translate(0, (yRoof + y) / 2 + h / 2, 0);
       this.group.add(new THREE.Mesh(mergeGeometries(faces), this.boardMat),
         new THREE.Mesh(mergeGeometries([frame, hang]), new THREE.MeshStandardMaterial({ color: 0x101014, roughness: 0.7 })));
@@ -454,10 +520,10 @@ export class Arena {
     this.clock += dt;
     const t = this.clock;
     const pxPerM = viewportH / (2 * Math.tan(camera.fov * Math.PI / 360));
-    if (this.crowd) { this.crowd.group.visible = c.crowdEnabled; this.crowd.update(c, t, excite, fog, OUTER); }
+    if (this.crowd) { this.crowd.group.visible = c.crowdEnabled; this.crowd.update(c, t, excite, fog, OUTER, this.flashes?.pulse ?? 0); }
     if (this.flashes) { this.flashes.points.visible = c.crowdEnabled; this.flashes.update(c, t, dt, excite, pxPerM); }
     this.beams?.update(c, t);
-    this.haze?.update(c, t);
+    this.haze?.update(c, t, this.hazeScale);
     this.motes?.update(c, t, pxPerM);
     this.practicals?.update(c, t, pxPerM, fog);
     if (this.ribbonMat && this.ribbonTex) { this.ribbonMat.color.setScalar(c.ledBrightness); this.ribbonTex.offset.x = (this.ribbonTex.offset.x + c.ledScroll * Math.abs(this.ribbonTex.repeat.x) * dt) % 1; }
