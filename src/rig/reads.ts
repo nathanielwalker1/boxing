@@ -97,8 +97,19 @@ export class Reads {
   private kWhipYaw = spring1(); private kWhipPitch = spring1(); private kFoldRoll = spring1(); private kFoldPitch = spring1(); private kRock = spring1();
   private sUp = spring1(1); private sClinch = spring1(); private sBuckle = spring1();
   private winceT = 0; private pushT = 0; private feintT = 0; private struckSide = 1;
-  private hitsL = 0; private hitsR = 0;
+  private hitsL = 0; private hitsR = 0; private bodyL = 0; private bodyR = 0;
+  private coverT = 0; private coverDur = 1;
+  private kSag = spring1();
+  private sShrugLead = spring1(); private sShapeHead = spring1();
+  /** The lead shoulder alone, up (+), m (the shell). */
+  shrugLead = 0;
   private t = 0;
+  /** The elbow drops to cover the struck side after a body shot: 0..1, and which side (+1 = the fighter's right). */
+  cover = 0; coverSide = 1;
+  /** Clinch: the drawn head's lean onto the other man's shoulder, m (forward, toward the right). */
+  headFwd = 0; headLat = 0;
+  /** Reddening of the torso by side (the liver is on the right). */
+  reddenBodyR = 0; reddenBodyL = 0;
 
   constructor(private side: Side) {}
 
@@ -119,22 +130,34 @@ export class Reads {
         const [iF, , iR] = toLocal(e.impulse.x, 0, e.impulse.z);
         const il = Math.hypot(iF, iR) || 1;
         if (e.part === 'head') {
-          const whip = c.rigFlushWhipDeg * DEG * (e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.35 : 0.08);
+          // Three sizes that cannot be mistaken for each other: a glancing shot barely turns the head; a clean one
+          // snaps it; a flush one whips it right round, rocks the chest back with it and takes longer to come home.
+          const whip = c.rigFlushWhipDeg * DEG * (e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.42 : 0.05);
           // The head goes with the punch: velocity into a loose spring, so it follows through and returns.
           this.kWhipYaw.v += -(iR / il) * whip * 16;
-          this.kWhipPitch.v += -(iF / il) * whip * 12;
+          this.kWhipPitch.v += -(iF / il) * whip * 17;
+          // …and the body answers: flush, the chest goes back hard and the knees give for a beat; clean, a small rock; glancing, nothing.
+          if (e.grade === 'flush') { this.kRock.v += c.rigBlockRockDeg * DEG * 70; this.kSag.v += 1.1; } else if (e.grade === 'clean') this.kRock.v += c.rigBlockRockDeg * DEG * 18;
           if (iR > 0) this.hitsL += e.power; else this.hitsR += e.power;   // pushed right = struck on the left
         } else {
           const fold = c.rigBodyFoldDeg * DEG * g;
           this.struckSide = e.liver ? 1 : iR > 0 ? -1 : 1;                   // the liver is on the fighter's right
           this.kFoldRoll.v += this.struckSide * fold * 14;
           this.kFoldPitch.v += fold * 9;
+          if (this.struckSide > 0) this.bodyR += e.power; else this.bodyL += e.power;
+          if (e.grade !== 'glancing') { this.coverT = c.rigCoverTime * (e.grade === 'flush' ? 1.4 : 1); this.coverDur = this.coverT; this.coverSide = this.struckSide; }
         }
-        if (e.grade !== 'glancing') this.winceT = Math.max(this.winceT, c.rigWinceTime * (e.grade === 'flush' ? 1.4 : e.part === 'body' ? 1 : 0.7));
+        if (e.grade !== 'glancing') this.winceT = Math.max(this.winceT, c.rigWinceTime * (e.grade === 'flush' ? 1.4 : e.part === 'body' ? 1 : 0.5));
         const sprayK = e.part === 'head' ? (e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.4 : 0) : 0;
         this.hits.push({ part: e.part, squash: g, squashDur: e.grade === 'flush' ? c.rigGradeFlush : 1, spray: Math.round(c.rigSprayCount * sprayK * (0.3 + 0.7 * this.sweat)), at: e.at, dir: e.impulse });
       } else if (e.type === 'punchBlock' && e.target === this.side) {
-        this.kRock.v += c.rigBlockRockDeg * DEG * 14 * Math.min(1.5, 0.5 + e.stun * 4);
+        // A blocked shot rocks him by its WEIGHT (the sim's block stun: a hook stuns longer than a cross, a jab hardly),
+        // and more on a worn guard — the gloves are driven back onto the face and the head goes with them.
+        // (Phase 3 film: at the old size a blocked cross and a blocked hook were the same picture, and neither moved him.)
+        const weight = Math.min(2.2, 0.35 + e.stun * 9) * (1 + 1.2 * (1 - Math.max(0, Math.min(1, e.guard))));
+        this.kRock.v += c.rigBlockRockDeg * DEG * 34 * weight;
+        this.kWhipPitch.v += 9 * DEG * 12 * weight;
+        this.kSag.v += 0.25 * weight;
       } else if (e.type === 'guardBreak' && e.side === this.side) {
         this.kRock.v += c.rigBlockRockDeg * DEG * 26;
         this.winceT = Math.max(this.winceT, c.rigWinceTime);
@@ -175,7 +198,11 @@ export class Reads {
     // Burst: a hop with a push-off and a landing.
     const hopT = c.burstTime, landT = Math.max(1e-3, c.burstRecover);
     const bT = f.burstT;
-    const air = bT > 0 && bT < hopT ? Math.sin(Math.PI * bT / hopT) : 0;
+    // Three beats so the hop READS: the first fifth is the push-off (knees load, feet still down), then both feet
+    // leave the canvas on an arc, then the landing compresses and recovers. (Phase 2: one small arc; it did not read.)
+    const loadT = hopT * 0.2;
+    const load = bT > 0 && bT < loadT ? Math.sin(Math.PI * bT / loadT) : 0;
+    const air = bT >= loadT && bT < hopT ? Math.sin(Math.PI * (bT - loadT) / (hopT - loadT)) : 0;
     const land = bT >= hopT ? Math.sin(Math.PI * clamp01((bT - hopT) / landT)) : 0;
     this.airborne = air;
     this.footLift = air * c.rigBurstHop * 0.6;
@@ -188,8 +215,20 @@ export class Reads {
       + buckle * c.rigBuckleFoldDeg + clinch * c.rigClinchLeanDeg
       + Math.min(1, droop / 0.1) * 5 * c.rigGuardSlump
       - ropes * c.rigRopesLeanDeg - broken * 5;
-    let roll = 0, shrug = post * 0.012 - droop * c.rigGuardSlump - broken * c.rigBrokenSlump - buckle * 0.02;
-    let drop = buckle * 0.02 + land * c.rigBurstLand - air * c.rigBurstHop + dip * 0.03;
+    // Spent: the chest sags and the shoulders hang — the tells that survive at play distance (the face does not:
+    // the player's own man is seen from behind, and at the play camera a mouth is three pixels).
+    pitch += fatigue * 9 + (1 - clamp01(f.guardHp)) * 4;
+    let roll = 0, shrug = post * 0.012 - droop * c.rigGuardSlump - broken * c.rigBrokenSlump - buckle * 0.02 - fatigue * 0.022 - (1 - clamp01(f.guardHp)) * 0.012;
+    // The guard's SHAPE (core/styles.ts places the gloves; this is the rest of the body for it).
+    const shape = c.stylesOn && f.styleId ? fighterStyle(f.styleId).guard : 'high';
+    const settled = v || f.down ? 0 : 1;
+    let shrugLead = 0, shapeYaw = 0, shapeHead = 0;
+    if (shape === 'shell') { shrugLead = 0.045 * settled; shapeYaw = 12 * DEG * leadSign * settled; shapeHead = -7 * DEG * settled; pitch += 3 * settled; }   // lead shoulder up, chin behind it, more side-on
+    else if (shape === 'peekaboo') { pitch += 7 * settled; shrug += 0.018 * settled; shapeHead = -5 * DEG * settled; }                                        // crouched behind the gloves
+    else if (shape === 'low') { pitch -= 4 * settled; shrug -= 0.012 * settled; }                                                                               // upright, loose, hands down
+    else if (shape === 'long') { shapeYaw = 6 * DEG * leadSign * settled; }                                                                                     // a touch side-on behind the lead arm
+    this.shrugLead = chase1(this.sShrugLead, shrugLead, 200, 0.8, dt);
+    let drop = buckle * 0.02 + land * c.rigBurstLand + load * c.rigBurstLand * 0.7 - air * c.rigBurstHop + dip * 0.03;
     let fwd = -ropes * c.rigRopesHip, lat = buckle * c.rigBuckleKnee * this.struckSide, hipYaw = 0, chestYaw = 0, step = 0, heelBoth = air > 0 ? 0.04 : 0;
     if (hopLean > 0) { pitch += hopLean * (hF / hl) / DEG; roll += hopLean * (hR / hl) / DEG; }
     if (v) {
@@ -204,9 +243,9 @@ export class Reads {
     const K = 260, Z = 0.75;
     this.chestPitch = chase1(this.sPitch, pitch * DEG, K, Z, dt) + chase1(this.kFoldPitch, 0, 120, 0.45, dt) - chase1(this.kRock, 0, 150, 0.5, dt) * (0.4 + 0.6 * Math.max(stun, 0.4));
     this.chestRoll = chase1(this.sRoll, roll * DEG, K, Z, dt) + chase1(this.kFoldRoll, 0, 110, 0.4, dt);
-    this.chestYaw = chase1(this.sChestYaw, chestYaw, K, Z, dt);
+    this.chestYaw = chase1(this.sChestYaw, chestYaw + shapeYaw, K, Z, dt);
     this.shrug = chase1(this.sShrug, shrug, K, Z, dt);
-    this.hipDrop = chase1(this.sDrop, drop, 420, 0.7, dt);
+    this.hipDrop = chase1(this.sDrop, drop, 420, 0.7, dt) + Math.max(0, chase1(this.kSag, 0, 70, 0.6, dt));
     this.hipFwd = chase1(this.sFwd, fwd, K, Z, dt);
     this.hipLat = chase1(this.sLat, lat, 120, 0.8, dt);
     this.hipYaw = chase1(this.sHipYaw, hipYaw, K, Z, dt);
@@ -215,8 +254,14 @@ export class Reads {
     this.heelRear = c.rigBounceHeel * (1 - f.flat) * (1 - 0.6 * post);
     // The head: whip on a loose spring; rocks back with a blocked shot; hangs when winded.
     this.headYaw = chase1(this.kWhipYaw, 0, 90, 0.38, dt);
-    this.headPitch = chase1(this.kWhipPitch, 0, 90, 0.4, dt) + this.kRock.x * 0.6 - buckle * 14 * DEG - fatigue * 4 * DEG;
+    this.headPitch = chase1(this.kWhipPitch, 0, 70, 0.4, dt) + this.kRock.x * 0.6 - buckle * 14 * DEG - fatigue * 6 * DEG + chase1(this.sShapeHead, shapeHead, 200, 0.8, dt);
     this.headRoll = clinch * 16 * DEG * leadSign;
+    // Clinch: the head goes forward and to its own lead side — onto the other man's shoulder; his does the same, so they pass.
+    this.headFwd = clinch * c.rigClinchHead; this.headLat = clinch * c.rigClinchHead * leadSign;
+    // Covering up after a body shot: quick down, slow back.
+    if (this.coverT > 0) this.coverT = Math.max(0, this.coverT - dt);
+    const cu = this.coverT > 0 ? 1 - this.coverT / this.coverDur : 1;
+    this.cover = this.coverT > 0 ? smooth(cu / 0.18) * (1 - smooth((cu - 0.55) / 0.45)) : 0;
     this.wobble = winded ? 0 : 1;
     this.breathRate = lerp(1, c.rigBreathTired, fatigue) * (winded ? 1.5 : 1);
     this.breathAmp = lerp(1, c.rigBreathTiredAmp, fatigue) * (winded ? 1.6 : 1);
@@ -249,6 +294,11 @@ export class Reads {
     this.cuts.cheekR = worse ? 0 : cut(c.rigCutFrom * 2.4);
     this.reddenHead = clamp01(dh * c.rigReddenGain);
     this.reddenBody = clamp01(db * c.rigReddenGain);
+    // By side: the body ledger split by which flank the shots landed on (events), and the liver ledger all on the right.
+    const bt = this.bodyL + this.bodyR;
+    const bShareR = bt > 0 ? this.bodyR / bt : 0.5;
+    this.reddenBodyR = clamp01((f.damage.body * 2 * bShareR + f.damage.liver * 2.5) * c.rigReddenGain);
+    this.reddenBodyL = clamp01(f.damage.body * 2 * (1 - bShareR) * c.rigReddenGain);
   }
 }
 

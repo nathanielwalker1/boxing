@@ -14,7 +14,7 @@
  * exactly, springs mid-flight. `over` lays fields over a side's state for the
  * whole run (a spent fighter, a clinch) — see RigProbe.override.
  */
-import { NULL_INPUT, ROSTER, SIM_DT, cloneInput, type Config, type FighterState, type FrameInput, type Side, type SimEvent, type SimState } from '../core';
+import { NULL_INPUT, ROSTER, SIM_DT, cloneInput, type Config, type FighterState, type FrameInput, type HitGrade, type Side, type SimEvent, type SimState } from '../core';
 import { createState, step } from '../sim';
 
 export interface ReplayFeed {
@@ -27,9 +27,10 @@ export interface ReplayFeed {
 
 declare global {
   interface Window {
-    __rigReplay?: (dist: number, script: readonly Partial<FrameInput>[], ticks: number, script1?: readonly Partial<FrameInput>[], over?: readonly (Partial<FighterState> | null)[]) => void;
+    __rigReplay?: (dist: number, script: readonly Partial<FrameInput>[], ticks: number, script1?: readonly Partial<FrameInput>[], opts?: readonly (Partial<FighterState> | null)[] | ReplayOpts) => void;
   }
 }
+export interface ReplayOpts { over?: readonly (Partial<FighterState> | null)[]; grade?: HitGrade | null }
 /** main.ts's own hooks, as this file needs them (declared there; optional here because a host need not have them). */
 interface HostHooks {
   __replay?: (dist: number, script: readonly Partial<FrameInput>[], ticks: number, script1?: readonly Partial<FrameInput>[]) => void;
@@ -40,18 +41,23 @@ export function installRigReplay(cfg: Config, feeds: () => Partial<Record<Side, 
   if (typeof window === 'undefined' || window.__rigReplay) return;
   // The run is cached while the scenario is the same and time moves forward, so a strip costs one pass, not N.
   let key = '', at = -1, s: SimState | null = null;
-  window.__rigReplay = (dist, script, ticks, script1 = [], over = []) => {
+  window.__rigReplay = (dist, script, ticks, script1 = [], opts = []) => {
+    // `opts` is the per-side override list, or { over, grade }: `grade` re-labels every landed punch for the VIEWS
+    // (the sim's own grade stands), so the same punch can be filmed as a glancing, a clean and a flush one.
+    const over = Array.isArray(opts) ? opts : (opts as ReplayOpts).over ?? [];
+    const grade = Array.isArray(opts) ? null : (opts as ReplayOpts).grade ?? null;
     const f = feeds();
     const host = window as unknown as HostHooks;
     const shown = host.__states?.() ?? [];
     const specs = [0, 1].map(i => ROSTER.find(r => r.id === shown[i]?.specId) ?? ROSTER[i]!);
-    const k = JSON.stringify([dist, script, script1, over, specs.map(x => x.id)]);
+    const k = JSON.stringify([dist, script, script1, over, grade, specs.map(x => x.id)]);
     for (const side of [0, 1] as const) { f[side]?.freeze(false); f[side]?.override?.(over[side] ?? null); }
     const idle = cloneInput(NULL_INPUT);
     const tick = (inputs: [FrameInput, FrameInput]): void => {
       const r = step(s!, inputs, cfg);
       for (const side of [0, 1] as const) {
-        const ev = r.events.filter(e => !('side' in e) || e.side === side || ('target' in e && e.target === side));
+        const ev = r.events.filter(e => !('side' in e) || e.side === side || ('target' in e && e.target === side))
+          .map(e => (grade && e.type === 'punchLand' ? { ...e, grade } : e));
         f[side]?.feed(s!.fighters[side], r.state.fighters[side], ev);
       }
       s = r.state;

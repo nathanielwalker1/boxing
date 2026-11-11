@@ -75,6 +75,8 @@ export interface RigProbe {
   override?: (o: Partial<FighterState> | null) => void;
   /** Sweat droplets in the air right now (tests). */
   sprayCount?: () => number;
+  /** The drawn feet's WORLD positions, lead then rear (the pivot's planted foot is measured with this). */
+  footPos?: () => [Vec3, Vec3];
   /** Filmstrips (rig/replay.ts): one sim tick with its events at the fixed step; and hold the pose after. */
   feed?: (prev: FighterState, next: FighterState, events: readonly SimEvent[]) => void;
   freeze?: (on: boolean) => void;
@@ -428,9 +430,17 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     reads.step(prev, next, alpha, dt, events, c, readLocal, latSign[punchIdx]!, leadSign);
     for (const h of reads.hits) {
       fireBodySquash(h.part, h.dir, h.squash, h.squashDur);
-      if (h.spray > 0) spray.burst(h.spray, h.at, h.dir, c.rigSpraySpeed);
+      if (h.spray > 0) {
+        // Off the FAR side of the head (the way the punch is going), not from the contact point: thrown from the
+        // contact they sat on the face like paint for the first frames (phase 3 film).
+        const dl = Math.hypot(h.dir.x, h.dir.y, h.dir.z) || 1, off = body.headR * 2.3;   // right through to the back of the skull: at 1.25 R they started INSIDE the head and only the stragglers showed
+        v2.set(h.at.x + h.dir.x / dl * off, h.at.y + body.headR * 0.3, h.at.z + h.dir.z / dl * off);
+        spray.burst(h.spray, v2, h.dir, c.rigSpraySpeed, c.rigSpraySize, c.rigSprayLife);
+      }
     }
     spray.update(dt);
+    // Clinch: the drawn head leans onto the other man's shoulder (the head sphere stays; nobody is hit in a clinch).
+    headL.x += reads.headFwd; headL.z += reads.headLat;
     const st = stanceParams(next, c);
 
     // 3. Idle life: slow breath + drift, and on top the boxer's rhythm — knees
@@ -574,7 +584,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const fallG = cause === 'flash' ? c.rigFallGravity * 2.2 : c.rigFallGravity;
       // Getting up, the hips come off the canvas to kneeling height before the torso is upright.
       const hipDrop = Math.min(hipDropMax, 0.5 * fallG * tf * tf) * (1 - 0.62 * Math.min(1, up * 1.25));
-      Hf.copy(H).addScaledVector(fallDir, (hipDrop / hipDropMax) * c.rigFallSlide * (cause === 'flash' ? 0.5 : 1));
+      // Laid out (not folded, not sat down) the hips go on sliding until the legs are nearly straight: with the
+      // feet planted and only rigFallSlide of travel he lay knees-up like a sit-up (phase 2 strip). It comes back as he gets up.
+      const laid = cause === 'body' || cause === 'flash' ? 0 : smoothstep((0.5 * c.rigFallTip * tf * tf) / (80 * DEG)) * (1 - Math.min(1, up * 1.6));
+      Hf.copy(H).addScaledVector(fallDir, (hipDrop / hipDropMax) * c.rigFallSlide * (cause === 'flash' ? 0.5 : 1) + laid * c.rigFallLaySlide);
       Hf.y = H.y - hipDrop + liftY;
       // Torso tips about the hips along the fall line, accelerating, until it lies; a damped bounce on landing.
       const thetaMax = (cause === 'flash' ? 42 : cause === 'body' ? 66 : 88) * DEG;
@@ -742,7 +755,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
         gl.set(elbowJ[i]!.x + body.forearm * 0.3, elbowJ[i]!.y - body.forearm * 0.95, elbowJ[i]!.z + latSign[i]! * 0.03);
       }
       // Reads on the drawn arm root (a few cm, non-hitbox): the shoulders hunch or slump, and a feint twitches the punching one.
-      sh.y += shrug;
+      sh.y += shrug + (i === 0 ? reads.shrugLead : 0);
       if ((next.punch.hand === 'lead') === (i === 0)) sh.x += reads.feintReach;
       // Clinch and push-off: the sim leaves the gloves at the guard (nobody can punch in a clinch; a shove has no
       // fist), so the DRAWN arms leave the sim's joints for these two — wrapped round the other man, or both
@@ -750,11 +763,23 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const tie = Math.max(reads.clinch, reads.push);
       if (tie > 1e-3 && fallK < 0.5) {
         if (reads.push >= reads.clinch) v2.set(S.x + 0.2 + 0.34 * reads.push, S.y - 0.1, S.z + latSign[i]! * 0.11);
-        else v2.set(S.x + 0.44, S.y + (i === 0 ? 0.04 : -0.16), S.z - latSign[i]! * 0.1);   // lead arm over the shoulder, rear arm under: a tie-up, crossed to the far side
+        // The tie-up goes ROUND him, not through him: each arm stays on its own side, past his ribs to his back —
+        // the lead arm over his arm at shoulder height, the rear arm under at the waist. (Phase 2 crossed them to
+        // the far side and they passed through his chest.)
+        else v2.set(S.x + 0.56, S.y + (i === 0 ? 0.03 : -0.2), S.z + latSign[i]! * 0.21);
         gl.lerp(v2, tie);
-        pole.set(0, -0.6, latSign[i]!);
+        pole.set(0, -0.3, latSign[i]!);
         solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
         elbowJ[i]!.lerp(ik.mid, tie);
+      }
+      // Covering up: after a clean body shot the elbow on that side drops to the ribs and the glove comes down with it.
+      const mineBusy = next.punch.type !== null && (next.punch.hand === 'lead') === (i === 0);
+      if (reads.cover > 1e-3 && latSign[i] === reads.coverSide && !mineBusy && fallK < 0.5 && tie < 0.5) {
+        v2.set(H.x + 0.15, H.y + 0.3, H.z + latSign[i]! * 0.16);
+        gl.lerp(v2, reads.cover * 0.9);
+        pole.set(-0.5, -1, latSign[i]! * 0.25);
+        solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
+        elbowJ[i]!.lerp(ik.mid, reads.cover * 0.9);
       }
       elbowCleared[i] = false;
       let stretch = 1;
@@ -812,8 +837,15 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       stepStyle.lateral = lateralTravel;
       if (i === 0 && next.pivot.dir !== 0) {
         // The pivot: the body swings round the planted lead foot — it stays on the sim's pivot point, turning with him.
+        // MEASURED (scripts/_debug.mjs pivot): once there the drawn foot is 0.0 cm off the sim's point for the whole
+        // pivot — but it got there by teleporting 28 cm in one tick (the sim plants the foot pivotReach ahead). It
+        // now takes a quick step to the point (≈ 4 ticks) and plants.
         footDesired.x = next.pivot.cx; footDesired.z = next.pivot.cz;
-        feet[0].snap(footDesired);
+        footRest.x = footDesired.x; footRest.z = footDesired.z;
+        const off = Math.hypot(feet[0].out.x - footDesired.x, feet[0].out.z - footDesired.z);
+        if (feet[0].stepping) feet[0].update(footDesired, footRest, stepStyle, dt, c, feet[1]);
+        else if (off > 0.03) feet[0].stepNow(footDesired, c, 0.3);
+        else feet[0].snap(footDesired);
       } else if (reads.airborne > 0) {
         // The burst: both feet leave the canvas and travel with him; they land where the hop ends.
         feet[i]!.snap(footDesired);
@@ -923,7 +955,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const u = mat!.uniforms;
     u.uSweat.value += (Math.max(bodyTarget.sweat, reads.sweat) - u.uSweat.value) * kF;
     u.uRedden.value.x += (Math.max(bodyTarget.reddenHead, reads.reddenHead) - u.uRedden.value.x) * kF;
-    u.uRedden.value.y += (Math.max(bodyTarget.reddenBody, reads.reddenBody) - u.uRedden.value.y) * kF;
+    u.uRedden.value.y += (Math.max(bodyTarget.reddenBody, reads.reddenBodyR) - u.uRedden.value.y) * kF;   // the torso's right (the liver side)
+    u.uRedden.value.z += (Math.max(bodyTarget.reddenBody, reads.reddenBodyL) - u.uRedden.value.z) * kF;   // and its left
     // Cuts and swelling are painted into the damage layer; repaint only when one has moved a step.
     let key = '';
     for (const p of CUT_PLACES) { const sev = Math.max(cuts[p] ?? 0, reads.cuts[p]); mergedCuts[p] = sev; key += Math.round(sev * 12) + ','; }
@@ -955,6 +988,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   probe.freeze = (on): void => { frozen = on; };
   if (probing) installRigReplay(cfg, () => (window.__rig ?? {}) as Partial<Record<Side, ReplayFeed>>);
   probe.sprayCount = (): number => spray.active;
+  probe.footPos = () => [{ x: feet[0].out.x, y: feet[0].out.y, z: feet[0].out.z }, { x: feet[1].out.x, y: feet[1].out.y, z: feet[1].out.z }];
 
   return {
     side,
