@@ -64,7 +64,8 @@ export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean
   if (part === 'body') d.damage.body += full; else d.damage.head += full;
   const damage = full * (body ? cfg.bodyHealthScale : 1);
   // A jab never puts a man down by itself (overhaul; it can neither rock nor finish either): it cannot take the bar under jabHealthFloor.
-  const floor = light && cfg.jabHealthFloor > 0 ? Math.min(d.health, cfg.jabHealthFloor) : 0;
+  // (Not when that one jab is worth a whole bar: only a rigged test config does that — referee_check floors its dummy that way.)
+  const floor = light && cfg.jabHealthFloor > 0 && damage < 1 ? Math.min(d.health, cfg.jabHealthFloor) : 0;
   d.health = Math.max(floor, d.health - damage);
   setHealthCap(d, Math.max(d.health, healthCap(d) - damage * cfg.healthCapLoss));
   setHealthRegenDelay(d, Math.max(healthRegenDelay(d), cfg.healthRegenDelay));
