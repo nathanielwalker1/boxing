@@ -55,7 +55,84 @@ export const SCENARIOS = {
   push: { dist: 0.6, s0: hold(at({ 4: { move: { x: 0, y: 1 } }, 5: { move: { x: 0, y: 1 } } }), 'block', 0, 12), s1: [], from: 0, to: 46, step: 2 },
   // The everyday exchange with side 0 drawn spent and marked up (fatigue, flat feet, damage ledgers) against a fresh man.
   tired: { dist: 0.85, s0: at({ 2: { jab: true }, 10: { cross: true } }), s1: at({ 22: { jab: true } }), over: [{ fatigue: 1, flat: 1, stamina: 0.05, staminaCap: 0.45, wear: 0.4, damage: { head: 0.7, body: 0.5, liver: 0.25 } }, null], from: 0, to: 69, step: 3 },
+
+  // ── RIG phase 3: everything that was wired and never filmed. Rows of the sheets below are 8 frames each. ──
+  // GRADES: the same cross on the same man, re-labelled for the views (`grade`): a brush, a clean shot, a flush one.
+  grade_glancing: { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], grade: 'glancing', from: 16, to: 44, step: 4 },
+  grade_clean: { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], grade: 'clean', from: 16, to: 44, step: 4 },
+  grade_flush: { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], grade: 'flush', from: 16, to: 44, step: 4 },
+  // The same flush cross on a man who is wet (sweat ≈ 1): the spray, under the ring light.
+  spray: { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], grade: 'flush', over: [null, { fatigue: 0.8, staminaCap: 0.5 }], from: 18, to: 46, step: 4 },
+  // GUARD: a blocked cross and a blocked hook (block stun by weight); the same cross on a nearly spent guard; the guard broken.
+  block_cross: { dist: 0.79, s0: at({ 12: { cross: true } }), s1: hold([], 'block', 0, 60), from: 22, to: 50, step: 4 },
+  block_hook: { dist: 0.7, s0: at({ 12: { hook: true, move: { x: -1, y: 0 } } }), s1: hold([], 'block', 0, 60), from: 22, to: 50, step: 4 },
+  guard_worn: { dist: 0.79, s0: at({ 12: { cross: true } }), s1: hold([], 'block', 0, 60), over: [null, { guardHp: 0.12 }], from: 22, to: 50, step: 4 },
+  guard_break: { dist: 0.79, s0: at({ 12: { cross: true } }), s1: hold([], 'block', 0, 90), cfg: { guardWearPerImpulse: 0.008 }, from: 24, to: 80, step: 8 },
+  guard_droop: { dist: 0.85, s0: [], s1: [], over: [{ guardDroop: 0.1, fatigue: 1, flat: 1, staminaCap: 0.5 }, null], from: 0, to: 56, step: 8 },
+  // FOOTWORK: two styles at rest then stepping in (the swarmer's quick deep bounce, the outboxer's); flat-footed; on the ropes.
+  bounce_swarmer: { dist: 1.9, ids: ['boiler'], s0: at(Object.fromEntries(Array.from({ length: 22 }, (_, i) => [28 + i, { move: { x: 0, y: 1 } }]))), s1: [], from: 0, to: 56, step: 8 },
+  bounce_outboxer: { dist: 1.9, ids: ['blue'], s0: at(Object.fromEntries(Array.from({ length: 22 }, (_, i) => [28 + i, { move: { x: 0, y: 1 } }]))), s1: [], from: 0, to: 56, step: 8 },
+  flat_feet: { dist: 1.9, s0: at(Object.fromEntries(Array.from({ length: 22 }, (_, i) => [28 + i, { move: { x: 0, y: 1 } }]))), s1: [], over: [{ flat: 1, fatigue: 1 }, null], from: 0, to: 56, step: 8 },
+  ropes: { dist: 0.9, s0: [], s1: [], over: [{ ropes: 1, cornered: true }, null], from: 0, to: 56, step: 8 },
+  // VARIANTS, attacker in frame, each beside its base punch.
+  v_jab: { dist: 0.9, s0: at({ 2: { jab: true } }), s1: [], from: 2, to: 30, step: 4 },
+  v_step_jab: { dist: 1.05, s0: at({ 2: { jab: true, move: { x: 0, y: 1 } } }), s1: [], from: 2, to: 30, step: 4 },
+  v_retreat_jab: { dist: 0.9, s0: at({ 2: { jab: true, move: { x: 0, y: -1 } } }), s1: [], from: 2, to: 30, step: 4 },
+  v_body_jab: { dist: 0.9, s0: hold(at({ 10: { jab: true } }), 'level', 0, 26), s1: [], from: 10, to: 38, step: 4 },
+  v_cross: { dist: 0.9, s0: at({ 2: { cross: true } }), s1: [], from: 2, to: 30, step: 4 },
+  v_body_cross: { dist: 0.9, s0: hold(at({ 10: { cross: true } }), 'level', 0, 30), s1: [], from: 10, to: 38, step: 4 },
+  v_overhand: { dist: 0.9, s0: hold(at({ 10: { cross: true, move: { x: 0, y: 1 } } }), 'level', 0, 30), s1: [], from: 10, to: 38, step: 4 },
+  v_hook: { dist: 0.75, s0: at({ 2: { hook: true, move: { x: -1, y: 0 } } }), s1: [], from: 2, to: 30, step: 4 },
+  v_check_hook: { dist: 0.75, s0: at({ 2: { hook: true, move: { x: -0.5, y: -1 } } }), s1: [], from: 2, to: 30, step: 4 },
+  v_shovel_hook: { dist: 0.55, s0: at({ 2: { hook: true, move: { x: -1, y: 0 } } }), s1: [], from: 2, to: 30, step: 4 },
+  v_rising_hook: { dist: 0.75, s0: hold(at({ 14: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 10), s1: [], from: 10, to: 38, step: 4 },
+  v_uppercut: { dist: 0.7, s0: at({ 2: { uppercut: true, move: { x: 1, y: 0 } } }), s1: [], from: 2, to: 30, step: 4 },
+  v_inside_uppercut: { dist: 0.55, s0: at({ 2: { uppercut: true, move: { x: 1, y: 0 } } }), s1: [], from: 2, to: 30, step: 4 },
+  v_rising_uppercut: { dist: 0.7, s0: hold(at({ 10: { uppercut: true, move: { x: 1, y: 0 } } }), 'level', 0, 18), s1: [], from: 10, to: 38, step: 4 },
+  v_feint: { dist: 0.9, s0: hold(at({ 2: { cross: true } }), 'block', 5, 8), s1: [], from: 2, to: 30, step: 4 },
+  // GUARD SHAPES by style, at rest (t ≤ 16) and blocking (held from t = 20).
+  g_high: { dist: 1.2, ids: ['red'], s0: hold([], 'block', 20, 60), s1: [], from: 4, to: 46, step: 6 },
+  g_shell: { dist: 1.2, ids: ['alambre'], s0: hold([], 'block', 20, 60), s1: [], from: 4, to: 46, step: 6 },
+  g_peekaboo: { dist: 1.2, ids: ['boiler'], s0: hold([], 'block', 20, 60), s1: [], from: 4, to: 46, step: 6 },
+  g_long: { dist: 1.2, ids: ['blue'], s0: hold([], 'block', 20, 60), s1: [], from: 4, to: 46, step: 6 },
+  g_low: { dist: 1.2, ids: ['raffle'], s0: hold([], 'block', 20, 60), s1: [], from: 4, to: 46, step: 6 },
+  // BODY-SHOT DETAIL, close on the man who takes it: the fold, the elbow dropping to cover, then the buckle; liver side marked.
+  body_detail: { dist: 0.7, s0: hold(at({ 12: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], grade: 'clean', over: [null, { damage: { head: 0, body: 0.25, liver: 0.3 } }], cfg: { camDistMin: 1.9, camLookY: 1.15 }, focus: 1, from: 24, to: 86, step: 3 },
+  // FATIGUE AND DAMAGE on the face and chest, close (lookbook distance) — and the same man from the play camera.
+  face_close: { dist: 1.3, s0: [], s1: [], over: [{ fatigue: 1, flat: 1, staminaCap: 0.45, wear: 0.4, guardDroop: 0.06, damage: { head: 0.75, body: 0.4, liver: 0.2 } }, null], cfg: { camDistMin: 1.15, camLookY: 1.5 }, focus: 0, from: 0, to: 70, step: 10 },
+  face_play: { dist: 1.3, s0: [], s1: [], over: [{ fatigue: 1, flat: 1, staminaCap: 0.45, wear: 0.4, guardDroop: 0.06, damage: { head: 0.75, body: 0.4, liver: 0.2 } }, null], from: 0, to: 70, step: 10 },
+  // THE GET-UP, phase by phase, close: the view is told he is down at each phase (a slump cannot be rolled on demand).
+  up_down: { dist: 1.2, s0: [], s1: [], over: [null, { down: true, downT: 3, getUp: { phase: 'down', t: 0, tries: 0, owed: true } }], cfg: { camDistMin: 2.6, camLookY: 0.6 }, focus: 1, from: 30, to: 100, step: 10 },
+  up_stir: { dist: 1.2, s0: [], s1: [], over: [null, { down: true, downT: 3, getUp: { phase: 'stir', t: 0, tries: 0, owed: true } }], cfg: { camDistMin: 2.6, camLookY: 0.6 }, focus: 1, from: 30, to: 100, step: 10 },
+  up_knee: { dist: 1.2, s0: [], s1: [], over: [null, { down: true, downT: 3, getUp: { phase: 'knee', t: 0, tries: 1, owed: true } }], cfg: { camDistMin: 2.6, camLookY: 0.6 }, focus: 1, from: 30, to: 100, step: 10 },
+  up_slump: { dist: 1.2, s0: [], s1: [], over: [null, { down: true, downT: 3, getUp: { phase: 'slump', t: 0, tries: 1, owed: true } }], cfg: { camDistMin: 2.6, camLookY: 0.6 }, focus: 1, from: 30, to: 100, step: 10 },
+  up_rise: { dist: 1.2, s0: [], s1: [], over: [null, { down: true, downT: 3, getUp: { phase: 'rise', t: 0, tries: 2, owed: true } }], cfg: { camDistMin: 2.6, camLookY: 0.6 }, focus: 1, from: 30, to: 100, step: 10 },
 };
+
+/** Sheets: several scenarios stacked as labelled rows (`node scripts/filmstrip.mjs grades after` → docs/overhaul/strip_grades_after.png). */
+export const SHEETS = {
+  grades: ['grade_glancing', 'grade_clean', 'grade_flush', 'spray'],
+  guard: ['block_cross', 'block_hook', 'guard_worn', 'guard_break', 'guard_droop'],
+  feet: ['bounce_swarmer', 'bounce_outboxer', 'flat_feet', 'ropes'],
+  variants: ['v_jab', 'v_step_jab', 'v_retreat_jab', 'v_body_jab', 'v_cross', 'v_body_cross', 'v_overhand', 'v_hook', 'v_check_hook', 'v_shovel_hook', 'v_rising_hook', 'v_uppercut', 'v_inside_uppercut', 'v_rising_uppercut', 'v_feint'],
+  guards: ['g_high', 'g_shell', 'g_peekaboo', 'g_long', 'g_low'],
+  getup: ['up_down', 'up_stir', 'up_knee', 'up_slump', 'up_rise'],
+  face: ['face_close', 'face_play'],
+};
+
+// Sheet rows are READ AT FULL SIZE, so they are short — four frames round the moment that matters — and the camera
+// is on the man the row is about. (The first cut was 8 frames a row from the pair camera: at sheet size the target
+// was a thumbnail behind the attacker's back and nothing about him could be judged.)
+const NEAR = { camDistMin: 1.9, camLookY: 1.3 };
+const tune = (names, o) => { for (const n of names) { const sc = SCENARIOS[n]; Object.assign(sc, typeof o === 'function' ? o(sc) : o, { cfg: { ...(sc.cfg ?? {}), ...((typeof o === 'function' ? o(sc) : o).cfg ?? {}) } }); } };
+tune(SHEETS.grades, { from: 18, to: 33, step: 5, focus: 1, cfg: NEAR });
+tune(['block_cross', 'block_hook', 'guard_worn'], { from: 24, to: 39, step: 5, focus: 1, cfg: NEAR });
+tune(['guard_break'], { from: 26, to: 74, step: 16, focus: 1, cfg: NEAR });
+tune(['guard_droop'], { from: 10, to: 40, step: 10, focus: 0, cfg: NEAR });
+tune(SHEETS.feet, { from: 4, to: 52, step: 16, focus: 0, cfg: { camDistMin: 2.6, camLookY: 0.9 } });
+tune(SHEETS.variants, sc => ({ to: sc.from + 18, step: 6, focus: 0, cfg: { camDistMin: 2.3, camLookY: 1.05 } }));
+tune(SHEETS.guards, { from: 10, to: 40, step: 30, focus: 0, cfg: NEAR });
+tune(SHEETS.getup, { from: 60, to: 100, step: 40 });
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -83,17 +160,22 @@ await page.evaluate(() => {
   window.__focus = -1;
 });
 
-for (const name of run) {
-  const sc = SCENARIOS[name];
-  if (!sc) { console.error(`no scenario '${name}' (have: ${Object.keys(SCENARIOS).join(', ')})`); process.exit(2); }
+/** Shoot one scenario; returns its frame files and ticks. */
+async function shoot(name, sc) {
   const files = [], ticks = [];
   // The scenario's own config, for this strip only.
   const restore = await page.evaluate(over => { const was = {}; for (const k in over) { was[k] = window.__cfg[k]; window.__cfg[k] = over[k]; } return was; }, sc.cfg ?? {});
+  // `ids`: the roster fighter on side 0 (the other side is whoever __look pairs him with), e.g. to film a style's guard.
+  // Always (re)seat the fighters, so a scenario filmed after another fighter's is not left with him: red v blue unless `ids` says.
+  await page.evaluate(id => { window.__look(id, 'rest', 0); }, sc.ids?.[0] ?? 'red');
+  await frames(page, 4);   // a new fighter rebuilds his view
+  await page.evaluate(focus => { window.__cfg.rigQuality = 1; window.__focus = focus; }, sc.focus ?? -1);
   for (let t = sc.from; t <= sc.to; t += sc.step) {
     // window.__rigReplay (src/rig/replay.ts) runs the same deterministic sim and ALSO feeds every tick's events
     // through the two views, so what the rig draws from events and springs (graded squash, head whip, sweat,
     // the fall, the get-up) is in the frame; then it calls __replay for the host's pose and camera.
-    await page.evaluate(([dist, s0, s1, t, over]) => (window.__rigReplay ?? window.__replay)(dist, s0.map(x => x ?? {}), t, s1.map(x => x ?? {}), over), [sc.dist, Array.from(sc.s0, x => x ?? null), Array.from(sc.s1, x => x ?? null), t, sc.over ?? []]);
+    // `grade` re-labels landed punches for the views only, so one punch can be filmed at each grade.
+    await page.evaluate(([dist, s0, s1, t, over, grade]) => (window.__rigReplay ?? window.__replay)(dist, s0.map(x => x ?? {}), t, s1.map(x => x ?? {}), { over, grade }), [sc.dist, Array.from(sc.s0, x => x ?? null), Array.from(sc.s1, x => x ?? null), t, sc.over ?? [], sc.grade ?? null]);
     await frames(page, 3);
     const f = `${FRAMES}/${name}_t${String(t).padStart(3, '0')}.png`;
     // A capture occasionally stalls on the first frame of a scenario on software GL (seen three times, cause not
@@ -104,8 +186,13 @@ for (const name of run) {
     });
     files.push(f); ticks.push(t);
   }
-  await page.evaluate(was => { Object.assign(window.__cfg, was); for (const s of [0, 1]) { window.__rig?.[s]?.override?.(null); window.__rig?.[s]?.freeze?.(false); } }, restore);
-  const sheet = await page.evaluate(async ({ imgs, ticks, w, h, cols }) => {
+  await page.evaluate(was => { Object.assign(window.__cfg, was); window.__focus = -1; for (const s of [0, 1]) { window.__rig?.[s]?.override?.(null); window.__rig?.[s]?.freeze?.(false); } }, restore);
+  return { files, ticks };
+}
+
+/** Lay frames out as a grid; `labels[i]` is drawn on frame i. */
+async function assemble(files, labels, cols, path) {
+  const sheet = await page.evaluate(async ({ imgs, labels, w, h, cols }) => {
     const rows = Math.ceil(imgs.length / cols);
     const canvas = document.createElement('canvas');
     canvas.width = w * cols; canvas.height = h * rows;
@@ -116,12 +203,40 @@ for (const name of run) {
       const img = await new Promise(res => { const im = new Image(); im.onload = () => res(im); im.src = imgs[i]; });
       const x = (i % cols) * w, y = Math.floor(i / cols) * h;
       g.drawImage(img, x, y, w, h);
-      g.fillStyle = '#fff'; g.fillText(`t=${ticks[i]}`, x + 6, y + 16);
+      g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(x, y, g.measureText(labels[i]).width + 12, 20);
+      g.fillStyle = '#fff'; g.fillText(labels[i], x + 6, y + 14);
     }
     return canvas.toDataURL('image/png');
-  }, { imgs: files.map(f => 'data:image/png;base64,' + readFileSync(f).toString('base64')), ticks, w: W, h: H, cols: COLS });
-  const path = `${OUT}/${label ? `strip_${name}_${label}` : name}.png`;
+  }, { imgs: files.map(f => 'data:image/png;base64,' + readFileSync(f).toString('base64')), labels, w: W, h: H, cols });
   writeFileSync(path, Buffer.from(sheet.split(',')[1], 'base64'));
+}
+
+for (const name of run) {
+  const rowsOf = SHEETS[name];
+  if (rowsOf) {
+    // A sheet: one row per scenario, the scenario's name on its first frame.
+    const files = [], labels = [];
+    let cols = 0;
+    for (const rowName of rowsOf) {
+      const r = await shoot(rowName, SCENARIOS[rowName]);
+      cols = Math.max(cols, r.files.length);
+    }
+    for (const rowName of rowsOf) {
+      const sc = SCENARIOS[rowName];
+      let i = 0;
+      for (let t = sc.from; t <= sc.to; t += sc.step, i++) { files.push(`${FRAMES}/${rowName}_t${String(t).padStart(3, '0')}.png`); labels.push(i === 0 ? `${rowName}  t=${t}` : `t=${t}`); }
+      for (; i < cols; i++) { files.push(files[files.length - 1]); labels.push(''); }
+    }
+    const path = `${OUT}/${label ? `strip_${name}_${label}` : name}.png`;
+    await assemble(files, labels, cols, path);
+    console.log(`${name} → ${path} (${rowsOf.length} rows × ${cols})`);
+    continue;
+  }
+  const sc = SCENARIOS[name];
+  if (!sc) { console.error(`no scenario or sheet '${name}' (scenarios: ${Object.keys(SCENARIOS).join(', ')}; sheets: ${Object.keys(SHEETS).join(', ')})`); process.exit(2); }
+  const { files, ticks } = await shoot(name, sc);
+  const path = `${OUT}/${label ? `strip_${name}_${label}` : name}.png`;
+  await assemble(files, ticks.map(t => `t=${t}`), COLS, path);
   console.log(`${name} → ${path} (${files.length} frames)`);
 }
 await browser.close();

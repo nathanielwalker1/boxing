@@ -48,7 +48,7 @@ export interface RigUniforms {
   uGlowColor: { value: THREE.Color };
   uSweat: { value: number };
   /** x = head, y = body. */
-  uRedden: { value: THREE.Vector2 };
+  uRedden: { value: THREE.Vector3 };
   uDamage: { value: THREE.Texture | null };
 }
 
@@ -71,7 +71,7 @@ uniform vec3 uRimColor;
 uniform float uGlow;
 uniform vec3 uGlowColor;
 uniform float uSweat;
-uniform vec2 uRedden;
+uniform vec3 uRedden;
 uniform sampler2D uDamage;
 uniform float uScatter;
 uniform vec3 uScatterColor;
@@ -138,7 +138,12 @@ float sweat = uSweat * kSkin;
   vec3 dmg = texture2D( uDamage, vMapUv ).rgb;
   // Reddening: blotchy, strongest where the damage layer says the skin marks.
   float blotch = 0.55 + 0.45 * rigNoise( vMapUv * 90.0 );
-  float red = kSkin * saturate( mix( uRedden.y, uRedden.x, kFace ) * ( 0.35 + 0.65 * dmg.r ) * blotch );
+  // uRedden = (head, the torso's right side, its left). The torso is the atlas's top-left block (atlas.ts) and its
+  // u runs from the fighter's right (0) round the front to his left, so the liver side can be redder than the other.
+  float inTorso = step( vMapUv.x, 0.5 ) * step( 0.594, vMapUv.y );
+  float onRight = 1.0 - smoothstep( 0.19, 0.31, vMapUv.x );
+  float bodyRed = mix( 0.5 * ( uRedden.y + uRedden.z ), mix( uRedden.z, uRedden.y, onRight ), inTorso );
+  float red = kSkin * saturate( mix( bodyRed, uRedden.x, kFace ) * ( 0.35 + 0.65 * dmg.r ) * blotch );
   albedo = mix( albedo, albedo * vec3( 1.22, 0.52, 0.5 ) + vec3( 0.05, 0.0, 0.0 ), red * 0.8 );
   // Bruise / swelling: purple-red, darker.
   albedo = mix( albedo, albedo * vec3( 0.62, 0.3, 0.45 ) + vec3( 0.05, 0.0, 0.02 ), kSkin * saturate( dmg.g ) * 0.85 );
@@ -182,7 +187,7 @@ export function createRigMaterial(cfg: Config): RigMaterial {
   const material = new THREE.MeshPhongMaterial({ color: 0xffffff, vertexColors: true });
   const uniforms: RigUniforms = {
     uGlow: { value: 0 }, uGlowColor: { value: new THREE.Color(0xffb070) },
-    uSweat: { value: 0 }, uRedden: { value: new THREE.Vector2(0, 0) }, uDamage: { value: null },
+    uSweat: { value: 0 }, uRedden: { value: new THREE.Vector3(0, 0, 0) }, uDamage: { value: null },
   };
   if (high) material.defines = { RIG_HIGH: '' };
   material.onBeforeCompile = shader => {
