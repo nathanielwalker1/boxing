@@ -26,7 +26,19 @@ export type ReactionKind =
   | 'nearMiss'    // a slipped punch: the gasp
   | 'getUp'
   | 'bell'
-  | 'decision';
+  | 'decision'
+  // Phase 2: the new fight events.
+  | 'escape'      // off the ropes by craft: appreciation
+  | 'guardBreak'  // a guard knocked apart: the house rises
+  | 'liver'       // the liver shot lands: a wince before anything shows
+  | 'bodyHurt'    // …and he folds: the long "oooh"
+  | 'grumble'     // too much holding
+  | 'ole'         // a chain of slips (strength rises with the chain)
+  | 'knee'        // the downed man gets to a knee: a swell
+  | 'slump'       // …and falls back: a groan
+  | 'rise'        // …and stands: a roar
+  | 'wince'       // a knockdown from the body: a groan, not an eruption
+  | 'shock';      // a flash knockdown: a gasp, then the roar
 
 export interface Reaction {
   kind: ReactionKind;
@@ -58,6 +70,8 @@ export class CrowdMood {
   private hurtT = 0;
   private countT = -1;          // seconds since the knockdown while a count runs, else -1
   private bellAgo = 99;
+  private clock = 0;
+  private clinches: number[] = [];   // mood-clock times of recent clinches
   private lastPos: { x: number; z: number } | null = null;
   private listeners = new Set<Listener>();
   private forced: number | null = null;
@@ -77,6 +91,8 @@ export class CrowdMood {
       const gain: Record<ReactionKind, number> = {
         land: c.exciteLand, flush: c.exciteLand * c.exciteFlush, body: c.exciteLand, counter: c.exciteCounter, rocked: c.exciteRocked,
         knockdown: 1, ko: 1, nearMiss: c.exciteNearMiss, getUp: c.exciteGetUp, bell: c.exciteBell, decision: c.exciteBell,
+        escape: c.exciteEscape, guardBreak: c.exciteGuardBreak, liver: c.exciteLand * c.exciteFlush, bodyHurt: c.exciteBodyHurt,
+        grumble: 0, ole: c.exciteOle, knee: c.exciteGetUp * 0.6, slump: 0, rise: c.exciteGetUp, wince: c.exciteBodyHurt, shock: 1,
       };
       this.add(gain[kind] * strength);
     }
@@ -111,9 +127,39 @@ export class CrowdMood {
           this.add(c.exciteRocked); this.hurtT = Math.max(this.hurtT, e.seconds);
           this.emit('rocked');
           break;
-        case 'slip': if (e.dodged) { this.add(c.exciteNearMiss); this.emit('nearMiss', 0.6); } break;
+        case 'slip':
+          if (e.dodged) {
+            // One slip is a gasp; a chain of them is the house starting to sing along.
+            const chain = (e as { chain?: number }).chain ?? 1;
+            if (chain >= 2) { this.add(c.exciteOle * chain); this.emit('ole', Math.min(1.5, chain / 3)); }
+            else { this.add(c.exciteNearMiss); this.emit('nearMiss', 0.6); }
+          }
+          break;
         case 'punchWhiff': if (this.hurtT > 0) this.add(c.exciteNearMiss); break;
-        case 'knockdown': this.lift(1); this.hurtT = 0; this.countT = 0; this.emit('knockdown'); break;
+        case 'knockdown':
+          this.hurtT = 0; this.countT = 0;
+          if (e.cause === 'body') { this.lift(c.exciteWince); this.emit('wince'); }
+          else if (e.cause === 'flash') { this.lift(1); this.emit('shock'); }
+          else { this.lift(1); this.emit('knockdown'); }
+          break;
+        case 'escape': this.add(c.exciteEscape); this.emit('escape'); break;
+        case 'guardBreak': this.add(c.exciteGuardBreak); this.emit('guardBreak'); break;
+        case 'liverShot': this.add(c.exciteLand * c.exciteFlush); this.emit('liver'); break;
+        case 'bodyHurt':
+          this.add(c.exciteBodyHurt); this.hurtT = Math.max(this.hurtT, e.seconds);   // a winded man is chased like a rocked one
+          this.emit('bodyHurt');
+          break;
+        case 'clinch':
+          // Holding once is boxing; holding again and again inside the window is a grumble, and the house cools.
+          this.clinches = this.clinches.filter(t => this.clock - t < c.clinchGrumbleWindow);
+          this.clinches.push(this.clock);
+          if (this.clinches.length >= c.clinchGrumbleCount) { this.energy = Math.max(0, this.energy - c.exciteEscape); this.emit('grumble', Math.min(1.5, this.clinches.length / c.clinchGrumbleCount)); }
+          break;
+        case 'getUpPhase':
+          if (e.phase === 'knee') { this.lift(c.exciteGetUp * 0.8); this.emit('knee'); }
+          else if (e.phase === 'slump') this.emit('slump');
+          else if (e.phase === 'rise') { this.lift(c.exciteGetUp); this.emit('rise'); }
+          break;
         case 'getUp': this.countT = -1; this.lift(c.exciteGetUp); this.emit('getUp'); break;
         case 'ko': case 'tko': this.countT = -1; this.lift(1); this.emit('ko'); break;
         case 'decision': this.lift(c.exciteBell); this.emit('decision'); break;
@@ -134,6 +180,7 @@ export class CrowdMood {
 
   update(dt: number, c: Config): void {
     this.cfg = c;
+    this.clock += dt;
     this.bellAgo += dt;
     this.sinceLand += dt;
     if (this.hurtT > 0) { this.hurtT -= dt; this.add(c.exciteChase * dt); }

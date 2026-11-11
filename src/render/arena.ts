@@ -434,8 +434,10 @@ export class Arena {
 
   /** A reaction from the mood: a ripple through the stands from the side it happened on, and a burst of flashes on the big ones. */
   react(r: Reaction, c: Config): void {
-    const wave: Partial<Record<Reaction['kind'], number>> = { land: 0.1, body: 0.12, flush: 0.3, counter: 0.35, rocked: 0.55, knockdown: 0.9, ko: 1, nearMiss: 0.08, getUp: 0.4, bell: 0.2, decision: 0.5 };
-    const burst: Partial<Record<Reaction['kind'], number>> = { flush: 0.15, counter: 0.2, rocked: 0.5, knockdown: 1, ko: 1.3, getUp: 0.3, decision: 0.6 };
+    const wave: Partial<Record<Reaction['kind'], number>> = { land: 0.1, body: 0.12, flush: 0.3, counter: 0.35, rocked: 0.55, knockdown: 0.9, ko: 1, nearMiss: 0.08, getUp: 0.4, bell: 0.2, decision: 0.5,
+      escape: 0.15, guardBreak: 0.35, liver: 0.15, bodyHurt: 0.45, ole: 0.2, knee: 0.3, rise: 0.55, wince: 0.5, shock: 0.9 };
+    const burst: Partial<Record<Reaction['kind'], number>> = { flush: 0.15, counter: 0.35, rocked: 0.5, knockdown: 1, ko: 1.3, getUp: 0.3, decision: 0.6,
+      guardBreak: 0.2, bodyHurt: 0.3, rise: 0.4, wince: 0.6, shock: 1 };
     const w = (wave[r.kind] ?? 0) * Math.min(1.5, r.strength);
     if (w > 0 && this.crowd) {
       // The ripple starts at the ringside nearest the event: push the point out to the apron along its bearing from the centre.
