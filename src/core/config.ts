@@ -911,6 +911,12 @@ export const SCHEMA = {
   rigHeelLiftLean:         num(0.25, 0.05, 1, 0.05, 'rig', 'the forward lean (sim lean.fwd) at which the heel is fully up; a cross peaks at 0.5, an uppercut at 0.2'),
   rigMoveLeanDeg:          num(7, 0, 20, 0.5, 'rig', 'walking: the chest pitches into the direction of travel this much at top speed, degrees (forward = lean in, back = lean away, sideways = roll over the leading foot). 2026-09-16, movement feel'),
   rigMoveLeanShift:        num(0.05, 0, 0.15, 0.005, 'rig', 'walking: the hips shift this far into the direction of travel at top speed, m — the weight goes where the fighter is going, so the legs trail'),
+  rigGlovePronateDeg:      num(80, 0, 110, 5, 'rig', 'the fist turns over this far as the arm straightens (thumb in, palm down at full extension), degrees; at the guard the thumbs face the fighter'),
+  rigGloveGuardRollDeg:    num(25, -45, 90, 5, 'rig', 'at the guard the gloves are rolled in this far (palms toward each other), degrees'),
+  rigJointBlend:           num(1.15, 0.3, 2.5, 0.05, 'rig', 'elbows and knees bend as one skin: the upper bone, a half-way joint bone and the lower bone blend over this many limb radii either side of the joint'),
+  rigJointMitre:           num(0.22, 0, 1, 0.05, 'rig', 'how much of the volume a bent elbow or knee would lose is put back (the half-way bone widens in the bend plane; 1 = a true mitre, 0 = plain blended skinning, which pinches)'),
+  rigJointMitreMax:        num(1.22, 1, 2.5, 0.05, 'rig', 'cap on that widening (a fully folded elbow would otherwise spike)'),
+  rigShoulderFollow:       num(0.5, 0, 1, 0.05, 'rig', 'the deltoid and the corner of the chest turn this fraction of the way from the chest to the upper arm (0 = the shoulder stays with the chest, 1 = it is glued to the arm)'),
 
   // ── show (RENDER + audio) — overhaul 2026-11-11, "the show": the quality tier, the crowd's mood (one excitement value the stands, the flashes and the crowd audio all follow; src/render/mood.ts), the grade, ring dressing ──
   qualityTier:      num(0, 0, 2, 1, 'show', '0 = auto (low on touch / small-screen / few-core devices and on software WebGL — which is what headless test runs use; else high), 1 = low (no post, thinner crowd, no haze or motes, two key beams, small shadow map), 2 = high'),
@@ -952,13 +958,6 @@ export const SCHEMA = {
   ringCoverLen:     num(0.34, 0.05, 0.8, 0.01, 'show', 'ring dressing: length of the padded turnbuckle cover on each rope end, m'),
   ringStools:       bool(true, 'show', 'ring dressing: corner stool, bucket and bottle outside the ropes at the red and blue corners, and steps at both'),
 
-  // ── rig, continued (RIG workstream, overhaul 2026-11-11) ──
-  rigGlovePronateDeg:      num(80, 0, 110, 5, 'rig', 'the fist turns over this far as the arm straightens (thumb in, palm down at full extension), degrees; at the guard the thumbs face the fighter'),
-  rigGloveGuardRollDeg:    num(25, -45, 90, 5, 'rig', 'at the guard the gloves are rolled in this far (palms toward each other), degrees'),
-  rigJointBlend:           num(1.15, 0.3, 2.5, 0.05, 'rig', 'elbows and knees bend as one skin: the upper bone, a half-way joint bone and the lower bone blend over this many limb radii either side of the joint'),
-  rigJointMitre:           num(0.22, 0, 1, 0.05, 'rig', 'how much of the volume a bent elbow or knee would lose is put back (the half-way bone widens in the bend plane; 1 = a true mitre, 0 = plain blended skinning, which pinches)'),
-  rigJointMitreMax:        num(1.22, 1, 2.5, 0.05, 'rig', 'cap on that widening (a fully folded elbow would otherwise spike)'),
-  rigShoulderFollow:       num(0.5, 0, 1, 0.05, 'rig', 'the deltoid and the corner of the chest turn this fraction of the way from the chest to the upper arm (0 = the shoulder stays with the chest, 1 = it is glued to the arm)'),
 
   // ── rig body (RIG) — the anatomy's proportions (src/rig/anatomy.ts). Shape TABLES are authored in code; these scale them ──
   rigChestWidth:           num(0.86, 0.6, 1.1, 0.01, 'rig body', 'ribcage + lats half-width / half the shoulder-joint span (the V taper is this against rigWaistRatio)'),

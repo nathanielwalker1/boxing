@@ -58,6 +58,7 @@ await page.goto(`${DEV_URL}/?ai=0`, { waitUntil: 'networkidle', timeout: 20_000 
 await bootReady(page);
 await page.evaluate(() => {
   const c = window.__cfg;
+  c.rigQuality = 1;   // the desktop fighter mesh, even though headless software GL picks the low tier for the arena
   c.debugHitboxes = false; c.debugFps = false; c.refEnabled = false;
   c.camDriftAmp = 0; c.camFollowLambda = 1000; c.camDollyLambda = 1000;
   c.camDistMin = 2.4; c.camLookY = 1.25;   // close on the pair, as Nate plays it

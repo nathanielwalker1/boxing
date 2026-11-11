@@ -71,6 +71,12 @@ window.__cfg = cfg;
 
 const app = document.getElementById('app')!;
 const stage = new Stage(app, cfg);
+// One quality tier for the whole frame: the fighters' mesh tier (rigQuality)
+// follows the stage's tier whenever that changes (boot, or the qualityTier
+// slider). Between changes rigQuality can still be set by hand (the lookbook
+// forces the high mesh on a software-GL run).
+let rigTier = stage.tier;
+cfg.rigQuality = rigTier === 2 ? 1 : 0;
 const fps = new FpsOverlay(document.getElementById('fps')!);
 if (params.get('tune') === '1') mountTuningPanel(cfg);
 
@@ -237,6 +243,7 @@ function loop(nowMs: number): void {
   const held = paused || (flow !== null && flow.holdsSim);   // a menu / card is up: the sim waits
   frameEvents.length = 0;
   liveInput[0] = input.current();
+  if (stage.tier !== rigTier) { rigTier = stage.tier; cfg.rigQuality = rigTier === 2 ? 1 : 0; }
 
   // The fall in slow motion (Stage 3 presentation): for knockdownSlowMoSeconds
   // of wall time after a knockdown the sim is fed knockdownSlowMo of each

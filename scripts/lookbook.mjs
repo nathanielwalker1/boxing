@@ -67,6 +67,7 @@ await page.waitForFunction(() => !!(window.__tick && window.__tick.ready && wind
 void bootReady;
 await page.evaluate(() => {
   const c = window.__cfg;
+  c.rigQuality = 1;   // the desktop fighter mesh, even though headless software GL picks the low tier for the arena
   c.debugHitboxes = false; c.debugFps = false; c.refEnabled = false;
   c.camDriftAmp = 0; c.camFollowLambda = 1000; c.camDollyLambda = 1000; c.camCountLambda = 1000;
 });
