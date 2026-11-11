@@ -42,16 +42,16 @@ await page.evaluate(() => {
   c.resultsDelaySeconds = 0.5; c.flowCornerSeconds = 600; c.flowWalkSeconds = 600; c.flowStareSeconds = 600;
   try { localStorage.removeItem('longcount.ladder.v1'); } catch { /* no storage */ }
 });
-await frames(page, 20);
+await frames(page, 6);
 await shot(page, 'title');
 
 await key(page, 'Enter'); await on(page, 'select');
 await key(page, 'ArrowRight', 6); await shown(page, 'monsoon');
-await frames(page, 25);
+await frames(page, 8);
 await shot(page, 'select');
 await key(page, 'ArrowRight', 2);
 await until(page, () => window.__flow.state().shown.startsWith('gen-'), undefined, { label: 'the random fighter', timeout: 30000 });
-await frames(page, 10);
+await frames(page, 4);
 await shot(page, 'select_random');
 await key(page, 'ArrowLeft', 2); await shown(page, 'monsoon');
 
@@ -59,7 +59,7 @@ await key(page, 'Enter'); await on(page, 'opponent');
 await key(page, 'ArrowRight', 3);
 await key(page, 'ArrowDown');
 await until(page, () => window.__flow.state().shown !== 'monsoon', undefined, { label: 'the opponent on the turntable', timeout: 30000 });
-await frames(page, 20);
+await frames(page, 6);
 await shot(page, 'opponent');
 
 await key(page, 'Enter'); await on(page, 'walk');
@@ -83,16 +83,19 @@ await page.evaluate(() => {
   const c = window.__cfg;
   window.__keep = c.healthDamagePerImpulse;
   c.healthDamagePerImpulse = 1; c.getUpCountBest = 6; c.getUpCountWorst = 6; c.getUpJitter = 0;
+  const idle = { move: { x: 0, y: 0 }, jab: false, cross: false, hook: false, uppercut: false, block: false, level: false };
   window.__sim.place(0.9);
-  window.__sim.input(1, { move: { x: 0, y: 0 }, jab: false, cross: false, hook: false, uppercut: false, block: false, level: false });
-  window.__sim.script(0, [{ jab: true }]);
+  window.__sim.input(0, idle); window.__sim.input(1, idle);
 });
+// Two seconds stood in front of each other first, so the whole replay clip is this exchange (place() is a teleport).
+await until(page, () => window.__sim.state().tick > 150, undefined, { label: 'two seconds before the punch', timeout: 60000 });
+await page.evaluate(() => { window.__sim.input(0, null); window.__sim.script(0, [{ jab: true }]); });
 await until(page, () => window.__sim.state().round.phase === 'count', undefined, { label: 'the count', timeout: 30000 });
 await page.evaluate(() => { window.__cfg.healthDamagePerImpulse = window.__keep; window.__sim.input(1, null); });
 await until(page, () => window.__flow.state().replay, undefined, { label: 'the replay', timeout: 60000 });
-await frames(page, 12);
-await shot(page, 'replay');
 await frames(page, 14);
+await shot(page, 'replay');
+await frames(page, 5);
 await shot(page, 'replay_late');
 await until(page, () => !window.__flow.state().replay, undefined, { label: 'the replay to end', timeout: 120000 });
 await frames(page, 4);
@@ -102,11 +105,11 @@ await shot(page, 'pause');
 await key(page, 'Escape');
 
 await until(page, () => window.__flow.state().card, undefined, { label: 'the corner card', timeout: 120000 });
-await frames(page, 10);
+await frames(page, 4);
 await shot(page, 'corner');
 await key(page, 'Enter');
 await on(page, 'results');
-await frames(page, 10);
+await frames(page, 4);
 await shot(page, 'results');
 
 // Ladder (a fresh one), gym, a drill, controls.
@@ -114,11 +117,11 @@ await key(page, 'Escape'); await on(page, 'title');
 await key(page, 'ArrowDown'); await key(page, 'Enter'); await on(page, 'select');
 await key(page, 'Enter'); await on(page, 'ladder');
 await until(page, () => window.__flow.state().shown !== 'monsoon', undefined, { label: 'the next opponent', timeout: 30000 });
-await frames(page, 20);
+await frames(page, 6);
 await shot(page, 'ladder');
 await key(page, 'Escape'); await on(page, 'title');
 await key(page, 'ArrowDown', 2); await key(page, 'Enter'); await on(page, 'gym');
-await frames(page, 10);
+await frames(page, 4);
 await shot(page, 'gym');
 await key(page, 'Enter'); await on(page, 'fight');
 await until(page, () => window.__tick.simTicks > 0 && window.__sim.state().tick > 60, undefined, { label: 'the drill running', timeout: 60000 });
@@ -133,7 +136,7 @@ await key(page, 'Escape'); await on(page, 'title');
 await page.evaluate(() => { try { localStorage.setItem('longcount.ladder.v1', JSON.stringify({ fighter: 'monsoon', wins: 7, losses: 2 })); } catch { /* no storage */ } });
 await key(page, 'ArrowDown'); await key(page, 'Enter'); await on(page, 'champion');
 await shown(page, 'monsoon');
-await frames(page, 20);
+await frames(page, 6);
 await shot(page, 'champion');
 await page.evaluate(() => { try { localStorage.removeItem('longcount.ladder.v1'); } catch { /* no storage */ } });
 await page.close();
@@ -141,11 +144,11 @@ await page.close();
 // ── A phone, upright and on its side ─────────────────────────────────────────
 for (const [name, viewport] of [['phone', { width: 390, height: 844 }], ['phoneland', { width: 844, height: 390 }]]) {
   const p = await open(viewport, '&touch=1');
-  await frames(p, 10);
+  await frames(p, 4);
   await shot(p, `${name}_title`);
   await key(p, 'Enter'); await on(p, 'select');
   await key(p, 'ArrowRight', 6); await shown(p, 'monsoon');
-  await frames(p, 20);
+  await frames(p, 6);
   await shot(p, `${name}_select`);
   await p.close();
 }

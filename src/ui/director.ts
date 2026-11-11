@@ -77,7 +77,7 @@ export class Director {
     return {
       key: 'wide', cut: true, focus: { x: 0, z: 0 }, lookY: 1.1, fov: 40, lambda: 30,
       azimuth: 0.6 + this.t * c.flowTitleOrbitDegPerSec * DEG,
-      dist: Math.max(c.flowTitleDist, fit), elevationDeg: c.flowTitleElevationDeg,
+      dist: Math.min(13, Math.max(c.flowTitleDist, fit)), elevationDeg: c.flowTitleElevationDeg,
     };
   }
 

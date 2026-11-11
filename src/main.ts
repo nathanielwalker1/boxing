@@ -401,7 +401,7 @@ function loop(nowMs: number): void {
   if (referee) {
     if (replay && refSnap) referee.draw(refSnap, dt);                                              // the replay: where he stood then
     else if (scene) referee.update(scene.refSim ?? next, [], dt, stage.orbitAzimuth, scene.refSim !== null);   // a menu: off, or walking to the ring walk's two men
-    else if (!replay) referee.update(next, frameEvents, sdt, stage.orbitAzimuth, !paused);
+    else if (!replay) referee.update(next, frameEvents, sdt, stage.orbitAzimuth, !paused && !(flow !== null && flow.hidesReferee));
   }
   // The knockdown shot: while a man is down (the count, or the KO / TKO he did not beat) the lens goes to him.
   const downSide = next.fighters[0].down ? 0 : next.fighters[1].down ? 1 : -1;
@@ -422,8 +422,9 @@ function loop(nowMs: number): void {
   hud.visible = !paused && !replay && (flow === null || flow.showHud);
   hud.update(next, dt);
   if (flow) { flow.replaying = replay !== null; flow.replayDue = replayDue; flow.update(next, dt, frameEvents); }
-  read.update(next);
-  stage.wobble = hurtLevel(next.fighters[0]) * cfg.readHurtWobble;   // you are rocked: the lens drifts more
+  const offLive = scene !== null || replay !== null;   // the live fight is not what is on screen
+  read.update(next, offLive);
+  stage.wobble = offLive ? 0 : hurtLevel(next.fighters[0]) * cfg.readHurtWobble;   // you are rocked: the lens drifts more
   fps.visible = cfg.debugFps;
   const info = stage.info;
   fps.tick(info.calls, info.triangles);

@@ -52,8 +52,15 @@ export class ReadOverlay {
   }
 
   /** Per rendered frame: each fighter's exposure-by-slip as the window's remaining fraction; the player's hurt level on the frame. */
-  update(s: SimState): void {
+  update(s: SimState, off = false): void {
     const c = this.cfg;
+    // A menu, a card or a replay is on screen instead of the live fight: no rim, no tint, no slow motion from a state nobody is looking at.
+    if (off) {
+      for (const v of this.views) { this.glow[v.side] = 0; v.highlight(0); }
+      this.scale = 1; this.hurt = 0;
+      if (!this.hurtEl.hidden) { this.hurtEl.hidden = true; this.hurtEl.style.backdropFilter = ''; }
+      return;
+    }
     const span = Math.max(1e-3, c.slipPunishDuration);
     for (const v of this.views) {
       const f = s.fighters[v.side];

@@ -28,6 +28,7 @@ import { FREE_SPARRING, loadDrills, type Drill, type DrillMetric } from './drill
 import { FightStats, PUNCHES, advice, landedOf, thrownOf, type SideStats } from './stats';
 import { DIFFICULTY_NAMES, ladderDifficulty, ladderFighter, ladderOrder, loadLadder, saveLadder, type LadderSave } from './ladder';
 import { controlsHtml } from './controls';
+import { accent } from './accent';
 
 export type Screen = 'title' | 'select' | 'opponent' | 'ladder' | 'gym' | 'controls' | 'walk' | 'fight' | 'results' | 'champion';
 export type Mode = 'fight' | 'ladder' | 'gym';
@@ -79,16 +80,6 @@ const clockText = (sec: number): string => `${Math.floor(sec / 60)}:${String(Mat
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 const lastName = (f: FighterSpec): string => f.name.split(' ').slice(1).join(' ') || f.name;
 
-function lum(hex: string): number {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return 0.5;
-  const n = parseInt(m[1]!, 16);
-  return (0.2126 * (n >> 16 & 255) + 0.7152 * (n >> 8 & 255) + 0.0722 * (n & 255)) / 255;
-}
-/** A fighter's accent on a dark panel: his trunks colour, or the trim when the trunks are too dark to read. */
-function accent(f: FighterSpec): [string, string] {
-  return lum(f.trunksPrimary) < 0.16 ? [f.trunksSecondary, f.trunksPrimary] : [f.trunksPrimary, f.trunksSecondary];
-}
 const tapeLine = (f: FighterSpec): string => `${f.heightM.toFixed(2)} m · ${Math.round(f.reachM * 100)} cm reach · ${f.massKg} kg · ${styleInfo(f).name}`;
 
 export class FightFlow {
@@ -190,6 +181,8 @@ export class FightFlow {
   get showHud(): boolean { return this.screen === 'fight' && !this.card; }
   /** A knockdown may be replayed (a real fight, not a drill, nothing else up). */
   get wantsReplay(): boolean { return this.screen === 'fight' && this.mode !== 'gym' && !this.paused && !this.card; }
+  /** A drill has no referee: he only gets in the way of what is being practised. */
+  get hidesReferee(): boolean { return this.drill !== null; }
   /** The round and the clock belong on the hanging scoreboard. */
   get inFight(): boolean { return this.screen === 'fight' || this.screen === 'results'; }
 
@@ -306,6 +299,7 @@ export class FightFlow {
     const random = this.sel === list.length - 1;
     s.querySelectorAll('.plate').forEach((n, i) => {
       n.classList.toggle('sel', i === this.sel);
+      if (i === this.sel) n.scrollIntoView?.({ inline: 'center', block: 'nearest' });
       if (i === list.length - 1) this.setAccent(n as HTMLElement, f.id === list[i]!.id ? f : list[i]!);
     });
     s.querySelector('.strip')!.classList.toggle('row', !opp || this.optRow === 0);
@@ -313,9 +307,9 @@ export class FightFlow {
     this.setAccent(info, f);
     const opt = (row: number, label: string, names: readonly string[], cur: number): string =>
       `<div class="opt${this.optRow === row ? ' row' : ''}"><span>${label}</span><div class="choices">${names.map((n, i) => `<div class="ch${i === cur ? ' sel' : ''}" data-row="${row}" data-i="${i}">${n}</div>`).join('')}</div></div>`;
-    info.innerHTML = this.infoHtml(f) + '<div class="grow"></div>' +
+    info.innerHTML = `<div class="scroll">${this.infoHtml(f)}</div><div class="foot">` +
       (opp ? `<div class="opts">${opt(1, 'Difficulty', DIFFICULTY_NAMES, this.difficulty)}${opt(2, 'Rounds', ROUNDS.map(r => `${r[0]} × ${clockText(r[1])}`), this.roundsIdx)}</div>` : '') +
-      '<div class="btns"></div>';
+      '<div class="btns"></div></div>';
     info.querySelectorAll<HTMLElement>('.ch').forEach(ch => ch.addEventListener('pointerdown', e => {
       e.preventDefault();
       const row = Number(ch.dataset['row']), i = Number(ch.dataset['i']);
@@ -385,14 +379,15 @@ export class FightFlow {
     const next = rungs[save.wins]!;
     const diff = ladderDifficulty(save.wins, rungs.length);
     const s = this.screens.ladder;
-    s.innerHTML = '<div class="head">The ladder</div>' +
-      `<div class="panel rungs"><div class="rec">Record ${save.wins} – ${save.losses}</div>` +
-      rungs.map((f, i) => `<div class="rung${i < save.wins ? ' won' : i === save.wins ? ' next' : ''}"><i>${i + 1}</i><b>${esc(lastName(f))}</b><span>${DIFFICULTY_NAMES[ladderDifficulty(i, rungs.length)]}</span></div>`).join('') +
-      `<div class="you">Your fighter<b>${esc(this.player.name)}</b></div></div>` +
-      `<div class="panel info"><div class="tag">Next · fight ${save.wins + 1} of ${rungs.length} · ${DIFFICULTY_NAMES[diff]}</div>${this.infoHtml(next)}<div class="grow"></div><div class="btns"></div></div>` +
+    s.innerHTML = `<div class="head">The ladder · ${esc(this.player.name)} · <span class="rec">Record ${save.wins} – ${save.losses}</span></div>` +
+      `<div class="panel info"><div class="scroll"><div class="tag">Next · fight ${save.wins + 1} of ${rungs.length} · ${DIFFICULTY_NAMES[diff]}</div>${this.infoHtml(next)}</div><div class="foot"><div class="btns"></div></div></div>` +
+      '<div class="strip row">' + rungs.map((f, i) => {
+        const [c, c2] = accent(f);
+        const what = i < save.wins ? 'Beaten' : DIFFICULTY_NAMES[ladderDifficulty(i, rungs.length)];
+        return `<div class="plate rung${i < save.wins ? ' won' : i === save.wins ? ' next sel' : ''}" style="--c:${c};--c2:${c2}"><div class="sw"></div><div class="pn"><i>${i + 1}</i>${esc(lastName(f))}</div><div class="ps">${what}</div></div>`;
+      }).join('') + '</div>' +
       '<div class="hint">← → choose · Enter select · Esc menu</div>';
     this.setAccent(s.querySelector<HTMLElement>('.info')!, next);
-    this.setAccent(s.querySelector<HTMLElement>('.rungs')!, this.player);
     this.setBtns(s.querySelector('.btns')!, [
       ['Fight', () => { this.opp = next; this.difficulty = diff; this.beginFight(); }],
       ['New ladder', () => { this.ladder = null; saveLadder(null); this.show('select'); }, true],
@@ -482,7 +477,7 @@ export class FightFlow {
 
   private renderControls(): void {
     const s = this.screens.controls;
-    s.innerHTML = `<div class="panel sheet"><h2>Controls</h2>${controlsHtml()}<div class="btns"></div></div>`;
+    s.innerHTML = `<div class="panel sheet"><div class="shead"><h2>Controls</h2><div class="btns"></div></div>${controlsHtml()}</div>`;
     this.setBtns(s.querySelector('.btns')!, [['Back', () => this.show(this.controlsBack), true]]);
   }
 
@@ -616,7 +611,7 @@ export class FightFlow {
   private renderPause(): void {
     this.cursor = 0;
     if (this.pauseView === 'controls') {
-      this.pauseEl.innerHTML = `<div class="panel sheet"><h2>Controls</h2>${controlsHtml()}<div class="btns"></div></div>`;
+      this.pauseEl.innerHTML = `<div class="panel sheet"><div class="shead"><h2>Controls</h2><div class="btns"></div></div>${controlsHtml()}</div>`;
       this.setBtns(this.pauseEl.querySelector('.btns')!, [['Back', () => { this.pauseView = 'menu'; this.renderPause(); }, true]]);
       return;
     }
@@ -710,6 +705,7 @@ export class FightFlow {
     if (this.screen === 'fight') {
       if (this.paused) {
         if (back || a === 'start') { if (this.pauseView === 'controls') { this.pauseView = 'menu'; this.renderPause(); } else this.setPaused(false); return true; }
+        if (this.pauseView === 'controls' && (a === 'up' || a === 'down')) { this.pauseEl.querySelector('.sheet')?.scrollBy(0, a === 'down' ? 140 : -140); return true; }
         return this.navBtns(a);
       }
       if (this.replaying) { if (skip || back) { this.hooks.skipReplay(); return true; } return false; }
@@ -747,6 +743,7 @@ export class FightFlow {
       return false;
     }
     if (back) { this.back(); return true; }
+    if (this.screen === 'controls' && (a === 'up' || a === 'down')) { this.screens.controls.querySelector('.sheet')?.scrollBy(0, a === 'down' ? 140 : -140); return true; }
     return this.navBtns(a);
   }
 

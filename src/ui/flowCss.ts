@@ -35,7 +35,10 @@ body.flow-menu #touch-ui { display: none; }
 #flow .titlebox .foot { margin-top: 20px; font-size: 10px; letter-spacing: 0.26em; text-transform: uppercase; color: #fff9; }
 
 /* fighter info (select, opponent, ladder, champion) */
-#flow .info { position: absolute; right: 28px; top: 56px; bottom: 112px; width: min(372px, 40vw); padding: 16px 20px 16px; overflow-y: auto; display: flex; flex-direction: column; }
+#flow .info { position: absolute; right: 28px; top: 52px; bottom: 104px; width: min(372px, 40vw); overflow: hidden; display: flex; flex-direction: column; }
+#flow .info .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 20px 10px; display: flex; flex-direction: column; }
+#flow .info .foot { padding: 0 20px 14px; }
+#flow .info .foot .btns { margin-top: 10px; }
 #flow .fname { font-size: clamp(22px, 2.9vw, 32px); font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: 0.02em; line-height: 0.98; overflow-wrap: anywhere; }
 #flow .fnick { font-size: 11px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; color: color-mix(in srgb, var(--c) 60%, #fff); margin-top: 6px; }
 #flow .fmeta { font-size: 12px; color: #fffc; margin-top: 8px; line-height: 1.5; }
@@ -53,8 +56,7 @@ body.flow-menu #touch-ui { display: none; }
 #flow .style ul { margin: 7px 0 0; padding: 0; list-style: none; }
 #flow .style li { font-size: 11.5px; line-height: 1.38; color: #fffc; padding-left: 12px; position: relative; margin-top: 3px; }
 #flow .style li::before { content: ""; position: absolute; left: 0; top: 0.55em; width: 5px; height: 2px; background: var(--c); }
-#flow .info .grow { flex: 1; min-height: 6px; }
-#flow .opts { margin-top: 10px; padding-top: 8px; border-top: 1px solid #fff2; }
+#flow .opts { padding-top: 6px; border-top: 1px solid #fff2; }
 #flow .opt { display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: 8px; margin-top: 5px; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #fff9; padding: 2px 4px; border-left: 2px solid #0000; }
 #flow .opt.row { border-left-color: var(--gold); color: #fff; }
 #flow .opt .choices { display: flex; gap: 4px; }
@@ -64,24 +66,19 @@ body.flow-menu #touch-ui { display: none; }
 /* the strip of name plates */
 #flow .strip { position: absolute; left: 28px; right: 28px; bottom: 40px; display: flex; gap: 5px; }
 #flow .strip.row .plate.sel { box-shadow: 0 0 0 1px var(--c), 0 6px 18px #000a; }
-#flow .plate { pointer-events: auto; cursor: pointer; flex: 1 1 0; min-width: 0; padding: 0 8px 7px; background: #0a0a0ed9; border: 1px solid #fff2; transition: transform .1s; }
-#flow .plate .sw { height: 4px; margin: 0 -8px 7px; background: linear-gradient(90deg, var(--c) 70%, var(--c2) 70%); }
-#flow .plate .pn { font-size: 12px; font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#flow .plate { pointer-events: auto; cursor: pointer; flex: 1 1 0; min-width: 0; padding: 0 6px 7px; background: #0a0a0ed9; border: 1px solid #fff2; transition: transform .1s; }
+#flow .plate .sw { height: 4px; margin: 0 -6px 7px; background: linear-gradient(90deg, var(--c) 70%, var(--c2) 70%); }
+#flow .plate .pn { font-size: clamp(10px, 1.15vw, 13px); font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #flow .plate .ps { font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; color: #fff8; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #flow .plate.sel { transform: translateY(-6px); border-color: var(--c); background: #16161cf2; }
 #flow .plate.off { opacity: 0.32; cursor: default; }
+#flow .plate.rung { cursor: default; }
+#flow .plate.won { opacity: 0.5; } #flow .plate.won .pn { text-decoration: line-through; }
+#flow .plate i { font-style: normal; color: var(--gold); margin-right: 6px; }
+#flow .shead { position: sticky; top: -18px; z-index: 1; display: flex; align-items: center; justify-content: space-between; margin: -18px -22px 0; padding: 14px 22px 8px; background: #0a0a0e; }
+#flow .shead h2 { margin: 0; } #flow .shead .btns { margin: 0; }
 
 /* ladder */
-#flow .rungs { position: absolute; left: 28px; top: 56px; width: min(236px, 26vw); padding: 14px 16px; }
-#flow .rungs .rec { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); margin-bottom: 8px; }
-#flow .rung { display: grid; grid-template-columns: 18px 1fr auto; gap: 6px; align-items: baseline; padding: 5px 0; border-top: 1px solid #fff1; font-size: 12px; color: #fff8; }
-#flow .rung b { font-weight: 800; font-style: italic; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#flow .rung span { font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; }
-#flow .rung.won { color: #fff5; } #flow .rung.won b { text-decoration: line-through; }
-#flow .rung.next { color: #fff; } #flow .rung.next i { color: var(--gold); }
-#flow .rung i { font-style: normal; font-variant-numeric: tabular-nums; }
-#flow .you { margin-top: 10px; padding-top: 8px; border-top: 1px solid #fff3; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #fff9; }
-#flow .you b { display: block; font-size: 15px; font-weight: 900; font-style: italic; letter-spacing: 0.02em; color: #fff; margin-top: 3px; overflow-wrap: anywhere; }
 #flow .tag { display: inline-block; font-size: 9px; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; padding: 3px 7px; background: var(--gold); color: #1a1206; margin-bottom: 8px; align-self: flex-start; }
 
 /* gym, controls: a sheet */
@@ -180,17 +177,28 @@ body.flow-menu #touch-ui { display: none; }
 #flow .sgrid .rule { grid-column: 1 / -1; height: 1px; background: #fff2; margin: 3px 0; }
 
 /* champion */
-#flow .champ { position: absolute; left: clamp(20px, 6vw, 90px); top: 50%; transform: translateY(-50%); max-width: min(520px, 90vw); padding: 20px 26px; }
+#flow .champ { position: absolute; right: clamp(16px, 4vw, 60px); top: 50%; transform: translateY(-50%); max-width: min(520px, 90vw); padding: 20px 26px; }
 #flow .champ .big { font-size: clamp(40px, 7vw, 84px); font-weight: 900; font-style: italic; text-transform: uppercase; line-height: 0.9; color: #f3dc8f; text-shadow: 0 3px 0 #000; }
 
+/* a short desktop window */
+@media (max-height: 660px) and (min-width: 641px) {
+  #flow .vitals { margin-top: 7px; } #flow .vitals b { font-size: 14px; } #flow .vitals div { padding: 4px 8px 3px; }
+  #flow .ratings { margin-top: 8px; gap: 2px 8px; } #flow .fmeta { margin-top: 5px; }
+  #flow .style { margin-top: 8px; padding-top: 7px; } #flow .style li { margin-top: 1px; font-size: 11px; } #flow .style .blurb { font-size: 11.5px; }
+  #flow .opt { margin-top: 3px; } #flow .opt .ch { padding: 4px 2px; }
+  #flow .info .foot .btns { margin-top: 7px; } #flow .info .btn { padding: 8px 16px; }
+  #flow .fname { font-size: clamp(20px, 2.6vw, 28px); }
+}
 /* a phone held upright */
 @media (max-width: 640px) {
   #flow .head { top: 10px; font-size: 10px; letter-spacing: 0.3em; }
-  #flow .info { left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 47vh; padding: 12px 14px; }
+  #flow .info { left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 42vh; }
+  #flow .screen.title { background: linear-gradient(#000b, #0005 45%, #0003 70%, #000a); }
+  #flow .champ { left: 8px; right: 8px; top: auto; bottom: 8px; transform: none; max-width: none; }
+  #flow .info .scroll { padding: 10px 14px 8px; } #flow .info .foot { padding: 0 14px 10px; }
   #flow .strip { left: 8px; right: 8px; top: 34px; bottom: auto; overflow-x: auto; }
   #flow .plate { flex: 0 0 92px; } #flow .plate.sel { transform: none; }
   #flow .hint { display: none; }
-  #flow .rungs { display: none; }
   #flow .menu { width: 210px; }
   #flow .screen.results .sheet { grid-template-columns: 1fr; gap: 12px; max-height: 70vh; }
   #flow .namecard { min-width: 0; bottom: 22%; }
@@ -202,10 +210,10 @@ body.flow-menu #touch-ui { display: none; }
 /* a phone on its side: short */
 @media (max-height: 460px) and (min-width: 641px) {
   #flow .head { top: 10px; }
-  #flow .info { top: 34px; bottom: 62px; padding: 10px 14px; }
+  #flow .info { top: 34px; bottom: 62px; }
+  #flow .info .scroll { padding: 8px 14px 6px; } #flow .info .foot { padding: 0 14px 8px; }
   #flow .strip { bottom: 8px; }
   #flow .hint { display: none; }
-  #flow .rungs { top: 34px; padding: 8px 12px; } #flow .rung { padding: 2px 0; }
   #flow .wordmark { font-size: 54px; } #flow .menu { margin-top: 14px; gap: 5px; } #flow .menu .btn { padding: 8px 16px; }
   #flow .style li { margin-top: 1px; } #flow .ratings { gap: 3px 8px; margin-top: 8px; }
   #flow .screen.results .sheet { max-height: 92vh; bottom: 6px; }
