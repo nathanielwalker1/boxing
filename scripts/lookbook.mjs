@@ -24,7 +24,7 @@ mkdirSync(CELLS, { recursive: true });
 const args = process.argv.slice(2);
 const label = args[0] && /^(before|after|wip)$/.test(args[0]) ? args[0] : null;
 const only = args.filter(a => a !== label);
-const OUT = label ? resolve(HERE, '..', 'docs', 'overhaul') : resolve(HERE, 'output', 'lookbook');
+const OUT = label && label !== 'wip' ? resolve(HERE, '..', 'docs', 'overhaul') : resolve(HERE, 'output', 'lookbook');   // only before / after are tracked
 mkdirSync(OUT, { recursive: true });
 
 // name, pose, camera azimuth (deg; 0 = the fighter's front), elevation, distance, look height (× fighter height)

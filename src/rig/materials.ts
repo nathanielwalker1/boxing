@@ -1,96 +1,209 @@
 /**
- * rig/materials.ts — the toy-figure look. One MeshToonMaterial shared by every
- * fighter (colour comes from vertex colours), with a code-generated stepped
- * gradient map (cfg.toonBands) and a view-space rim term injected through
- * onBeforeCompile (cfg.rimStrength, cfg.rigRimPower). The rim is resolved in
- * view space in the shader, so it is correct for any yaw — the v1 mirroring
- * constraint has nothing to flip here.
+ * rig/materials.ts — how the fighter is shaded (overhaul 2026-11-11: the flat
+ * toon look is retired for skin that reads as skin under a ring light).
+ *
+ * One material per fighter (its own atlas and damage layer, its own sweat /
+ * redden / glow uniforms), all sharing one program. It is a MeshPhongMaterial
+ * whose lighting chunk is replaced, so the scene's lights, the shadow map,
+ * fog, skinning and morph targets all work as stock. Each vertex carries a
+ * material KIND (geo.ts) and the response is chosen per kind:
+ *
+ *   skin    wrap diffuse; the light the wrap adds past the terminator is
+ *           tinted warm red (a cheap subsurface look); a broad sheen and a
+ *           tight highlight that both grow with `sweat`, plus sweat beads on
+ *           the high tier; `redden` blotches, bruises and cuts from the
+ *           damage layer (paint.ts)
+ *   cloth   soft wrap, a satin sheen
+ *   leather glossy: a tight bright highlight (gloves, boots)
+ *   hair    matte with a soft sheen
+ *   eye     glossy
+ *
+ * The view-space rim term is kept (cfg.rimStrength, cfg.rigRimPower), and on
+ * top of it the per-fighter warm rim the read uses (FighterView.highlight).
  *
  * Outlines are a second material: an inverted hull (BackSide) that pushes each
  * vertex along its skinned normal by cfg.outlineWidth. Built always, drawn only
- * while cfg.outlines is on.
+ * while cfg.outlines is on. Kept: with smooth normals the hull is cleaner than
+ * it was on the faceted figure.
  */
 import * as THREE from 'three';
 import type { Config } from '../core';
 
-// ── Gradient map ─────────────────────────────────────────────────────────────
-// 32 texels across dotNL ∈ [-1, 1], quantised into `bands` levels between the
-// terminator (dotNL ≈ -0.4) and full light (dotNL ≈ 0.6). A 1-texel-per-band
-// map would put the only step at dotNL = 0, which reads as a lit hemisphere.
-
-const GRAD_W = 32;
-const gradCache = new Map<number, THREE.DataTexture>();
-
-export function gradientMap(bands: number): THREE.DataTexture {
-  const n = Math.max(1, Math.round(bands));
-  const cached = gradCache.get(n);
-  if (cached) return cached;
-  const data = new Uint8Array(GRAD_W);
-  for (let i = 0; i < GRAD_W; i++) {
-    const u = (i + 0.5) / GRAD_W;                       // 0..1 == dotNL -1..1
-    const f = Math.min(0.9999, Math.max(0, (u - 0.3) / 0.5));
-    const b = Math.floor(f * n);
-    const v = n === 1 ? 1 : 0.38 + 0.62 * b / (n - 1);
-    data[i] = Math.round(255 * v);
-  }
-  const t = new THREE.DataTexture(data, GRAD_W, 1, THREE.RedFormat, THREE.UnsignedByteType);
-  t.minFilter = THREE.NearestFilter;
-  t.magFilter = THREE.NearestFilter;
-  t.generateMipmaps = false;
-  t.needsUpdate = true;
-  gradCache.set(n, t);
-  return t;
-}
-
-// ── Toon + rim ───────────────────────────────────────────────────────────────
-
-const rimUniforms = {
+const shared = {
   uRimStrength: { value: 0.6 },
   uRimPower: { value: 3 },
   uRimColor: { value: new THREE.Color(0xffffff) },
+  uScatter: { value: 0.6 },
+  uScatterColor: { value: new THREE.Color(0xff5a3c) },
+  uSkinWrap: { value: 0.45 },
+  uSkinSheen: { value: 0.07 },
+  uSweatSheen: { value: 0.3 },
+  uSweatGloss: { value: 0.9 },
+  uLeatherGloss: { value: 0.7 },
+  uClothSheen: { value: 0.1 },
 };
 
-// The read (2026-09-22): a second, warm rim term per fighter — the one a slip
-// has left exposed catches it, fading with the counter window. Per-material
-// uniforms (one material per fighter, same program) so it is per fighter.
+export interface RigUniforms {
+  uGlow: { value: number };
+  uGlowColor: { value: THREE.Color };
+  uSweat: { value: number };
+  /** x = head, y = body. */
+  uRedden: { value: THREE.Vector2 };
+  uDamage: { value: THREE.Texture | null };
+}
+
+export interface RigMaterial {
+  material: THREE.MeshPhongMaterial;
+  uniforms: RigUniforms;
+  dispose(): void;
+}
+
+const VERT_PARS = `
+attribute float aKind;
+varying float vKind;
+`;
+
+const FRAG_PARS = `
+varying float vKind;
+uniform float uRimStrength;
+uniform float uRimPower;
+uniform vec3 uRimColor;
+uniform float uGlow;
+uniform vec3 uGlowColor;
+uniform float uSweat;
+uniform vec2 uRedden;
+uniform sampler2D uDamage;
+uniform float uScatter;
+uniform vec3 uScatterColor;
+uniform float uSkinWrap;
+uniform float uSkinSheen;
+uniform float uSweatSheen;
+uniform float uSweatGloss;
+uniform float uLeatherGloss;
+uniform float uClothSheen;
+float gWrap;
+vec3 gScatter;
+float gSheen;
+float gGloss;
+float gGlossPow;
+float gRim;
+float rigHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+float rigNoise( vec2 p ) {
+  vec2 i = floor( p ), f = fract( p );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( rigHash( i ), rigHash( i + vec2( 1.0, 0.0 ) ), f.x ), mix( rigHash( i + vec2( 0.0, 1.0 ) ), rigHash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+}
+`;
+
+// Replaces <lights_phong_pars_fragment>: same struct and hooks, our response.
+const LIGHT_PARS = `
+varying vec3 vViewPosition;
+struct BlinnPhongMaterial {
+  vec3 diffuseColor;
+  vec3 specularColor;
+  float specularShininess;
+  float specularStrength;
+};
+void RE_Direct_BlinnPhong( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in BlinnPhongMaterial material, inout ReflectedLight reflectedLight ) {
+  float ndl = dot( geometryNormal, directLight.direction );
+  float hard = saturate( ndl );
+  float wrapped = saturate( ( ndl + gWrap ) / ( 1.0 + gWrap ) );
+  // What the wrap adds past the terminator is light that came through the skin: tint it.
+  vec3 irradiance = directLight.color * ( hard + ( wrapped - hard ) * mix( vec3( 1.0 ), gScatter, step( 0.001, dot( gScatter, vec3( 1.0 ) ) ) ) );
+  reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
+  vec3 halfDir = normalize( directLight.direction + geometryViewDir );
+  float ndh = saturate( dot( geometryNormal, halfDir ) );
+  float spec = gSheen * pow( ndh, 10.0 ) + gGloss * pow( ndh, gGlossPow );
+  reflectedLight.directSpecular += directLight.color * wrapped * spec * material.specularColor;
+}
+void RE_IndirectDiffuse_BlinnPhong( const in vec3 irradiance, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in BlinnPhongMaterial material, inout ReflectedLight reflectedLight ) {
+  reflectedLight.indirectDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
+}
+#define RE_Direct RE_Direct_BlinnPhong
+#define RE_IndirectDiffuse RE_IndirectDiffuse_BlinnPhong
+`;
+
+// Replaces <lights_phong_fragment>: pick the response for this fragment's kind.
+const LIGHT_SETUP = `
+BlinnPhongMaterial material;
+float kSkin = 1.0 - step( 1.5, vKind );
+float kFace = kSkin * step( 0.5, vKind );
+float kCloth = step( 1.5, vKind ) * ( 1.0 - step( 2.5, vKind ) );
+float kLeather = step( 2.5, vKind ) * ( 1.0 - step( 3.5, vKind ) );
+float kHair = step( 3.5, vKind ) * ( 1.0 - step( 4.5, vKind ) );
+float kEye = step( 4.5, vKind ) * ( 1.0 - step( 5.5, vKind ) );
+vec3 albedo = diffuseColor.rgb;
+float sweat = uSweat * kSkin;
+#ifdef USE_MAP
+  vec3 dmg = texture2D( uDamage, vMapUv ).rgb;
+  // Reddening: blotchy, strongest where the damage layer says the skin marks.
+  float blotch = 0.55 + 0.45 * rigNoise( vMapUv * 90.0 );
+  float red = kSkin * saturate( mix( uRedden.y, uRedden.x, kFace ) * ( 0.35 + 0.65 * dmg.r ) * blotch );
+  albedo = mix( albedo, albedo * vec3( 1.22, 0.52, 0.5 ) + vec3( 0.05, 0.0, 0.0 ), red * 0.8 );
+  // Bruise / swelling: purple-red, darker.
+  albedo = mix( albedo, albedo * vec3( 0.62, 0.3, 0.45 ) + vec3( 0.05, 0.0, 0.02 ), kSkin * saturate( dmg.g ) * 0.85 );
+  // Cut: dark wet red.
+  float cut = kSkin * saturate( dmg.b );
+  albedo = mix( albedo, vec3( 0.32, 0.015, 0.02 ), cut );
+#else
+  float cut = 0.0;
+#endif
+// Wet skin is a little darker and richer.
+albedo *= 1.0 - 0.1 * sweat;
+material.diffuseColor = albedo;
+material.specularColor = vec3( 1.0 );
+material.specularShininess = 30.0;
+material.specularStrength = 1.0;
+gWrap = kSkin * uSkinWrap + kCloth * 0.3 + kLeather * 0.12 + kHair * 0.4 + kEye * 0.2;
+gScatter = kSkin * mix( vec3( 1.0 ), uScatterColor, uScatter );
+gSheen = kSkin * ( uSkinSheen + uSweatSheen * sweat ) + kCloth * uClothSheen + kLeather * 0.22 + kHair * 0.05;
+gGloss = kSkin * uSweatGloss * sweat * 0.35 + kLeather * uLeatherGloss + kEye * 1.2 + cut * 0.8;
+gGlossPow = mix( 70.0, 48.0, kLeather );
+gRim = kSkin * 0.55 + kCloth * 0.7 + kLeather * 1.0 + kHair * 0.25 + kEye * 0.2;
+#ifdef RIG_HIGH
+  #ifdef USE_MAP
+    // Sweat beads: sparse bright points that only show once the fighter is wet.
+    float bead = step( 0.965, rigHash( floor( vMapUv * 1400.0 ) ) ) * smoothstep( 0.35, 1.0, uSweat ) * kSkin;
+    gGloss += bead * 3.0 * uSweatGloss;
+  #endif
+#endif
+`;
+
 const RIM_GLSL = `
 {
   float rimF = pow( 1.0 - saturate( dot( normalize( normal ), normalize( vViewPosition ) ) ), uRimPower );
-  outgoingLight += uRimColor * ( rimF * uRimStrength ) + uGlowColor * ( rimF * uGlow );
+  // The rim is tinted by the surface (skin catches a skin-coloured edge, not a white one); the read's glow stays additive.
+  outgoingLight += uRimColor * mix( albedo * 1.6, vec3( 1.0 ), 0.12 ) * ( rimF * uRimStrength * gRim * ( 1.0 + 0.6 * sweat ) ) + uGlowColor * ( rimF * uGlow );
 }
 #include <opaque_fragment>`;
 
-interface GlowUniforms { uGlow: { value: number }; uGlowColor: { value: THREE.Color } }
-const toons = new Map<number, THREE.MeshToonMaterial>();
-const glows = new Map<THREE.MeshToonMaterial, GlowUniforms>();
-
-/** One toon material per `key` (a fighter side): the rim is shared, the glow is its own. */
-export function toonMaterial(cfg: Config, key = 0): THREE.MeshToonMaterial {
-  const have = toons.get(key);
-  if (have) return have;
-  const toon = new THREE.MeshToonMaterial({
-    color: 0xffffff,
-    vertexColors: true,
-    gradientMap: gradientMap(cfg.toonBands),
-  });
-  const glow: GlowUniforms = { uGlow: { value: 0 }, uGlowColor: { value: new THREE.Color(0xffb070) } };
-  toon.onBeforeCompile = shader => {
-    Object.assign(shader.uniforms, rimUniforms, glow);
-    shader.fragmentShader = 'uniform float uRimStrength;\nuniform float uRimPower;\nuniform vec3 uRimColor;\nuniform float uGlow;\nuniform vec3 uGlowColor;\n'
-      + shader.fragmentShader.replace('#include <opaque_fragment>', RIM_GLSL);
+export function createRigMaterial(cfg: Config): RigMaterial {
+  const high = cfg.rigQuality >= 0.5;
+  const material = new THREE.MeshPhongMaterial({ color: 0xffffff, vertexColors: true });
+  const uniforms: RigUniforms = {
+    uGlow: { value: 0 }, uGlowColor: { value: new THREE.Color(0xffb070) },
+    uSweat: { value: 0 }, uRedden: { value: new THREE.Vector2(0, 0) }, uDamage: { value: null },
   };
-  toon.customProgramCacheKey = () => 'rigToonRim';
-  toons.set(key, toon);
-  glows.set(toon, glow);
-  return toon;
+  if (high) material.defines = { RIG_HIGH: '' };
+  material.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, shared, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n' + VERT_PARS)
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvKind = aKind;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + FRAG_PARS)
+      .replace('#include <lights_phong_pars_fragment>', LIGHT_PARS)
+      .replace('#include <lights_phong_fragment>', LIGHT_SETUP)
+      .replace('#include <opaque_fragment>', RIM_GLSL);
+  };
+  material.customProgramCacheKey = () => (high ? 'rigSkinHigh' : 'rigSkinLow');
+  return { material, uniforms, dispose: () => material.dispose() };
 }
 
 /** Set this material's warm rim (the read) for the next draw. */
-export function setGlow(material: THREE.MeshToonMaterial, strength: number, colorHex: string): void {
-  const g = glows.get(material);
-  if (!g) return;
-  g.uGlow.value = strength;
-  if (g.uGlowColor.value.getHexString() !== colorHex.replace('#', '').toLowerCase()) g.uGlowColor.value.set(colorHex);
+export function setGlow(m: RigMaterial, strength: number, colorHex: string): void {
+  m.uniforms.uGlow.value = strength;
+  if (m.uniforms.uGlowColor.value.getHexString() !== colorHex.replace('#', '').toLowerCase()) m.uniforms.uGlowColor.value.set(colorHex);
 }
 
 // ── Outline (inverted hull) ──────────────────────────────────────────────────
@@ -114,12 +227,18 @@ export function outlineMaterial(cfg: Config): THREE.MeshBasicMaterial {
   return outline;
 }
 
-/** Push live config into the shared materials. Cheap; call once per frame per view. */
+/** Push live config into the shared uniforms. Cheap; call once per frame per view. */
 export function updateMaterials(cfg: Config): void {
-  rimUniforms.uRimStrength.value = cfg.rimStrength;
-  rimUniforms.uRimPower.value = cfg.rigRimPower;
-  const gm = gradientMap(cfg.toonBands);
-  for (const toon of toons.values()) if (toon.gradientMap !== gm) toon.gradientMap = gm;
+  shared.uRimStrength.value = cfg.rimStrength;
+  shared.uRimPower.value = cfg.rigRimPower;
+  shared.uScatter.value = cfg.rigSkinScatter;
+  if (shared.uScatterColor.value.getHexString() !== cfg.rigSkinScatterColor.replace('#', '').toLowerCase()) shared.uScatterColor.value.set(cfg.rigSkinScatterColor);
+  shared.uSkinWrap.value = cfg.rigSkinWrap;
+  shared.uSkinSheen.value = cfg.rigSkinSheen;
+  shared.uSweatSheen.value = cfg.rigSweatSheen;
+  shared.uSweatGloss.value = cfg.rigSweatGloss;
+  shared.uLeatherGloss.value = cfg.rigLeatherGloss;
+  shared.uClothSheen.value = cfg.rigClothSheen;
   if (outline) {
     outlineUniforms.uOutlineWidth.value = cfg.outlineWidth;
     if (outlineColorKey !== cfg.rigOutlineColor) { outlineColorKey = cfg.rigOutlineColor; outline.color.set(cfg.rigOutlineColor); }

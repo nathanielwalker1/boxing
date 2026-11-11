@@ -9,7 +9,8 @@ export const ROSTER: readonly FighterSpec[] = [
   {
     id: 'red', name: 'Ray Castellano', nickname: 'The Anvil', hometown: 'Bayonne',
     stance: 'orthodox',
-    heightM: 1.80, reachM: 1.85, massKg: 79, build: 'athletic',
+    heightM: 1.80, reachM: 1.85, massKg: 79,
+    morph: { frame: 0, muscle: 0, bodyFat: 0, limbLength: 0, neck: 0, head: { width: 0, jaw: 0, chin: 0, brow: 0, nose: 0, ears: 0, height: 0 } },
     skin: '#c58c5c', trunksPrimary: '#b8202a', trunksSecondary: '#f2e6c8', trunksStyle: 'short',
     gloves: '#b8202a', boots: '#f2e6c8',
     hair: 'short', facialHair: 'none',
@@ -19,7 +20,8 @@ export const ROSTER: readonly FighterSpec[] = [
   {
     id: 'blue', name: 'Desmond Okafor', nickname: 'Silk', hometown: 'Peckham',
     stance: 'orthodox',
-    heightM: 1.86, reachM: 1.96, massKg: 82, build: 'lean',
+    heightM: 1.86, reachM: 1.96, massKg: 82,
+    morph: { frame: 0, muscle: -0.5, bodyFat: 0, limbLength: 0, neck: 0, head: { width: 0, jaw: 0, chin: 0, brow: 0, nose: 0, ears: 0, height: 0 } },
     skin: '#6b4226', trunksPrimary: '#2b4a9e', trunksSecondary: '#e8e8ee', trunksStyle: 'long',
     gloves: '#2b4a9e', boots: '#e8e8ee',
     hair: 'none', facialHair: 'goatee',
@@ -32,7 +34,8 @@ export const ROSTER: readonly FighterSpec[] = [
 export const REFEREE: FighterSpec = {
   id: 'referee', name: 'Referee', nickname: '', hometown: '',
   stance: 'orthodox',
-  heightM: 1.76, reachM: 1.78, massKg: 74, build: 'lean',
+  heightM: 1.76, reachM: 1.78, massKg: 74,
+  morph: { frame: 0, muscle: -0.5, bodyFat: 0, limbLength: 0, neck: 0, head: { width: 0, jaw: 0, chin: 0, brow: 0, nose: 0, ears: 0, height: 0 } },
   skin: '#d9a57a', trunksPrimary: '#1b1b22', trunksSecondary: '#101014', trunksStyle: 'long',
   gloves: '#d9a57a', boots: '#15151a',
   hair: 'short', facialHair: 'none',

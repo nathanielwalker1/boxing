@@ -23,15 +23,46 @@ import {
   angleDelta, closestOnSegment, frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, v3dist, worldToLocal,
   type Config, type FighterSpec, type FighterState, type FighterView, type Frame, type PunchType, type Side, type SimEvent, type Vec2, type Vec3,
 } from '../core';
-import { BONE, buildRigMesh, rigGeomKey, type RigMesh } from './mesh';
-import { outlineMaterial, setGlow, toonMaterial, updateMaterials } from './materials';
+import { BONE, MORPHS, buildRigMesh, rigGeomKey, type RigMesh } from './mesh';
+import { armBones, legBones } from './skeleton';
+import { createRigMaterial, outlineMaterial, setGlow, updateMaterials, type RigMaterial } from './materials';
 import { solveTwoBone, type TwoBone } from './ik';
 import { chase1, chase3 } from './springs';
 import { Squash } from './squash';
 import { FootPlanter, stepRoles, type FootPose, type StepStyle } from './feet';
 import { SkeletonDebug } from './debug';
 
+/**
+ * The face, set by the host (sim state → expression is wired by the
+ * orchestrator). Every field is optional: what is left out keeps its value.
+ * Scalars are 0..1 and eased over ~0.1 s by the rig.
+ */
+export interface FaceState {
+  /** Eyes squeeze shut, brow comes down (taking a shot). */
+  wince?: number;
+  /** Jaw drops (gassed; a KO). */
+  mouthOpen?: number;
+  /** Swelling under each eye, [the fighter's left, right]: the eye closes and the cheek bruises. */
+  swell?: readonly [number, number];
+  /** Cuts by place, 0 = none … 1 = open and running. */
+  cuts?: Partial<Record<CutPlace, number>>;
+}
+export type CutPlace = 'browL' | 'browR' | 'cheekL' | 'cheekR' | 'nose' | 'lip';
+/** The skin: sweat that builds (0 dry … 1 drenched) and reddening where the punches have been landing. */
+export interface BodyState {
+  sweat?: number;
+  redden?: { head?: number; body?: number };
+}
+/** What createFighterView returns: the FighterView contract plus the face / body state (overhaul 2026-11-11). */
+export interface RigView extends FighterView {
+  setFace(face: FaceState): void;
+  setBodyState(body: BodyState): void;
+}
+
 export interface RigProbe {
+  /** Test hooks for the face / body state (lookbook): same as the view's. */
+  setFace?: (face: FaceState) => void;
+  setBodyState?: (body: BodyState) => void;
   head(): Vec3;
   gloves(): [Vec3, Vec3];
   /** Main-pass draw calls, shadow-pass draw calls, and triangles for this fighter. */
@@ -69,7 +100,7 @@ const DEBUG_BONES: readonly (readonly [number, number])[] = [
  * drawn with this rig (the referee) passes its own so the read's rim never
  * warms it, and `probe: false` so it does not take over window.__rig[side].
  */
-export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, parent: THREE.Object3D, opts: { key?: number; probe?: boolean } = {}): FighterView {
+export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, parent: THREE.Object3D, opts: { key?: number; probe?: boolean } = {}): RigView {
   const root = new THREE.Group();
   root.name = opts.key !== undefined && opts.key !== side ? spec.id : `fighter${side}`;
   parent.add(root);
@@ -77,8 +108,16 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const leadSign = handLateralSign('lead', spec.stance);
   const latSign: readonly [number, number] = [leadSign, -leadSign];   // index 0 = lead, 1 = rear
 
-  const toon = toonMaterial(cfg, opts.key ?? side);   // per side: the read's warm rim is per fighter
+  let mat: RigMaterial | null = null;   // per fighter: its own atlas, sweat, damage and the read's warm rim
   const hull = outlineMaterial(cfg);
+  // Face and body state (set by the host through setFace / setBodyState; eased here so nothing pops).
+  const faceTarget = { wince: 0, mouthOpen: 0, swellL: 0, swellR: 0 };
+  const faceNow = { wince: 0, mouthOpen: 0, swellL: 0, swellR: 0 };
+  const bodyTarget = { sweat: 0, reddenHead: 0, reddenBody: 0 };
+  // The elbow / knee hinge axes, remembered so a straight limb keeps the roll it had.
+  const hingeArm = [new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 1)] as const;
+  const hingeLeg = [new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 1)] as const;
+  let cuts: Partial<Record<CutPlace, number>> = {};
   let glowAmt = 0;   // the read: 0..1 from the UI, drawn as a warm rim (readGlowStrength × this)
   let rig: RigMesh | null = null;
   let geomKey = '';
@@ -155,6 +194,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const stepStyle: StepStyle = { role: 'lead', lateral: false };
   const scl = new THREE.Vector3();
   const wp = new THREE.Vector3();
+  const fx = new THREE.Vector3(), fy = new THREE.Vector3(), fz = new THREE.Vector3();
+  const du = new THREE.Vector3(), df = new THREE.Vector3(), hTmp = new THREE.Vector3();
+  const mBasis = new THREE.Matrix4();
+  const qNeck = new THREE.Quaternion();
 
   // ── Helpers ──
   const toLocal = (p: Vec3, out: THREE.Vector3): THREE.Vector3 => {
@@ -167,20 +210,58 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const dirToLocal = (x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 =>
     out.set(x * frame.fwd.x + z * frame.fwd.z, y, x * frame.right.x + z * frame.right.z);
   const bone = (id: number): THREE.Bone => rig!.bones[id]!;
-  /** Place a limb bone: origin at `from`, local -y toward `to`. */
-  const placeLimb = (id: number, from: THREE.Vector3, to: THREE.Vector3, stretch = 1): void => {
-    const b = bone(id);
-    b.position.copy(from);
-    v.subVectors(to, from);
-    const l = v.length();
-    if (l > 1e-6) v.divideScalar(l); else v.set(0, -1, 0);
-    b.quaternion.setFromUnitVectors(DOWN, v);
-    b.scale.set(1, stretch, 1);
+  /** A bone frame: local −y along `dir`, local +z along `hinge` (made perpendicular), +x = y × z. */
+  const frameQuat = (dir: THREE.Vector3, hinge: THREE.Vector3, out: THREE.Quaternion): void => {
+    fy.copy(dir).negate();
+    fz.copy(hinge).addScaledVector(fy, -hinge.dot(fy));
+    if (fz.lengthSq() < 1e-10) { fz.set(0, 0, 1).addScaledVector(fy, -fy.z); if (fz.lengthSq() < 1e-10) fz.set(1, 0, 0); }
+    fz.normalize();
+    fx.crossVectors(fy, fz);
+    mBasis.makeBasis(fx, fy, fz);
+    out.setFromRotationMatrix(mBasis);
+  };
+  /**
+   * A two-bone limb a → b → c with its half-way joint bone, so the skin bends
+   * as one surface. Both bones share the hinge axis (their local +z), so the
+   * joint is a pure hinge — no twist for the blended skin to collapse over.
+   * `sign` = +1 for arms (the forearm folds toward local +x), −1 for legs
+   * (the shin folds toward −x). The joint bone widens in the bend plane to
+   * put back the volume linear blending loses (rigJointMitre).
+   * Returns the cosine of the bend (1 = straight).
+   */
+  const placeChain = (upperId: number, jointId: number, lowerId: number, a: THREE.Vector3, b: THREE.Vector3, cEnd: THREE.Vector3, hinge: THREE.Vector3, sign: number, stretch: number): number => {
+    du.subVectors(b, a);
+    if (du.lengthSq() > 1e-12) du.normalize(); else du.set(0, -1, 0);
+    df.subVectors(cEnd, b);
+    if (df.lengthSq() > 1e-12) df.normalize(); else df.copy(du);
+    hTmp.crossVectors(du, df).multiplyScalar(sign);
+    hinge.multiplyScalar(0.03).add(hTmp);
+    if (hinge.lengthSq() < 1e-12) hinge.set(0, 0, 1);
+    hinge.normalize();
+    const bU = bone(upperId), bJ = bone(jointId), bL = bone(lowerId);
+    bU.position.copy(a);
+    frameQuat(du, hinge, bU.quaternion);
+    bU.scale.set(1, 1, 1);
+    bL.position.copy(b);
+    frameQuat(df, hinge, bL.quaternion);
+    bL.scale.set(1, stretch, 1);
+    const cosBend = Math.max(-1, Math.min(1, du.dot(df)));
+    const half = Math.acos(cosBend) / 2;
+    const mitre = Math.min(cfg.rigJointMitreMax, 1 + cfg.rigJointMitre * (1 / Math.max(0.2, Math.cos(half)) - 1));
+    bJ.position.copy(b);
+    bJ.quaternion.slerpQuaternions(bU.quaternion, bL.quaternion, 0.5);
+    bJ.scale.set(mitre, 1, 1);
+    return cosBend;
   };
 
   const rebuild = (state: FighterState): void => {
     if (rig) { rig.dispose(); rig = null; }
-    rig = buildRigMesh(spec, state.body, cfg, latSign, toon, hull);
+    if (mat) mat.dispose();
+    mat = createRigMaterial(cfg);
+    rig = buildRigMesh(spec, state.body, cfg, latSign, mat.material, hull);
+    mat.material.map = rig.atlas.texture;
+    mat.uniforms.uDamage.value = rig.atlas.damage;
+    rig.atlas.setDamage(cuts, [faceTarget.swellL, faceTarget.swellR]);
     root.add(rig.group);
     geomKey = rigGeomKey(spec, state.body, cfg);
   };
@@ -383,7 +464,15 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     qChest.setFromAxisAngle(ZAXIS, -bendPitch);
     qTmp.setFromAxisAngle(XAXIS, bendRoll);
     qChest.multiply(qTmp);
-    qTmp.setFromAxisAngle(YAXIS, yawS + spin);   // the shoulders whip round with a hook's spin
+    // The chest turns to the line between the SIM's shoulder joints (overhaul
+    // 2026-11-11). The arms are drawn on those joints, and now that the
+    // deltoids and the corners of the chest are one skin with them the chest
+    // has to agree: the old stance blade (rigStanceShoulderYawDeg, still what
+    // the head follows) turned the chest 38° off the shoulders it carries.
+    for (let i = 0; i < 2; i++) lerpLocal(prev.arms[i]!.shoulder, next.arms[i]!.shoulder, alpha, shoulderJ[i]!);
+    const iR = latSign[0] > 0 ? 0 : 1;
+    const yawSh = Math.atan2(shoulderJ[iR]!.x - shoulderJ[1 - iR]!.x, shoulderJ[iR]!.z - shoulderJ[1 - iR]!.z);
+    qTmp.setFromAxisAngle(YAXIS, yawSh + spin);   // the shoulders whip round with a hook's spin
     qChest.multiply(qTmp);
     qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg + mvFwd * c.rigMoveLeanDeg) * DEG);
     qChest.multiply(qTmp);
@@ -464,6 +553,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     squashTorso.step(dt);
     squashTorso.applyTo(scl);
     bChest.scale.copy(scl);
+    // The waist: a bone half-way between hips and chest, so the skin between them curves and twists as one.
+    const bSpine = bone(BONE.spine);
+    bSpine.position.addVectors(H, S).multiplyScalar(0.5);
+    bSpine.quaternion.slerpQuaternions(qHips, qChest, 0.5);
+    bSpine.scale.set(1, 1, 1);
 
     // Shoulder joints and neck base ride on the chest. On a punch the punching
     // shoulder reaches forward out of the chest (the scapula), the other
@@ -477,19 +571,13 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const reach = next.punch.type === null ? 0 : leanN * c.rigPunchShoulderReach * (mine ? 1 : -0.5);
       shoulderFall[i]!.set(reach, shrug, latSign[i]! * body.shoulderW / 2).applyQuaternion(qChest).add(S);
     }
-    neckBase.set(0, body.chestLen * 0.05 + shrug, 0).applyQuaternion(qChest).add(S);
-    const bNeck = bone(BONE.neck);
-    bNeck.position.copy(neckBase);
-    v.subVectors(headL, neckBase);
-    const neckLen = v.length();
-    if (neckLen > 1e-6) v.divideScalar(neckLen); else v.set(0, 1, 0);
-    bNeck.quaternion.setFromUnitVectors(UP, v);
-    bNeck.scale.set(1, Math.max(0.01, neckLen + body.headR * 0.3), 1);
+    neckBase.set(0, d.neckBase + shrug, 0).applyQuaternion(qChest).add(S);
 
     // Head: exactly on the sim's head sphere.
     const bHead = bone(BONE.head);
     bHead.position.copy(headL);
-    bHead.quaternion.setFromAxisAngle(YAXIS, yawS * Math.min(1, c.rigHeadFollow * drive) + spin * c.rigHitHeadSpin);   // the head whips further than the shoulders
+    bHead.quaternion.setFromAxisAngle(YAXIS, yawSh * Math.min(1, c.rigHeadFollow * drive) + spin * c.rigHitHeadSpin);   // the head whips further than the shoulders
+    void yawS;
     // Chin tucks behind the gloves in the block, and behind the shoulder on a punch.
     qTmp.setFromAxisAngle(ZAXIS, tilt * 0.5 - (blk * c.rigBlockChinTuckDeg + leanN * c.rigPunchChinTuckDeg) * DEG);
     bHead.quaternion.multiply(qTmp);
@@ -497,6 +585,24 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     squashHead.step(dt);
     squashHead.applyTo(scl);
     bHead.scale.copy(scl);
+
+    // Neck: from the chest to the head, turned half-way between them, aimed
+    // at the head and stretched to reach it — the skin blends chest → neck → head.
+    const bNeck = bone(BONE.neck);
+    bNeck.position.copy(neckBase);
+    v.subVectors(headL, neckBase);
+    const neckLen = v.length();
+    if (neckLen > 1e-6) v.divideScalar(neckLen); else v.set(0, 1, 0);
+    qNeck.slerpQuaternions(qChest, bHead.quaternion, 0.5);
+    v2.set(0, 1, 0).applyQuaternion(qNeck);
+    qTmp.setFromUnitVectors(v2, v);
+    bNeck.quaternion.multiplyQuaternions(qTmp, qNeck);
+    bNeck.scale.set(1, Math.max(0.3, Math.min(1.6, neckLen / Math.max(1e-3, d.neckBind))), 1);
+    // Hanging hair rides the head (cloth.ts springs it).
+    const bTail = bone(BONE.tail);
+    bTail.position.copy(headL);
+    bTail.quaternion.copy(bHead.quaternion);
+    bTail.scale.set(1, 1, 1);
 
     // Arms: drawn on the SIM's joints (2026-09-18 — hit geometry is drawn
     // geometry: the sim places shoulders and elbows in sim/arms.ts with the
@@ -524,15 +630,19 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
         const l = v3dist(elbowJ[i]!, gl);
         if (l > body.forearm) stretch = Math.min(c.rigArmStretchMax, l / body.forearm);
       }
-      placeLimb(i === 0 ? BONE.upperArm0 : BONE.upperArm1, sh, elbowJ[i]!);
-      placeLimb(i === 0 ? BONE.forearm0 : BONE.forearm1, elbowJ[i]!, gl, stretch);
-      const bShoulder = bone(i === 0 ? BONE.shoulder0 : BONE.shoulder1);   // the deltoid ball sits on the arm root
+      const ab = armBones(i);
+      const cosBend = placeChain(ab.upper, ab.elbow, ab.fore, sh, elbowJ[i]!, gl, hingeArm[i]!, 1, stretch);
+      // The deltoid belongs to the arm: its bone sits on the arm root, turned part of the way from the chest to the upper arm.
+      const bShoulder = bone(ab.shoulder);
       bShoulder.position.copy(sh);
-      bShoulder.quaternion.copy(qChest);
+      bShoulder.quaternion.slerpQuaternions(qChest, bone(ab.upper).quaternion, c.rigShoulderFollow);
       bShoulder.scale.set(1, 1, 1);
-      const bGlove = bone(i === 0 ? BONE.glove0 : BONE.glove1);
+      const bGlove = bone(ab.glove);
       bGlove.position.copy(gl);                             // exact
-      bGlove.quaternion.copy(bone(i === 0 ? BONE.forearm0 : BONE.forearm1).quaternion);
+      // The fist turns over as the arm straightens: thumbs toward the fighter at the guard, palm down at full reach.
+      const ext = smoothstep((cosBend + 0.2) / 1.1);
+      qTmp.setFromAxisAngle(YAXIS, latSign[i]! * lerp(c.rigGloveGuardRollDeg, c.rigGlovePronateDeg, ext) * DEG);
+      bGlove.quaternion.copy(bone(ab.fore).quaternion).multiply(qTmp);
       scl.set(1, 1, 1);
       squashGlove[i]!.step(dt);
       squashGlove[i]!.applyTo(scl);
@@ -585,7 +695,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const lift = c.rigPunchHeelLift * Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean) * liftW;
       ankle.y += body.bootH + lift;
 
-      hipJ[i]!.set(0, 0, s * body.hipW / 2).applyQuaternion(qHips).add(H);
+      hipJ[i]!.set(0, 0, s * d.hipJ).applyQuaternion(qHips).add(H);
       // No hyperextension: pull the ankle in horizontally, then up if it must.
       const maxD = c.rigKneeMax * (body.thigh + body.shin);
       v.subVectors(ankle, hipJ[i]!);
@@ -605,9 +715,14 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const slipKnee = slipLat !== 0 && Math.sign(slipLat) === Math.sign(s) ? Math.min(1, Math.abs(slipLat) / Math.max(1e-3, c.slipHeadOffset)) * c.rigSlipKneeIn : 0;
       pole.set(c.rigKneePoleFwd * Math.cos(yawL), 0, -c.rigKneePoleFwd * Math.sin(yawL)).addScaledVector(ZAXIS, s * (c.rigKneePoleOut - slipKnee));
       solveTwoBone(hipJ[i]!, ankle, body.thigh, body.shin, pole, 1, ik);
-      placeLimb(i === 0 ? BONE.thigh0 : BONE.thigh1, hipJ[i]!, ik.mid);
-      placeLimb(i === 0 ? BONE.shin0 : BONE.shin1, ik.mid, ankle);
-      const bBoot = bone(i === 0 ? BONE.boot0 : BONE.boot1);
+      const lb = legBones(i);
+      placeChain(lb.thigh, lb.knee, lb.shin, hipJ[i]!, ik.mid, ankle, hingeLeg[i]!, -1, 1);
+      // Trunks hem: rides the thigh (cloth.ts springs it).
+      const bHem = bone(lb.hem);
+      bHem.quaternion.copy(bone(lb.thigh).quaternion);
+      bHem.position.set(0, -d.trunkLen, 0).applyQuaternion(bHem.quaternion).add(hipJ[i]!);
+      bHem.scale.set(1, 1, 1);
+      const bBoot = bone(lb.boot);
       bBoot.position.copy(ankle);
       bBoot.quaternion.setFromAxisAngle(YAXIS, yawL);
       if (lift > 0) bBoot.quaternion.multiply(qTmp.setFromAxisAngle(ZAXIS, -Math.asin(Math.min(1, lift / (d.footLen * 0.72)))));
@@ -627,19 +742,48 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
 
     // Materials + outline toggle (live), and this fighter's read.
     updateMaterials(c);
-    setGlow(toon, c.readEnabled ? glowAmt * c.readGlowStrength : 0, c.readGlowColor);
+    setGlow(mat!, c.readEnabled ? glowAmt * c.readGlowStrength : 0, c.readGlowColor);
     r.outline.visible = c.outlines;
+    // Face and body state: eased toward what the host last set.
+    const kF = 1 - Math.exp(-dt * 14);
+    const infl = r.body.morphTargetInfluences;
+    for (let k = 0; k < MORPHS.length; k++) {
+      const name = MORPHS[k]!;
+      faceNow[name] += (faceTarget[name] - faceNow[name]) * kF;
+      if (infl) infl[k] = faceNow[name];
+    }
+    const u = mat!.uniforms;
+    u.uSweat.value += (bodyTarget.sweat - u.uSweat.value) * kF;
+    u.uRedden.value.x += (bodyTarget.reddenHead - u.uRedden.value.x) * kF;
+    u.uRedden.value.y += (bodyTarget.reddenBody - u.uRedden.value.y) * kF;
 
     root.updateMatrixWorld(true);
-    void smoothstep;
   }
+
+  const clamp1 = (x: number | undefined, was: number): number => x === undefined ? was : x < 0 ? 0 : x > 1 ? 1 : x;
+  const setFace = (f: FaceState): void => {
+    faceTarget.wince = clamp1(f.wince, faceTarget.wince);
+    faceTarget.mouthOpen = clamp1(f.mouthOpen, faceTarget.mouthOpen);
+    if (f.swell) { faceTarget.swellL = clamp1(f.swell[0], faceTarget.swellL); faceTarget.swellR = clamp1(f.swell[1], faceTarget.swellR); }
+    if (f.cuts) cuts = { ...cuts, ...f.cuts };
+    if (rig && (f.cuts || f.swell)) rig.atlas.setDamage(cuts, [faceTarget.swellL, faceTarget.swellR]);
+  };
+  const setBodyState = (b: BodyState): void => {
+    bodyTarget.sweat = clamp1(b.sweat, bodyTarget.sweat);
+    if (b.redden) { bodyTarget.reddenHead = clamp1(b.redden.head, bodyTarget.reddenHead); bodyTarget.reddenBody = clamp1(b.redden.body, bodyTarget.reddenBody); }
+  };
+  probe.setFace = setFace;
+  probe.setBodyState = setBodyState;
 
   return {
     side,
     apply,
     highlight(strength: number): void { glowAmt = strength > 1 ? 1 : strength < 0 ? 0 : strength; },
+    setFace,
+    setBodyState,
     dispose(): void {
       if (rig) { rig.dispose(); rig = null; }
+      if (mat) { mat.dispose(); mat = null; }
       debug.dispose();
       root.removeFromParent();
       if (probing && window.__rig) delete window.__rig[side];
