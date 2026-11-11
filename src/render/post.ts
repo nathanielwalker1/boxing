@@ -54,8 +54,55 @@ const FinishShader = {
     }`,
 };
 
+/**
+ * The guard (polish run 2026-11-11, the black flashes). One pixel of the HDR
+ * scene target that is NaN or infinite — a material dividing by zero or
+ * normalising a zero vector for a single fragment — is harmless on its own,
+ * but the bloom chain blurs it down five mips and adds the result back over
+ * the WHOLE frame: NaN + anything = NaN, and the finishing pass turns it into
+ * a black frame. This pass replaces such a pixel with black before the bloom
+ * sees it and clamps absurd values. Mode 2 is the diagnostic: a bad pixel is
+ * written as a very bright magenta one, so the bloom draws a blob round it and
+ * a capture shows where it came from (scripts/flash_probe.mjs counts them).
+ *
+ * What was measured (M1, Metal, 60 fps): one fully black frame about every
+ * 3 s with post on, none with post off; a plain copy pass or forcing alpha
+ * did not cure it, clamping the colour did. The source was the light beams'
+ * shader (atmos.ts: pow() of a base a hair below zero where a cone lands),
+ * fixed there; this pass stays on so the next such shader cannot do it again.
+ */
+const GuardShader = {
+  uniforms: { tDiffuse: { value: null as THREE.Texture | null }, uMode: { value: 1 }, uTexel: { value: new THREE.Vector2(1, 1) }, uMax: { value: 64 } },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse;
+    uniform float uMode, uMax;
+    uniform vec2 uTexel;
+    varying vec2 vUv;
+    // By bit pattern (exponent all ones = NaN or infinity): Metal compiles shaders with fast-math, where isnan(),
+    // isinf() and every comparison against a NaN are folded to false — measured: the first cut of this test found nothing.
+    bool badf(float v) { return (floatBitsToInt(v) & 0x7f800000) == 0x7f800000; }
+    bool bad(vec3 c) { return badf(c.r) || badf(c.g) || badf(c.b); }
+    void main() {
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      if (uMode > 1.5) {
+        // A bad pixel is written as a very bright magenta one, so the bloom itself draws the blob round it. What is
+        // "bad" here is by elimination: anything the clamp below would change (a NaN included — on Metal a NaN fails
+        // both comparisons, so it is caught by NOT being inside the range).
+        bool inside = c.r >= -0.01 && c.g >= -0.01 && c.b >= -0.01 && c.r <= uMax && c.g <= uMax && c.b <= uMax;
+        gl_FragColor = vec4(bad(c) || !inside ? vec3(2000.0, 0.0, 2000.0) : clamp(c, 0.0, uMax), 1.0);
+        return;
+      }
+      if (bad(c)) c = vec3(0.0);
+      gl_FragColor = vec4(clamp(c, 0.0, uMax), 1.0);
+    }`,
+};
+
 export class PostPass {
   private composer: EffectComposer;
+  private guard: ShaderPass;
   private bloom: UnrealBloomPass;
   private finish: ShaderPass;
   private w = 1; private h = 1;
@@ -72,6 +119,8 @@ export class PostPass {
     this.composer = new EffectComposer(renderer, target);
     this.composer.setPixelRatio(1);
     this.composer.addPass(new RenderPass(scene, camera));
+    this.guard = new ShaderPass(GuardShader);
+    this.composer.addPass(this.guard);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(w, h), cfg.bloomStrength, cfg.bloomRadius, cfg.bloomThreshold);
     this.composer.addPass(this.bloom);
     this.finish = new ShaderPass(FinishShader);
@@ -91,6 +140,11 @@ export class PostPass {
       this.bloomScale = cfg.postBloomScale;
       this.bloom.setSize(Math.max(8, Math.round(this.w * this.bloomScale)), Math.max(8, Math.round(this.h * this.bloomScale)));
     }
+    this.guard.enabled = cfg.postNanGuard > 0;
+    const g = this.guard.uniforms as Record<string, THREE.IUniform>;
+    g['uMode']!.value = cfg.postNanGuard;
+    g['uMax']!.value = cfg.postHdrMax;
+    (g['uTexel']!.value as THREE.Vector2).set(1 / this.w, 1 / this.h);
     this.bloom.strength = cfg.bloomStrength;
     this.bloom.radius = cfg.bloomRadius;
     this.bloom.threshold = cfg.bloomThreshold;

@@ -28,6 +28,48 @@ at "What to feel-test, in order".
 Workstream logs (each agent keeps its own, merged into this file at integration):
 `docs/OVERHAUL_SIM.md`, `docs/OVERHAUL_RIG.md`, `docs/OVERHAUL_SHOW.md`.
 
+## Polish phase (started 2026-11-11, after Nate's first play)
+
+Nate's brief: the overhaul is "maybe 20% of the way"; this phase makes the
+fighting smooth, satisfying and strategic. Eight items; for each one the
+record is what was measured, what the real cause was, and before / after.
+Every change has a config toggle. Nothing here is feel-tested until Nate
+says so.
+
+### 1. Random flashes of black — found and fixed
+
+- **Caught** with `scripts/flash_probe.mjs`: a scripted fight on the real GPU
+  (M1, Metal, desktop tier, post on), every rendered frame sampled inside the
+  page. Before: 12 fully black frames in the first 35 s (brightness 1.2
+  against a median of 62, 100% of pixels dark), one frame each, about one
+  every 3 s. Not tied to hit-stop, knockdowns, the replay or the camera.
+- **Which system:** the post pass. Post off: 0 in 40 s. It was not the scene
+  being black: a single bad pixel was being spread over the whole frame by
+  the bloom's blur chain. Splitting it: a plain copy pass before the bloom
+  did not cure it, forcing alpha to 1 did not, clamping the colour did. A
+  diagnostic that paints bad pixels (`postNanGuard` 2) put them where the
+  overhead light beams land (ringside floor, the ropes).
+- **Real cause:** the beam shader (`src/render/atmos.ts`) computed
+  `pow(1 - t, 1.4)` where `t` runs 0 → 1 down the cone; at the rim `t`
+  interpolates a hair over 1 for the odd fragment, and a negative base to a
+  fractional power is NaN. One NaN pixel → bloom → black frame. (My first
+  guess, the crowd's camera flashes, was wrong: still 11 black frames with
+  them removed.) Metal compiles shaders with fast-math, so `isnan()` found
+  nothing; the test that works is on the bit pattern.
+- **Fix:** the base is clamped at the source. A guard pass before the bloom
+  (`postNanGuard`, default 1; 0 = off to A/B) replaces any NaN / infinite
+  pixel and clamps the HDR frame to `postHdrMax`, so the next shader that
+  does this cannot black the frame out.
+- **After:** 0 black frames in 40 s with the guard OFF (source fixed), 0 in
+  60 s with it on. Still 60 fps. `scripts/flash_check.mjs` (15 s, real GPU,
+  guard off) is in `npm test`.
+- **Side finding, not changed:** with the guard pass in the chain,
+  `postMsaa` 2 now renders lit on the M1 (median brightness 64; it was the
+  black screen of the first play). The default stays 0; raising it would
+  take the rope aliasing away. Nate's call after a look (`postMsaa` slider).
+- Not covered by the probe: the menu flow's own paths (replay cut, corner
+  card). The rest between rounds is a black card by design (2026-10-15).
+
 ## The black screen (found by Nate on first play, fixed)
 
 The first time Nate opened the game the 3D scene was black behind the menus

@@ -110,9 +110,11 @@ export class Beams {
         varying float vT;
         ${NOISE}
         void main() {
-          float edge = abs(dot(normalize(vN), normalize(vV)));
+          float edge = abs(dot(vN, vV)) / max(1e-6, length(vN) * length(vV));   // not normalize(): a zero-length varying would be 0/0
           float soft = edge * edge;                                  // silhouette edges fade out: a shaft, not a cone
-          float along = pow(1.0 - vT, 1.4) * smoothstep(0.0, 0.03, vT);   // bright at the lamp, gone where it lands
+          // max(): at the rim where the cone lands vT interpolates a hair above 1 for the odd fragment, and pow() of a
+          // negative base is NaN — one NaN pixel, which the bloom blurred into a whole black frame (the black flashes).
+          float along = pow(max(1.0 - vT, 0.0), 1.4) * smoothstep(0.0, 0.03, vT);   // bright at the lamp, gone where it lands
           float n = vnoise(vW * vec3(0.8, 0.45, 0.8) + vec3(uTime * 0.06, -uTime * 0.035, uTime * 0.045));
           float a = soft * along * (1.0 - uNoise + uNoise * n * 1.7);
           a *= smoothstep(0.4, 2.5, length(vV));                     // never a wall of light when the lens passes through one
