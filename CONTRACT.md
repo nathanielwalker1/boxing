@@ -498,3 +498,13 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   default, `Stage.react` / `setExcitement` / `setBoardText`, a crowd mood driven from
   sim events inside `Stage.handleEvents`, config group `show`, audio split into
   `src/ui/audio/`. The suite no longer fits §13's 60 s (about 2–4 min).
+- 2026-11-11 — **Bodies** (RIG workstream, `docs/OVERHAUL_RIG.md`). `FighterSpec.build`
+  is replaced by `morph: BodyMorph` (`frame, muscle, bodyFat, limbLength, neck, head:
+  HeadMorph`, each −1..1, 0 = the baseline athlete); `hair` (16), `facialHair` (10),
+  `hairColor`, `eyeColor`, `tattoos: {place, motif, seed}[]`, `trunksStyle` (6 cuts),
+  `trunksPattern` (8), glove and boot design fields. `BodyDims` is unchanged, and `red`
+  / `blue` keep bit-identical sim-facing dims (`roster_test`). `ROSTER` is eight;
+  `generateFighter(seed)` (`core/generator.ts`). `createFighterView` returns `RigView`
+  (`setFace`, `setBodyState`). `rigQuality` (render group) follows the stage's
+  `qualityTier` (main.ts). Toon banding is retired for fighters. The chest follows the
+  sim's shoulder joints (the stance is squarer; open).

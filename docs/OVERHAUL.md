@@ -11,10 +11,11 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 | Baseline (lookbook + 3 filmstrips, `docs/overhaul/*_before.png`) | done |
 | Core: `FrameInput.level` + bindings | done |
 | A — the fighting (sim, AI, tests) | sim side merged 2026-11-11, 36/36 green (`docs/OVERHAUL_SIM.md`); nothing new is DRAWN or HEARD yet; AI too easy (phase 2 running) |
-| B — bodies and variance (rig, roster, generator) | in progress (RIG workstream) |
+| B — bodies and variance (rig, roster, generator) | merged 2026-11-11 (`docs/OVERHAUL_RIG.md`, `docs/overhaul/lookbook_after.png`); weak spots listed below |
+| Reads: the new fight state drawn on the new bodies | in progress (RIG workstream, phase 2) |
 | C — styles, the four unread ratings, AI difficulty, drill opponents | in progress (SIM workstream, phase 2) |
 | D — arena, lighting, haze, crowd, post, audio | merged 2026-11-11 (see `docs/OVERHAUL_SHOW.md`); audio unheard, polish list below |
-| D — title, select, cards, ring walk, replay, ladder | after A + B integrate |
+| D — title, select, cards, ring walk, replay, ladder, gym shell, controls card | in progress (UI workstream; log `docs/OVERHAUL_UI.md`) |
 
 Workstream logs (each agent keeps its own, merged into this file at integration):
 `docs/OVERHAUL_SIM.md`, `docs/OVERHAUL_RIG.md`, `docs/OVERHAUL_SHOW.md`.
@@ -145,6 +146,18 @@ Priority if time runs short: A, then B, then C, then D.
    otherwise sit idle. The menu half of D waits, because it needs the new
    fighter specs.
 
+7. **One quality tier.** The arena's tier and the fighter mesh's tier were
+   built separately; the mesh now follows the stage's tier (main.ts). Headless
+   checks therefore draw the low-tier fighters; the lookbook and filmstrip
+   scripts force the desktop mesh so the sheets show what a desktop sees.
+8. **Second phases went back to the same agents** (sim → styles, ratings,
+   difficulty, drills; rig → drawing the new fight state) because each already
+   holds the context of what it built. A fourth workstream (UI) builds the
+   menus, ring walk, replay, ladder and gym shell against adapters, so it does
+   not wait for the style table or the drills.
+9. **Toon banding is retired for fighters** (RIG's call, kept): the brief asks
+   for skin that looks like skin under ring light.
+
 ## Interface changes (also recorded in CONTRACT §13)
 
 - `FrameInput.level: boolean` — the level modifier.
@@ -153,6 +166,24 @@ Priority if time runs short: A, then B, then C, then D.
 ## Not done / below standard
 
 (Filled in as the run goes.)
+
+**Bodies (RIG, merged)** — full list in `docs/OVERHAUL_RIG.md`. Seen at full
+size in the after-lookbook cells:
+- With the arms hanging (the portrait pose) the shoulders are cylinders with a
+  hard seam against the chest. In guard and block they flow into the pec.
+- The nose bridge is a flat plane; the jaw is soft in profile; everyone has
+  the same neutral expression.
+- Ab lines look painted on in close-up. The heavy fighter's punching arm is a
+  balloon. Boots are the weakest part.
+- **The stance is squarer than the bladed one Nate accepted.** The chest now
+  turns with the sim's shoulder joints (the old rig yawed the chest 38° and
+  left the new deltoids floating 15 cm off it). Phase 2 is trying to get the
+  blade back without moving hit geometry.
+- The drawn waist sits 3–4 cm inside the hit capsule on lean fighters.
+- Not inspected by anyone yet: deep crouch, the knockdown on the canvas, the
+  get-up, the cloth and hair springs in motion, the jab / uppercut pose grids.
+- Triangles per fighter about 3,000 → 16,500 (high) / 7,700 (low); still one
+  draw call plus one for the shadow.
 
 **The fighting (SIM, merged)** — full list and the 15 decisions it made are in
 `docs/OVERHAUL_SIM.md`; the new controls table is there too.
