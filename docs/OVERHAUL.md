@@ -6,6 +6,12 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 
 ## Status
 
+**Final state, 2026-11-11:** everything below is merged on
+`overhaul/fight-and-look` (not pushed). `TEST_NO_REUSE=1 npm test` on the
+final tree: **44/44 scripts passed** (about five minutes when the machine is
+quiet, ten under load). Nothing has been feel-tested or heard by Nate. Start
+at "What to feel-test, in order".
+
 | Part | State |
 | --- | --- |
 | Baseline (lookbook + 3 filmstrips, `docs/overhaul/*_before.png`) | done |
@@ -21,6 +27,53 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 
 Workstream logs (each agent keeps its own, merged into this file at integration):
 `docs/OVERHAUL_SIM.md`, `docs/OVERHAUL_RIG.md`, `docs/OVERHAUL_SHOW.md`.
+
+## How the run ended
+
+Four workstreams ran in parallel worktrees and were merged here phase by
+phase. The last two passes (SIM phase 4, RIG phase 3) were cut off when usage
+credits ran out. Their committed work and two pieces of uncommitted work (the
+rig's regenerated strips and lookbooks; the sim's fix for a stoppage's fall,
+with its test) were salvaged and merged. What they did not finish: the sim's
+final matrices at 3 × 60 s, easy and hard after phase 4, and the drill fixes;
+the rig's stance comparison, three close-up checks, its phase 3 log and its
+final numbers. Those are listed under "Not done".
+
+## What to feel-test, in order
+
+Run `node_modules/.bin/vite --port 5191` (port 5173 is another project's) and
+open it. Controls are on the title screen. Every system below has a toggle in
+the tuning panel (`?tune=1`) so it can be switched off to compare.
+
+1. **Gym, in drill order** (title → Gym). One feeling each:
+   1. Jab and move — does the jab root you? Can you jab stepping in, backing
+      up, and be gone? (`punchRootOn`, `variantsOn`)
+   2. Cutting off the ring — known issue: finishes too fast by walking at him.
+   3. Getting inside — is it earned? Does posture change when you get there?
+   4. Slip timing — can you read the wind-up? Do you hear and see the miss?
+   5. Slip then counter — the peak. Slip to a side, punch with that hand.
+      (`slipLoadedOn`; `strip_flush_counter_after.png` is what it should look like)
+   6. Body work — hold Shift and punch. Does he fold, drop his elbow, slow down?
+      Does the liver shot land late? (`liverOn`, `bodyDamageOn`)
+   7. Surviving while hurt — known issue: an idle player is floored in about a
+      second. Block, move, clinch (block + Shift, chest to chest), pivot out.
+2. **One fight on medium against the swarmer (Brask) and one against the tall
+   outboxer (Voss)**, same fighter. Do they need different plans? Do the guard
+   shapes read? Can you tell clean from flush without looking at the bars?
+3. **Sound**, with headphones. Nobody has heard any of it. Is flush heavier
+   than clean? Is the counter the heaviest thing? Is the crowd too loud or
+   too quiet? Does anything distort?
+4. **The stance and the bodies** on fighter select. The stance is squarer than
+   the one you accepted; the blade is partly back (ribcage and hips turned,
+   shoulders not).
+5. **A knockdown**: the fall, the replay, the get-up struggle, the count.
+6. **The show**: ring walk, corner card, results, ladder.
+
+First knobs if something is wrong: too many knockdowns → `stunBase` up,
+`knockdownMinImpulse` up; the counter too strong → `stunFlashFrac` up,
+`slipLoadedPower` down; AI too hard or easy → difficulty on opponent select
+(`aiDifficulty`); the replay interrupting the count → `flowReplayOn` off;
+hit-stop too long → the `grade` group.
 
 ## Audit (2026-11-11, before any change)
 
@@ -167,7 +220,29 @@ Priority if time runs short: A, then B, then C, then D.
 
 ## Not done / below standard
 
-(Filled in as the run goes.)
+**Cut off when credits ran out (the short list of what is simply missing):**
+- Sim: the phase 4 matrices on easy, hard and 3 × 60 s; the three drill
+  fixes (`survive` floors an idle player in a second, `cut-off` finishes by
+  walking at him, drill partners take dead counts); the shell guard's
+  shoulder roll as its own move.
+- Rig: its phase 3 log and final triangle / fps numbers; the before / after
+  stance comparison; close-up checks of the heavy arm's taper, the boot shaft
+  and the abs. Reads it filmed and found still weak, unfixed: a blocked cross,
+  a blocked hook and a worn guard look almost alike; guard droop shows
+  nothing; the retreat jab, check hook, rising uppercut and feint cannot be
+  told from the base punch; the burst's hop is not readable at play distance;
+  body reddening is not visible; the face in close-up was filmed from behind;
+  rising from a knockdown he overlaps the other fighter.
+- The knockdown strip floors him by turning damage up for that scenario, not
+  from a worn target.
+- Never built: a stool and corner men between rounds; ring ambience beyond
+  footfalls and rope creak; a lighting change for the ring walk; rollback or
+  anything for friend-link (out of scope).
+- fps was never measured in a real browser with everything merged. The only
+  real-GPU numbers are the arena alone (60, vsync-capped) and the fighters
+  alone (60, vsync-capped). The title screen now also runs a second sim.
+
+The per-area lists follow, newest first within each area.
 
 **Bodies (RIG, merged)** — full list in `docs/OVERHAUL_RIG.md`. Seen at full
 size in the after-lookbook cells:
@@ -292,7 +367,47 @@ judges' running cards on the corner card.
 - In a scripted probe one flush loaded counter floors a fresh fighter every
   time. Being retuned so a fresh man is badly rocked and a worn one goes down.
 
-**Balance on the real roster (SIM phase 3, merged)** — `docs/OVERHAUL_SIM.md`
+**Final balance (SIM phase 4, merged; matrix run by the orchestrator on the
+final tree)** — `node scripts/bot_table.mjs 8 detail`: medium, 3 × 30 s, each
+style on its roster bodies, 8 fights a cell (so each cell is good to about
+±17 points), win % for the bot:
+
+  | Bot | pressure | outboxer | counter | swarmer | slugger | avg |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | jab-and-move | 75 | 13 | 88 | 100 | 50 | 65 |
+  | inside fighter | 50 | 63 | 13 | 50 | 100 | 55 |
+  | counter puncher | 50 | 0 | 50 | 25 | 25 | 30 |
+  | turtle | 0 | 0 | 0 | 0 | 0 | 0 |
+  | masher | 0 | 0 | 0 | 0 | 0 | 0 |
+  | AI share vs the three real plans | 38 | 67 | 38 | 42 | 25 | |
+
+- Fixed against the brief: stick-and-move is now a real way to win (65%
+  overall, all by decision; its bad matchup is the taller outboxer); the
+  counter style fights (the AI's share went from 3% to 38%, and it beats the
+  inside fighter who walks in swinging); the outboxer keeps the inside fighter
+  off more (0 of 20 wins → 37% of fights not lost); the masher and the turtle
+  win nothing; no plan is over 80%.
+- Real plans average 50%. In their 120 fights: 4% end by stoppage, 98% reach
+  the last round, 81% are still in doubt in it, 1.3 knockdowns a fight (half
+  of fights have none; 23% have three or more).
+- Still off: the swarmer loses every fight to jab-and-move, the slugger every
+  fight to the inside fighter, the counter style 88% to jab-and-move; the
+  counter-puncher BOT is now the weak plan (30%, 0 of 8 against the outboxer);
+  **only 4% of competitive fights end by stoppage**, which may be too few
+  after the knockdown retune — nearly everything goes to the cards.
+- Not run after phase 4: easy and hard; 3 × 60 s rounds (the menu default);
+  20 fights a cell. The sim agent was cut off before these.
+- Why it changed (traces, in `docs/OVERHAUL_SIM.md` "Phase 4"): the
+  stick-and-move bot was naive (stood inside reach, only jabbed) and was
+  rewritten; judges now score control (punches you make him miss) and
+  glancing lands count for less; a jab exposes its thrower less than a power
+  punch; the outboxer AI was throwing weak retreat jabs and now plants its
+  feet; a hurt man can always tie up; the counter AI reads a punch it has
+  seen repeatedly and a jab thrown on a steady beat, so mixing punches and
+  breaking rhythm is the answer to it.
+
+**Balance on the real roster (SIM phase 3, merged; superseded by the table
+above)** — `docs/OVERHAUL_SIM.md`
 "Phase 3". Each style fought on its own roster body, 20 fights a cell on
 medium, win % for the bot ("AI" = the AI's share against the three real plans):
 

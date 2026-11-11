@@ -318,11 +318,7 @@ function startReplay(): void {
   if (!clip || clip.frames.length < 12) return;
   preroll(clip.pre.concat(clip.frames.slice(0, 1)));   // the rig's springs (cloth, hair, feet) arrive at the clip's first frame settled
   const at = clip.frames[clip.at]!.state.fighters;
-  // A stoppage at the knockdown itself (the knockdown limit): see `fallen` — the clip's frames after it get the same clock.
-  const k0 = clip.frames.findIndex(f => f.state.round.phase === 'over');
-  const frames = k0 < 0 ? clip.frames : clip.frames.map((fr, i) => (i <= k0 ? fr : {
-    ...fr, state: { ...fr.state, fighters: fr.state.fighters.map(f => (f.down ? { ...f, downT: f.downT + (i - k0) * SIM_DT } : f)) as [FighterState, FighterState] },
-  }));
+  const frames = clip.frames;   // the sim runs a fallen man's downT through the `over` phase itself (SIM phase 4), so the clip needs no patching
   replay = {
     player: new ReplayPlayer(frames, clip.at),
     shot: {
@@ -347,14 +343,6 @@ function endReplay(): void {
   replay = null; replayDue = false;
 }
 
-/**
- * The sim advances a downed fighter's `downT` only while the referee counts. When the fight ends ON a knockdown (the
- * knockdown limit: a TKO with no count) it stays at 0, and the rig — which draws the fall from `downT` — would hold
- * the loser upright at the first frame of his fall for good. So once the fight is over the views are handed a COPY of
- * a downed fighter with the seconds since added on. Presentation only: the sim's state is not touched.
- */
-let overWall = 0;
-const fallen = (f: FighterState): FighterState => (overWall > 0 && f.down ? { ...f, downT: f.downT + overWall } : f);
 
 const FLAGS = ['jab', 'cross', 'hook', 'uppercut', 'block', 'level'] as const;
 const swallowed = new Set<typeof FLAGS[number]>();   // buttons held when the fight resumed: ignored until let go
@@ -438,9 +426,6 @@ function loop(nowMs: number): void {
     refSnap = fr.next.ref;
   } else if (staged) {
     drawPrev = staged.prev; shown = staged.next; alpha = staged.alpha; viewEvents = scene!.events ?? [];
-  } else if (!paused) {
-    overWall = next.round.phase === 'over' ? overWall + sdt : 0;
-    if (overWall > 0) { drawPrev = [fallen(drawPrev[0]), fallen(drawPrev[1])]; shown = [fallen(shown[0]!), fallen(shown[1]!)]; }
   }
   for (const v of views) {
     const s = v.side;
