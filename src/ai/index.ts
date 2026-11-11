@@ -175,6 +175,12 @@ export interface AiState {
   resting: boolean;
   /** Seconds before it may throw another stiff jab at a man walking in. */
   interceptCd: number;
+  /** THE READ (phase 4): how many of each punch he has started lately (jab, cross, hook, uppercut), fading over READ_WINDOW. A punch seen readAfter times is one it is waiting for. */
+  learn: [number, number, number, number];
+  /** The beat, per punch type: seconds since he last started one, the gap between his last two, whether the last two gaps matched (1 / 0); and the type it has already moved for on this beat (-1 = none). */
+  since: [number, number, number, number]; gap: [number, number, number, number]; steady: [number, number, number, number]; pre: number;
+  /** A read in progress: seconds until it moves (-1 = none), and what it will do: 1 slip, 2 pull, 3 roll; the stick x of the slip; the punch it throws behind it (null = none) and that punch's hand x. */
+  readT: number; readMove: 0 | 1 | 2 | 3; readX: number; readPunch: PunchType | null; readHand: number;
   /** Seconds since the opponent last STARTED a punch (phase 3: a combination is punches less than COVER_QUIET apart). */
   oppQuiet: number;
   /** Covering up through his combination at close range: seconds since it decided to (the guard is up once that passes its reaction time); -1 = not covering. */
@@ -182,7 +188,7 @@ export interface AiState {
   /** Behind the guard: the last push at or over the flick threshold, held through the flick window so it is never a pivot or a shove by accident. */
   holdX: number; holdY: number;
   /** How many times it has used each tool. Read by tests and the bot table. */
-  used: { body: number; slip: number; roll: number; pivot: number; push: number; burst: number; feint: number; clinch: number; cutOff: number };
+  used: { body: number; slip: number; roll: number; pivot: number; push: number; burst: number; feint: number; clinch: number; cutOff: number; read: number };
 }
 
 /** A fresh AI for `side`. Its rng streams are derived from the fight seed so two sides never share one. `style`: null = the default (live from config). */
@@ -227,7 +233,8 @@ export function createAi(side: Side, seed: number, cfg: Config, style: StylePara
     hurtPlan: 'none',
     hits: 0, shellT: 0,
     wasInside: false, insideHold: false, oppRate: 0, queue: [], queueT: 0, armedOver: false, armedTold: false, armedBack: false, lastStun: 0, oppResolved: false, pushFollow: 0, resting: false, interceptCd: 0, oppQuiet: 9, coverT: -1, holdX: 0, holdY: 0,
-    used: { body: 0, slip: 0, roll: 0, pivot: 0, push: 0, burst: 0, feint: 0, clinch: 0, cutOff: 0 },
+    learn: [0, 0, 0, 0], since: [60, 60, 60, 60], gap: [0, 0, 0, 0], steady: [0, 0, 0, 0], pre: -1, readT: -1, readMove: 0, readX: 0, readPunch: null, readHand: 0,
+    used: { body: 0, slip: 0, roll: 0, pivot: 0, push: 0, burst: 0, feint: 0, clinch: 0, cutOff: 0, read: 0 },
   };
 }
 
@@ -318,7 +325,7 @@ function runMacro(a: AiState, input: FrameInput, s: SimState, cfg: Config): bool
       return true;
     case 'clinch':
       // (x = 1: a tie-up to smother a combination, not to clear the head — it does not need to be hurt.)
-      if (me.clinch.active || (m.x === 0 && me.hurt <= 0) || t > CLINCH_MAX_TICKS || me.clinch.cd > 0) { a.macro = null; return me.clinch.active; }
+      if (me.clinch.active || (m.x === 0 && me.hurt <= 0) || t > CLINCH_MAX_TICKS || (me.clinch.cd > 0 && !(cfg.clinchHurtFree && me.hurt > 0))) { a.macro = null; return me.clinch.active; }
       input.block = true; input.level = true;
       if (a.dist > cfg.clinchRange - 0.05) input.move.y = 0.55;   // walk in under the flick threshold: a push here must not read as a shove
       return true;
@@ -355,7 +362,8 @@ function trackStick(a: AiState, input: FrameInput, dt: number, cfg: Config, pres
  * returns a new AiState and a fresh FrameInput, touches neither argument.
  */
 export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: AiState; input: FrameInput } {
-  const a: AiState = { ...ai, rng: rngClone(ai.rng), rngT: rngClone(ai.rngT), macro: ai.macro ? { ...ai.macro } : null, used: { ...ai.used }, queue: ai.queue.slice() };
+  const a: AiState = { ...ai, rng: rngClone(ai.rng), rngT: rngClone(ai.rngT), macro: ai.macro ? { ...ai.macro } : null, used: { ...ai.used }, queue: ai.queue.slice(), learn: [ai.learn[0], ai.learn[1], ai.learn[2], ai.learn[3]],
+    since: [ai.since[0], ai.since[1], ai.since[2], ai.since[3]], gap: [ai.gap[0], ai.gap[1], ai.gap[2], ai.gap[3]], steady: [ai.steady[0], ai.steady[1], ai.steady[2], ai.steady[3]] };
   const st = a.style ?? defaultStyle(cfg);
   const tools = cfg.aiToolsOn || a.style !== null;
   const input = cloneInput(NULL_INPUT);
@@ -447,7 +455,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     a.macro = { kind: 'clinch', t: 0, x: 1, y: 0, punch: null };
     a.used.clinch += 1;
   }
-  if (tools && a.hurtPlan === 'clinch' && a.macro === null && cfg.clinchOn && me.clinch.cd === 0 && !me.clinch.active && !punching && dist <= cfg.clinchRange + CLINCH_WALK_IN) {
+  if (tools && a.hurtPlan === 'clinch' && a.macro === null && cfg.clinchOn && (me.clinch.cd === 0 || cfg.clinchHurtFree) && !me.clinch.active && !punching && dist <= cfg.clinchRange + CLINCH_WALK_IN) {
     a.macro = { kind: 'clinch', t: 0, x: 0, y: 0, punch: null };
     a.used.clinch += 1;
   }
@@ -506,6 +514,87 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     a.pushFollow = st.pushThen === 'leave' ? 2 : 1;
     a.used.push += 1;
   } else if (tools && stunned && a.macro === null && !nowHurt && !wild && rngChance(a.rngT, st.blockCounter)) fireBack();
+  // THE READ (phase 4). It cannot react to a jab — nobody can — but it can be WAITING for one. Every punch he
+  // starts is counted by type and the counts fade over READ_WINDOW; a punch he has shown readAfter times is one it
+  // expects, and when he starts it again it moves on readReaction of its reaction time: a pull from a jab or an
+  // uppercut, a slip away from the hand of a cross, a roll under a head hook — and the loaded hand comes back behind
+  // it (slipCounter). So the same punch thrown the same way gets countered; mixing them up keeps every count under
+  // the bar, and a feint (it counts as a start, and it moves for it) pulls it out of position.
+  {
+    const fade = Math.max(0, 1 - dt / READ_WINDOW);
+    for (let i = 0; i < 4; i++) a.learn[i] = a.learn[i]! * fade;
+    const p = opp.punch;
+    const TI = p.type === 'jab' ? 0 : p.type === 'cross' ? 1 : p.type === 'hook' ? 2 : 3;
+    if (oppStarted && p.type !== null) {
+      const known = a.learn[TI]! >= st.readAfter;
+      a.learn[TI] = a.learn[TI]! + 1;
+      const head = !VARIANT_BODY.has(p.variant);
+      // (On its START a jab can only be pulled from, and only near the end of his reach; inside that the jab is read off the beat, below.)
+      const edge = dist >= 1.13 + cfg.aiReachPerArm * (opp.body.upperArm + opp.body.forearm - cfg.aiReachRefArm) - PULL_EDGE;
+      if (tools && known && head && (p.type !== 'jab' || (edge && st.pullShare > 0)) && a.readT < 0 && a.macro === null && !punching && !nowHurt && !me.slip.active && !me.clinch.active
+        && dist <= st.engageStraight + READ_RANGE && rngChance(a.rngT, st.readChance * sure)) {
+        const hand = handLateralSign(p.hand, opp.stance);   // + = his hand is on my left
+        a.readT = st.reaction * st.readReaction;
+        if (p.type === 'hook' && cfg.rollOn && cfg.levelOn) { a.readMove = 3; a.readX = -hand; a.readPunch = 'hook'; a.readHand = -hand; }
+        // (A pull only takes the head out of a punch that is near the end of its reach: measured, pulling from a jab
+        // thrown at mid range dodged 2 of 30. Inside that it slips.)
+        else if (p.type === 'jab' || (p.type === 'uppercut' && edge && rngChance(a.rngT, st.pullShare))) { a.readMove = 2; a.readX = 0; a.readPunch = 'cross'; a.readHand = 0; }
+        else {
+          // Away from the punching hand. A slip to my lead side loads the lead hook; to the rear side, the cross.
+          a.readMove = 1; a.readX = hand;
+          const leadSide = hand * handLateralSign('lead', me.stance) > 0;
+          a.readPunch = leadSide && dist <= st.engageHook ? 'hook' : 'cross';
+          a.readHand = leadSide ? handLateralSign('lead', me.stance) : 0;
+        }
+      }
+    }
+    // THE RHYTHM. A jab is too quick to slip from its start (0.11 s; a flick and the head's travel take 0.10), so the
+    // jab is read off the BEAT: if his last two jabs came the same interval apart (within RHYTHM_TOL), it slips
+    // READ_LEAD before the next one is due — whether or not it comes. Break the beat, or show the jab and do not
+    // throw it, and it has slipped at nothing.
+    for (let i = 0; i < 4; i++) a.since[i] = Math.min(60, a.since[i]! + dt);
+    if (oppStarted && p.type !== null) {
+      const g = a.since[TI]!;
+      a.steady[TI] = a.gap[TI]! > 0 && g <= RHYTHM_MAX && Math.abs(g - a.gap[TI]!) <= RHYTHM_TOL * a.gap[TI]! ? 1 : 0;
+      a.gap[TI] = g; a.since[TI] = 0;
+      if (a.pre === TI) a.pre = -1;
+    }
+    let beat = false;
+    if (tools && a.pre < 0 && a.readT < 0 && a.steady[0] === 1 && a.learn[0]! >= st.readAfter && a.since[0]! >= a.gap[0]! - READ_LEAD && a.since[0]! < a.gap[0]!
+      && a.macro === null && !punching && !nowHurt && !me.slip.active && !me.clinch.active && !oppPunching && dist <= st.engageStraight + READ_RANGE) {
+      a.pre = 0;   // one roll per beat
+      if (rngChance(a.rngT, st.readChance * sure)) {
+        const hand = handLateralSign('lead', opp.stance);
+        a.readMove = 1; a.readX = hand;
+        const leadSide = hand * handLateralSign('lead', me.stance) > 0;
+        a.readPunch = leadSide && dist <= st.engageHook ? 'hook' : 'cross';
+        a.readHand = leadSide ? handLateralSign('lead', me.stance) : 0;
+        beat = true;
+      }
+    }
+    if (a.readT >= 0 || beat) {
+      if (!beat) a.readT -= dt;
+      if (a.readT < 0 || beat) {
+        a.readT = -1;
+        if (a.macro === null && !punching && !nowHurt && !me.slip.active && (beat || (p.type !== null && !p.resolved))) {
+          a.macro = a.readMove === 3 ? { kind: 'roll', t: 0, x: a.readX, y: 0, punch: null }
+            : a.readMove === 2 ? { kind: 'slip', t: 0, x: 0, y: -1, punch: null }
+            : { kind: 'slip', t: 0, x: a.readX, y: 0, punch: null };
+          if (a.readMove === 3) a.used.roll += 1; else a.used.slip += 1;
+          a.used.read += 1;
+          a.blockTimer = 0; a.blockReact = 0; a.coverT = -1; a.shellT = 0;
+          if (rngChance(a.rngT, st.slipCounter)) {
+            // The loaded hand, a beat behind the move (the sim's load lasts slipLoadedTime).
+            a.armed = a.readPunch; a.armedX = a.readHand > 0 ? 1 : -1;
+            a.armedBody = false; a.armedOver = false; a.armedBack = false; a.armedShown = true; a.armedTold = true; a.queue = [];
+            a.attackTimer = READ_COUNTER_GAP;
+            a.counterCount += 1;
+            if (a.mode === 'reset') { a.mode = 'probe'; a.modeTimer = st.modeMin; a.resetPending = false; }
+          }
+        }
+      }
+    }
+  }
   // Covering a combination (phase 3). Inside punches are quicker than its reaction — it cannot block them one at a
   // time — so what it reads is the COMBINATION: the first one lands, the guard comes up a reaction later and stays up
   // while he keeps throwing (punches less than COVER_QUIET apart), and when he stops it is its turn: it fires back
@@ -590,7 +679,9 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     if (rngChance(a.rngT, st.intercept * sure)) {
       a.armed = st.interceptWith;
       a.armedBody = false; a.armedOver = false; a.armedShown = true; a.armedTold = true; a.queue = [];
-      a.armedBack = st.interceptWith === 'jab' && rngChance(a.rngT, st.backFoot);
+      // (Phase 4: the stiff jab is PLANTED. Thrown going away it was a retreat jab — measured at 36–141 N·s, mostly
+      // glancing — which stops nobody: the sim's jabStop needs a clean one.)
+      a.armedBack = false;
       a.attackTimer = 0; a.blockTimer = 0; a.shellT = 0;
     }
   }
@@ -844,7 +935,8 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   }
   const crowdedOut = tools && mode === 'reset' && dist < cfg.rangeInside + RESET_FIGHT;
   const jabOut = tools && mode === 'reset' && a.armed === 'jab' && st.backFoot > 0;
-  if (jabOut && !crowdedOut) a.armedBack = true;
+  // (Phase 4: it used to be thrown as a RETREAT jab. Measured on the 1.98 m man: 40 of his 60 lands in a fight were
+  // retreat jabs, half of them glancing, at 36–141 N·s — nothing that stops a man. Now it plants for the jab: see the press.)
   if (a.armed !== null && a.attackTimer === 0 && (mode !== 'reset' || crowdedOut || jabOut) && a.macro === null) {
     const t = a.armed;
     const inBand = dist <= engageOf(t, st) && dist >= nearDist(t, cfg);
@@ -877,6 +969,9 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
         if (t === 'hook' || t === 'uppercut') input.move.x = a.armedX;   // the stick at the press picks the hand
         if (a.armedOver) input.move.y = 1;   // the overhand steps in
         if (a.armedBack) { input.move.y = -1; if (t === 'hook') input.move.x = a.armedX * 0.5; a.armedBack = false; }   // thrown going away
+        // (Phase 4: a jab that was not meant as a retreat jab is thrown with the feet SET — the sim reads a back stick
+        // on the press as the retreat jab, which is lighter and usually glancing; it was most of what a backing-up style landed.)
+        else if (tools && t === 'jab' && input.move.y < 0) { input.move.y = 0; input.move.x = 0; }
         if (a.armedBody) a.used.body += 1;
         a.armed = null;
         a.throwCount += 1;
@@ -946,6 +1041,14 @@ const WILD_WINDOW = 1.5, WILD_VULN = 0.3;
 const WILD_GASSED = 0.3;
 /** The far edge of "in his jab range" for the approach slip, m. Shape. */
 const APPROACH_FAR = 1.2;
+/** The read: seconds over which a punch he has shown fades from memory; how far past its own straight range it still reads one, m; seconds between its move and the loaded hand. Shape. */
+const READ_WINDOW = 6, READ_RANGE = 0.25, READ_COUNTER_GAP = 0.12;
+/** The beat: two gaps count as the same within this fraction; a gap longer than RHYTHM_MAX s is not a rhythm; it moves READ_LEAD s before the next is due. Shape. */
+const RHYTHM_TOL = 0.25, RHYTHM_MAX = 2.2, READ_LEAD = 0.085;
+/** It pulls from a jab only within this of the end of his reach, m (his jab's longest landing distance, from his arm). Shape. */
+const PULL_EDGE = 0.18;
+/** The punch variants that go to the body (a slip does nothing to them). */
+const VARIANT_BODY: ReadonlySet<string> = new Set(['bodyJab', 'bodyCross', 'bodyHook']);
 /** Seconds a hesitation (StyleParams.hesitate) costs. Shape. */
 const HESITATE_T = 0.45;
 /** Stagger speed, m/s, above which the AI's own hands are stopped (a clean cross starts ~3, a hook ~5). Shape. */
