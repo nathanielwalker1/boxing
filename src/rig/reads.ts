@@ -15,7 +15,7 @@
  * `stanceParams` is the ONE place the stance and the bounce are read from, so
  * a style table (core/styles.ts, when it lands) can be pointed at it.
  */
-import { lerp, spring1, type Config, type FighterState, type GetUpPhase, type PunchVariant, type Side, type SimEvent, type Spring1 } from '../core';
+import { fighterStyle, lerp, spring1, type Config, type FighterState, type GetUpPhase, type PunchVariant, type Side, type SimEvent, type Spring1 } from '../core';
 import { chase1 } from './springs';
 
 const DEG = Math.PI / 180;
@@ -35,9 +35,12 @@ export function stanceParams(state: FighterState, cfg: Config): StanceParams {
   // Inside, the feet come under the fighter and the bounce stops; outside he is up and bouncing.
   const p = state.posture;
   const band = state.range === 'outside' ? cfg.rigBounceOutside : state.range === 'inside' ? cfg.rigBounceInside : 1;
+  // The fighter's style (core/styles.ts): a swarmer is planted and busy, an outboxer narrow and on his toes.
+  const st = cfg.stylesOn && state.styleId ? fighterStyle(state.styleId) : null;
+  const w = st ? st.stanceWidth : 1, hz = st ? st.bounceHz : 1, amp = st ? st.bounceAmp : 1;
   return {
-    fwd: cfg.rigStanceFwd * (1 - 0.15 * p), back: cfg.rigStanceBack * (1 - 0.1 * p), lat: cfg.rigStanceLat * (1 + 0.12 * p + 0.1 * state.level),
-    bounceHz: cfg.rigRhythmHz, bounceAmp: cfg.rigRhythmBob * band * (1 - state.flat),
+    fwd: cfg.rigStanceFwd * w * (1 - 0.15 * p), back: cfg.rigStanceBack * w * (1 - 0.1 * p), lat: cfg.rigStanceLat * w * (1 + 0.12 * p + 0.1 * state.level),
+    bounceHz: cfg.rigRhythmHz * hz, bounceAmp: cfg.rigRhythmBob * amp * band * (1 - state.flat),
     hipYawDeg: cfg.rigStanceHipYawDeg, chestYawDeg: cfg.rigStanceChestYawDeg * (1 - 0.5 * p),
   };
 }
