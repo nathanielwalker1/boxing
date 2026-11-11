@@ -15,6 +15,7 @@
  */
 import type { Config, FighterSpec, SimState } from '../core';
 import { healthCap } from '../sim';
+import { accent } from './accent';
 
 const CSS = `
 #hud { position: fixed; inset: 0; pointer-events: none; font-family: "Helvetica Neue", Arial, system-ui, sans-serif; color: #f4f1e8; --gold: #d8b45a; --gold-dim: #8a7338; }
@@ -50,7 +51,7 @@ const CSS = `
 }
 `;
 
-interface SidePanel { root: HTMLElement; name: HTMLElement; nick: HTMLElement; health: HTMLElement; cap: HTMLElement; ghost: HTMLElement; stamina: HTMLElement; pips: HTMLElement }
+interface SidePanel { root: HTMLElement; name: HTMLElement; nick: HTMLElement; health: HTMLElement; cap: HTMLElement; ghost: HTMLElement; stamina: HTMLElement; staminaCap: HTMLElement; pips: HTMLElement }
 
 export class Hud {
   private el: HTMLElement;
@@ -73,11 +74,11 @@ export class Hud {
     const panel = (cls: string, spec: FighterSpec): SidePanel => {
       const root = document.createElement('div');
       root.className = `side ${cls}`;
-      root.style.setProperty('--c', spec.trunksPrimary);
+      root.style.setProperty('--c', accent(spec)[0]);
       root.innerHTML = `<div class="name">${spec.name}</div>` +
         `<div><span class="nick">"${spec.nickname}"</span><span class="pips"></span></div>` +
         `<div class="bar health"><div class="cap"></div><div class="ghost"></div><div class="fill"></div></div>` +
-        `<div class="bar stamina"><div class="fill"></div></div>`;
+        `<div class="bar stamina"><div class="cap"></div><div class="fill"></div></div>`;
       this.el.appendChild(root);
       return {
         root,
@@ -87,6 +88,7 @@ export class Hud {
         cap: root.querySelector('.health .cap')!,
         ghost: root.querySelector('.health .ghost')!,
         stamina: root.querySelector('.stamina .fill')!,
+        staminaCap: root.querySelector('.stamina .cap')!,
         pips: root.querySelector('.pips')!,
       };
     };
@@ -106,7 +108,7 @@ export class Hud {
   setFighters(specs: readonly [FighterSpec, FighterSpec]): void {
     for (let i = 0; i < 2; i++) {
       const p = this.sides[i]!, f = specs[i]!;
-      p.root.style.setProperty('--c', f.trunksPrimary);
+      p.root.style.setProperty('--c', accent(f)[0]);   // near-black trunks would be a black bar on a dark band
       p.name.textContent = f.name;
       p.nick.textContent = `"${f.nickname}"`;
       this.ghost[i] = { level: 1, hold: 0 };
@@ -129,6 +131,9 @@ export class Hud {
       else g.level = Math.max(f.health, g.level - dt * 0.6);
       p.ghost.style.transform = `scaleX(${this.cfg.readGhostBar > 0 ? g.level : f.health})`;
       p.stamina.style.transform = `scaleX(${f.stamina})`;
+      // The stamina ceiling (overhaul): the dim part of the thin bar is what stamina can still come back to. Body work
+      // and missed punches lower it, so the bar's dark end grows — the body attack read, with no word and no new bar.
+      p.staminaCap.style.transform = `scaleX(${f.staminaCap ?? 1})`;
       p.pips.textContent = '●'.repeat(f.knockdowns);
     }
     const ph = s.round.phase;
