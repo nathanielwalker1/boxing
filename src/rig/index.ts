@@ -20,13 +20,14 @@
  */
 import * as THREE from 'three';
 import {
-  ROSTER, addToRoster, generateFighter, angleDelta, closestOnSegment, frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, v3dist, worldToLocal,
+  ROSTER, SIM_DT, addToRoster, generateFighter, angleDelta, closestOnSegment, frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, v3dist, worldToLocal,
   type Config, type FighterSpec, type FighterState, type FighterView, type Frame, type PunchType, type Side, type SimEvent, type Vec2, type Vec3,
 } from '../core';
 import { BONE, MORPHS, buildRigMesh, rigGeomKey, type RigMesh } from './mesh';
 import { armBones, legBones } from './skeleton';
 import { Reads, stanceParams } from './reads';
 import { Spray } from './spray';
+import { installRigReplay, type ReplayFeed } from './replay';
 import { createRigMaterial, outlineMaterial, setGlow, updateMaterials, type RigMaterial } from './materials';
 import { solveTwoBone, type TwoBone } from './ik';
 import { chase1, chase3 } from './springs';
@@ -74,6 +75,9 @@ export interface RigProbe {
   override?: (o: Partial<FighterState> | null) => void;
   /** Sweat droplets in the air right now (tests). */
   sprayCount?: () => number;
+  /** Filmstrips (rig/replay.ts): one sim tick with its events at the fixed step; and hold the pose after. */
+  feed?: (prev: FighterState, next: FighterState, events: readonly SimEvent[]) => void;
+  freeze?: (on: boolean) => void;
   head(): Vec3;
   gloves(): [Vec3, Vec3];
   /** Main-pass draw calls, shadow-pass draw calls, and triangles for this fighter. */
@@ -141,6 +145,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   let cuts: Partial<Record<CutPlace, number>> = {};
   let portrait = false;
   let stateOverride: Partial<FighterState> | null = null;
+  let frozen = false;
   const CUT_PLACES: readonly CutPlace[] = ['browL', 'browR', 'cheekL', 'cheekR', 'nose', 'lip'];
   const mergedCuts: Record<CutPlace, number> = { browL: 0, browR: 0, cheekL: 0, cheekR: 0, nose: 0, lip: 0 };
   let damageKey = '';
@@ -375,7 +380,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   // ── Per frame ──
   function apply(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]): void {
     if (stateOverride) { prev = { ...prev, ...stateOverride }; next = { ...next, ...stateOverride }; }
-    dt = dt > MAX_DT ? MAX_DT : dt < 0 ? 0 : dt;
+    dt = frozen ? 0 : dt > MAX_DT ? MAX_DT : dt < 0 ? 0 : dt;
     const c = cfg;
     const body = next.body;
     if (!rig || rigGeomKey(spec, body, c) !== geomKey) rebuild(next);
@@ -600,15 +605,33 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       headF.y = Math.max(headF.y, body.headR);
       // Arms flop: from the fallen shoulders, forward-down and out, onto the canvas. Getting up (and folded by a
       // body shot) the hands go DOWN to the canvas under the shoulders and push.
-      const push = cause === 'body' ? 1 : Math.min(1, up * 3) * (1 - smoothstep((up - 0.6) / 0.3));
+      // (Body cause: only as far as he has folded — at push = 1 from the first tick the gloves were pinned to the canvas
+      //  under a man still standing, and the arm could not reach them: a glove and cuff stood on the floor by themselves.)
+      const push = cause === 'body' ? smoothstep(theta / (45 * DEG)) * (1 - smoothstep((up - 0.6) / 0.3)) : Math.min(1, up * 3) * (1 - smoothstep((up - 0.6) / 0.3));
+      const armReach = (body.upperArm + body.forearm) * 0.98;
       for (let i = 0; i < 2; i++) {
         v.set(0.22, -0.2, latSign[i]! * (body.shoulderW / 2 + 0.12)).applyQuaternion(qChestF);
         gloveF[i]!.copy(Sf).add(v);
+        // Laid out, the arms lie ON the canvas out from the shoulders, a little toward the hips — the chest-frame
+        // flop pointed them at the ceiling once he was on his back (seen in the first knockdown strip).
+        const lie = smoothstep(theta / (70 * DEG));
+        if (lie > 0) {
+          v.set(0, 0, latSign[i]!).applyQuaternion(qChestF); v.y = 0;
+          if (v.lengthSq() < 1e-6) v.set(0, 0, latSign[i]!); else v.normalize();
+          v2.copy(Sf).addScaledVector(v, body.shoulderW / 2 + body.upperArm * 0.75).addScaledVector(fallDir, -0.22);
+          v2.y = body.gloveR;
+          gloveF[i]!.lerp(v2, lie);
+        }
         if (push > 0) {
           v2.set(Sf.x + fallDir.x * 0.12, body.gloveR, Sf.z + fallDir.z * 0.12 + latSign[i]! * (body.shoulderW / 2 + 0.05));
           gloveF[i]!.lerp(v2, push);
         }
         gloveF[i]!.y = Math.max(gloveF[i]!.y, body.gloveR);
+        // Never further from its own shoulder than the arm is long: the hand comes to the shoulder's reach, not the arm to the hand.
+        v.set(0, 0, latSign[i]! * body.shoulderW / 2).applyQuaternion(qChestF).add(Sf);
+        v2.subVectors(gloveF[i]!, v);
+        const gd = v2.length();
+        if (gd > armReach) gloveF[i]!.copy(v).addScaledVector(v2, armReach / gd);
       }
       H.lerp(Hf, fallK);
       S.lerp(Sf, fallK);
@@ -928,6 +951,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   probe.setBodyState = setBodyState;
   probe.portrait = (on: boolean): void => { portrait = on; };
   probe.override = (o): void => { stateOverride = o; };
+  probe.feed = (p, n, ev): void => apply(p, n, 1, SIM_DT, ev);
+  probe.freeze = (on): void => { frozen = on; };
+  if (probing) installRigReplay(cfg, () => (window.__rig ?? {}) as Partial<Record<Side, ReplayFeed>>);
   probe.sprayCount = (): number => spray.active;
 
   return {

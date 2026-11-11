@@ -129,7 +129,7 @@ export class Reads {
         }
         if (e.grade !== 'glancing') this.winceT = Math.max(this.winceT, c.rigWinceTime * (e.grade === 'flush' ? 1.4 : e.part === 'body' ? 1 : 0.7));
         const sprayK = e.part === 'head' ? (e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.4 : 0) : 0;
-        this.hits.push({ part: e.part, squash: g, squashDur: e.grade === 'flush' ? c.rigGradeFlush : 1, spray: Math.round(c.rigSprayCount * sprayK * this.sweat), at: e.at, dir: e.impulse });
+        this.hits.push({ part: e.part, squash: g, squashDur: e.grade === 'flush' ? c.rigGradeFlush : 1, spray: Math.round(c.rigSprayCount * sprayK * (0.3 + 0.7 * this.sweat)), at: e.at, dir: e.impulse });
       } else if (e.type === 'punchBlock' && e.target === this.side) {
         this.kRock.v += c.rigBlockRockDeg * DEG * 14 * Math.min(1.5, 0.5 + e.stun * 4);
       } else if (e.type === 'guardBreak' && e.side === this.side) {

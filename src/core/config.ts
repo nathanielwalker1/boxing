@@ -1016,7 +1016,7 @@ export const SCHEMA = {
   rigFlushWhipDeg:         num(26, 0, 60, 1, 'rig reads', 'a flush head shot whips the drawn head this much further along the punch, on a loose spring that follows through and comes back (clean = 0.35 of it)'),
   rigBodyFoldDeg:          num(14, 0, 40, 1, 'rig reads', 'a clean body shot folds the waist toward the struck side by this much (flush × rigGradeFlush), on a spring'),
   rigWinceTime:            num(0.45, 0.1, 1.5, 0.05, 'rig reads', 'seconds a wince lasts after a clean or flush shot'),
-  rigBuckleFoldDeg:        num(34, 0, 60, 1, 'rig reads', 'winded (hurtKind body, buckle): the chest folds forward this far at buckle = 1 — folded over, not wobbling'),
+  rigBuckleFoldDeg:        num(44, 0, 60, 1, 'rig reads', 'winded (hurtKind body, buckle): the chest folds forward this far at buckle = 1 — folded over, not wobbling'),
   rigBuckleKnee:           num(0.07, 0, 0.2, 0.005, 'rig reads', 'winded: the hips sag toward the struck side this far, m — a knee dipping'),
   rigBlockRockDeg:         num(7, 0, 20, 0.5, 'rig reads', 'block stun: the chest and head rock back this far at the impact and come forward as the stun runs out'),
   rigGuardSlump:           num(0.5, 0, 1.5, 0.05, 'rig reads', 'the shoulders drop this fraction of the sim\'s guardDroop, and the chest sags forward with it'),

@@ -70,6 +70,12 @@ await page.evaluate(() => {
   c.rigQuality = 1;   // the desktop fighter mesh, even though headless software GL picks the low tier for the arena
   c.debugHitboxes = false; c.debugFps = false; c.refEnabled = false;
   c.camDriftAmp = 0; c.camFollowLambda = 1000; c.camDollyLambda = 1000; c.camCountLambda = 1000;
+  // A precaution, not a fix for anything seen: the sheet takes minutes and a round is 30 s, so the fight behind
+  // the posed fighter would otherwise run out and restart while the sheet is being shot. Hold the clock.
+  // (I first blamed this for a blue, banded sheet. It was not the cause: the cells are correct, and the banding
+  // was the image viewer reducing the 2400 × 3386 sheet. Judge colour from scripts/output/lookbook/cells.)
+  c.roundSeconds = 36000;
+  window.__sim.reset(1);
 });
 const roster = gen
   ? await page.evaluate(({ n, from }) => window.__rigGen(Array.from({ length: n }, (_, i) => from + i)), gen)

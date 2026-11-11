@@ -5,6 +5,204 @@ Branch `worktree-agent-a106fd81cd2086a43`, forked from `overhaul/fight-and-look`
 at `d025eb8`. Written 2026-11-11. What landed, every call made on Nate's
 behalf, what I saw in the renders, and what is not done.
 
+**Phase 2 (the reads, and the art fixes) is the next section. Phase 1 follows
+it unchanged; where the two disagree, phase 2 is current.**
+
+# Phase 2 — the fight state drawn on the body
+
+Merged `overhaul/fight-and-look` at `f71cd79` (SIM mechanics, SHOW arena).
+Nothing here has been feel-tested. Suite: `TEST_NO_REUSE=1 npm test` →
+**37/37 scripts passed**.
+
+## What landed
+
+- **`src/rig/reads.ts`** — `Reads.step` runs inside the view's `apply` and
+  turns `FighterState` and the frame's events into pose channels (chest
+  pitch / roll / yaw, hips, shrug, head, heels, lead-foot step, hop), a face
+  and a skin. Hits KICK loose springs, so a flush shot follows through and
+  comes back. main.ts calls nothing new.
+- **`stanceParams(state, cfg)`** in `reads.ts` — the one place stance width,
+  bounce rate / depth and the blade are read from. Neutral = config; point it
+  at `core/styles.ts` when that lands.
+- **`src/rig/spray.ts`** — pooled sweat droplets (one lit InstancedMesh per
+  fighter, world space, not drawn while empty).
+- **`src/rig/replay.ts`** — `window.__rigReplay`: the filmstrip hook. main's
+  `__replay` hands the views a frozen state and no events, so nothing the rig
+  draws from events or its own springs was in a strip. This runs the same
+  deterministic sim, feeds every tick and its events through both views,
+  calls `__replay` for the host's pose and camera, and freezes the views.
+- **Art fixes 1–5** and **the blade** (below).
+
+## Decisions
+
+1. **The blade is back on the ribcage, not the shoulders.** The chest bone
+   yaws `rigStanceChestYawDeg` (20°) toward the lead side on top of the sim's
+   shoulder line; the shoulder BONES stay on the sim's joints and the torso's
+   corner weight on them went 0.6 → 0.82, so no joint or hit shape moves. It
+   fades out as the punch's own twist passes 0.5 rad. Limit, by arithmetic
+   not by a render: the chest corner sits 0.234 m from the spine, so 20° is
+   8 cm of shear between ribcage and shoulder, 25° is 10 cm. **The hips are
+   still at 12°** (`rigStanceHipYawDeg`, lowered in phase 1) — I did not put
+   them back to 28°, so this is a partial blade: ribcage 20°, hips 12°, feet
+   as they were. A full blade at the shoulders needs `core/arms.ts`.
+2. **The drawn arms leave the sim's joints in two cases**: the clinch (wrapped
+   round the other man) and the push-off (both forearms out). The sim leaves
+   the gloves at the guard for both and nobody can punch in either, but it is
+   an exception to "drawn = hit geometry" and should be the sim's to place.
+3. **The drawn shoulder moves up to ~3.5 cm off the sim's** (`reads.shrug`,
+   the feint twitch) so a hunch, a slump and a feint read.
+4. **`filmstrip.mjs` was edited beyond appending scenarios**: the loop calls
+   `__rigReplay` when it exists, a scenario may carry `cfg` (config for that
+   strip only) and `over` (view-only state, `RigProbe.override`), and a
+   stalled capture is retried once and reported.
+5. **Knockdown strips turn damage up** (`healthDamagePerImpulse` /
+   `liverDropFrac` for that strip) and pull the camera back and down, because
+   the play framing cuts a man on the canvas out of the picture.
+6. Abs are relief now; the painted rungs and the ab outline are gone.
+7. Fat no longer thickens the limbs beyond what `bodyR` already does.
+
+## Interface changes
+
+- **View**: `RigView` is unchanged (`setFace`, `setBodyState` still work; a
+  host value wins when it is larger than what the fight has done).
+- **`RigProbe`** (`window.__rig[side]`) gained `override(partialState | null)`,
+  `feed(prev, next, events)`, `freeze(on)`, `sprayCount()`.
+- **`window.__rigReplay(dist, s0, ticks, s1, over)`**.
+- **Config**: new group `rig reads` (every key has a `desc`). No key outside
+  my groups changed.
+- **`FootPlanter.stepNow`** (rig-internal).
+- No `FighterSpec`, `BodyDims` or core type changed.
+
+## Numbers (Metal ANGLE headless, 960 × 600 @2×, vsync-capped)
+
+| | high | low |
+| --- | --- | --- |
+| triangles per fighter (red / blue) | ~17,100 | ~7,900 |
+| draw calls per fighter (main + shadow) | 1 + 1 | 1 + 1 |
+| sweat spray while droplets are alive | +1 call, ≤ 960 triangles | same |
+| scene (SHOW's arena included) | 55 calls, 203,948 tris | 55 calls, 167,100 tris |
+| fps | 60 | 60 |
+
+The spray lives under the scene, so the per-fighter probe does not count it;
+the +1 call is from the code, not a measurement taken mid-burst.
+
+## What I saw, item by item
+
+Strips are play-camera, 24 frames; `docs/overhaul/strip_*_after.png` are the
+committed ones (flush_counter, body_hook, inside, knockdown, body_knockdown).
+The others are in `scripts/output/filmstrip/` (not tracked).
+
+**Art 1 — shoulders, arms down.** The trapezius now runs out over the top of
+the arm and the arm comes out from under it; the epaulette cap is gone. There
+is still a tonal line across at clavicle height where the two skins meet.
+**Art 2 — nose and jaw.** The bridge is a ridge. The jaw holds its width to a
+jaw line that runs back under the ear, with a flat underside: a defined
+profile. **Art 3 — abs.** Relief only; visible from the front without the
+ladder. Fainter than the paint was. **Art 4 — heavy arm.** The taper below
+the elbow is in the mesh, but I did not get a clean look at it: the one
+close-up I shot was from behind. Unverified. **Art 5 — boots.** A dark welted
+sole, a heel counter, a toe-cap line, a top band, laces. They read as boots.
+There is a visible step where the shaft meets the foot.
+
+**1. Levels, posture, roll.** `body_hook` t=4–24: knees bend and the torso
+pitches forward together — a crouch, not a lift going down. `inside`: both
+men hunched chest to chest. `roll` t=4–10 down, t=12–22 the head goes under
+the hook and across, t=24–32 up the far side: a U. Not checked: a knee
+"pop" between frames (strips are 2–4 ticks apart).
+
+**2. Footwork.** `pivot`: the body swings round and ends at blue's side by
+t=16; whether the lead foot stays on `pivot.cx/cz` cannot be judged at strip
+size and was not measured. `burst`: the gap closes between t=8 and t=14; **the
+hop itself does not read** — no visible rise or landing at this size. Bounce
+× (1 − flat), the heel off the canvas, and the ropes lean are wired and were
+**not filmed**.
+
+**3. Punch variants.** Body shots: the whole torso bends into them
+(`body_hook` t=24–32, `inside` t=36–51). Shovel hook / inside uppercut: seen
+only as "compact" in the `inside` strip, not isolated. Step jab, retreat jab,
+overhand, rising hook / uppercut, check hook and the feint are wired and
+**not filmed** — untested by eye.
+
+**4. Getting hit, by grade.** `flush_counter` t=27–36: the head whips with
+the hook, the mouth opens, the arms are knocked apart; a droplet is visible
+at t=39. On a fresh fighter the spray is a handful of droplets and nearly invisible at
+play distance; it has not been seen on a sweating one. Glancing vs clean vs
+flush were not compared side by side. Body shot (`body_hook` t=36): a small
+fold; the buckle at t=64–92 is head down, hands low, hunched — a different
+shape from the rocked wobble, but subtle at this size (fold raised 34° → 44°
+after that strip; not re-read). **The elbow dropping to cover is not done**:
+the arms are the sim's.
+
+**5. Guard.** `guardBroken`, `blockStun` and `guardDroop` are wired (slump,
+rock back, shoulders down). **None was filmed.**
+
+**6. Fatigue and damage.** `tired` (view-only override on red): he is
+visibly redder and shinier than the fresh man. The open mouth, faster
+breathing, flat feet and the swollen eye cannot be seen at strip size and
+were not looked at close in play. The jaw swing went 15° → 25°. Swelling and
+cuts follow `damage.head` with the side taken from which way the head shots
+pushed him; the asymmetry is untested. The liver side is not redder than the
+other: `redden.body` is one value.
+
+**7. Clinch, push-off.** `clinch` t=20–95: chest to chest, each man's arms
+round the other, broken at t=100. The heads sit apart and tilted back rather
+than together, and the arms pass through the other man (no collision).
+`push` t=8–22: both forearms drive out from the chest and blue goes back.
+
+**8. Knockdown and get-up.** Head KO (`strip_knockdown_after`): t=40 going
+back with the arms flung, t=50–100 on his back with the arms out on the
+canvas, t=110–120 propping on an arm, t=130–140 up on a knee, t=150–160
+rising, t=170 on his feet. He lies with the knees up and feet planted, like
+a sit-up — the hips do not slide far enough. Body KO
+(`strip_body_knockdown_after`): t=66–76 he sags, t=86 down on a knee with a
+hand going to the canvas, t=96–146 folded over one knee, head down, propped
+on an arm, t=156–196 up through a crouch. One arm is near full stretch to
+the canvas, and it is a one-knee prop, not all fours. Two bugs were found
+and fixed from these strips: gloves pointing at the ceiling when laid out,
+and a glove and cuff standing on the canvas by themselves under a man still
+on his feet. **The slump (failed try) did not occur in either roll and has
+not been seen. The flash knockdown (sits down) was seen only at strip size
+in `flush_counter` t=45–69.** No frame was inspected closer than the play
+camera except three in the first head-KO strip.
+
+**9. `stanceParams`.** In; neutral.
+
+**Pose grid, all four punches, hitboxes on** (low tier — `pose_grid.mjs`
+does not force the high mesh): the head sphere wraps the skull, the glove
+spheres sit on the gloves and the body capsule runs inside the torso through
+jab, cross, hook and uppercut; nothing breaks.
+
+## Corrections to things I said during the run
+
+- I reported that the after-lookbook was blue and banded because the fight
+  behind it ran out and the arena lighting changed. **That was wrong.** The
+  cells are correct; the banding was the image viewer reducing the large
+  sheet. The round-clock hold I added to `lookbook.mjs` is a precaution and
+  fixed nothing. Judge colour from `scripts/output/lookbook/cells/`.
+- A pose-grid run failed with `__pose is not a function` because I edited a
+  source file while it was capturing and vite reloaded the page.
+
+## Not done / below standard
+
+- Everything marked "not filmed" above: bounce / flat feet / heels, ropes,
+  six punch variants, the feint, all three guard reads.
+- The hop of the burst does not read.
+- The elbow dropping to cover a body shot; the liver side redder.
+- The slump; a close inspection of the fall and get-up frame by frame.
+- The heavy fighter's arm (art 4) is unverified.
+- The blade is partial (hips at 12°).
+- **Captures stall intermittently**: three filmstrip runs died with a 30 s
+  screenshot timeout at the first frame of a scenario (roll twice, burst
+  once); the same scenarios pass on a rerun, and a timing probe of `roll`
+  showed nothing slow. Cause not found. `filmstrip.mjs` now retries once and
+  says so.
+- The lookbook sheets are too large to judge in one view; read the cells.
+- `pose_grid.mjs` shows the low mesh.
+
+---
+
+# Phase 1 — bodies and variance (as written at the end of phase 1)
+
 ## What landed
 
 - **The capsule figure is gone.** `src/rig/mesh.ts` now assembles one skinned

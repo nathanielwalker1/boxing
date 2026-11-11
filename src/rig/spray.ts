@@ -54,7 +54,7 @@ export class Spray {
       this.vel[i * 3 + 1] = dir.y / dl * s + (0.2 + 0.6 * this.rnd()) * speed * 0.5;
       this.vel[i * 3 + 2] = dir.z / dl * s + (this.rnd() - 0.5) * speed * 0.7;
       this.age[i] = 0;
-      this.size[i] = 0.006 + 0.007 * this.rnd();
+      this.size[i] = 0.009 + 0.009 * this.rnd();
     }
   }
 
