@@ -8,7 +8,8 @@ import { check, near, done } from './check.js';
 
 const [core, sim, ai] = await load('/src/core/index.ts', '/src/sim/index.ts', '/src/ai/index.ts');
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT, v3len } = core;
-const cfg = createConfig();
+// jabHealthFloor 0 (overhaul 2026-11-11): §6 uses a jab as its knockdown blow; by default a jab can no longer empty the bar (attrition_test pins that).
+const cfg = { ...createConfig(), jabHealthFloor: 0 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
@@ -38,7 +39,10 @@ const phases = (type, c = cfg) => {
   return { cock: c[`${k}Cock`], extend: c[`${k}Extend`], recover: c[`${k}Recover`] };
 };
 const NO_STRETCH = { ...cfg, whiffRecoveryMult: 1 };
-const NO_HITSTOP = { ...cfg, hitStopBase: 0, stunHitStop: 0 };   // a hook can ROCK the dummy; its hit-stop would count as recovery ticks
+// a hook can ROCK the dummy; its hit-stop would count as recovery ticks. Overhaul 2026-11-11: the grade tiers have
+// their own hit-stop (a smothered jab at CLOSE is glancing), and at CLOSE a hook / uppercut would be thrown as the
+// faster inside variant — this section measures the BASE punches' whiff stretch, so variants are off for it.
+const NO_HITSTOP = { ...cfg, hitStopBase: 0, stunHitStop: 0, hitStopGlancing: 0, hitStopFlush: 0, variantsOn: false };
 const isNaNDeep = v => typeof v === 'number' ? Number.isNaN(v) : v && typeof v === 'object' ? Object.values(v).some(isNaNDeep) : false;
 
 // ── 1. The curve: 0 at rest, ~0 through the early cock, peak at full extension, 0 after ──
@@ -139,7 +143,10 @@ check('control: the jab lands', L !== undefined);
   // Early guard: up since before the punch, older than the window at the impact.
   const early = run(fresh(MID, QUIET), 40, i => [inp({ jab: i === 0 }), inp({ block: true })], null, QUIET);
   check('a guard older than the window is an ordinary block', early.evs.some(e => e.type === 'punchBlock' && e.tick === L) && !early.evs.some(e => e.type === 'perfectBlock'));
-  check('an ordinary block still takes chip health', early.s.fighters[1].health < 1);
+  // Overhaul 2026-11-11 (chip is for HEAVY shots): a blocked jab costs guard and wind, not health; a blocked cross still chips.
+  check('an ordinary blocked jab takes no health (light shot) but wears the guard meter', early.s.fighters[1].health === 1 && early.s.fighters[1].guardHp < 1, `health ${early.s.fighters[1].health}, guard ${early.s.fighters[1].guardHp}`);
+  const earlyCross = run(fresh(MID, QUIET), 40, i => [inp({ cross: i === 0 }), inp({ block: true })], null, QUIET);
+  check('an ordinary blocked cross still takes chip health', earlyCross.evs.some(e => e.type === 'punchBlock' && e.chip > 0) && earlyCross.s.fighters[1].health < 1);
   check('an ordinary block does NOT spike the attacker', early.s.fighters[0].counterWindow === 0);
   // The late bound is the tighter of the two for a jab.
   check(`for a jab the bound is the late fraction (${lateBound.toFixed(3)} s), under the flat window`, lateBound < cfg.perfectBlockWindow);
@@ -200,12 +207,15 @@ check('control: the jab lands', L !== undefined);
   const vAtHit = trace[hot?.tick]?.v0;
   const ratio = v3len(hotHurt.impulse) / v3len(coldHurt.impulse);
   check('the post-slip counter lands on a target at full exposure', hot && near(vAtHit, cfg.slipPunishVuln, 1e-9), `v ${vAtHit}`);
-  check('its impulse is 1 + vulnerability × counterImpulseBonus times a cold one', near(ratio, 1 + vAtHit * cfg.counterImpulseBonus, 1e-6), `${ratio.toFixed(3)}x`);
+  // Overhaul 2026-11-11: a square counter on a fully exposed target is FLUSH, which multiplies on top (gradeFlushPower) and sets its own hit-stop tier.
+  check('the counter is graded FLUSH (a square shot on a fully exposed target)', hot.grade === 'flush', hot.grade);
+  check('its impulse is (1 + vulnerability × counterImpulseBonus) × gradeFlushPower times a cold one', near(ratio, (1 + vAtHit * cfg.counterImpulseBonus) * cfg.gradeFlushPower, 1e-6), `${ratio.toFixed(3)}x`);
   check('the land is flagged as a counter and a counter event fires', hot.counter === true && evs.some(e => e.type === 'counter' && e.side === 1 && e.target === 0 && e.tick === hot.tick));
   check('a cold hit is not a counter', cold.evs.find(e => e.type === 'punchLand').counter === false && !cold.evs.some(e => e.type === 'counter'));
   const coldStop = cold.evs.find(e => e.type === 'punchLand').tick;
   let coldHs = null; run(fresh(MID, QUIET), coldStop + 1, i => [NONE, inp({ jab: i === COUNTER_AT })], (st, i) => { if (i === coldStop) coldHs = st.hitStop; }, QUIET);
-  check('the counter adds counterHitStopBonus × vulnerability of hit-stop', trace[hot.tick].hs > coldHs && near(trace[hot.tick].hs - Math.min(cfg.hitStopMax, cfg.hitStopBase * hot.power), vAtHit * cfg.counterHitStopBonus, 1e-6), `${trace[hot.tick].hs.toFixed(3)} vs cold ${coldHs?.toFixed(3)}`);
+  // (The rock the counter causes can raise the hit-stop to stunHitStop; the counter's own is the flush tier + the bonus.)
+  check('the counter adds counterHitStopBonus × vulnerability of hit-stop on top of the flush tier', trace[hot.tick].hs > coldHs && near(trace[hot.tick].hs, Math.max(cfg.stunHitStop, cfg.hitStopFlush + vAtHit * cfg.counterHitStopBonus), 1e-6), `${trace[hot.tick].hs.toFixed(3)} vs cold ${coldHs?.toFixed(3)}`);
   // An out-of-range whiff opens NO punish window.
   const far = run(fresh(1.1, QUIET), 40, tap('jab'), null, QUIET);
   check('an out-of-range whiff opens NO punish window', far.evs.some(e => e.type === 'punchWhiff') && far.s.fighters[0].counterWindow === 0);

@@ -20,7 +20,7 @@
  * equal = draw (winner null).
  */
 import type { Config, FighterState, Side, SimEvent, SimState, Vec2 } from '../core';
-import { healthCap, initialMoveHist, setHealthCap } from './state';
+import { healthCap, idlePunch, idleSlip, initialMoveHist, setHealthCap } from './state';
 import { computeBoxes } from './reaction';
 import { settleGloves } from './gloves';
 import { stepArms } from './arms';
@@ -41,8 +41,22 @@ function toCorner(f: FighterState, side: Side, time: number, cfg: Config): void 
   f.torsoTwist = 0;
   f.crouch = 0;
   f.block = false; f.blockT = 0; f.guard = 'rest';
-  f.punch = { type: null, hand: 'lead', phase: 'idle', t: 0, progress: 0, resolved: false, contact: null };
-  f.slip = { active: false, dir: 0, t: 0, offset: 0 };
+  f.punch = idlePunch('lead');
+  f.slip = idleSlip();
+  // Overhaul: the transient states clear; what the fight has done to him does not (damage; the body's share of the
+  // stamina ceiling). The work-rate wear comes back by wearRestore on the stool, the guard meter fully.
+  f.level = 0; f.riseT = 0; f.range = 'outside'; f.posture = 0;
+  f.stillT = 0; f.flat = 0; f.ropes = 0; f.cornered = false; f.angle = 0; f.turned = 0;
+  f.hop = { x: 0, z: 0 }; f.burstT = 0; f.burstCd = 0;
+  f.pivot = { t: 0, dir: 0, left: 0, cx: 0, cz: 0 };
+  f.tap = { dir: 0, t: 0 };
+  f.guardHp = 1; f.guardBroken = 0; f.blockStun = 0; f.guardRest = 0;
+  f.wear *= 1 - cfg.wearRestore;
+  f.hurtKind = 'none'; f.buckle = 0; f.liverT = 0; f.liverMag = 0;
+  f.clinch = { active: false, reach: 0, t: 0, by: -1, cd: 0 };
+  f.pushCd = 0;
+  f.getUp = { phase: 'none', t: 0, tries: 0, owed: false };
+  f.loaded = 0; f.loadedT = 0; f.combo = 0; f.comboT = 0;
   // The health cap survives the rest (it is what the round did to him), raised by the same fraction as the health.
   const cap = healthCap(f);
   f.moveHist = initialMoveHist();

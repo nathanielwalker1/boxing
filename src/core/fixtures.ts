@@ -52,8 +52,8 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
     block: false,
     blockT: 0,
     guard: 'rest',
-    punch: { type: null, hand: 'lead', phase: 'idle', t: 0, progress: 0, resolved: false, contact: null },
-    slip: { active: false, dir: 0, t: 0, offset: 0 },
+    punch: { type: null, hand: 'lead', phase: 'idle', t: 0, progress: 0, resolved: false, contact: null, variant: 'jab', tell: 0, timeMult: 1, powerMult: 1, moveScale: 1, loaded: false, aim: 0, feint: false },
+    slip: { active: false, dir: 0, t: 0, offset: 0, kind: 'slip', from: 0, chain: 0, dip: 0 },
     moveHist: [],
     vuln: 0,
     counterWindow: 0,
@@ -65,6 +65,20 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
     knockdowns: 0,
     hurt: 0,
     hurtMax: 0,
+    // Overhaul 2026-11-11 (SIM): the new sim fields at rest.
+    level: 0, riseT: 0, range: 'outside', posture: 0,
+    stillT: 0, flat: 0, ropes: 0, cornered: false, angle: 0, turned: 0,
+    hop: { x: 0, z: 0 }, burstT: 0, burstCd: 0,
+    pivot: { t: 0, dir: 0, left: 0, cx: 0, cz: 0 },
+    tap: { dir: 0, t: 0 },
+    guardHp: 1, guardBroken: 0, blockStun: 0, guardDroop: 0,
+    fatigue: 0, punchSlow: 1, staminaCap: 1, wear: 0, guardRest: 0,
+    damage: { head: 0, body: 0, liver: 0 },
+    hurtKind: 'none', buckle: 0, liverT: 0, liverMag: 0,
+    clinch: { active: false, reach: 0, t: 0, by: -1, cd: 0 },
+    pushCd: 0,
+    getUp: { phase: 'none', t: 0, tries: 0, owed: false },
+    loaded: 0, loadedT: 0, combo: 0, comboT: 0,
     headBox: { ...head, r: body.headR },
     bodyBox: { a: hips, b: chest, r: body.bodyR },
     arms: [armAt('lead', 0), armAt('rear', 1)],
@@ -135,7 +149,7 @@ export function punchFixture(spec: FighterSpec, cfg: Config, pos: Vec2, yaw: num
   g.pos = localToWorld(pos, f, fwd, up, lat);
   g.target = v3copy(g.pos);
   s.arms[gi] = solveArm(body, cfg, spec.stance, hand, s.bodyBox.b, s.bodyBox.a, f, 0, 0, g.pos, { level: type === 'hook' ? ext : 0, back: 0, flare: armFlareTarget(type === 'hook' ? ext : 0, g.pos.y, s.bodyBox.b.y, body, cfg) });
-  s.punch = { type, hand, phase: progress < 0.25 ? 'cock' : progress < 0.6 ? 'extend' : 'recover', t: 0, progress, resolved: false, contact: null };
+  s.punch = { ...s.punch, type, hand, phase: progress < 0.25 ? 'cock' : progress < 0.6 ? 'extend' : 'recover', t: 0, progress, resolved: false, contact: null, variant: type };
   s.lean.fwd = 0.5 * ext;
   s.torsoTwist = (hand === 'lead' ? 1 : -1) * handLateralSign('lead', spec.stance) * 0.5 * ext;
   return s;

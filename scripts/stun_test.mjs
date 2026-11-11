@@ -143,7 +143,7 @@ const rockedState = () => { const s0 = fresh(soft); s0.fighters[1].health = LOW;
   check('a jab while rocked lands but does not finish', of(evs, 'punchLand').length === 1 && of(evs, 'knockdown').length === 0 && !out.fighters[1].down);
 }
 {
-  const weak = { ...soft, crossImpulseMult: 0.2 };   // ~110 N·s after the held-exposure bonus, under stunFinishFrac × T (~126)
+  const weak = { ...soft, crossImpulseMult: 0.17 };   // ~117 N·s after the held-exposure bonus and the FLUSH grade a rocked target gives (overhaul 2026-11-11; was 0.2), under stunFinishFrac × T (~126)
   const s = rockedState();
   const { evs } = cross(s, weak, 40);
   const land = of(evs, 'punchLand')[0];

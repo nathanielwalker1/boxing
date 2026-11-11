@@ -91,6 +91,22 @@ export type Side = 0 | 1;                                   // index into SimSta
 export type PunchType = 'jab' | 'cross' | 'hook' | 'uppercut';
 export type PunchPhase = 'idle' | 'cock' | 'extend' | 'recover';
 export type GuardId = 'rest' | 'high' | 'block' | 'down';   // what the arms do when not punching
+// ── Overhaul 2026-11-11 (SIM): the vocabulary of the new fight systems (docs/OVERHAUL_SIM.md) ──
+/** What a button actually threw: chosen at the press from button × level × feet × range (sim/variants.ts). The rig and audio key off this, never off PunchType alone. */
+export type PunchVariant =
+  | 'jab' | 'stepJab' | 'retreatJab' | 'bodyJab'
+  | 'cross' | 'bodyCross' | 'overhand'
+  | 'hook' | 'checkHook' | 'shovelHook' | 'bodyHook' | 'risingHook'
+  | 'uppercut' | 'insideUppercut' | 'risingUppercut';
+/** How well a landed punch landed (sim/grade.ts). Scales impulse, damage and hit-stop; sound, camera and crowd read it off punchLand. */
+export type HitGrade = 'glancing' | 'clean' | 'flush';
+/** Which of the three fights this is, by centre-to-centre distance. */
+export type RangeBand = 'outside' | 'mid' | 'inside';
+/** What put the fighter in the hurt state: a head shot (ROCKED — the legs) or the body (winded — folded, guard down). */
+export type HurtKind = 'none' | 'head' | 'body';
+/** The get-up as a process: flat → stirring → up on a knee → (slumps back, tries again) → rising. 'none' = on his feet. */
+export type GetUpPhase = 'none' | 'down' | 'stir' | 'knee' | 'slump' | 'rise';
+export type SlipKind = 'slip' | 'pull' | 'roll';
 
 export interface Spring1 { x: number; v: number }
 export interface Spring3 { x: number; y: number; z: number; vx: number; vy: number; vz: number }
@@ -106,6 +122,22 @@ export interface PunchState {
   resolved: boolean;  // hit test already run for this punch
   /** World point the glove is held at after it hit something (its centre, resting on the surface). null = swung free. */
   contact: Vec3 | null;
+  /** What was thrown (overhaul): the contextual punch behind the button. Meaningful while type !== null. */
+  variant: PunchVariant;
+  /** THE TELL: seconds from the press to the hit test for this punch as thrown (wind-up + extension, after every speed-up and slow-down). Fixed by variant and context — never random. */
+  tell: number;
+  /** Every phase of this punch runs this many times slower (fatigue; 1 = fresh). */
+  timeMult: number;
+  /** Impulse multiplier fixed at the press: the variant's own × a loaded counter's bonus. */
+  powerMult: number;
+  /** Walking speed while this punch is in flight, as a fraction of normal (the jab does not root; a cross plants the feet). */
+  moveScale: number;
+  /** Thrown with the hand a slip had LOADED (the natural counter from that side). */
+  loaded: boolean;
+  /** How far below its lane the punch is aimed, m, fixed at the press: a body shot's drop; for an overhand, how far the target's head was down at that moment (it is thrown at where the head IS). */
+  aim: number;
+  /** Cancelled before the commit point (a feint): rewinding home, never resolves. */
+  feint: boolean;
 }
 
 export interface SlipState {
@@ -113,6 +145,14 @@ export interface SlipState {
   dir: -1 | 0 | 1 | 2;  // -1 = toward lead side, +1 = toward rear side, 2 = BACK (the pull / lean-back; contract addition 2026-09-16)
   t: number;            // seconds since the flick
   offset: number;       // current head offset in metres: lateral, signed by dir, for ±1; backward (positive) for 2
+  /** Overhaul: slip / pull / roll (level + lateral flick: the head goes DOWN and across, under a hook). */
+  kind: SlipKind;
+  /** The offset this move started from (a chained slip leaves from where the last one was, not from home). */
+  from: number;
+  /** How many slips deep this chain is (1 = a single slip; 0 = none). */
+  chain: number;
+  /** How far the head is down because of this move right now, m (slipDip, or the roll's U). */
+  dip: number;
 }
 
 export interface GloveState {
@@ -177,6 +217,77 @@ export interface FighterState {
   hurt: number;
   hurtMax: number;
 
+  // ── Overhaul 2026-11-11 (SIM) — everything a viewer should see is here or on an event ──
+  /** LEVEL: 0..1, how far the level modifier has taken the body down (× levelDrop m; head, body capsule and hands all ride it). */
+  level: number;
+  /** Seconds left in which a punch counts as thrown COMING UP out of the crouch (rising hook, rising uppercut). */
+  riseT: number;
+  /** Which fight this is right now, by distance to the opponent. */
+  range: RangeBand;
+  /** INSIDE POSTURE: 0..1, eased — knees bent, head low, elbows in (× insideCrouch m of real height). */
+  posture: number;
+  /** Seconds this fighter has stood still (reset by walking, a burst, a pivot). */
+  stillT: number;
+  /** FLAT-FOOTED: 0..1 — off the balls of the feet (stood still too long, or gassed). Slower first step, takes more. 1 − flat is the bounce the rig should draw. */
+  flat: number;
+  /** ON THE ROPES: 0..1 — how close the ropes are BEHIND (0 = ring centre, or facing them). */
+  ropes: number;
+  /** In a corner: ropes close on two sides. */
+  cornered: boolean;
+  /** THE ANGLE: radians the OPPONENT stands off this fighter's facing line (0 = square on). Past angleExposeDeg the guard does not cover and shots land as on an exposed target. */
+  angle: number;
+  /** Seconds of slow turning left after being pivoted on (the feet have to reset). */
+  turned: number;
+  /** The BURST channel: floor velocity of a hop, decays on its own clock. */
+  hop: Vec2;
+  /** Seconds since the last burst began, while it and its landing recovery last (0 = none). */
+  burstT: number;
+  /** Seconds before another burst is allowed. */
+  burstCd: number;
+  /** The PIVOT in progress: seconds in (0 = none), which way (−1 toward the lead side, +1 rear), radians still to turn (signed, world), and the planted lead foot it turns about. */
+  pivot: { t: number; dir: -1 | 0 | 1; left: number; cx: number; cz: number };
+  /** The last flick (for the double-tap burst): push direction (−1 lead, 1 rear, 2 back, 3 forward; 0 = none) and seconds since its release. */
+  tap: { dir: -1 | 0 | 1 | 2 | 3; t: number };
+  /** GUARD METER: 1 = fresh, drains under fire, recovers when left alone. Low = the block absorbs less; empty = guard break. */
+  guardHp: number;
+  /** Seconds the guard cannot come up after a guard break. */
+  guardBroken: number;
+  /** BLOCK STUN: seconds left in which no punch, slip or burst can start after a shot on the guard. */
+  blockStun: number;
+  /** GUARD DROOP: metres the resting hands hang below the fresh guard (fatigue + body damage). The head opens. */
+  guardDroop: number;
+  /** FATIGUE: 0..1 derived from stamina (0 above fatigueFrom, 1 at empty). */
+  fatigue: number;
+  /** A tired fighter's punches: every phase runs this many times slower (1 = fresh). */
+  punchSlow: number;
+  /** The ceiling stamina regenerates to (body damage and missed punches lower it). */
+  staminaCap: number;
+  /** Work-rate wear: the part of the stamina ceiling lost to missed punches this fight (partly restored on the stool). */
+  wear: number;
+  /** Seconds since the guard was last hit (the guard meter recovers after guardRegenDelay). */
+  guardRest: number;
+  /** DAMAGE taken this fight, by where (sums of health fractions lost; never comes back). liver = the part of the body damage that landed on the liver side. */
+  damage: { head: number; body: number; liver: number };
+  /** What the hurt state (hurt > 0) is: head = rocked, body = winded. */
+  hurtKind: HurtKind;
+  /** THE BUCKLE: 0..1, the body folding over a body hurt (eased; × buckleDrop m of real height). */
+  buckle: number;
+  /** A clean liver shot's delayed buckle: seconds until it fires (0 = none pending) and the impulse behind it. */
+  liverT: number;
+  liverMag: number;
+  /** CLINCH: tied up with the opponent. reach = seconds of the grab so far (an attempt), t = seconds held, by = who initiated, cd = seconds before this fighter may try again. */
+  clinch: { active: boolean; reach: number; t: number; by: Side | -1; cd: number };
+  /** Seconds before another push-off. */
+  pushCd: number;
+  /** THE GET-UP while down: the phase, seconds in it, how many times he has got to a knee, and whether his first try is going to fail (rolled at the knockdown — the rig may play the fall accordingly). */
+  getUp: { phase: GetUpPhase; t: number; tries: number; owed: boolean };
+  /** LOADED after a slip: the side the weight sits on (−1 lead, +1 rear; 0 = none) and the seconds it stays there. The natural counter from that side is faster and harder. */
+  loaded: -1 | 0 | 1;
+  loadedT: number;
+  /** COMBINATION: consecutive clean/flush lands inside the chain (0 = none) and the seconds before it lapses. */
+  combo: number;
+  comboT: number;
+
   // ── derived every step by the sim, read by rig/render/ai — never written elsewhere
   headBox: Sphere;
   bodyBox: Capsule;
@@ -216,19 +327,43 @@ export interface SimState {
 export type BodyPart = 'head' | 'body';
 
 export type SimEvent =
-  | { type: 'punchStart';  side: Side; punch: PunchType; hand: Hand }
-  | { type: 'punchLand';   side: Side; target: Side; punch: PunchType; hand: Hand; part: BodyPart; at: Vec3; impulse: Vec3; power: number; counter: boolean }
-  | { type: 'punchBlock';  side: Side; target: Side; punch: PunchType; at: Vec3 }
-  | { type: 'perfectBlock'; side: Side; target: Side; punch: PunchType; at: Vec3 }
-  | { type: 'punchWhiff';  side: Side; punch: PunchType }
+  /** variant = what was actually thrown; tell = seconds until its hit test (the read the defender gets). */
+  | { type: 'punchStart';  side: Side; punch: PunchType; hand: Hand; variant: PunchVariant; tell: number }
+  /** grade = glancing / clean / flush (the tier every downstream read keys off); combo = which punch of a clean combination this is (1 = first); liver = a body shot on the liver side; through = it came round or through a held guard; wrongWay = the target slipped INTO it. */
+  | { type: 'punchLand';   side: Side; target: Side; punch: PunchType; hand: Hand; part: BodyPart; at: Vec3; impulse: Vec3; power: number; counter: boolean; variant: PunchVariant; grade: HitGrade; combo: number; liver: boolean; through: boolean; wrongWay: boolean }
+  /** chip = health the guard let through (0 on a light shot); guard = the guard meter after it; stun = block stun, s. */
+  | { type: 'punchBlock';  side: Side; target: Side; punch: PunchType; at: Vec3; variant: PunchVariant; part: BodyPart; chip: number; guard: number; stun: number }
+  | { type: 'perfectBlock'; side: Side; target: Side; punch: PunchType; at: Vec3; variant: PunchVariant }
+  | { type: 'punchWhiff';  side: Side; punch: PunchType; variant: PunchVariant }
+  /** A wind-up cancelled into the guard before its commit point. */
+  | { type: 'feint';       side: Side; punch: PunchType; variant: PunchVariant }
+  /** A quick hop: x / y in the fighter's own frame (y + = toward the opponent). */
+  | { type: 'burst';       side: Side; x: number; y: number }
+  /** A pivot off the lead foot (dir −1 toward the lead side, +1 rear). */
+  | { type: 'pivot';       side: Side; dir: -1 | 1 }
+  /** Got off the ropes / out of the corner by a pivot, a slip or a roll. */
+  | { type: 'escape';      side: Side; how: 'pivot' | 'slip' | 'roll' }
+  /** A shove with both gloves: hit = the opponent was in reach and went back. */
+  | { type: 'pushOff';     side: Side; target: Side; hit: boolean }
+  /** A tie-up: side grabbed target; then the break and why. */
+  | { type: 'clinch';      side: Side; target: Side }
+  | { type: 'clinchBreak'; side: Side; reason: 'referee' | 'pushOff' | 'denied' }
+  /** The guard meter emptied: side's hands are knocked apart and cannot come up for `seconds`. */
+  | { type: 'guardBreak';  side: Side; by: Side; seconds: number }
+  /** A clean liver shot: the buckle comes `delay` seconds later. */
+  | { type: 'liverShot';   side: Side; by: Side; delay: number }
+  /** The body gave: winded (hurtKind body) for `seconds`. liver = it was the delayed liver buckle. */
+  | { type: 'bodyHurt';    side: Side; by: Side; liver: boolean; seconds: number }
+  /** The downed fighter's struggle: each phase change. */
+  | { type: 'getUpPhase';  side: Side; phase: GetUpPhase; tries: number }
   | { type: 'punchSmother'; side: Side; target: Side; punch: PunchType }
   /** `side`'s punch was broken mid-flight by a punch from `by` landing on them: it never resolves and rewinds home. */
   | { type: 'punchStuffed'; side: Side; by: Side; punch: PunchType }
   /** Once at the flick (dodged: false), and once more, dodged: true, for each punch the slip takes away. */
-  | { type: 'slip';        side: Side; dir: -1 | 1 | 2; dodged: boolean }
+  | { type: 'slip';        side: Side; dir: -1 | 1 | 2; dodged: boolean; kind: SlipKind; chain: number }
   | { type: 'counter';     side: Side; target: Side; punch: PunchType }
   | { type: 'hurt';        side: Side; part: BodyPart; impulse: Vec3 }
-  | { type: 'knockdown';   side: Side; count: number; cause: 'health' | 'finish' | 'flash' }
+  | { type: 'knockdown';   side: Side; count: number; cause: 'health' | 'finish' | 'flash' | 'body' }
   /** A clean head shot cleared the target's stun threshold (sim/stun.ts): `seconds` of the hurt state. */
   | { type: 'rocked';      side: Side; by: Side; punch: PunchType; impulse: number; threshold: number; seconds: number }
   | { type: 'countTick';   side: Side; n: number }

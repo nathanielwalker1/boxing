@@ -9,7 +9,8 @@ import { check, near, done } from './check.js';
 const [core, sim] = await load('/src/core/index.ts', '/src/sim/index.ts');
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // Short rounds so a whole fight is a few hundred ticks; no stamina cost so nothing goes gassed mid-test.
-const cfg = { ...createConfig(), roundSeconds: 2, betweenRoundSeconds: 1, roundCount: 3, staminaPunchCost: 0 };
+// jabHealthFloor 0 (overhaul 2026-11-11): the knockdown cases here floor a man with jabs; by default a jab can no longer empty the bar (attrition_test pins that).
+const cfg = { ...createConfig(), roundSeconds: 2, betweenRoundSeconds: 1, roundCount: 3, staminaPunchCost: 0, jabHealthFloor: 0 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
@@ -87,7 +88,9 @@ const ROUND = T(cfg.roundSeconds), REST = T(cfg.betweenRoundSeconds);
   const blocked = run(fresh(), left, i => [inp({ jab: i === 0 }), inp({ block: true })]);
   check('a blocked punch does not score', of(blocked.evs, 'punchBlock').length === 1 && JSON.stringify(of(blocked.evs, 'roundEnd')[0]?.score) === '[10,10]');
   // One jab each, but a cross for side 1: equal lands, power decides.
-  const power = run(fresh(), left, i => [inp({ jab: i === 0 }), inp({ cross: i === 20 })]);
+  // (Overhaul 2026-11-11: the jab knocks side 1 back to the end of its cross's reach, where the cross would be graded
+  // GLANCING and score under the jab. Side 1 steps back in first, so this stays a test of the judges, not of range.)
+  const power = run(fresh(), left, i => [inp({ jab: i === 0 }), inp({ cross: i === 40, move: { x: 0, y: i >= 20 && i < 27 ? 1 : 0 } })]);
   check('equal lands: the harder puncher takes it on power', of(power.evs, 'punchLand').length === 2 && JSON.stringify(of(power.evs, 'roundEnd')[0]?.score) === '[9,10]', JSON.stringify(of(power.evs, 'roundEnd')[0]?.score));
   // A knockdown costs a point: 10-8.
   const heavy = { ...cfg, healthDamagePerImpulse: 1, getUpJitter: 0 };
