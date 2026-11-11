@@ -76,12 +76,11 @@ for (const [label, dist, fov] of [['close0', 6.5, 42], ['close1', 4.2, 34]]) {
   check(mat > 0.01, `${label}: mat region is lit (Y ${mat.toFixed(4)} > 0.01) — the sample landed on the canvas`);
 }
 
-await page.evaluate(() => { window.__cfg.debugFps = true; });
-// The overlay publishes a sample once a 60-frame window has landed; wait for
-// the sample itself, however long a loaded headless run takes to render it.
-await until(page, () => !!window.__fps, undefined, { label: 'an fps sample', timeout: 90000 });
-const fps = await page.evaluate(() => window.__fps);
-console.log(`budget: ${fps ? `${fps.calls} calls, ${fps.tris} tris` : 'no fps sample'}`);
+// The last frame's counters straight from the stage: the fps overlay only publishes after a 60-frame window, and
+// sixty frames of this check at 2× on a CPU rasteriser starved the checks running beside it (2026-11-11).
+await frames(page, 2);
+const fps = await page.evaluate(() => { const i = window.__show.info(); return { calls: i.calls, tris: i.triangles }; });
+console.log(`budget: ${fps.calls} calls, ${fps.tris} tris`);
 check(!!fps && fps.calls <= MAX_CALLS, `draw calls ≤ ${MAX_CALLS} (${fps?.calls})`);
 check(!!fps && fps.tris <= MAX_TRIS, `triangles ≤ ${MAX_TRIS} (${fps?.tris})`);
 
@@ -101,9 +100,8 @@ await frames(page, 4);
   const [mat, band] = await regionLuminance(shot, [MAT_RECT, BAND_RECT]);
   check(band <= mat, `high tier: bowl band behind the far ropes not brighter than the mat (${band.toFixed(4)} ≤ ${mat.toFixed(4)})`);
 }
-await page.evaluate(() => { window.__cfg.debugFps = true; });
-await until(page, () => !!window.__fps, undefined, { label: 'a high-tier fps sample', timeout: 120000 });
-const hi = await page.evaluate(() => ({ ...window.__fps, ...window.__show.crowd() }));
+const hi = await page.evaluate(() => { const i = window.__show.info(); return { calls: i.calls, tris: i.triangles, ...window.__show.crowd() }; });
+await page.evaluate(() => { window.__cfg.qualityTier = 0; });   // hand the CPU back before the console check
 console.log(`high tier budget (post off): ${hi.calls} calls, ${hi.tris} tris, ${hi.people} people`);
 check(hi.calls <= HI_CALLS, `high tier draw calls ≤ ${HI_CALLS} (${hi.calls})`);
 check(hi.tris <= HI_TRIS, `high tier triangles ≤ ${HI_TRIS} (${hi.tris})`);

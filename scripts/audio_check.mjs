@@ -59,7 +59,7 @@ await asked('crowdEruption', 'a knockdown → the eruption');
 await until(page, () => window.__show.excitement() > 0.8, undefined, { label: 'excitement spike', timeout: 30000 }).catch(() => {});
 const peak = await page.evaluate(() => window.__show.excitement());
 check(peak > 0.8 && peak > base + 0.4, `excitement spikes on a knockdown (${base.toFixed(2)} → ${peak.toFixed(2)})`);
-await frames(page, 30);
+await frames(page, 3);
 check(logs.length === 0, `console clean (${logs.length} error/warning)`);
 logs.forEach(l => console.log(`    ${l}`));
 await browser.close();

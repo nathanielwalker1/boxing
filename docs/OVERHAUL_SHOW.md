@@ -129,6 +129,24 @@ Real GPU (Apple M1, headless Chromium on Metal, vsync-capped, so 60 means
   then MSAA) if frames stay over `postBudgetMs`.
 - No "before" number exists on the real GPU.
 
+## Test status (2026-11-11, end of the workstream)
+
+`TEST_NO_REUSE=1 npm test` did NOT go green in this worktree: 23/28 on both
+full runs. All 20 Node tests pass. Of the 8 browser checks, `arena`, `flow`
+and `referee` passed both times; `audio` and `read` pass when fewer checks run
+beside them; `verify`, `stun`, `read`, `audio` failed in the full runs with
+the same error — `bootReady` timing out at 15 s — and `input` fails one
+assertion that is not mine (see the end of this file).
+
+The boot timeout is real and partly mine. Measured alone on a warm server at
+2× on software GL: first frame 5.9 s, steady ~170 ms a frame; rebuilding the
+arena costs about 1.4 s of that (0.5 s of it the crowd). Four checks booting
+at once on a machine shared with two other workstreams pushes that past 15 s.
+I have no baseline boot time from before my changes, so I cannot say how much
+slack the old scene had. What would fix it is outside my files: a longer
+`bootReady` timeout in `scripts/waits.js`, or fewer browser checks in
+parallel. Not re-run a third time (CLAUDE.md debug budget).
+
 ## Calls made without asking
 
 1. **Software WebGL is a low-tier device.** Headless Chromium is SwiftShader;

@@ -32,6 +32,8 @@ declare global {
       post: () => boolean;
       /** Seats built and people seated (the crowd's instance count). */
       crowd: () => { seats: number; people: number };
+      /** Draw calls and triangles of the last rendered frame (no 60-frame fps window to wait for). */
+      info: () => { calls: number; triangles: number };
       setBoardText: (lines: readonly string[] | null) => void;
     };
   }
@@ -151,6 +153,7 @@ export class Stage {
       tier: () => this.tier,
       post: () => this.postOn,
       crowd: () => this.arena.stats,
+      info: () => this.info,
       setBoardText: lines => this.setBoardText(lines),
     };
   }
