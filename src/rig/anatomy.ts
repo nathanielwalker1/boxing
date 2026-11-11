@@ -69,7 +69,7 @@ export function torsoShape(c: Ctx): TorsoShape {
     // The yoke reaches the shoulder joints, so the inner half of each deltoid sits inside it; it rounds over
     // (lower squareness) and the trapezius slopes from the corner up into the neck.
     [sy - cl * 0.1, yokeHalf * 1.0, chestF * 0.88, chestB * 1.0, 2.7],
-    [sy + cl * 0.035, yokeHalf * 0.94, chestF * 0.66, chestB * 0.92, 2.5],
+    [sy + cl * 0.035, yokeHalf * 1.0, chestF * 0.7, chestB * 0.92, 2.4],
     [sy + cl * 0.1, yokeHalf * 0.74 * Math.min(1.15, trap), chestF * 0.52, chestB * 0.82, 2.4],
     [sy + cl * 0.18, Math.max(nr * 1.3, yokeHalf * 0.5 * trap), nr * 1.12, nr * 1.5 * Math.min(1.2, trap), 2.3],
     [neck0, nr * 1.1, nr * 0.98, nr * 1.16, 2.1],
@@ -97,8 +97,8 @@ export function torsoShape(c: Ctx): TorsoShape {
       h += front * def * R * 0.15 * pec;
       h -= front * def * R * 0.045 * bump(az / (chestHalf * 0.16)) * bump((y - (sy - cl * 0.27)) / (cl * 0.24));
       // Abs: three rows either side of the linea alba.
-      for (const ay of absY) h += front * def * R * 0.055 * bump((az - waistHalf * 0.21) / (waistHalf * 0.24)) * bump((y - ay) / (sp * 0.15));
-      h -= front * def * R * 0.03 * bump(az / (waistHalf * 0.1)) * bump((y - (hy + sp * 0.85)) / (sp * 0.6));
+      for (const ay of absY) h += front * def * R * 0.085 * bump((az - waistHalf * 0.21) / (waistHalf * 0.24)) * bump((y - ay) / (sp * 0.15));
+      h -= front * def * R * 0.05 * bump(az / (waistHalf * 0.12)) * bump((y - (hy + sp * 0.85)) / (sp * 0.6));
       // Belly: fat pushes the front out, lowest and furthest just above the waistband.
       h += front * fat * R * cfg.rigMorphFatBelly * bump(az / (waistHalf * 1.7)) * bump((y - (hy + sp * 0.5)) / (sp * 0.95));
     }
@@ -139,7 +139,7 @@ export function torsoShape(c: Ctx): TorsoShape {
 
   // Weights by height, with the top corners following the shoulder bones.
   const yb = hy + sp * 0.3, ym = (hy + sy) / 2, yc = sy - cl * 0.5;
-  const shR = d.upperArmR * 2.6;
+  const shR = d.upperArmR * 3.0;
   const weights = (p: THREE.Vector3): BW[] => {
     const w: BW[] = [];
     const y = p.y;
@@ -156,7 +156,7 @@ export function torsoShape(c: Ctx): TorsoShape {
     for (let i = 0; i < 2; i++) {
       const j = c.bind[armBones(i).shoulder]!;
       const dist = Math.hypot(p.x - j.x, (p.y - j.y) * 1.3, p.z - j.z);
-      const s = 0.6 * bump(dist / shR);
+      const s = 0.82 * bump(dist / shR);   // high, so the corner stays with the sim's shoulder while the ribcage blades under it (rigStanceChestYawDeg)
       if (s > 0.01) { for (const e of w) e[1] *= 1 - s; w.push([armBones(i).shoulder, s]); }
     }
     return w;
@@ -211,7 +211,7 @@ function hingeWeights(s: number, sj: number, w: number, upper: number, helper: n
 export function armSpan(c: Ctx): { s0: number; s1: number } {
   const delt = c.cfg.rigDeltoid * (1 + 0.08 * c.m.muscle);
   // The referee's hands are bare: the forearm runs to the wrist. A glove's cuff hides the rest.
-  return { s0: -c.d.upperArmR * delt * 0.72, s1: c.body.upperArm + c.body.forearm - c.body.gloveR * (c.spec.outfit ? c.cfg.rigHandScale * 0.9 : 0.6) };
+  return { s0: -c.d.upperArmR * delt * 0.55, s1: c.body.upperArm + c.body.forearm - c.body.gloveR * (c.spec.outfit ? c.cfg.rigHandScale * 0.9 : 0.6) };
 }
 
 export function buildArm(c: Ctx, i: number): void {
@@ -222,22 +222,26 @@ export function buildArm(c: Ctx, i: number): void {
   const def = muscleDef(c);
   const delt = cfg.rigDeltoid * (1 + 0.08 * c.m.muscle);
   const wristS = armSpan(c).s1;
+  const tp = 1 - 0.16 * Math.max(0, c.m.bodyFat) - 0.05 * Math.max(0, c.m.muscle);
   const st: number[][] = [
     // The cap is low and broad (a deltoid, not a ball): it tops out just above the joint and its inner half is inside the torso's yoke.
-    [-R1 * delt * 0.72, 0, 0, 0, R1 * 0.12],
-    [-R1 * delt * 0.64, R1 * delt * 0.56, R1 * delt * 0.56, 0, R1 * 0.12],
-    [-R1 * delt * 0.4, R1 * delt * 0.86, R1 * delt * 0.88, 0, R1 * 0.1],
-    [R1 * 0.2, R1 * delt, R1 * delt * 1.02, 0, R1 * 0.08],
-    [L1 * 0.26, R1 * delt * 0.97, R1 * delt * 0.97, 0, R1 * 0.06],
+    // Phase 2: the cap's crown is pulled IN under the yoke and kept low, so with the arm hanging the top of the
+    // shoulder is the torso's trapezius running out over it — the seam is under the arm, not an epaulette on top.
+    [-R1 * delt * 0.55, 0, 0, 0, -R1 * 0.3],
+    [-R1 * delt * 0.5, R1 * delt * 0.5, R1 * delt * 0.52, 0, -R1 * 0.26],
+    [-R1 * delt * 0.32, R1 * delt * 0.84, R1 * delt * 0.84, 0, -R1 * 0.12],
+    [R1 * 0.2, R1 * delt, R1 * delt * 1.0, 0, R1 * 0.03],
+    [L1 * 0.26, R1 * delt * 0.97, R1 * delt * 0.97, 0, R1 * 0.04],
     [L1 * 0.46, R1 * 1.07, R1 * 1.0, R1 * 0.02, R1 * 0.02],
     [L1 * 0.66, R1 * 1.04, R1 * 0.93, R1 * 0.02, 0],
-    [L1 * 0.86, R1 * 0.9, R1 * 0.86, 0, 0],
-    [L1, R1 * 0.8, R1 * 0.85, 0, 0],
-    [L1 + L2 * 0.14, R2 * 0.94, R2 * 1.05, R2 * 0.04, 0],
-    [L1 + L2 * 0.3, R2 * 0.92, R2 * 1.0, R2 * 0.03, 0],
-    [L1 + L2 * 0.46, R2 * 0.74, R2 * 0.8, 0, 0],
-    [wristS - (wristS - L1) * 0.12, R2 * 0.54, R2 * 0.62, 0, 0],
-    [wristS, R2 * 0.5, R2 * 0.6, 0, 0],
+    // A heavy arm still has an elbow and a wrist: fat sits on the upper arm, the taper below it is kept (tp).
+    [L1 * 0.86, R1 * 0.9 * tp, R1 * 0.86 * tp, 0, 0],
+    [L1, R1 * 0.8 * tp * tp, R1 * 0.85 * tp * tp, 0, 0],
+    [L1 + L2 * 0.14, R2 * 0.94 * tp, R2 * 1.05 * tp, R2 * 0.04, 0],
+    [L1 + L2 * 0.3, R2 * 0.92 * tp, R2 * 1.0 * tp, R2 * 0.03, 0],
+    [L1 + L2 * 0.46, R2 * 0.74 * tp * tp, R2 * 0.8 * tp * tp, 0, 0],
+    [wristS - (wristS - L1) * 0.12, R2 * 0.54 * tp * tp, R2 * 0.62 * tp * tp, 0, 0],
+    [wristS, R2 * 0.5 * tp * tp, R2 * 0.6 * tp * tp, 0, 0],
   ];
   for (let k = 1; k < st.length; k++) if (st[k]![0]! < st[k - 1]![0]! + 0.003) st[k]![0] = st[k - 1]![0]! + 0.003;
   const keys = st.map(s => s[0]!), vals = st.map(s => s.slice(1));

@@ -124,7 +124,6 @@ export function paintAtlas(spec: FighterSpec, cfg: Config, low: boolean, info: P
         soft(() => { g.moveTo(tx(0.5 + s * 0.008), pecLow - 0.012 * T.h); g.quadraticCurveTo(tx(0.5 + s * 0.07), pecLow + 0.022 * T.h, tx(0.5 + s * 0.15), pecLow - 0.03 * T.h); }, lw);
         soft(() => { g.moveTo(tx(0.5 + s * 0.15), pecLow - 0.03 * T.h); g.quadraticCurveTo(tx(0.5 + s * 0.165), ty(info.pecY), tx(0.5 + s * 0.14), ty(info.shoulderY) + 0.02 * T.h); }, lw * 0.8);
         // The outside edge of the abs, and three serratus ticks under the armpit.
-        soft(() => { g.moveTo(tx(0.5 + s * 0.052), pecLow + 0.03 * T.h); g.quadraticCurveTo(tx(0.5 + s * 0.058), ty(info.hipY + sp * 0.8), tx(0.5 + s * 0.045), ty(info.hipY + sp * 0.4)); }, lw * 0.7);
         for (let q = 0; q < 3; q++) { const y0 = ty(info.pecY - cl * (0.26 + 0.12 * q)); soft(() => { g.moveTo(tx(0.5 + s * 0.2), y0); g.lineTo(tx(0.5 + s * 0.165), y0 + 0.022 * T.h); }, lw * 0.6); }
         // Back: under the shoulder blade, and the lat's lower edge running to the waist.
         const bu = s < 0 ? 0 : 1;
@@ -133,8 +132,8 @@ export function paintAtlas(spec: FighterSpec, cfg: Config, low: boolean, info: P
         soft(() => { g.moveTo(tx(bu - s * 0.004), ty(info.shoulderY - cl * 0.05)); g.lineTo(tx(bu - s * 0.004), ty(info.hipY + sp * 0.3)); }, lw * 0.9);
       }
       // Between the pecs, down the middle of the abs, and across them.
-      soft(() => { g.moveTo(tx(0.5), ty(info.pecY + cl * 0.16)); g.lineTo(tx(0.5), ty(info.hipY + sp * 0.4)); }, lw * 0.8);
-      for (const yy of [info.hipY + sp * 0.64, info.hipY + sp * 0.92]) soft(() => { g.moveTo(tx(0.5 - 0.05), ty(yy)); g.quadraticCurveTo(tx(0.5), ty(yy) + 0.006 * T.h, tx(0.5 + 0.05), ty(yy)); }, lw * 0.7);
+      // Between the pecs only. The abs are relief now (anatomy.ts), not strokes: the painted rungs read as a ladder drawn on.
+      soft(() => { g.moveTo(tx(0.5), ty(info.pecY + cl * 0.16)); g.lineTo(tx(0.5), ty(info.pecY - cl * 0.22)); }, lw * 0.8);
     }
     // Collar bones: a soft light-over-dark stroke each side from the pit of the neck.
     const cy = ty(info.shoulderY) - 0.012 * T.h;

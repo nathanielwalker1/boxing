@@ -39,18 +39,22 @@ const ROWS_Y = [
   1.0, 0.975, 0.92, 0.83, 0.72, 0.6, 0.5, 0.42, 0.355, 0.31, 0.265, 0.225, 0.19, 0.15, 0.11, 0.075, 0.03, -0.03, -0.1, -0.16, -0.21,
   -0.25, -0.29, -0.34, -0.4, -0.45, -0.485, -0.5, -0.5, -0.515, -0.55, -0.6, -0.67, -0.75, -0.83, -0.9, -0.955, -1.0,
 ];
+/** How far the jaw swings at mouthOpen = 1. Was 15: from the play camera it read as a chin moving, not a mouth opening. */
+const JAW_OPEN_DEG = 25;
 const MOUTH_UPPER = ROWS_Y.indexOf(-0.5);
 const MOUTH_LOWER = MOUTH_UPPER + 1;
 
 // y, half-width, front depth, back depth, squareness — in head radii.
 const SKULL: number[][] = [
   [-1.0, 0, 0.55, -0.3, 2],
-  [-0.955, 0.2, 0.74, -0.22, 2.1],
-  [-0.9, 0.3, 0.81, -0.1, 2.2],
-  [-0.8, 0.41, 0.85, 0.12, 2.3],
-  [-0.66, 0.52, 0.85, 0.38, 2.4],
-  [-0.52, 0.6, 0.875, 0.55, 2.45],
-  [-0.4, 0.655, 0.885, 0.7, 2.45],
+  // Phase 2: a jaw. The lower face holds its width down to the jaw line and runs BACK under the ear (B stays
+  // large to −0.66), then cuts in sharply below — a jaw angle and a flat underside instead of a face that tapers into the neck.
+  [-0.955, 0.27, 0.76, -0.16, 2.2],
+  [-0.9, 0.38, 0.82, 0.04, 2.5],
+  [-0.8, 0.52, 0.86, 0.34, 2.8],
+  [-0.66, 0.615, 0.86, 0.56, 2.9],
+  [-0.52, 0.66, 0.875, 0.64, 2.7],
+  [-0.4, 0.69, 0.885, 0.74, 2.55],
   [-0.2, 0.715, 0.875, 0.87, 2.4],
   [0.02, 0.755, 0.86, 0.955, 2.35],
   [0.18, 0.76, 0.845, 0.98, 2.3],
@@ -136,8 +140,9 @@ export function headShape(c: Ctx): HeadShape {
     const t = (FACE.eyeY + 0.03 - y) / (FACE.eyeY + 0.03 - FACE.noseTipY);                // 0 at the bridge → 1 at the tip
     if (t > -0.2 && y > FACE.noseBaseY - 0.06) {
       const along = y >= FACE.noseTipY ? 0.05 + 0.21 * Math.pow(Math.max(0, Math.min(1, t)), 1.25) : 0.26 * smooth01((y - (FACE.noseBaseY - 0.05)) / (FACE.noseTipY - FACE.noseBaseY + 0.05));
-      const width = 0.105 + 0.085 * Math.max(0, Math.min(1, t)) * ns;
-      x += ns * along * bump(ath / (width * 2.1)) * smooth01((t + 0.2) / 0.2);
+      // A ridge, not a plane: narrow at the bridge, a sharpened cross-section, wider at the wings.
+      const width = 0.07 + 0.12 * Math.pow(Math.max(0, Math.min(1, t)), 1.5) * ns;
+      x += ns * along * Math.pow(bump(ath / (width * 2.6)), 1.8) * smooth01((t + 0.2) / 0.2);
     }
     const yy = y >= 0 ? y * (1 + 0.07 * hm.height) : y * (1 + 0.05 * hm.chin);
     out.set(x * R, yy * R + (lift && y > 0.9 ? lift : 0), z * R);
@@ -165,7 +170,7 @@ export function buildHead(c: Ctx, hs: HeadShape): void {
   const H = c.bind[BONE.head]!;
   const tmp = new THREE.Vector3();
   const pivot = new THREE.Vector2(-0.1 * R, -0.12 * R);     // the jaw's hinge, by the ear (x, y)
-  const jawOpen = 15 * Math.PI / 180;
+  const jawOpen = JAW_OPEN_DEG * Math.PI / 180;
   const cj = Math.cos(-jawOpen), sj = Math.sin(-jawOpen);
   addGrid(c.g, {
     rows: rowsY.length, cols, wrap: true,
@@ -479,7 +484,7 @@ export function buildFacialHair(c: Ctx, hs: HeadShape): void {
       const th = hs.theta(j / cols), y = ys[i]!;
       const jw = jawWeight(th, y, false);
       if (jw < 1e-3) return null;
-      const pivotX = -0.1 * R, pivotY = -0.12 * R, a = -15 * Math.PI / 180;
+      const pivotX = -0.1 * R, pivotY = -0.12 * R, a = -JAW_OPEN_DEG * Math.PI / 180;
       const rx = p.x - H.x - pivotX, ry = p.y - H.y - pivotY;
       return { mouthOpen: [(rx * Math.cos(a) - ry * Math.sin(a) - rx) * jw, (rx * Math.sin(a) + ry * Math.cos(a) - ry) * jw, 0] };
     },

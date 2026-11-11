@@ -67,7 +67,7 @@ const SHAFT_H: Record<NonNullable<FighterSpec['bootHeight']>, number> = { low: 0
 
 export function rigDims(spec: FighterSpec, body: BodyDims, cfg: Config): RigDims {
   const m = morphOf(spec);
-  const limb = 1 + m.muscle * cfg.rigMorphMuscleLimb + Math.max(0, m.bodyFat) * 0.1;
+  const limb = 1 + m.muscle * cfg.rigMorphMuscleLimb + Math.max(0, m.bodyFat) * 0.03;   // bodyR already carries the fat; more made the heavy fighter's arm a balloon
   const neckR = body.headR * cfg.rigNeckR * (1 + m.neck * cfg.rigMorphNeckR);
   const neckBase = body.chestLen * 0.05;
   return {

@@ -177,7 +177,7 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
     const J = c.bind[bones.thigh]!;
     const mirror = c.lat[i]! < 0;
     const lc = c.low ? 12 : 16;
-    const s0 = -d.thighR * 0.7;
+    const s0 = -d.thighR * 0.1;   // starts at the hip joint, under the body panel (higher, it came through the waistband on a wide fighter)
     const sKeys = [s0, len * 0.25, len * 0.7, len];
     const ss = rowParams(sKeys, [2, 3, 3], c.low);
     const hemAt = (phi: number): number => cut === 'split' ? 1 - 0.42 * bump((phi - Math.PI / 2) / 0.75) : 1;
@@ -186,7 +186,7 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
       sampleKeys(leg.keys, leg.vals, Math.max(sh, 0), row);
       const t = Math.max(0, sh) / len;
       // Starts under the body panel (no two cloth surfaces share a plane), then hangs away from the thigh toward the hem, with a few folds.
-      const g = 0.01 + (gap - 0.01) * smooth01(t / 0.35) + 0.024 * t + 0.008 * t * Math.cos(phi * 5 + i);
+      const g = 0.002 + (gap - 0.002) * smooth01(t / 0.3) + 0.024 * t + 0.008 * t * Math.cos(phi * 5 + i);
       out.set(J.x + row[2]! + (row[0]! + g) * Math.cos(phi), J.y - sh, Math.abs(J.z) + row[3]! + (row[1]! + g) * Math.sin(phi));
     };
     const weights = (p: THREE.Vector3): BW[] => {
@@ -230,15 +230,16 @@ export function buildBoot(c: Ctx, i: number): void {
   const cols = c.low ? 10 : 16;
   // The foot: heel → toe along +x. x/L, top height / H, half-width / Wd.
   const st: number[][] = [
+    // Phase 2: a heel counter that stands up, an instep that falls to a low, long toe box.
     [-0.3, 0.0, 0.0],
-    [-0.27, 0.62, 0.3],
-    [-0.16, 0.95, 0.43],
-    [0.0, 1.12, 0.47],
-    [0.2, 0.98, 0.5],
-    [0.42, 0.72, 0.54],
-    [0.6, 0.56, 0.47],
-    [0.69, 0.38, 0.3],
-    [0.72, 0.0, 0.0],
+    [-0.285, 0.8, 0.3],
+    [-0.18, 1.1, 0.42],
+    [0.0, 1.2, 0.46],
+    [0.18, 0.96, 0.49],
+    [0.4, 0.62, 0.54],
+    [0.6, 0.47, 0.5],
+    [0.7, 0.36, 0.34],
+    [0.735, 0.0, 0.0],
   ];
   const keys = st.map(s => s[0]!), vals = st.map(s => s.slice(1));
   const xs = rowParams(keys, [1, 2, 2, 2, 2, 2, 2, 1], c.low);
@@ -259,6 +260,23 @@ export function buildBoot(c: Ctx, i: number): void {
     uv: (r, j) => [j / cols, 0.5 + 0.5 * (xs[r]! - keys[0]!) / (keys[keys.length - 1]! - keys[0]!)],
     ao: cfg.rigAoStrength * 0.5,
   });
+  // The sole: a slab a welt wider than the upper, thicker under the heel — the line that makes it a boot, not a sock.
+  {
+    const sc = c.low ? 6 : 10;
+    addGrid(c.g, {
+      rows: xs.length, cols: sc, wrap: true, mirror,
+      point: (r, j, out) => {
+        sampleKeys(keys, vals, xs[r]!, row);
+        const a = (j / sc) * TAU;
+        const w = row[1]! * Wd + (row[1]! > 0.01 ? 0.006 : 0);
+        const heel = smooth01((-0.04 - xs[r]!) / 0.06);
+        const th = H * (0.2 + 0.16 * heel) * (row[1]! > 0.01 ? 1 : 0);
+        out.set(A.x + xs[r]! * L * 1.015, A.y - H + th * (0.5 + 0.5 * sgnPow(Math.sin(a), 7)), Math.abs(A.z) + w * sgnPow(Math.cos(a), 5));
+      },
+      weights: () => [[bones.boot, 1]],
+      rect: c.rect('sole'), kind: KIND.rubber,
+    });
+  }
   // The shaft: up the shin, fitted to it, blending from the boot to the shin so the ankle bends.
   const leg = legStations(c);
   const lr = [0, 0, 0, 0];
