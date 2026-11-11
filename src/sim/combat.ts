@@ -520,7 +520,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // Only a HELD block can be perfect — a fist absorbed by a relaxed guard pinned on the face is a plain block.
   const perfect = d.block && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight);
   // The guard's shape and wear (overhaul): how much of it this punch meets. A perfect block meets all of it.
-  const cover = !guarded ? 0 : perfect || !d.block ? 1 : guardCover(d, type, part, dirX, dirZ, cfg);
+  // A RESTING guard that the fist pinned against the face is not a block: the hands were in the way (guardPinnedCover).
+  const cover = !guarded ? 0 : perfect ? 1 : !d.block ? (cfg.guardShapeOn ? cfg.guardPinnedCover : 1) : guardCover(d, type, part, dirX, dirZ, cfg);
   const through = guarded && !perfect && cfg.guardShapeOn && cover < cfg.guardThroughAt;   // it came round or through: a land, at what the guard left of it
   const blocked = guarded && !through;
   const raw = mag;   // what arrived at the guard — block stun, guard wear and the chip threshold read this

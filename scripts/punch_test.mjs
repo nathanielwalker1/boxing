@@ -78,7 +78,12 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
   // above still splits the guard and lands.
   const closeCross = run(fresh(CLOSE), 40, tapThen('cross')).evs;
   const c = outcome(closeCross);
-  check('cross inside smotherDist is absorbed by the guard gloves pinned on the face (a block, not a miss)', c?.type === 'punchBlock', `${c?.type} ${c?.power?.toFixed(3)} vs ${midCross?.power?.toFixed(3)}`);
+  // Overhaul 2026-11-11: a RESTING guard pinned on the face is not a block any more (guardPinnedCover) — the fist
+  // lands THROUGH the hands at what they left of it. The second punch of every combination was being "blocked" by a
+  // guard nobody held. With guardPinnedCover 1 (or guardShapeOn off) it is the plain block it was.
+  check('cross inside smotherDist meets the guard gloves pinned on the face: a land THROUGH the hands (cramped and muffled), not a miss', c?.type === 'punchLand' && c.through === true && c.power < midCross.power * 0.5, `${c?.type} ${c?.power?.toFixed(3)} vs ${midCross?.power?.toFixed(3)}`);
+  const oldRule = { ...cfg, guardPinnedCover: 1 };
+  check('…guardPinnedCover 1: the plain block it was', outcome(run(fresh(CLOSE), 40, tapThen('cross'), oldRule).evs)?.type === 'punchBlock');
   check('…and not a perfect block (the guard was not held)', !closeCross.some(e => e.type === 'perfectBlock'));
   check('no punchSmother is emitted any more', !evs.some(e => e.type === 'punchSmother'));
 }

@@ -616,6 +616,7 @@ export const SCHEMA = {
   guardArcNoneDeg:  num(85, 20, 150, 1, 'guard', 'a punch arriving this far round misses the guard entirely (smooth in between). A square-on hook arrives at ~45°, a shovel hook ~60°'),
   guardUppercutCover: num(0.45, 0, 1, 0.05, 'guard', 'how much of the guard an uppercut meets (it comes up between the elbows). Under guardThroughAt: an uppercut SPLITS a held guard — it lands, at 1 − blockReduction × this (66%) of its weight'),
   guardBodyCover:   num(0.45, 0, 1, 0.05, 'guard', 'how much of the guard a body shot meets (the high guard leaves the elbows to do it). Under guardThroughAt: body shots get under a held guard at 66%'),
+  guardPinnedCover: num(0.4, 0, 1, 0.05, 'guard', 'a RESTING guard hand the fist pinned against the face (no block held) covers this much: under guardThroughAt it is a land through the hands at 1 − blockReduction × this (70%), not a block. MEASURED before: the second punch of a 1-1 or the 3 of a 1-2-3 was "blocked" by a guard nobody was holding — combinations could not build. 1 = the old rule (a plain block)'),
   guardThroughAt:   num(0.5, 0, 1, 0.05, 'guard', 'guard coverage under this = the punch came THROUGH or ROUND: it is a land (flagged through, never better than clean) at what the guard left of it, not a block'),
   perfectBlockRecoverMult: num(1.5, 1, 4, 0.1, 'guard', 'a perfectly blocked punch comes home this many times slower — the arm hangs out there, deflected, for the whole punish window'),
 
