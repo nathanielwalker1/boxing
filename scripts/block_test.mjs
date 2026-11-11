@@ -4,7 +4,9 @@ import { check, near, done } from './check.js';
 
 const [core, sim] = await load('/src/core/index.ts', '/src/sim/index.ts');
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT, v3len } = core;
-const cfg = createConfig();
+// ratingsOn / stylesOn off (overhaul phase 2): this file pins the reference fighters' numbers and margins as they were before
+// ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
+const cfg = ({ ...createConfig(), ratingsOn: false, stylesOn: false });
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();

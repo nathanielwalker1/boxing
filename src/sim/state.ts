@@ -197,6 +197,7 @@ export function cloneFighter(f: FighterState): FighterState {
     knockdowns: f.knockdowns,
     hurt: f.hurt,
     hurtMax: f.hurtMax,
+    styleId: f.styleId, guardShape: f.guardShape,
     level: f.level, riseT: f.riseT, range: f.range, posture: f.posture,
     stillT: f.stillT, flat: f.flat, ropes: f.ropes, cornered: f.cornered, angle: f.angle, turned: f.turned,
     hop: { x: f.hop.x, z: f.hop.z }, burstT: f.burstT, burstCd: f.burstCd,

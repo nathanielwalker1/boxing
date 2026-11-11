@@ -12,7 +12,7 @@
  *
  * Plain serialisable data: no functions, no references.
  */
-import type { Config } from '../core';
+import type { AiStyle, Config, FighterSpec, GuardShape, PunchType } from '../core';
 
 export interface StyleParams {
   // ── Range: where it wants to be ──
@@ -81,9 +81,51 @@ export interface StyleParams {
   /** Against a hurt opponent: odds each armed punch becomes a power shot. */
   finishPower: number;
 
-  /** The guard it holds. One shape exists today; the style table will add the others. */
-  guard: 'high';
+  // ── Phase 2: what makes one style a different fight from another ──
+  /** The inside fight: odds (rolled as the opponent gets inside) it keeps its guard up in there between its own punches; odds it defends a punch read at inside range. */
+  insideGuard: number; insideBlock: number;
+  /** With the opponent inside, its attack timer drains this many times faster (an inside fighter works in there; an outboxer does not). */
+  insideTempo: number;
+  /** Odds it fires straight back after a punch lands on its guard (as the block stun ends). */
+  blockCounter: number;
+  /** Under fire at close range (a punch on its guard, or one that got through): odds it SHOVES him off, and what it does with the beat that buys — goes to work, or gets out. */
+  crowdPush: number; pushThen: 'work' | 'leave';
+  /** Rushed: odds its answer is thrown going BACKWARD (a retreat jab, or a check hook if he is close enough). */
+  backFoot: number;
+  /** As the opponent gets inside: odds it simply ties him up (the referee then puts the fight back at range). */
+  insideClinch: number;
+  /** THE STIFF JAB: a man walking in through its jab range gets one at once — no timer — this often (per chance, at most every interceptGap s). A jab on a walker stops him. `interceptWith` is the punch a style that would rather hurt him meets him with. */
+  intercept: number; interceptGap: number; interceptWith: PunchType;
+  /** Coming in through the jab: per second, in the opponent's jab range and walking in, it moves its head off the line (a slip) without waiting to read anything. */
+  approachSlip: number;
+  /** Cutting off a mover: seconds ahead of the opponent's walking velocity it steers for. */
+  leadPursuit: number;
+  /** An opponent starting more punches a second than this is rushing: cover, let him miss, counter everything. */
+  wildRate: number;
+  /** How it uses the ring: cuts it off, circles AWAY from the opponent's power hand, or holds the centre. */
+  ringUse: 'cutOff' | 'circleAway' | 'centre';
+  /** SIGNATURE COMBINATIONS and the odds a burst is one of them (else random punches). */
+  combos: ComboStep[][]; comboSignature: number;
+  /** Odds a cross is thrown as the OVERHAND (it dips and steps in with it). */
+  overhandRate: number;
+  /** THE TELL: a habit before a lone power punch a player can learn — it dips, or draws back half a step — and how often it shows. */
+  tell: 'none' | 'dip' | 'drawBack'; tellRate: number;
+  /** Hurt: odds it swings back instead of covering (after the clinch roll). */
+  hurtSwing: number;
+  /** Tired: its tempo slows to 1 / this at full fatigue; per second, at inside range and tired, it ties up. */
+  tiredTempo: number; tiredClinchRate: number;
+  /** Odds a defensive decision (block, slip, cover, inside guard) simply is not made — difficulty. */
+  mistake: number;
+
+  /** The guard its fighter holds (core/styles.ts) — informational here; the sim reads the fighter's own. */
+  guard: GuardShape;
 }
+
+/** One punch of a signature combination: the button, the hand for a hook / uppercut (−1 lead, 1 rear), and whether it goes to the body. */
+export interface ComboStep { p: PunchType; x?: -1 | 1; body?: boolean }
+
+/** A rate nothing reaches (a serialisable "never"). */
+const NEVER = 1e6;
 
 /** The one style every fighter uses today: the `ai…` config keys, so the tuning panel drives it. */
 export function defaultStyle(cfg: Config): StyleParams {
@@ -118,6 +160,165 @@ export function defaultStyle(cfg: Config): StyleParams {
     hurtClinch: tools ? cfg.aiHurtClinch : 0,
     shellTime: tools ? cfg.aiShellTime : 0, crowdClinch: tools ? cfg.aiCrowdClinch : 0,
     finishPower: tools ? cfg.aiFinishPower : 0,
+    insideGuard: tools ? cfg.aiInsideGuard : 0, insideBlock: tools ? cfg.aiInsideBlock : cfg.aiBlockChance,
+    insideTempo: tools ? 1.5 : 1, blockCounter: tools ? 0.35 : 0, backFoot: 0,
+    crowdPush: tools ? 0.45 : 0, pushThen: 'work', approachSlip: 0, insideClinch: 0,
+    intercept: tools ? 0.4 : 0, interceptGap: 0.45, interceptWith: 'jab',
+    leadPursuit: tools ? cfg.aiLeadPursuit : 0,
+    wildRate: tools ? cfg.aiWildRate : NEVER,
+    ringUse: 'cutOff',
+    combos: tools && cfg.aiCombos ? [[{ p: 'jab' }, { p: 'cross' }], [{ p: 'jab' }, { p: 'cross' }, { p: 'hook', x: -1 }], [{ p: 'jab' }, { p: 'jab' }, { p: 'cross' }]] : [],
+    comboSignature: tools && cfg.aiCombos ? 0.6 : 0,
+    overhandRate: 0,
+    tell: 'none', tellRate: 0,
+    hurtSwing: 0,
+    tiredTempo: 1.3, tiredClinchRate: 0,
+    mistake: 0,
     guard: 'high',
   };
 }
+
+// ── The five styles ──────────────────────────────────────────────────────────
+// Each is the default with its own numbers. What the numbers mean is on StyleParams. The fighter's half (guard,
+// stance, rhythm, the select-screen text) is core/styles.ts STYLES.
+
+const J: ComboStep = { p: 'jab' }, X: ComboStep = { p: 'cross' };
+const LH: ComboStep = { p: 'hook', x: -1 }, RH: ComboStep = { p: 'hook', x: 1 };
+const LU: ComboStep = { p: 'uppercut', x: -1 }, RU: ComboStep = { p: 'uppercut', x: 1 };
+const bJ: ComboStep = { p: 'jab', body: true }, bX: ComboStep = { p: 'cross', body: true }, bLH: ComboStep = { p: 'hook', x: -1, body: true }, bRH: ComboStep = { p: 'hook', x: 1, body: true };
+
+const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
+  // PRESSURE — walks you down behind the high guard. Cuts the ring off, jabs his way in, works in twos and threes,
+  // never takes a step back he does not have to. Beaten by angles and by the body.
+  pressure: {
+    standoff: 0.72, probeDist: 0.95,
+    pressWeight: 8, probeWeight: 1, circleWeight: 0.5, holdWeight: 0.5,
+    jabWeight: 4, crossWeight: 3, hookWeight: 3, uppercutWeight: 1, bodyRate: 0.3,
+    attackDelayMin: 0.55, attackDelayMax: 1.2, comboChance: 0.7, comboMax: 3,
+    combos: [[J, X], [J, J, X], [J, X, LH], [bJ, X], [X, LH, X]], comboSignature: 0.75,
+    resetChance: 0.1, hitResetChance: 0.15, burstChance: 0.1, feintChance: 0.08,
+    blockChance: 0.5, slipShare: 0.15, rollShare: 0.2, counterChance: 0.5,
+    giveGroundChance: 0.15, chaseDelay: 0.15,
+    cutOff: 0.9, leadPursuit: 0.45, ringUse: 'cutOff', pushOffRate: 0.2,
+    insideGuard: 0.4, insideBlock: 0.6, hurtClinch: 0.5, hurtSwing: 0.2, shellTime: 1.6, wildRate: 0.8,
+    speed: 1, insideTempo: 2.6, blockCounter: 0.6, backFoot: 0, approachSlip: 0.5, intercept: 0.5, stumbleSpeed: 1.6,
+    tiredTempo: 1.25, guard: 'high',
+  },
+  // OUTBOXER — long guard, long jab, always leaving. Probes from outside his opponent's reach, circles away from
+  // the power hand, resets after every exchange, shoves and ties up when crowded. Beaten by cutting the ring off.
+  outboxer: {
+    standoff: 0.98, probeDist: 1.08, resetDist: 1.45, engageStraight: 1.0, stepIn: 1,
+    pressWeight: 0.5, probeWeight: 6, circleWeight: 5, holdWeight: 0.5, circleSpeed: 0.85, speed: 0.95,
+    jabWeight: 8, crossWeight: 2.5, hookWeight: 0.6, uppercutWeight: 0, bodyRate: 0.15,
+    attackDelayMin: 0.35, attackDelayMax: 0.9, comboChance: 0.5, comboMax: 2,
+    combos: [[J, J], [J, X], [J, bJ], [J, J, X]], comboSignature: 0.8,
+    resetChance: 0.75, hitResetChance: 0.8, burstChance: 0.65, feintChance: 0.15,
+    blockChance: 0.4, slipShare: 0.4, rollShare: 0.1, counterChance: 0.6,
+    giveGroundChance: 0.85, giveGround: 0.4, chaseDelay: 0.8,
+    cutOff: 0, leadPursuit: 0, ringUse: 'circleAway', pushOffRate: 2.5, ropePivotRate: 3,
+    insideGuard: 0.5, insideBlock: 0.6, crowdClinch: 0.85, hurtClinch: 0.35, hurtSwing: 0, shellTime: 0.6,
+    insideTempo: 0.8, blockCounter: 0.25, backFoot: 0.8, crowdPush: 0.85, pushThen: 'leave', insideClinch: 0.8, intercept: 1, interceptGap: 0.3,
+    tiredTempo: 1.5, tiredClinchRate: 0.6, guard: 'long',
+  },
+  // COUNTER — sits in the shell and waits. Throws little; slips and rolls most of what it reads; takes every opening
+  // (a whiff, a slipped punch) with the cross and the hook behind it; feints to draw a lead. Beaten by not giving it one.
+  counter: {
+    standoff: 0.86, probeDist: 1.0,
+    pressWeight: 1, probeWeight: 4, circleWeight: 2, holdWeight: 3, holdMax: 1.2,
+    jabWeight: 3, crossWeight: 3, hookWeight: 2, uppercutWeight: 1, bodyRate: 0.1,
+    attackDelayMin: 1.2, attackDelayMax: 2.4, comboChance: 0.5, comboMax: 2,
+    combos: [[X, LH], [J, X], [LH, X]], comboSignature: 0.8,
+    resetChance: 0.5, hitResetChance: 0.5, burstChance: 0.3, feintChance: 0.3,
+    blockChance: 0.85, slipShare: 0.6, rollShare: 0.5, counterChance: 1, counterVuln: 0.4,
+    giveGroundChance: 0.3, chaseDelay: 0.6,
+    cutOff: 0.2, leadPursuit: 0.1, ringUse: 'centre', pushOffRate: 1.2,
+    insideGuard: 0.9, insideBlock: 0.85, crowdClinch: 0.5, hurtClinch: 0.3, hurtSwing: 0, shellTime: 1.2,
+    insideTempo: 2.2, blockCounter: 0.9, backFoot: 0.5, crowdPush: 0.6, pushThen: 'work', approachSlip: 0.7, insideClinch: 0.4, intercept: 0.7, stumbleSpeed: 0.9,
+    wildRate: 0.8, tiredTempo: 1.2, guard: 'shell',
+  },
+  // SWARMER — peek-a-boo, head on your chest. Comes in under the jab bobbing, lives inside, throws short hooks and
+  // uppercuts in bunches, half of them to the body. Beaten by the jab and the feet, and by the uppercut as he comes.
+  swarmer: {
+    standoff: 0.58, probeDist: 0.8, stepIn: 3,
+    pressWeight: 9, probeWeight: 0.3, circleWeight: 0.3, holdWeight: 0.2,
+    jabWeight: 1.5, crossWeight: 1, hookWeight: 5, uppercutWeight: 3, bodyRate: 0.5, bodyRateHighGuard: 0.8,
+    attackDelayMin: 0.35, attackDelayMax: 0.8, comboChance: 0.85, comboMax: 4,
+    combos: [[bLH, LH, RU], [bLH, bRH, LH], [RU, LH, RH], [bRH, LH], [J, bLH, RH]], comboSignature: 0.85,
+    resetChance: 0, hitResetChance: 0.05, burstChance: 0, feintChance: 0.05,
+    blockChance: 0.45, slipShare: 0.3, rollShare: 0.6, counterChance: 0.4,
+    giveGroundChance: 0, chaseDelay: 0.05,
+    cutOff: 0.8, leadPursuit: 0.4, ringUse: 'cutOff', pushOffRate: 0,
+    insideGuard: 0.6, insideBlock: 0.6, crowdClinch: 0.2, hurtClinch: 0.7, hurtSwing: 0.2, shellTime: 2,
+    speed: 1, insideTempo: 2.5, blockCounter: 0.5, backFoot: 0, crowdPush: 0.3, pushThen: 'work', approachSlip: 1.6, intercept: 0.2, stumbleSpeed: 2,
+    tiredTempo: 1.7, tiredClinchRate: 0.8, guard: 'peekaboo',
+  },
+  // SLUGGER — hands low, feet planted, one punch. Slow, throws heavy singles and the overhand, dips before the big
+  // one (the tell), swings back when hurt. Beaten by making him miss and never standing in front of him.
+  slugger: {
+    standoff: 0.8, probeDist: 0.98, speed: 0.75,
+    pressWeight: 4, probeWeight: 2, circleWeight: 0.5, holdWeight: 3,
+    jabWeight: 1.5, crossWeight: 4, hookWeight: 4, uppercutWeight: 2.5, bodyRate: 0.15,
+    attackDelayMin: 0.9, attackDelayMax: 1.9, comboChance: 0.35, comboMax: 2,
+    combos: [[X, LH], [LH, X], [J, X]], comboSignature: 0.7,
+    resetChance: 0.15, hitResetChance: 0.1, burstChance: 0, feintChance: 0.02,
+    blockChance: 0.25, slipShare: 0.1, rollShare: 0.1, counterChance: 0.7,
+    giveGroundChance: 0.1, chaseDelay: 0.3,
+    cutOff: 0.4, leadPursuit: 0.2, ringUse: 'centre', pushOffRate: 0.3,
+    insideGuard: 0.35, insideBlock: 0.4, crowdClinch: 0.3, hurtClinch: 0.15, hurtSwing: 0.75, shellTime: 0.5,
+    insideTempo: 1.5, blockCounter: 0.5, backFoot: 0.1, insideClinch: 0.3, intercept: 0.6, interceptWith: 'cross', stumbleSpeed: 2.5,
+    overhandRate: 0.4, tell: 'dip', tellRate: 0.7, tiredTempo: 1.8, guard: 'low',
+  },
+};
+
+/** How hard the AI is, as data: scales on a style. Medium is the style as written. */
+export interface Difficulty {
+  id: 'easy' | 'medium' | 'hard';
+  /** × its reaction time. */
+  reaction: number;
+  /** × its defence rates (block, inside block / guard, slip and roll shares, cover), capped at 1. */
+  defence: number;
+  /** × its counter chance, capped at 1. */
+  counter: number;
+  /** × the gaps between its attacks (bigger = slower tempo). */
+  tempo: number;
+  /** × its combination chance. */
+  combo: number;
+  /** Odds a defensive decision is simply not made. */
+  mistake: number;
+}
+export const DIFFICULTY: readonly Difficulty[] = [
+  { id: 'easy', reaction: 1.4, defence: 0.6, counter: 0.5, tempo: 1.4, combo: 0.6, mistake: 0.25 },
+  { id: 'medium', reaction: 1, defence: 1, counter: 1, tempo: 1, combo: 1, mistake: 0 },
+  { id: 'hard', reaction: 0.8, defence: 1.25, counter: 1.3, tempo: 0.8, combo: 1.2, mistake: 0 },
+];
+
+/** A style with a difficulty applied. */
+export function withDifficulty(st: StyleParams, d: Difficulty): StyleParams {
+  const cap = (x: number): number => Math.min(1, x);
+  return {
+    ...st,
+    reaction: st.reaction * d.reaction,
+    blockChance: cap(st.blockChance * d.defence), insideBlock: cap(st.insideBlock * d.defence), insideGuard: cap(st.insideGuard * d.defence),
+    slipShare: cap(st.slipShare * d.defence), rollShare: cap(st.rollShare * d.defence), coverChance: cap(st.coverChance * d.defence),
+    counterChance: cap(st.counterChance * d.counter),
+    attackDelayMin: st.attackDelayMin * d.tempo, attackDelayMax: st.attackDelayMax * d.tempo,
+    comboChance: cap(st.comboChance * d.combo),
+    mistake: d.mistake,
+  };
+}
+
+/** The style table: a full StyleParams for a style id, at a difficulty (0 easy, 1 medium, 2 hard; default cfg.aiDifficulty). */
+export function styleParams(id: AiStyle, cfg: Config, difficulty: number = cfg.aiDifficulty): StyleParams {
+  const d = DIFFICULTY[Math.max(0, Math.min(2, Math.round(difficulty)))]!;
+  return withDifficulty({ ...defaultStyle({ ...cfg, aiToolsOn: true }), ...STYLE_OVERRIDES[id] }, d);
+}
+
+/**
+ * The AI style for a fighter: his spec's style at the configured (or given)
+ * difficulty. The host calls `createAi(side, seed, cfg, styleFor(spec, cfg))`.
+ */
+export function styleFor(spec: Pick<FighterSpec, 'style'>, cfg: Config, difficulty: number = cfg.aiDifficulty): StyleParams {
+  return styleParams(spec.style, cfg, difficulty);
+}
+
+export const STYLE_IDS: readonly AiStyle[] = ['pressure', 'outboxer', 'counter', 'swarmer', 'slugger'];

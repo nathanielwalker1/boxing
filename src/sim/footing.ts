@@ -19,15 +19,21 @@
  *
  * Pure and deterministic: no rng, no clocks.
  */
-import type { Config, FighterState, FrameInput, RangeBand, Side, SimEvent, Vec2 } from '../core';
-import { RING_HALF, angleDelta, clamp, cos, frameOf, handLateralSign, sin, v2angle, v2dist } from '../core';
+import type { Config, FighterState, FrameInput, GuardDef, RangeBand, Side, SimEvent, Vec2 } from '../core';
+import { rated } from './ratings';
+import { GUARDS, RING_HALF, angleDelta, clamp, cos, frameOf, handLateralSign, sin, v2angle, v2dist } from '../core';
 import { VARIANTS } from './variants';
 
 const DEG = Math.PI / 180;
 
-/** How far the whole body sits below its rest height, m: the punch dip, the held level, the inside posture, the buckle. */
+/** The guard a fighter holds (phase 2): his style's shape, or the high guard with styles off. */
+export function guardOf(f: FighterState, cfg: Config): GuardDef {
+  return GUARDS[cfg.stylesOn ? f.guardShape : 'high'];
+}
+
+/** How far the whole body sits below its rest height, m: the punch dip, the held level, the inside posture, the buckle — and the crouch of his guard (the peek-a-boo sits down). */
 export function stanceDrop(f: FighterState, cfg: Config): number {
-  return f.crouch
+  return f.crouch + guardOf(f, cfg).crouch
     + (cfg.levelOn ? cfg.levelDrop * f.level : 0)
     + (cfg.postureOn ? cfg.insideCrouch * f.posture : 0)
     + (cfg.bodyHurtOn ? cfg.buckleDrop * f.buckle : 0);
@@ -51,7 +57,7 @@ export function angleExposure(f: FighterState, cfg: Config): number {
 
 /** Everything that scales walking speed and push-off beyond stamina (movement.ts multiplies it in). */
 export function moveScales(f: FighterState, cfg: Config): { speed: number; accel: number } {
-  let speed = 1, accel = 1;
+  let speed = rated(f, 'speed', cfg.ratingSpeedFeet, cfg) * guardOf(f, cfg).move, accel = 1;   // foot speed: the rating, and a low guard's lighter feet
   if (cfg.levelOn) speed *= 1 - (1 - cfg.levelMoveScale) * f.level;
   speed *= 1 - cfg.bodyMoveLoss * bodyWear(f, cfg);
   if (f.hurt > 0 && f.hurtKind === 'body') speed *= cfg.bodyHurtMoveScale;
@@ -96,7 +102,8 @@ export function stepFooting(f: FighterState, opp: FighterState, input: Readonly<
   f.posture = approach(f.posture, inside, cfg.postureTime > 0 ? dt / cfg.postureTime : 1);
 
   // ── Fatigue numbers.
-  f.fatigue = cfg.fatigueOn && cfg.fatigueFrom > 0 ? clamp((cfg.fatigueFrom - f.stamina) / cfg.fatigueFrom, 0, 1) : 0;
+  const from = cfg.fatigueFrom * rated(f, 'stamina', -cfg.ratingStaminaFatigue, cfg);   // a high-stamina fighter starts to tire later
+  f.fatigue = cfg.fatigueOn && from > 0 ? clamp((from - f.stamina) / from, 0, 1) : 0;
   f.punchSlow = 1 + f.fatigue * (cfg.tiredPunchSlow - 1);
   const wear = bodyWear(f, cfg);
   f.staminaCap = Math.max(cfg.staminaCapFloor, 1 - wear * cfg.bodyStaminaCapLoss - (cfg.whiffCostOn ? f.wear : 0));
@@ -158,7 +165,7 @@ export function addHop(f: FighterState, wx: number, wz: number, dist: number, cf
 export function startBurst(f: FighterState, side: Side, dir: -1 | 1 | 2 | 3, cfg: Config, events: SimEvent[]): boolean {
   if (!canBurst(f, cfg)) return false;
   const d = flickDir(f, dir), fr = frameOf(f.yaw);
-  let dist = cfg.burstDist * (dir === 3 ? 1 : dir === 2 ? cfg.burstBackScale : cfg.burstLateralScale);
+  let dist = cfg.burstDist * (dir === 3 ? 1 : dir === 2 ? cfg.burstBackScale : cfg.burstLateralScale) * rated(f, 'speed', cfg.ratingSpeedFeet, cfg);
   if (f.hurt > 0) dist *= f.hurtKind === 'body' ? cfg.bodyHurtMoveScale : cfg.stunMoveScale;   // hurt legs hop short
   addHop(f, fr.fwd.x * d.y + fr.right.x * d.x, fr.fwd.z * d.y + fr.right.z * d.x, dist, cfg);
   f.burstT = 1e-6; f.burstCd = cfg.burstCooldown; f.stillT = 0;

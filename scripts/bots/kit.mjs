@@ -9,10 +9,15 @@
  */
 import { load } from '../load.mjs';
 
-export async function kit() {
+/**
+ * `rated: false` (the default) = ratings and guard shapes off: the reference fighters as the phase-1 tests pinned
+ * them (both un-rated, both in the high guard). `rated: true` = the game as shipped (the bot table, ratings_test,
+ * styles_test, drills_test).
+ */
+export async function kit({ rated = false } = {}) {
   const [core, sim, ai] = await load('/src/core/index.ts', '/src/sim/index.ts', '/src/ai/index.ts');
   const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT, RING_HALF } = core;
-  const cfg = createConfig();
+  const cfg = rated ? createConfig() : { ...createConfig(), ratingsOn: false, stylesOn: false };
   const specs = [ROSTER[0], ROSTER[1]];
   const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
   const NONE = inp();

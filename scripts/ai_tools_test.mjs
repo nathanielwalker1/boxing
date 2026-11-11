@@ -76,7 +76,7 @@ console.log('\n=== 3. StyleParams ===');
 {
   const base = ai.defaultStyle(fast);
   check('defaultStyle is plain data built from the ai… config keys', JSON.parse(JSON.stringify(base)).standoff === fast.aiStandoffDist && base.bodyRate === fast.aiBodyRate && base.guard === 'high');
-  const outboxer = { ...base, pressWeight: 0, probeWeight: 6, circleWeight: 4, holdWeight: 0, probeDist: 1.15, standoff: 1.0, jabWeight: 8, crossWeight: 2, hookWeight: 0, uppercutWeight: 0, bodyRate: 0, bodyRateHighGuard: 0, resetChance: 0.8 };
+  const outboxer = { ...base, pressWeight: 0, probeWeight: 6, circleWeight: 4, holdWeight: 0, probeDist: 1.15, standoff: 1.0, jabWeight: 8, crossWeight: 2, hookWeight: 0, uppercutWeight: 0, bodyRate: 0, bodyRateHighGuard: 0, resetChance: 0.8, combos: [], comboSignature: 0, backFoot: 0, blockCounter: 0, crowdPush: 0 };   // (phase 2: no combinations, no hook going away, no reply off the guard — its hands are its own)
   const swarmer = { ...base, pressWeight: 8, probeWeight: 0, circleWeight: 0, holdWeight: 0, standoff: 0.6, jabWeight: 1, crossWeight: 1, hookWeight: 5, uppercutWeight: 3, bodyRate: 0.6, resetChance: 0, attackDelayMin: 0.5, attackDelayMax: 1.2 };
   const o = [1, 2].map(seed => fight(turtle, seed, fast, outboxer)), w = [1, 2].map(seed => fight(turtle, seed, fast, swarmer));
   const dO = sum(o, f => f.avgDist) / 2, dW = sum(w, f => f.avgDist) / 2;
@@ -95,6 +95,30 @@ console.log('\n=== 4. Plans ===');
   const tally = bot => { let w = 0, l = 0; for (let seed = 1; seed <= N; seed++) { const f = fight(bot, seed, fast); if (f.winner === 0) w++; else if (f.winner === 1) l++; } return { w, l }; };
   for (const bot of [jabAndMove, insideFighter, counterPuncher]) { const t = tally(bot); check(`${bot.name} (a legitimate plan) can win: ${t.w}-${t.l} over ${N}`, t.w > 0); }
   for (const bot of [turtle, masher]) { const t = tally(bot); check(`${bot.name} (not a plan) loses more than it wins: ${t.w}-${t.l} over ${N}`, t.l > t.w); }
+}
+
+// ── 5. The style table and the difficulty levels (phase 2) ──────────────────
+console.log('\n=== 5. Styles and difficulty ===');
+{
+  const { STYLE_IDS, DIFFICULTY, styleParams, styleFor } = ai;
+  check(`five styles: ${STYLE_IDS.join(', ')}`, STYLE_IDS.join() === 'pressure,outboxer,counter,swarmer,slugger');
+  const table = STYLE_IDS.map(id => styleParams(id, fast));
+  check('each is a full StyleParams (every key of the default, plain data) and no two are the same', table.every(st => Object.keys(ai.defaultStyle(fast)).every(key => key in st) && JSON.stringify(JSON.parse(JSON.stringify(st))) === JSON.stringify(st)) && new Set(table.map(st => JSON.stringify(st))).size === 5);
+  check('each holds the guard its fighter-side style names (core STYLES)', STYLE_IDS.every((id, i) => table[i].guard === k.core.STYLES[id].guard), table.map(st => st.guard).join());
+  check('the outboxer stands furthest off, the swarmer closest; the counter-puncher counters most; the swarmer goes to the body most', table[1].standoff === Math.max(...table.map(st => st.standoff)) && table[3].standoff === Math.min(...table.map(st => st.standoff)) && table[2].counterChance === Math.max(...table.map(st => st.counterChance)) && table[3].bodyRate === Math.max(...table.map(st => st.bodyRate)));
+  check('every style has signature combinations and a tired / hurt plan', table.every(st => st.combos.length > 0 && st.tiredTempo >= 1));
+  const [easy, medium, hard] = [0, 1, 2].map(d => styleParams('pressure', fast, d));
+  check(`three difficulty levels as data: ${DIFFICULTY.map(d => d.id).join(', ')}`, DIFFICULTY.map(d => d.id).join() === 'easy,medium,hard');
+  check('easy reacts slower, defends less, throws less often and makes mistakes; hard the other way; medium is the style as written', easy.reaction > medium.reaction && medium.reaction > hard.reaction && easy.blockChance < medium.blockChance && hard.blockChance >= medium.blockChance && easy.attackDelayMax > medium.attackDelayMax && medium.attackDelayMax > hard.attackDelayMax && easy.mistake > 0 && medium.mistake === 0 && hard.mistake === 0);
+  check('styleFor(spec, cfg) reads the spec style and cfg.aiDifficulty (default medium); the third argument overrides it', fast.aiDifficulty === 1 && JSON.stringify(styleFor({ style: 'swarmer' }, fast)) === JSON.stringify(styleParams('swarmer', fast, 1)) && JSON.stringify(styleFor({ style: 'swarmer' }, { ...fast, aiDifficulty: 2 })) === JSON.stringify(styleFor({ style: 'swarmer' }, fast, 2)) && JSON.stringify(styleFor({ style: 'swarmer' }, fast, 0)) !== JSON.stringify(styleFor({ style: 'swarmer' }, fast)));
+  // Behaviour, measured: the table styles against a man who only covers up.
+  const run = id => [1, 2].map(seed => fight(turtle, seed, fast, styleParams(id, fast)));
+  const far = run('outboxer'), near = run('swarmer');
+  const dFar = sum(far, f => f.avgDist) / 2, dNear = sum(near, f => f.avgDist) / 2;
+  check(`the outboxer fights from further off than the swarmer (${dFar.toFixed(2)} m vs ${dNear.toFixed(2)} m average)`, dFar > dNear + 0.1);
+  const starts = fs => Math.round(60 * sum(fs, f => f.evs.punchStart ?? 0) / (sum(fs, f => f.n) * SIM_DT));   // per minute of fighting (a hard fight ends sooner)
+  const eF = [1, 2].map(seed => fight(turtle, seed, fast, styleParams('pressure', fast, 0))), hF = [1, 2].map(seed => fight(turtle, seed, fast, styleParams('pressure', fast, 2)));
+  check(`hard throws more than easy (${starts(hF)} vs ${starts(eF)} punches a minute)`, starts(hF) > starts(eF));
 }
 
 done();

@@ -17,8 +17,8 @@
  * shoulder. The torso twist carries the punching shoulder forward, so a hook
  * peak 0.66 m out gives the rig an elbow bent ~115°, not a straight arm.
  */
-import type { BodyDims, Config, FighterState, Hand, PunchType, Stance } from '../core';
-import { handLateralSign, lerp, smoothstep } from '../core';
+import type { BodyDims, Config, FighterState, GuardShape, Hand, PunchType, Stance } from '../core';
+import { GUARDS, handLateralSign, lerp, smoothstep } from '../core';
 import { whiffMult } from './state';
 import { shapePath, type VariantDef } from './variants';
 
@@ -191,13 +191,10 @@ export interface LocalPose { fwd: number; up: number; lat: number }
  * outside the face so the face is visible and there is air between the
  * gloves. Elbows still hang over the ribs (Stage-1 feel-test).
  */
-export function guardLocal(body: BodyDims, hand: Hand, stance: Stance): LocalPose {
-  const lead = hand === 'lead';
-  return {
-    fwd: body.upperArm * (lead ? 0.7 : 0.35),
-    up: body.headY - body.headR * (lead ? 0.75 : 0.35),
-    lat: handLateralSign(hand, stance) * body.shoulderW * (lead ? 0.42 : 0.4),
-  };
+export function guardLocal(body: BodyDims, hand: Hand, stance: Stance, shape: GuardShape = 'high'): LocalPose {
+  // Phase 2: the pose is the guard SHAPE's (core/styles.ts GUARDS). `high` is the relaxed stance described above, to the digit.
+  const p = GUARDS[shape].rest[hand];
+  return { fwd: body.upperArm * p.fwd, up: body.headY + body.headR * p.up, lat: handLateralSign(hand, stance) * body.shoulderW * p.lat };
 }
 
 /**
@@ -205,13 +202,9 @@ export function guardLocal(body: BodyDims, hand: Hand, stance: Stance): LocalPos
  * face (a glove's width apart), pulled in close; the rig adds the hunch, the
  * shrug and the chin tuck. Visibly a different pose from the guard.
  */
-export function blockLocal(body: BodyDims, hand: Hand, stance: Stance): LocalPose {
-  const lead = hand === 'lead';
-  return {
-    fwd: body.upperArm * (lead ? 0.4 : 0.32),
-    up: body.headY + body.headR * 0.1,
-    lat: handLateralSign(hand, stance) * body.shoulderW * 0.15,
-  };
+export function blockLocal(body: BodyDims, hand: Hand, stance: Stance, shape: GuardShape = 'high'): LocalPose {
+  const p = GUARDS[shape].block[hand];
+  return { fwd: body.upperArm * p.fwd, up: body.headY + body.headR * p.up, lat: handLateralSign(hand, stance) * body.shoulderW * p.lat };
 }
 
 /**
@@ -337,10 +330,13 @@ function uppercutPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): 
  * sits at the peak so the punch is actually on screen, then snaps home in
  * what is left.
  */
-export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: Hand, elapsed: number, ph: PunchPhases, cfg: Config, twist = 0, variant: VariantDef | null = null, aim?: number): LocalPose {
-  const g = guardLocal(body, hand, stance);
+export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: Hand, elapsed: number, ph: PunchPhases, cfg: Config, twist = 0, variant: VariantDef | null = null, aim?: number, shape: GuardShape = 'high', reach = 1): LocalPose {
+  // The fist leaves from and comes home to the fighter's own guard shape; the path between is authored once.
+  const g = guardLocal(body, hand, stance, shape);
   // The variant bends the base path (overhaul): a body shot's peak is lower, an overhand loops, a compact punch is shorter.
-  const path = variant ? shapePath(def.path(body, hand, stance, cfg), variant, cfg, aim) : def.path(body, hand, stance, cfg);
+  const path0 = variant ? shapePath(def.path(body, hand, stance, cfg), variant, cfg, aim) : def.path(body, hand, stance, cfg);
+  // `reach`: the guard's jab reach (the long guard's jab is longer, the peek-a-boo's shorter).
+  const path = reach === 1 ? path0 : { ...path0, peak: { ...path0.peak, fwd: path0.peak.fwd * reach } };
   // Torso-frame paths are yawed by the CURRENT twist into the fighter frame
   // before mixing with the guard, so the fist rides the turn.
   const cocked = def.torsoFrame ? yawPose(path.cocked, twist) : path.cocked;

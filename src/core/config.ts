@@ -355,6 +355,7 @@ export const SCHEMA = {
   staminaHitCost:   num(0.00026, 0, 0.002, 0.00001, 'health', 'stamina lost per N·s taken (after block reduction): eating a solid shot costs about what throwing one or two does (v1: 0.012 per force)', 'staminaDrainPerHitForce'),
   staminaBlockedHitMult: num(1, 0, 3, 0.1, 'health', 'multiplier on that hit cost when the shot lands on the guard, on top of blockReduction having already cut the impulse', 'staminaDrainBlockedMult'),
   staminaRegenDelay: num(0.6, 0, 3, 0.05, 'health', 'seconds regen pauses after taking a hit, so a chip is not repaid before the next punch lands', 'staminaRegenDelayAfterHit'),
+  staminaRegenDelayLight: num(0.25, 0, 1, 0.05, 'health', 'the share of staminaRegenDelay a LIGHT shot (a jab) pauses the wind for. 1 = the same as any punch (before phase 2): a man jabbing twice a second then holds the other\'s wind at zero'),
   lowStamina:       num(0.25, 0, 1, 0.05, 'health', 'stamina below this = gassed: the wind-up telegraphs (next key) and the AI smells it', 'lowStaminaThreshold'),
   lowStaminaCockMult: num(2.5, 1, 5, 0.1, 'health', 'a gassed fighter\'s wind-up (cock phase) takes this many times longer in real time; extend and recover are untouched, so the strike itself is not in slow motion', 'lowStaminaWindupMultiplier'),
   knockdownHealthRestore: num(0.35, 0, 1, 0.05, 'health', 'health on getting up, as a fraction of full', 'knockdownHealthRestorePct'),
@@ -521,6 +522,13 @@ export const SCHEMA = {
   aiFinishPower:    num(0.7, 0, 1, 0.05, 'ai', 'against a HURT opponent: odds each armed punch is replaced by a power shot (cross / hook / uppercut by their weights) — it smells it'),
   aiFeintChance:    num(0.12, 0, 1, 0.01, 'ai', 'odds an armed heavy punch is FEINTED first (thrown and cancelled into the guard), then thrown for real'),
   aiBurstChance:    num(0.35, 0, 1, 0.05, 'ai', 'odds a reset (stepping out after an exchange) starts with a BURST back'),
+  // Phase 2 (styles, difficulty): the default style's share of the fixes the bot table asked for. Per-style values are in ai/style.ts.
+  aiDifficulty:     num(1, 0, 2, 1, 'ai', 'AI difficulty: 0 easy, 1 medium, 2 hard (ai/style.ts DIFFICULTY scales reaction time, defence rates, counter chance, tempo and the mistake rate; medium is the style as written)'),
+  aiInsideGuard:    num(0.75, 0, 1, 0.05, 'ai', 'the inside fight: odds (rolled each time the opponent gets inside) that it keeps its guard up in there whenever it is not throwing'),
+  aiInsideBlock:    num(0.8, 0, 1, 0.05, 'ai', 'odds it defends a punch it reads at inside range (aiBlockChance is for range)'),
+  aiLeadPursuit:    num(0.35, 0, 1, 0.05, 'ai', 'cutting off a mover: it steers for where the opponent WILL be this many seconds on (his walking velocity), not where he is'),
+  aiWildRate:       num(1.1, 0.3, 8, 0.1, 'ai', 'an opponent MISSING with more than this many punches a second (measured over the last ~1.5 s) is RUSHING: it gives him the ring, covers up, lets him punch himself out, and counters every miss in reach'),
+  aiCombos:         bool(true, 'ai', 'the AI throws its style\'s SIGNATURE combinations (ai/style.ts) instead of random punches when it opens a burst'),
 
   // ══ OVERHAUL 2026-11-11 (SIM) — the fight systems of brief Part A. Every system has an …On toggle (default on) so it can be A/B'd; docs/OVERHAUL_SIM.md lists them. ══
   // ── footing (SIM, sim/footing.ts + movement.ts): flat-footed, the burst, the pivot, ropes and corners, the angle ──
@@ -676,9 +684,10 @@ export const SCHEMA = {
   blockStunMoveScale: num(0.5, 0, 1, 0.05, 'guard', 'walking speed during block stun'),
   guardWearOn:      bool(true, 'guard', 'GUARD WEAR: the guard is a meter (FighterState.guardHp). Shots on it drain it; worn, it absorbs less; empty, it BREAKS — hands knocked apart, no block, exposed'),
   guardWearPerImpulse: num(0.0008, 0, 0.004, 0.00005, 'guard', 'guard meter lost per N·s of the unblocked impulse of a shot on the guard (a cross ≈ 0.21, a jab ≈ 0.14, a hook ≈ 0.33)'),
+  guardWearLight:   num(0.35, 0, 1, 0.05, 'guard', 'a LIGHT shot (under chipMinPower — a jab) wears the guard only this fraction of that: jabs do not break a guard down, heavy shots do. MEASURED at 1: the jab-and-move bot broke a held guard in seven jabs (three seconds) and then landed flush on the open man'),
   guardRegen:       num(0.2, 0, 1, 0.01, 'guard', 'guard meter regained per second once it has been left alone for guardRegenDelay'),
   guardRegenDelay:  num(1, 0, 5, 0.1, 'guard', 'seconds after the last shot on the guard before it starts to recover'),
-  guardWornCover:   num(0.55, 0, 1, 0.05, 'guard', 'an (almost) empty guard meter absorbs this fraction of what a fresh guard does; linear in between'),
+  guardWornCover:   num(0.7, 0, 1, 0.05, 'guard', 'an (almost) empty guard meter absorbs this fraction of what a fresh guard does; linear in between'),
   guardBreakSeconds: num(1.1, 0.2, 3, 0.1, 'guard', 'GUARD BREAK: seconds the hands cannot come up'),
   guardBreakDrop:   num(0.15, 0, 0.4, 0.01, 'guard', 'through a guard break the hands hang this far below the guard, m, and half as far wide of it — visibly knocked apart'),
   guardBreakVuln:   num(0.8, 0, 1, 0.05, 'guard', 'exposure pinned through a guard break'),
@@ -688,8 +697,8 @@ export const SCHEMA = {
   guardShapeOn:     bool(true, 'guard', 'THE GUARD HAS A SHAPE: the held block covers the front of the head. Hooks come round it (by how sideways they arrive, plus any angle the attacker has), uppercuts split it, and it only half covers the body. Off = a held block stops everything equally'),
   guardArcFullDeg:  num(50, 10, 120, 1, 'guard', 'a punch arriving within this of the blocker\'s facing meets the full guard'),
   guardArcNoneDeg:  num(85, 20, 150, 1, 'guard', 'a punch arriving this far round misses the guard entirely (smooth in between). A square-on hook arrives at ~45°, a shovel hook ~60°'),
-  guardUppercutCover: num(0.45, 0, 1, 0.05, 'guard', 'how much of the guard an uppercut meets (it comes up between the elbows). Under guardThroughAt: an uppercut SPLITS a held guard — it lands, at 1 − blockReduction × this (66%) of its weight'),
-  guardBodyCover:   num(0.45, 0, 1, 0.05, 'guard', 'how much of the guard a body shot meets (the high guard leaves the elbows to do it). Under guardThroughAt: body shots get under a held guard at 66%'),
+  guardUppercutCover: num(0.6, 0, 1, 0.05, 'guard', 'how much of the (high) guard an uppercut meets (it comes up between the elbows). Just over guardThroughAt: a FRESH guard stops it, at a heavy chip (it absorbs 41%, not 75%); once the guard is worn the uppercut SPLITS it and lands. Was 0.45 (always through): measured, a held guard then did nothing at inside range — every uppercut landed clean enough to rock and finish — and the AI could not survive there. Per shape with styles on (core/styles.ts): the peek-a-boo is split from the start'),
+  guardBodyCover:   num(0.6, 0, 1, 0.05, 'guard', 'how much of the (high) guard a body shot meets (the elbows do it). As above: a fresh guard half-stops it, a worn one lets it under. The long guard is open underneath from the start'),
   guardPinnedCover: num(0.4, 0, 1, 0.05, 'guard', 'a RESTING guard hand the fist pinned against the face (no block held) covers this much: under guardThroughAt it is a land through the hands at 1 − blockReduction × this (70%), not a block. MEASURED before: the second punch of a 1-1 or the 3 of a 1-2-3 was "blocked" by a guard nobody was holding — combinations could not build. 1 = the old rule (a plain block)'),
   guardThroughAt:   num(0.5, 0, 1, 0.05, 'guard', 'guard coverage under this = the punch came THROUGH or ROUND: it is a land (flagged through, never better than clean) at what the guard left of it, not a block'),
   perfectBlockRecoverMult: num(1.5, 1, 4, 0.1, 'guard', 'a perfectly blocked punch comes home this many times slower — the arm hangs out there, deflected, for the whole punish window'),
@@ -734,16 +743,16 @@ export const SCHEMA = {
   // ── body (SIM, resources.ts): the investment ──
   bodyDamageOn:     bool(true, 'bodywork', 'THE BODY IS AN INVESTMENT: body shots take less health now but drain stamina hard, lower the stamina ceiling, slow the feet and bring the guard down for the rest of the fight (FighterState.damage). Off = a body shot is a weak head shot'),
   bodyHealthScale:  num(0.6, 0, 1, 0.05, 'bodywork', 'health a body shot takes, as a fraction of a head shot of the same impulse'),
-  staminaBodyHitMult: num(2, 1, 6, 0.1, 'bodywork', 'stamina a body shot takes, × a head shot of the same impulse'),
+  staminaBodyHitMult: num(1.2, 1, 6, 0.1, 'bodywork', 'stamina a body shot takes, × a head shot of the same impulse'),
   bodyWearFull:     num(1.2, 0.1, 3, 0.05, 'bodywork', 'body damage (FighterState.damage.body, in head-shot health fractions — a clean body cross is ~0.08, a body hook ~0.12) at which the wear below is complete: about ten clean body hooks. MEASURED at 0.6: five body hooks and every body shot after folded him — the inside-fighter bot\'s investment paid out in ten seconds'),
   bodyStaminaCapLoss: num(0.4, 0, 0.8, 0.05, 'bodywork', 'the stamina ceiling lost at full body wear'),
   bodyMoveLoss:     num(0.3, 0, 0.8, 0.05, 'bodywork', 'walking speed lost at full body wear'),
   bodyGuardDroop:   num(0.1, 0, 0.3, 0.01, 'bodywork', 'how far the resting hands come down at full body wear, m'),
   liverOn:          bool(true, 'bodywork', 'THE LIVER SHOT: a clean hook to the body from the hand on the target\'s right side (an orthodox lead hook) buckles him a beat LATER'),
-  liverMinImpulse:  num(330, 50, 800, 10, 'bodywork', 'impulse a clean liver shot needs, N·s (a standing body hook is ~390)'),
+  liverMinImpulse:  num(430, 50, 800, 10, 'bodywork', 'impulse a clean liver shot needs, N·s. A standing body hook is ~390: it takes the third punch of a combination, a flush one, a rising one or a heavy hitter. Was 330 (every clean lead body hook): measured, the inside-fighter bot\'s opening body hook folded the AI for two seconds in every exchange'),
   liverDelay:       num(0.5, 0.1, 1.5, 0.05, 'bodywork', 'the beat between the shot and the buckle, s'),
-  liverSeconds:     num(2, 0.5, 5, 0.1, 'bodywork', 'seconds the liver buckle lasts (the winded state)'),
-  liverStaminaLoss: num(0.25, 0, 1, 0.05, 'bodywork', 'stamina the buckle takes'),
+  liverSeconds:     num(1.6, 0.5, 5, 0.1, 'bodywork', 'seconds the liver buckle lasts (the winded state)'),
+  liverStaminaLoss: num(0.2, 0, 1, 0.05, 'bodywork', 'stamina the buckle takes'),
   liverDropFrac:    num(1.8, 0.5, 3, 0.05, 'bodywork', 'a liver shot at or above this × the body threshold puts him down when the buckle comes (knockdown cause body)'),
 
   // ── fatigue (SIM, resources.ts + footing.ts): tempo ──
@@ -759,6 +768,29 @@ export const SCHEMA = {
   whiffCapLoss:     num(0.006, 0, 0.05, 0.001, 'fatigue', 'stamina ceiling lost per missed punch (FighterState.staminaCap) — the round has an arc'),
   wearRestore:      num(0.5, 0, 1, 0.05, 'fatigue', 'fraction of that work-rate wear that comes back on the stool between rounds (body wear never does)'),
   staminaCapFloor:  num(0.45, 0.1, 1, 0.05, 'fatigue', 'the stamina ceiling never falls below this'),
+
+  // ── ratings (SIM, sim/ratings.ts) — phase 2: the five 0–100 ratings do something. effect = 1 + span × (rating − ratingNeutral) / ratingRange, clamped ±1 ──
+  ratingsOn:        bool(true, 'ratings', 'RATINGS: power, speed, stamina and defense (and chin, as before) change how a fighter fights. Off = everybody is rated ratingNeutral'),
+  ratingNeutral:    num(65, 30, 90, 1, 'ratings', 'the rating at which every effect is × 1 — today\'s numbers. 65 is about the middle of the roster'),
+  ratingRange:      num(35, 10, 70, 1, 'ratings', 'this many points above / below neutral is the full span (100 = +span, 30 = −span)'),
+  ratingPowerImpulse: num(0.25, 0, 0.6, 0.01, 'ratings', 'POWER: impulse of every punch ± this (power 90 hits 18% harder than neutral, 40 18% softer — and the rock / flash bars are that much nearer or further)'),
+  ratingSpeedHands: num(0.22, 0, 0.5, 0.01, 'ratings', 'SPEED: wind-up and recovery of every punch ÷ (1 ± this). The 3-tick extension is untouched; tellMinHeavy still holds'),
+  ratingSpeedFeet:  num(0.14, 0, 0.4, 0.01, 'ratings', 'SPEED: walking speed and burst length ± this'),
+  ratingStaminaCost: num(0.3, 0, 0.6, 0.01, 'ratings', 'STAMINA: what a punch, a miss and holding the guard cost ∓ this'),
+  ratingStaminaRegen: num(0.3, 0, 0.6, 0.01, 'ratings', 'STAMINA: how fast wind comes back ± this'),
+  ratingStaminaFatigue: num(0.25, 0, 0.6, 0.01, 'ratings', 'STAMINA: fatigueFrom ∓ this — a high-stamina fighter starts to tire later'),
+  ratingDefenseGuard: num(0.35, 0, 0.7, 0.01, 'ratings', 'DEFENSE: guard meter wear taken ∓ this'),
+  ratingDefenseBlock: num(0.12, 0, 0.3, 0.01, 'ratings', 'DEFENSE: what a held block absorbs ± this (capped at 95%)'),
+  ratingDefenseStun: num(0.3, 0, 0.7, 0.01, 'ratings', 'DEFENSE: block stun taken ∓ this'),
+  ratingDefenseSlip: num(0.25, 0, 0.6, 0.01, 'ratings', 'DEFENSE: the slip window (slipDuration) ± this — the head stays off the line longer'),
+  ratingChinBody:   num(0.2, 0, 0.6, 0.01, 'ratings', 'CHIN: the body threshold (winded, liver drop) ± this, on top of what chin already does to the rock threshold'),
+
+  // ── styles (SIM + core/styles.ts) — phase 2: a fighter's style is his guard, his stance and his rhythm, for the player's fighter too ──
+  stylesOn:         bool(true, 'styles', 'STYLES: each fighter holds his style\'s guard shape (core/styles.ts GUARDS: high / shell / peekaboo / long / low) with its own resting hands, block, coverage and jab. Off = everybody holds the high guard'),
+  jabStopOn:        bool(true, 'styles', 'INSIDE IS EARNED: a jab that lands on a man walking straight in STOPS him — his forward speed is killed and he is knocked back further the faster he was coming. Off = walking in through the jab is free'),
+  jabStopSpeed:     num(0.35, 0, 1, 0.05, 'styles', 'closing speed (fraction of moveSpeed) above which a landed jab stops the walker'),
+  jabStopScale:     num(0.9, 0, 3, 0.05, 'styles', 'the stopped walker\'s stumble is × (1 + this × his closing speed fraction)'),
+  jabStopStun:      num(0.14, 0, 0.5, 0.01, 'styles', '…and he cannot start a punch for this long, s (the jab bought the space)'),
 
   // ── the read (UI, src/ui/read.ts) — the counter window, in the world (2026-09-22): the fighter a slip has left exposed catches a warm rim light that fades as the window closes. No words, no screen flash ("too arcadey"), nothing on the frame ("ugly") — Nate's verdict on the first cut ──
   readEnabled:      bool(true, 'read', 'the in-world read of a slip\'s counter window (the exposed fighter\'s rim warms) — off is Fight Night\'s "simulation" presentation'),

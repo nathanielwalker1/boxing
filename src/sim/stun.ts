@@ -50,6 +50,7 @@ import type { Config, FighterState, PunchType, Side, SimEvent, SimState } from '
 import { clamp, lerp } from '../core';
 import { knockDown } from './resources';
 import { bodyWear } from './footing';
+import { rated } from './ratings';
 
 /** The impulse a clean head shot needs to rock `f` in its current state, N·s. */
 export function stunThreshold(f: FighterState, cfg: Config): number {
@@ -66,6 +67,7 @@ export function stunThreshold(f: FighterState, cfg: Config): number {
 export function bodyThreshold(f: FighterState, cfg: Config): number {
   const stamina = clamp(f.stamina, 0, 1);
   return cfg.bodyHurtBase
+    * rated(f, 'chin', cfg.ratingChinBody, cfg)
     * lerp(1, cfg.bodyHurtWornFloor, bodyWear(f, cfg))
     * (cfg.stunStaminaFloor + (1 - cfg.stunStaminaFloor) * stamina);
 }

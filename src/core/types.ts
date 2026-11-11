@@ -158,6 +158,8 @@ export type HurtKind = 'none' | 'head' | 'body';
 /** The get-up as a process: flat → stirring → up on a knee → (slumps back, tries again) → rising. 'none' = on his feet. */
 export type GetUpPhase = 'none' | 'down' | 'stir' | 'knee' | 'slump' | 'rise';
 export type SlipKind = 'slip' | 'pull' | 'roll';
+/** The guard a fighter holds (phase 2, core/styles.ts GUARDS): where his hands rest, what his block covers. */
+export type GuardShape = 'high' | 'shell' | 'peekaboo' | 'long' | 'low';
 
 export interface Spring1 { x: number; v: number }
 export interface Spring3 { x: number; y: number; z: number; vx: number; vy: number; vz: number }
@@ -269,6 +271,9 @@ export interface FighterState {
   hurtMax: number;
 
   // ── Overhaul 2026-11-11 (SIM) — everything a viewer should see is here or on an event ──
+  /** STYLE (phase 2): the fighter's style id (core/styles.ts STYLES — stance width and rhythm for the rig) and the guard shape he holds (GUARDS — the sim's gloves already rest and block in it). */
+  styleId: AiStyle;
+  guardShape: GuardShape;
   /** LEVEL: 0..1, how far the level modifier has taken the body down (× levelDrop m; head, body capsule and hands all ride it). */
   level: number;
   /** Seconds left in which a punch counts as thrown COMING UP out of the crouch (rising hook, rising uppercut). */

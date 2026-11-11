@@ -93,8 +93,9 @@ export function stepClinch(s: SimState, inputs: readonly [Readonly<FrameInput>, 
     // Tied up: whatever either was doing stops.
     for (const g of [f, o]) {
       g.clinch.active = true; g.clinch.reach = 0; g.clinch.t = 0; g.clinch.by = side;
-      g.punch = idlePunch(g.punch.hand);
-      g.lean.fwd = 0; g.lean.lat = 0; g.torsoTwist = 0; g.crouch = 0;
+      // A punch still on its way out is smothered: it rewinds home the way a feint does (no pose pop); one that has
+      // already landed or missed just finishes coming back.
+      if (g.punch.type !== null && !g.punch.resolved && !stuffed(g)) g.punch.feint = true;
       g.vel.x = 0; g.vel.z = 0; g.hop.x = 0; g.hop.z = 0;
       g.block = false; g.blockT = 0;
     }

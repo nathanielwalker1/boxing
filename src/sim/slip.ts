@@ -36,7 +36,8 @@
 import type { Config, FighterState, FrameInput, Side, SimEvent, SlipKind } from '../core';
 import { handLateralSign, lerp, sin, smoothstep } from '../core';
 import { idleSlip, prevPunchMask, punchMask, pushState, setPushState } from './state';
-import { startBurst, startPivot } from './footing';
+import { guardOf, startBurst, startPivot } from './footing';
+import { rated } from './ratings';
 
 /** What a flick asked for that needs the other fighter to resolve (index.ts hands it to clinch.ts). */
 export interface FlickRequest { push: boolean }
@@ -158,7 +159,8 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
   s.t += dt;   // the flick tick ends at t = dt, so the head starts moving on the tick of the release
   const roll = s.kind === 'roll';
   const rise = roll ? cfg.rollDuration : s.chain > 1 ? cfg.slipChainRise : cfg.slipRise;
-  const window = roll ? cfg.rollDuration : cfg.slipDuration;
+  // (The window: longer for a high defense rating and for a guard that lives on head movement.)
+  const window = roll ? cfg.rollDuration : cfg.slipDuration * rated(f, 'defense', cfg.ratingDefenseSlip, cfg) * guardOf(f, cfg).slip;
   if (s.t >= window + cfg.slipReturn) { f.slip = idleSlip(); return; }
   s.active = s.t < window;
   const full = s.dir === 2 ? cfg.slipBackOffset : cfg.slipHeadOffset * s.dir;

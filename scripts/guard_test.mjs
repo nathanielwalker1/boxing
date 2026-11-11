@@ -91,14 +91,22 @@ console.log('\n=== 3. Chip ===');
 console.log('\n=== 4. Shape ===');
 {
   check('a jab, a cross and a square-on hook meet the guard: blocked', res(at('jab', MID).evs).type === 'punchBlock' && res(at('cross', MID).evs).type === 'punchBlock' && res(at('hook', 0.72, BLOCK, quiet, 1).evs).type === 'punchBlock');
-  const up = res(at('uppercut', 0.58, BLOCK, quiet, 1).evs), upRaw = rawOf('uppercut', 0.58, 1);
-  const left = 1 - cfg.blockReduction * cfg.guardUppercutCover * (1 - (1 - cfg.guardWornCover) * 0);
-  check(`an uppercut SPLITS a held guard: a land, flagged through (${up?.type} through=${up?.through})`, up?.type === 'punchLand' && up.through === true && up.grade !== 'flush');
-  check(`…at what the guard left of it (${(mag(up) / upRaw).toFixed(2)} ≈ ${left.toFixed(2)})`, near(mag(up) / upRaw, left, 0.03));
-  const bodyOn = run(fresh(quiet, MID, 20), 50, i => [inp({ jab: i === 10, level: i <= 10 }), BLOCK], quiet);
+  // Phase 2 (guardUppercutCover / guardBodyCover 0.6, were 0.45): a FRESH guard half-stops an uppercut and a body
+  // shot — a block, at a heavy chip — and a WORN one is split / got under. At 0.45 they always came through, and a
+  // held guard did nothing at inside range.
+  const upRaw = rawOf('uppercut', 0.58, 1);
+  const crossChip = res(at('cross', MID).evs).chip / rawOf('cross', MID), upF = res(at('uppercut', 0.58, BLOCK, quiet, 1).evs);
+  check(`an uppercut on a FRESH guard is blocked, but the guard only half meets it (chip ${(upF?.chip / upRaw * 1e4).toFixed(1)} vs a cross's ${(crossChip * 1e4).toFixed(1)} per 10 kN·s)`, upF?.type === 'punchBlock' && upF.chip / upRaw > crossChip * 1.8);
+  const worn = (type, d, x, level) => { const s = fresh(quiet, d, 20); s.fighters[1].guardHp = 0.3; s.fighters[1].guardRest = 0; return run(s, 50, i => [inp({ [type]: i === 10, level: level && i <= 10, move: { x: i === 10 ? x : 0, y: 0 } }), BLOCK], quiet); };
+  const up = res(worn('uppercut', 0.58, 1, false).evs);
+  const left = 1 - cfg.blockReduction * cfg.guardUppercutCover * (cfg.guardWornCover + (1 - cfg.guardWornCover) * 0.3);
+  check(`an uppercut SPLITS a worn guard: a land, flagged through (${up?.type} through=${up?.through})`, up?.type === 'punchLand' && up.through === true && up.grade !== 'flush');
+  check(`…at what the guard left of it (${(mag(up) / upRaw).toFixed(2)} ≈ ${left.toFixed(2)})`, near(mag(up) / upRaw, left, 0.04));
+  const bodyFresh = res(run(fresh(quiet, MID, 20), 50, i => [inp({ jab: i === 10, level: i <= 10 }), BLOCK], quiet).evs);
+  const bodyOn = worn('jab', MID, 0, true);
   const bj = res(bodyOn.evs);
-  check(`a body jab gets UNDER a held guard (${bj?.type} ${bj?.part} through=${bj?.through})`, bj?.type === 'punchLand' && bj.part === 'body' && bj.through === true);
-  check('…and both still wear the guard and hold the blocker', bodyOn.s.fighters[1].guardHp < 1 && run(fresh(quiet, MID, 20), 18, i => [inp({ jab: i === 10, level: i <= 10 }), BLOCK], quiet).s.fighters[1].blockStun > 0);
+  check(`a body jab is blocked by a fresh guard (${bodyFresh?.type}) and gets UNDER a worn one (${bj?.type} ${bj?.part} through=${bj?.through})`, bodyFresh?.type === 'punchBlock' && bodyFresh.part === 'body' && bj?.type === 'punchLand' && bj.part === 'body' && bj.through === true);
+  check('…and both still wear the guard and hold the blocker', bodyOn.s.fighters[1].guardHp < 0.3 && run(fresh(quiet, MID, 20), 18, i => [inp({ jab: i === 10, level: i <= 10 }), BLOCK], quiet).s.fighters[1].blockStun > 0);
 
   // A hook from an angle comes round. The attacker stands 45° off the blocker's facing; the blocker's feet are slow (as after a pivot).
   const angled = deg => {

@@ -8,7 +8,9 @@ const { punchPhases, PUNCHES } = punches;
 // Whiff cost off: every punch here misses on purpose (no hit-stop, so the clock
 // is undisturbed), and this suite measures the timing table AS AUTHORED. The
 // stretch a miss pays is counter_test's subject.
-const cfg = { ...createConfig(), whiffRecoveryMult: 1 };
+// ratingsOn / stylesOn off (overhaul phase 2): this file pins the reference fighters' numbers and margins as they were before
+// ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
+const cfg = { ...({ ...createConfig(), ratingsOn: false, stylesOn: false }), whiffRecoveryMult: 1 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();

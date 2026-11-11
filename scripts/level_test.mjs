@@ -222,7 +222,9 @@ console.log('\n=== 9. The clinch ===');
   // (An uppercut splits the grabbing man's guard — it LANDS. A long reach so the uppercut arrives inside it.)
   const slowGrab = { ...cfg, clinchReach: 0.5 };
   // (Pressed once the grabbing man is down: an uppercut is aimed at where the chin is at the press.)
-  const upper = run(fresh(slowGrab, 0.6, 10), 70, i => [tie, inp({ uppercut: i === 10, move: { x: i === 10 ? 1 : 0, y: 0 } })], slowGrab);
+  // (…and the grabbing man's guard is worn, so the uppercut splits it — phase 2: a fresh guard half-stops one.)
+  const wornGrab = fresh(slowGrab, 0.6, 10); wornGrab.fighters[0].guardHp = 0.2; wornGrab.fighters[0].guardRest = 0;
+  const upper = run(wornGrab, 70, i => [tie, inp({ uppercut: i === 10, move: { x: i === 10 ? 1 : 0, y: 0 } })], slowGrab);
   const land = first(upper.evs, 'punchLand'), tied2 = first(upper.evs, 'clinch');
   check(`a shot that gets through during the reach resets the grab (landed tick ${land?.tick}; tied up at ${tied2?.tick}, not ${T(0.5)})`, land && land.side === 1 && land.through === true && (tied2 === undefined || tied2.tick >= land.tick + T(0.5) - 1));
   // A hurt fighter clears his head faster tied up.

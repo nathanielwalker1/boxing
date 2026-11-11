@@ -71,15 +71,16 @@ import {
   type Config, type FrameInput, type PunchType, type RngState, type Side, type SimState,
 } from '../core';
 import { canStartPunch } from '../sim';
-import { defaultStyle, type StyleParams } from './style';
+import { defaultStyle, type ComboStep, type StyleParams } from './style';
 
-export { defaultStyle, type StyleParams } from './style';
+export { defaultStyle, styleFor, styleParams, withDifficulty, DIFFICULTY, STYLE_IDS, type StyleParams, type ComboStep, type Difficulty } from './style';
+export { DRILLS, type Drill } from './drills';
 
 export type AiMode = 'press' | 'probe' | 'circle' | 'hold' | 'reset';
 
 /** A few ticks of scripted input: the flick family, the feint, the clinch. */
 export interface AiMacro {
-  kind: 'slip' | 'roll' | 'pivot' | 'push' | 'burst' | 'feint' | 'clinch';
+  kind: 'slip' | 'roll' | 'pivot' | 'push' | 'burst' | 'feint' | 'clinch' | 'tell';
   /** Ticks into the macro. */
   t: number;
   /** The stick it pushes (fighter frame). */
@@ -153,9 +154,29 @@ export interface AiState {
   stickX: number; stickY: number; stickT: number;
   /** It was hurt last tick (the survive plan is rolled on the rising edge) and the plan: tie up, or cover and move. */
   wasHurt: boolean;
-  hurtPlan: 'none' | 'clinch' | 'cover';
+  hurtPlan: 'none' | 'clinch' | 'cover' | 'swing';
   /** Shots taken lately (decays one a second): two = it is taking a combination. Seconds left of walking in behind the guard after being picked off at range. */
   hits: number; shellT: number;
+  /** Phase 2. The opponent was inside range last tick, and whether it decided (as he got there) to keep its guard up in there. */
+  wasInside: boolean; insideHold: boolean;
+  /** The opponent's recent MISSES (decaying; ÷ WILD_WINDOW = misses a second): a rush. */
+  oppRate: number;
+  /** The rest of the signature combination it is throwing, and the seconds before it gives up on it. */
+  queue: ComboStep[]; queueT: number;
+  /** The armed cross is the overhand; the armed punch has shown its tell already; the armed punch is thrown going backward (retreat jab / check hook). */
+  armedOver: boolean; armedTold: boolean; armedBack: boolean;
+  /** Its block stun last tick (a rise = a punch just landed on its guard). */
+  lastStun: number;
+  /** The opponent's punch had resolved last tick (false again while he is still punching = a NEW punch chained off it). */
+  oppResolved: boolean;
+  /** What it does when the shove it has started is done: 0 nothing, 1 go to work in the gap it bought, 2 get out. */
+  pushFollow: 0 | 1 | 2;
+  /** It is taking a breather: out of range, guard down, no leads, until its wind is back. */
+  resting: boolean;
+  /** Seconds before it may throw another stiff jab at a man walking in. */
+  interceptCd: number;
+  /** Behind the guard: the last push at or over the flick threshold, held through the flick window so it is never a pivot or a shove by accident. */
+  holdX: number; holdY: number;
   /** How many times it has used each tool. Read by tests and the bot table. */
   used: { body: number; slip: number; roll: number; pivot: number; push: number; burst: number; feint: number; clinch: number; cutOff: number };
 }
@@ -201,6 +222,7 @@ export function createAi(side: Side, seed: number, cfg: Config, style: StylePara
     wasHurt: false,
     hurtPlan: 'none',
     hits: 0, shellT: 0,
+    wasInside: false, insideHold: false, oppRate: 0, queue: [], queueT: 0, armedOver: false, armedTold: false, armedBack: false, lastStun: 0, oppResolved: false, pushFollow: 0, resting: false, interceptCd: 0, holdX: 0, holdY: 0,
     used: { body: 0, slip: 0, roll: 0, pivot: 0, push: 0, burst: 0, feint: 0, clinch: 0, cutOff: 0 },
   };
 }
@@ -285,6 +307,11 @@ function runMacro(a: AiState, input: FrameInput, s: SimState, cfg: Config): bool
       if (t >= FEINT_BLOCK_FROM) input.block = true;
       if (t >= FEINT_END) a.macro = null;
       return true;
+    case 'tell':
+      // The habit before the big one: x = 1 it dips (level), else it draws back half a step (under the push threshold).
+      if (m.x === 1) input.level = true; else input.move.y = -0.55;
+      if (t >= TELL_TICKS) a.macro = null;
+      return true;
     case 'clinch':
       // (x = 1: a tie-up to smother a combination, not to clear the head — it does not need to be hurt.)
       if (me.clinch.active || (m.x === 0 && me.hurt <= 0) || t > CLINCH_MAX_TICKS || me.clinch.cd > 0) { a.macro = null; return me.clinch.active; }
@@ -324,7 +351,7 @@ function trackStick(a: AiState, input: FrameInput, dt: number, cfg: Config, pres
  * returns a new AiState and a fresh FrameInput, touches neither argument.
  */
 export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: AiState; input: FrameInput } {
-  const a: AiState = { ...ai, rng: rngClone(ai.rng), rngT: rngClone(ai.rngT), macro: ai.macro ? { ...ai.macro } : null, used: { ...ai.used } };
+  const a: AiState = { ...ai, rng: rngClone(ai.rng), rngT: rngClone(ai.rngT), macro: ai.macro ? { ...ai.macro } : null, used: { ...ai.used }, queue: ai.queue.slice() };
   const st = a.style ?? defaultStyle(cfg);
   const tools = cfg.aiToolsOn || a.style !== null;
   const input = cloneInput(NULL_INPUT);
@@ -336,8 +363,13 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   const dist = v2dist(me.pos, opp.pos);
   a.dist = dist;
   const oppPunching = opp.punch.type !== null;
-  const oppStarted = oppPunching && !a.oppPunching;
+  // A punch started: the guard-down → punching edge (the pre-overhaul read), or — with the tools — a NEW punch
+  // chained off the last (his punch had resolved and now has not): every punch of a combination is a start.
+  const oppStarted = oppPunching && (!a.oppPunching || (tools && a.oppResolved && !opp.punch.resolved));
   a.oppPunching = oppPunching;
+  // …and a punch of his that has just gone by WITHOUT touching anything (no contact point) is a miss.
+  const oppMissed = oppPunching && opp.punch.resolved && !a.oppResolved && opp.punch.contact === null;
+  a.oppResolved = oppPunching && opp.punch.resolved;
   const hurt = a.lastHealth - me.health;
   a.lastHealth = me.health;
   // Stuffed (2026-09-22): its punch is still the same one but its clock ran
@@ -351,7 +383,17 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // rocked and covers; a rocked opponent is pressed for the finish.
   const meStumbling = Math.hypot(me.stagger.x, me.stagger.z) > st.stumbleSpeed || me.hurt > 0;
   const oppStumbling = Math.hypot(opp.stagger.x, opp.stagger.z) > st.stumbleSpeed || opp.hurt > 0;
-  if (me.hurt > 0) a.blockTimer = Math.max(a.blockTimer, st.coverTime);
+  if (me.hurt > 0 && a.hurtPlan !== 'swing') a.blockTimer = Math.max(a.blockTimer, st.coverTime);
+  // A rush (phase 2): how many punches a second the opponent has been MISSING with. (Starts alone would not do:
+  // measured, a man throwing clean three-punch combinations was read as wild and the AI stopped fighting him.)
+  a.oppRate = Math.max(0, a.oppRate - a.oppRate * dt / WILD_WINDOW) + (oppMissed ? 1 : 0);
+  const wild = tools && a.oppRate / WILD_WINDOW > st.wildRate;
+  const sure = 1 - st.mistake;   // difficulty: a defensive decision is sometimes simply not made
+  // Its own wind (phase 2; measured: the outboxer burst, pivoted, shoved and held its guard to an empty bar in ten
+  // seconds and was stopped flat-footed). Spent, it stops spending: no hops, pivots, shoves or feints; and under
+  // REST_BELOW it takes a breather — steps out and does not lead — until it is back over REST_UNTIL.
+  const spent = tools && me.stamina < TOOL_STAMINA;
+  if (tools && me.stamina < REST_BELOW) a.resting = true; else if (me.stamina > REST_UNTIL || !tools) a.resting = false;
 
   // Perception (2026-09-16): what it steers by is the opponent's position
   // lagged by the reaction time (a first-order lag, so it is one number per
@@ -371,13 +413,33 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   const punching = me.punch.type !== null;
   // The sim's own chain window (hit confirm on a touch, later on a miss) —
   // and nothing is thrown off stumbling feet.
-  const canThrow = canStartPunch(me, cfg) && !meStumbling;
-
-  // ── Surviving (overhaul): the plan is rolled once, as it is hurt. Close → maybe tie up; otherwise cover and give ground.
+  // ── Surviving (overhaul): the plan is rolled once, as it is hurt. Close → maybe tie up; a slugger may swing back;
+  // otherwise cover and give ground.
   const nowHurt = me.hurt > 0;
-  if (nowHurt && !a.wasHurt) a.hurtPlan = tools && rngChance(a.rngT, st.hurtClinch) ? 'clinch' : 'cover';
+  if (nowHurt && !a.wasHurt) {
+    a.hurtPlan = tools && rngChance(a.rngT, st.hurtClinch) ? 'clinch' : tools && rngChance(a.rngT, st.hurtSwing) ? 'swing' : 'cover';
+    if (a.hurtPlan === 'swing') a.blockTimer = 0;
+  }
   if (!nowHurt) a.hurtPlan = 'none';
   a.wasHurt = nowHurt;
+  // (Swinging back: the one case it throws off hurt legs.)
+  const canThrow = canStartPunch(me, cfg) && (!meStumbling || a.hurtPlan === 'swing');
+  // The inside fight (phase 2): as the opponent gets inside it decides whether its guard stays up in there.
+  const inside = dist < cfg.rangeInside + INSIDE_MARGIN;
+  if (inside && !a.wasInside) {
+    a.insideHold = tools && rngChance(a.rngT, st.insideGuard * sure);
+    // …or whether it just ties him up (a style that does not want him there): the break puts the fight back at range.
+    if (tools && a.macro === null && !punching && cfg.clinchOn && me.clinch.cd === 0 && !nowHurt && rngChance(a.rngT, st.insideClinch * sure)) {
+      a.macro = { kind: 'clinch', t: 0, x: 1, y: 0, punch: null };
+      a.used.clinch += 1;
+    }
+  }
+  a.wasInside = inside;
+  // Tired at close range: lean on him.
+  if (tools && st.tiredClinchRate > 0 && me.fatigue > TIRED_CLINCH_AT && dist <= cfg.clinchRange && a.macro === null && !punching && cfg.clinchOn && me.clinch.cd === 0 && rngChance(a.rngT, st.tiredClinchRate * dt)) {
+    a.macro = { kind: 'clinch', t: 0, x: 1, y: 0, punch: null };
+    a.used.clinch += 1;
+  }
   if (tools && a.hurtPlan === 'clinch' && a.macro === null && cfg.clinchOn && me.clinch.cd === 0 && !me.clinch.active && !punching && dist <= cfg.clinchRange + CLINCH_WALK_IN) {
     a.macro = { kind: 'clinch', t: 0, x: 0, y: 0, punch: null };
     a.used.clinch += 1;
@@ -407,8 +469,44 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     a.blockTimer = Math.max(a.blockTimer, st.coverTime);
     a.blockReact = 0;
     if (a.armed !== null) { a.armed = null; a.attackTimer = rngRange(a.rng, st.attackDelayMin, st.attackDelayMax); }
-    a.burst = 0;
+    a.burst = 0; a.queue = [];
   }
+  // A rush (phase 2): he is swinging wild. Every punch of his that has gone by and left him hanging is taken — no
+  // roll, no reaction beat to think about it: the hook if he is close enough, else the cross.
+  if (wild && a.armed === null && opp.punch.type !== null && opp.punch.resolved && opp.vuln >= WILD_VULN && !opp.down && !nowHurt && a.mode !== 'reset') {
+    a.armed = dist <= st.engageHook ? 'hook' : 'cross';
+    a.armedX = -1; a.armedBody = false; a.armedOver = false; a.armedShown = true; a.armedTold = true;
+    a.attackTimer = 0; a.queue = [];
+    a.counterCount += 1;
+  }
+  // A punch just landed on its guard (phase 2): it may fire straight back as the block stun ends — the hook or
+  // uppercut inside, the cross at range. Pressing a guard is not free.
+  const stunned = me.blockStun > 0 && a.lastStun === 0 && me.block;
+  a.lastStun = me.blockStun;
+  const fireBack = (): void => {
+    a.armed = inside ? (rngChance(a.rngT, 0.5) ? 'hook' : 'uppercut') : 'cross';
+    a.armedX = rngChance(a.rngT, 0.5) ? -1 : 1;
+    a.armedBody = false; a.armedOver = false; a.armedBack = false; a.armedShown = true; a.armedTold = true; a.queue = [];
+    a.attackTimer = 0; a.blockTimer = 0; a.shellT = 0;
+  };
+  // Under fire up close — a punch on the guard or one that got through — the first answer is the SHOVE: it sends
+  // him back, smothers what he was winding up and holds him out of punching for a beat. Then the style decides:
+  // go to work in that beat, or get out. (Without it the man throwing never stops: his next punch stuffs any reply.)
+  const underFire = stunned || hurt > HIT_NOTICED;
+  // (Not gated on its own wind: this is survival, not an optional tool.)
+  if (tools && underFire && a.macro === null && !nowHurt && !punching && cfg.pushOffOn && me.pushCd === 0 && dist < cfg.pushRange - 0.05 && rngChance(a.rngT, st.crowdPush * sure)) {
+    a.macro = { kind: 'push', t: 0, x: 0, y: 1, punch: null };
+    a.pushFollow = st.pushThen === 'leave' ? 2 : 1;
+    a.used.push += 1;
+  } else if (tools && stunned && a.macro === null && !nowHurt && !wild && rngChance(a.rngT, st.blockCounter)) fireBack();
+  // The shove is done: use the beat.
+  if (a.pushFollow !== 0 && a.macro === null) {
+    if (a.pushFollow === 1 && !wild) fireBack();
+    else { a.mode = 'reset'; a.modeTimer = st.resetTime; a.resetPending = false; if (cfg.burstOn && me.burstCd === 0 && !spent) { a.macro = { kind: 'burst', t: 0, x: 0, y: -1, punch: null }; a.used.burst += 1; } }
+    a.pushFollow = 0;
+  }
+  // The rest of a signature combination lapses if it cannot be thrown (he has gone).
+  if (a.queue.length > 0) { a.queueT = Math.max(0, a.queueT - dt); if (a.queueT === 0) a.queue = []; }
   // The counter: the opponent's exposure crossing counterVuln is an
   // OPENING (their punch deep in its flight or hanging in a whiffed recovery,
   // or the punish window after they were slipped or perfectly blocked). One
@@ -424,7 +522,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     a.counterReact = Math.max(0, a.counterReact - dt);
     if (a.counterReact === 0 && opp.vuln > 0 && !opp.down && a.blockTimer === 0 && a.mode !== 'reset') {
       a.armed = opp.vuln >= st.counterVuln ? 'cross' : 'jab';
-      a.armedBody = false; a.armedShown = true;   // a counter is thrown, never shown
+      a.armedBody = false; a.armedOver = false; a.armedShown = true; a.armedTold = true; a.queue = [];   // a counter is thrown, never shown
       a.attackTimer = 0;
       a.counterCount += 1;
     }
@@ -443,7 +541,25 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   if (oppClosing > st.pressureSpeed && a.pressureCooldown === 0 && a.mode !== 'reset') {
     a.pressureCooldown = st.pressureCooldown;
     if (rngChance(a.rng, st.giveGroundChance)) a.giveGround = st.giveGroundTime;
-    else if (a.armed === null) { a.armed = 'jab'; a.armedBody = false; a.armedShown = true; a.attackTimer = 0; }
+    else if (a.armed === null) {
+      a.armed = 'jab'; a.armedBody = false; a.armedOver = false; a.armedShown = true; a.armedTold = true; a.attackTimer = 0;
+      // A style that fights off the back foot answers going away: the retreat jab, or the check hook if he is on top of it.
+      a.armedBack = tools && rngChance(a.rngT, st.backFoot);
+      if (a.armedBack && dist <= st.engageHook) { a.armed = 'hook'; a.armedX = -1; }
+    }
+  }
+  // The stiff jab (phase 2): a man walking in through its range gets one at once, without waiting for the timer.
+  // It stops him (the sim's jabStop) — this is how a style keeps a man off, or makes him pay to get in.
+  a.interceptCd = Math.max(0, a.interceptCd - dt);
+  if (tools && st.intercept > 0 && a.interceptCd === 0 && a.macro === null && !nowHurt && !wild && oppClosing > INTERCEPT_SPEED
+    && dist <= engageOf(st.interceptWith, st) + INTERCEPT_LEAD && dist > cfg.smotherDist && a.armed !== st.interceptWith && canStartPunch(me, cfg)) {
+    a.interceptCd = st.interceptGap;
+    if (rngChance(a.rngT, st.intercept * sure)) {
+      a.armed = st.interceptWith;
+      a.armedBody = false; a.armedOver = false; a.armedShown = true; a.armedTold = true; a.queue = [];
+      a.armedBack = st.interceptWith === 'jab' && rngChance(a.rngT, st.backFoot);
+      a.attackTimer = 0; a.blockTimer = 0; a.shellT = 0;
+    }
   }
   // They backed off: let the space open before following (no chasing for a
   // beat). Set as the retreat BEGINS, so a long retreat is still followed
@@ -463,8 +579,11 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   if (a.resetPending && !punching) { a.mode = 'reset'; a.modeTimer = st.resetTime; a.resetPending = false; }
   a.modeTimer = Math.max(0, a.modeTimer - dt);
   if (a.modeTimer === 0) rollMode(a, me.stamina, st);
+  // Ring use: a style that circles away always goes away from the opponent's POWER hand (his rear hand is on my
+  // left when he is orthodox, so away is my right).
+  if (tools && st.ringUse === 'circleAway') a.circleDir = handLateralSign('rear', opp.stance);
   // A reset may start with a burst back (overhaul): out, in one hop.
-  if (tools && a.mode === 'reset' && !wasReset && a.macro === null && !punching && cfg.burstOn && me.burstCd === 0 && rngChance(a.rngT, st.burstChance)) {
+  if (tools && a.mode === 'reset' && !wasReset && a.macro === null && !punching && !spent && cfg.burstOn && me.burstCd === 0 && rngChance(a.rngT, st.burstChance)) {
     a.macro = { kind: 'burst', t: 0, x: 0, y: -1, punch: null };
     a.used.burst += 1;
   }
@@ -483,7 +602,9 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   }
   if (a.blockReact > 0) {
     a.blockReact = Math.max(0, a.blockReact - dt);
-    if (a.blockReact === 0 && !punching && a.blockTimer === 0 && rngChance(a.rng, st.blockChance)) {
+    // (Inside range it defends at insideBlock; against a rush, always; and difficulty makes it miss some.)
+    const defend = (wild ? 1 : inside ? Math.max(st.blockChance, st.insideBlock) : st.blockChance) * sure;
+    if (a.blockReact === 0 && !punching && a.blockTimer === 0 && rngChance(a.rng, defend)) {
       a.blockTimer = st.blockWindow;
       // Overhaul: a share of the punches it has decided to defend it takes
       // with its head instead — a roll under a head hook, a slip away from
@@ -505,7 +626,12 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   }
   input.block = a.blockTimer > 0 && !punching;
   // Shelled up (picked off at range): the guard stays up while it walks in, and comes down to throw once it is there.
-  const shelled = tools && a.shellT > 0 && !punching && !(a.armed !== null && dist <= engageOf(a.armed, st) && dist >= nearDist(a.armed, cfg));
+  // Phase 2: the same behind the guard at inside range (if it decided to), and against a rush — where it also holds
+  // its fire while his punch is still coming, and throws only into what he leaves.
+  const holdFire = wild && oppPunching && !opp.punch.resolved && dist <= st.engageStraight + 0.2;
+  // (Only where he can reach: a guard held up out of range is wind spent on nothing.)
+  const guardUp = (a.shellT > 0 && dist <= st.engageStraight + SHELL_RANGE) || (inside && a.insideHold) || (wild && dist <= st.engageStraight + 0.2);
+  const shelled = tools && guardUp && a.hurtPlan !== 'swing' && !punching && (holdFire || !(a.armed !== null && dist <= engageOf(a.armed, st) && dist >= nearDist(a.armed, cfg)));
   if (shelled) input.block = true;
 
   // ── 2. Arm: the timer expiring picks the punch (and hand) — it does not throw.
@@ -517,15 +643,31 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   if (opp.stamina < cfg.lowStamina) aggression *= st.aggression;
   if (oppStumbling) aggression *= st.aggression;   // the follow-up: a stumbling opponent is pressed (2026-09-22)
   a.aggression = aggression;
-  a.attackTimer = Math.max(0, a.attackTimer - dt * aggression);
-  if (a.attackTimer === 0 && a.armed === null) {
+  // (Tired, its tempo drops: the timer drains 1 / tiredTempo as fast at full fatigue.)
+  // (Inside, an inside fighter works faster. Against a rush it does not lead at all until he has punched himself out.)
+  const tempo = tools ? (inside ? st.insideTempo : 1) / lerp(1, st.tiredTempo, clamp(me.fatigue, 0, 1)) : 1;
+  // (Out of wind it does not lead either: it gets out, covers, and — if he is on top of it — ties him up, which is
+  // where a gassed fighter gets his breath back.)
+  const evade = ((wild && opp.stamina > WILD_GASSED) || a.resting) && !nowHurt;
+  if (tools && a.resting && !nowHurt && a.macro === null && !punching && cfg.clinchOn && me.clinch.cd === 0 && !me.clinch.active && dist <= cfg.clinchRange) {
+    a.macro = { kind: 'clinch', t: 0, x: 1, y: 0, punch: null };
+    a.used.clinch += 1;
+  }
+  if (!evade) a.attackTimer = Math.max(0, a.attackTimer - dt * aggression * tempo);
+  if (a.attackTimer === 0 && a.armed === null && !evade) {
     a.armed = pickPunch(a.rng, st);
     a.armedX = rngChance(a.rng, 0.5) ? -1 : 1;
-    a.armedBody = false; a.armedShown = false;
+    a.armedBody = false; a.armedShown = false; a.armedOver = false; a.armedTold = false; a.armedBack = false; a.queue = [];
     if (tools) {
-      // The finish: a hurt opponent gets power. Otherwise, sometimes, the body — more against a held guard.
+      // The finish: a hurt opponent gets power. Otherwise a SIGNATURE combination of the style's, or a single
+      // punch that sometimes goes to the body — more against a held guard — or, a cross, over the top.
       if (opp.hurt > 0 && rngChance(a.rngT, st.finishPower)) a.armed = pickPunch(a.rngT, st, POWER);
-      else if (cfg.levelOn && rngChance(a.rngT, opp.block ? st.bodyRateHighGuard : st.bodyRate)) a.armedBody = true;
+      else if (st.combos.length > 0 && rngChance(a.rngT, st.comboSignature * st.comboChance)) {
+        const combo = st.combos[rngInt(a.rngT, 0, st.combos.length - 1)]!;
+        armStep(a, combo[0]!);
+        a.queue = combo.slice(1); a.queueT = QUEUE_LIFE;
+      } else if (cfg.levelOn && rngChance(a.rngT, opp.block ? st.bodyRateHighGuard : st.bodyRate)) a.armedBody = true;
+      else if (a.armed === 'cross' && cfg.levelOn && rngChance(a.rngT, st.overhandRate)) a.armedOver = true;
     }
   }
 
@@ -539,7 +681,8 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // Armed with a punch shorter than its resting distance, it steps in to that
   // punch's range (and drifts back out to the standoff once it has thrown) —
   // except mid-reset (it is leaving) and on hold (it is standing).
-  const surviving = tools && nowHurt && a.hurtPlan === 'cover';   // hurt: get out of range, keep the feet moving
+  // hurt: get out of range, keep the feet moving. The same against a rush: give him the ring until he is gassed.
+  const surviving = tools && ((nowHurt && a.hurtPlan === 'cover') || evade);
   const mode = surviving ? 'reset' : a.mode;
   let standoff = mode === 'reset' ? st.resetDist : mode === 'probe' ? st.probeDist : mode === 'circle' ? st.standoff + st.standoffBand : st.standoff;
   const band = mode === 'circle' ? st.standoffBand * 2 : st.standoffBand;
@@ -549,7 +692,16 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // Steer by the PERCEIVED distance: closing speed along the line (positive =
   // the gap is shrinking) → the distance it is heading for.
   const closing = (me.vel.x - opp.vel.x) * ux + (me.vel.z - opp.vel.z) * uz;
-  const predicted = seenDist - closing * st.lookahead;
+  const half = RING_HALF - cfg.ringInset;
+  // Cutting off a mover (phase 2): pressing, it steers for where he WILL be (his walking velocity × leadPursuit,
+  // kept inside the ring), not where he is — it takes the ring away instead of following him round it.
+  let sx = ux, sz = uz, sDist = seenDist;
+  if (tools && st.leadPursuit > 0 && (mode === 'press' || mode === 'probe') && !surviving) {
+    const lx = clamp(a.seen.x + (opp.vel.x + opp.hop.x) * st.leadPursuit, -half, half), lz = clamp(a.seen.z + (opp.vel.z + opp.hop.z) * st.leadPursuit, -half, half);
+    const ld = Math.hypot(lx - me.pos.x, lz - me.pos.z);
+    if (ld > 0.05) { sx = (lx - me.pos.x) / ld; sz = (lz - me.pos.z) / ld; sDist = ld; }
+  }
+  const predicted = sDist - closing * st.lookahead;
   const err = predicted - standoff;
   const fr = frameOf(me.yaw);
   const chasing = err > 0 && a.chaseHold > 0;   // they just backed off: let the space open
@@ -557,8 +709,8 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     const mag = clamp(Math.abs(err) / (band * 2), 0, 1) * st.speed;
     const sign = err > 0 ? 1 : -1;   // +1 = close in, -1 = back off
     if (dist > 0.01) {
-      input.move.y = (fr.fwd.x * ux + fr.fwd.z * uz) * sign * mag;
-      input.move.x = (fr.right.x * ux + fr.right.z * uz) * sign * mag;
+      input.move.y = (fr.fwd.x * sx + fr.fwd.z * sz) * sign * mag;
+      input.move.x = (fr.right.x * sx + fr.right.z * sz) * sign * mag;
     } else {
       input.move.y = -mag;   // co-located: no usable direction, back straight off
     }
@@ -570,11 +722,23 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     const len = Math.hypot(input.move.x, input.move.y);
     if (len > 1) { input.move.x /= len; input.move.y /= len; }
   }
+  // Ring use (phase 2): a style that holds the centre drifts back to it; one that circles away will not circle
+  // itself onto the ropes — near them it comes back toward the open ring.
+  if (tools && !surviving && mode !== 'reset' && a.style !== null) {
+    const r = Math.hypot(me.pos.x, me.pos.z);
+    const edge = Math.min(half - Math.abs(me.pos.x), half - Math.abs(me.pos.z));
+    if ((st.ringUse === 'centre' && r > CENTRE_RADIUS) || (st.ringUse === 'circleAway' && edge < ROPE_SHY) && r > 0.01) {
+      const cx = -me.pos.x / r, cz = -me.pos.z / r;
+      input.move.y += (fr.fwd.x * cx + fr.fwd.z * cz) * CENTRE_PULL * st.speed;
+      input.move.x += (fr.right.x * cx + fr.right.z * cz) * CENTRE_PULL * st.speed;
+      const len = Math.hypot(input.move.x, input.move.y);
+      if (len > 1) { input.move.x /= len; input.move.y /= len; }
+    }
+  }
   // Cutting off the ring (overhaul): with the opponent near the ropes it does
   // not follow — it mirrors their sideways movement, staying between them and
   // the open ring.
   if (tools && st.cutOff > 0 && (mode === 'press' || mode === 'probe') && !surviving) {
-    const half = RING_HALF - cfg.ringInset;   // the movement bound; the opponent's distance to it on the nearer axis:
     const edge = Math.min(half - Math.abs(opp.pos.x), half - Math.abs(opp.pos.z));
     if (edge < st.cutOffZone) {
       const lat = (opp.vel.x + opp.hop.x) * fr.right.x + (opp.vel.z + opp.hop.z) * fr.right.z;   // their sideways speed, in my frame
@@ -587,8 +751,16 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     }
   }
 
+  // Coming in through the jab (phase 2): in his jab range, walking in, a style that comes in under punches moves
+  // its head off the line without waiting to read one — toward one side or the other, never on a beat.
+  if (tools && st.approachSlip > 0 && a.macro === null && !punching && !nowHurt && !evade && cfg.rollOn !== undefined
+    && dist > st.engageHook && dist < APPROACH_FAR && me.slip.dir === 0 && err > 0 && rngChance(a.rngT, st.approachSlip * dt)) {
+    a.macro = { kind: 'slip', t: 0, x: rngChance(a.rngT, 0.5) ? 1 : -1, y: 0, punch: null };
+    a.used.slip += 1;
+  }
+
   // ── 6. The tools that are flicks: off the ropes, and making space ──────────
-  if (tools && a.macro === null && !punching && !nowHurt) {
+  if (tools && a.macro === null && !punching && !nowHurt && !spent) {
     // On the ropes with the opponent in range: pivot off, toward the open ring.
     if (cfg.pivotOn && me.ropes > 0.5 && dist < st.engageStraight + 0.2 && me.burstCd === 0 && rngChance(a.rngT, st.ropePivotRate * dt)) {
       const open = (fr.right.x * -me.pos.x + fr.right.z * -me.pos.z) >= 0 ? 1 : -1;   // which of my sides the ring centre is on
@@ -612,14 +784,22 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // sim's combo window. The reset roll waits for the burst to end — the
   // step-out comes after the exchange, not after every punch.
   let pressed = false;
-  if (a.armed !== null && mode !== 'reset' && a.macro === null) {
+  if (a.armed !== null && a.attackTimer === 0 && mode !== 'reset' && a.macro === null) {
     const t = a.armed;
     const inBand = dist <= engageOf(t, st) && dist >= nearDist(t, cfg);
     if (inBand && canThrow && !input.block) {
-      // A body shot drops its level first and throws once it is down.
-      const bodyReady = !a.armedBody || me.level >= cfg.levelAt;
-      if (a.armedBody) input.level = true;
-      if (tools && !a.armedShown && t !== 'jab' && cfg.feintOn && !punching && a.burst === 0 && rngChance(a.rngT, st.feintChance)) {
+      // A body shot (and the overhand) drops its level first and throws once it is down.
+      const needLevel = a.armedBody || a.armedOver;
+      const bodyReady = !needLevel || me.level >= cfg.levelAt;
+      if (needLevel) input.level = true;
+      // The tell (phase 2): before a lone power punch the style's habit may show — one roll per punch.
+      if (tools && !a.armedTold && st.tell !== 'none' && t !== 'jab' && !punching && a.burst === 0 && a.queue.length === 0) {
+        a.armedTold = true;
+        if (rngChance(a.rngT, st.tellRate)) a.macro = { kind: 'tell', t: 0, x: st.tell === 'dip' ? 1 : 0, y: 0, punch: null };
+      }
+      if (a.macro !== null) {
+        // (showing its tell this tick; the punch stays armed)
+      } else if (tools && !a.armedShown && t !== 'jab' && cfg.feintOn && !punching && !spent && a.burst === 0 && rngChance(a.rngT, st.feintChance)) {
         // Show it first: a feint, then the real one (the punch stays armed).
         a.armedShown = true;
         a.macro = { kind: 'feint', t: 0, x: a.armedX, y: 0, punch: t };
@@ -631,16 +811,29 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
         input[t] = true;   // one tick high = the rising edge the sim fires on
         pressed = true;
         if (t === 'hook' || t === 'uppercut') input.move.x = a.armedX;   // the stick at the press picks the hand
+        if (a.armedOver) input.move.y = 1;   // the overhand steps in
+        if (a.armedBack) { input.move.y = -1; if (t === 'hook') input.move.x = a.armedX * 0.5; a.armedBack = false; }   // thrown going away
         if (a.armedBody) a.used.body += 1;
         a.armed = null;
         a.throwCount += 1;
         a.lastThrowDist = dist;
-        if (a.burst === 0 && st.comboMax > 1 && rngChance(a.rng, st.comboChance)) a.burst = rngInt(a.rng, 1, Math.floor(st.comboMax) - 1);
+        if (a.queue.length > 0) {
+          // The next punch of the signature combination: armed at once, pressed a combo gap later (a fresh edge).
+          armStep(a, a.queue.shift()!);
+          a.armedShown = true; a.armedTold = true;
+          a.queueT = QUEUE_LIFE; a.attackTimer = Math.max(st.comboGap, SIM_DT * 2);
+          a.burst = 0;
+        } else {
+        // (The last punch of a signature combination ends the exchange: no random burst on top of it.)
+        const signed = a.queueT > 0;
+        a.queueT = 0;
+        if (!signed && a.burst === 0 && st.comboMax > 1 && rngChance(a.rng, st.comboChance)) a.burst = rngInt(a.rng, 1, Math.floor(st.comboMax) - 1);
         else if (a.burst > 0) a.burst -= 1;
         if (a.burst > 0) a.attackTimer = st.comboGap;
         else {
           a.attackTimer = rngRange(a.rng, st.attackDelayMin, st.attackDelayMax);
           if (rngChance(a.rng, st.resetChance)) a.resetPending = true;
+        }
         }
       }
     }
@@ -661,9 +854,12 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // a punch press is that punch's hand selection — the sim spends it.)
   // With the guard up a flick is a pivot or a shove: behind the guard the steer's stick stays under the push threshold
   // (it walks in a little slower with its hands up). Those two are always macros.
+  // (Phase 2: it used to cap the stick under the threshold, which made a guarded walk-in 40% slower than the man it
+  // was chasing. Now a push at or over the threshold is simply HELD through the flick window before it may end.)
   if (input.block) {
     const m = Math.hypot(input.move.x, input.move.y);
-    if (m >= cfg.slipInputThreshold) { const kk = cfg.slipInputThreshold * UNDER_PUSH / m; input.move.x *= kk; input.move.y *= kk; }
+    if (m >= cfg.slipInputThreshold) { a.holdX = input.move.x; a.holdY = input.move.y; }
+    else if (a.stickT > 0 && a.stickT <= cfg.slipFlickMax + SIM_DT) { input.move.x = a.holdX; input.move.y = a.holdY; }
   }
   trackStick(a, input, dt, cfg, pressed, true);
   // Never the clinch by accident: level and block together are a macro's.
@@ -671,6 +867,33 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
 
   return { ai: a, input };
 }
+/** Arm one step of a signature combination. */
+function armStep(a: AiState, step: ComboStep): void {
+  a.armed = step.p;
+  if (step.x !== undefined) a.armedX = step.x;
+  a.armedBody = step.body === true;
+  a.armedOver = false;
+}
+/** Ticks the tell (the dip, the half step back) shows before the punch. Shape. */
+const TELL_TICKS = 7;
+/** The window the opponent's punch rate is measured over, s; the exposure at which a rushing man's miss is taken. Shape. */
+const WILD_WINDOW = 1.5, WILD_VULN = 0.3;
+/** A rushing man is "punched out" below this stamina: then it stops giving ground and goes to work. Shape. */
+const WILD_GASSED = 0.3;
+/** The far edge of "in his jab range" for the approach slip, m. Shape. */
+const APPROACH_FAR = 1.2;
+/** A man closing faster than this (m/s) is walking in; the stiff jab is thrown this far (m) before he reaches its range. Shape. */
+const INTERCEPT_SPEED = 0.8, INTERCEPT_LEAD = 0.12;
+/** Its own stamina: below TOOL_STAMINA no optional tools; below REST_BELOW it rests until REST_UNTIL; the guard is only held up within SHELL_RANGE of its engage distance. Shape. */
+const TOOL_STAMINA = 0.35, REST_BELOW = 0.22, REST_UNTIL = 0.55, SHELL_RANGE = 0.35;
+/** How far outside rangeInside still counts as "inside" for its guard, m. Shape. */
+const INSIDE_MARGIN = 0.04;
+/** Fatigue above which a style that leans on people when tired does. Shape. */
+const TIRED_CLINCH_AT = 0.6;
+/** Seconds the rest of a signature combination waits to be thrown before it is dropped. Shape. */
+const QUEUE_LIFE = 0.9;
+/** A style that holds the centre drifts back from further out than this, m; one that circles away comes off the ropes inside this, m; the stick they do it with. Shape. */
+const CENTRE_RADIUS = 1.3, ROPE_SHY = 0.8, CENTRE_PULL = 0.55;
 /** A health drop in one tick above this is a shot it noticed (any clean land; a blocked jab is 0). Shape. */
 const HIT_NOTICED = 0.005;
 /** A push held back from completing a double-tap sits at this fraction of the push threshold. Shape. */

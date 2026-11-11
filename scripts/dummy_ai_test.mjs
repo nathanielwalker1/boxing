@@ -22,7 +22,9 @@ const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // aiToolsOn false (overhaul 2026-11-11): this file pins the pre-overhaul heuristics; the tools the AI gained
 // (body shots, slips and rolls, cut-off, pivot, push-off, clinch, feints, bursts) sit on top of them, draw from
 // their own rng stream, and are covered by ai_tools_test.mjs with the defaults.
-const defaults = { ...createConfig(), healthDamagePerImpulse: 0, stunBase: 0, aiToolsOn: false };
+// ratingsOn / stylesOn off (overhaul phase 2): this file pins the reference fighters' numbers and margins as they were before
+// ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
+const defaults = { ...({ ...createConfig(), ratingsOn: false, stylesOn: false }), healthDamagePerImpulse: 0, stunBase: 0, aiToolsOn: false };
 // …and no reaction lag, rush response, chase delay or bursts either (§7 covers those).
 // …nor the hit-state reads (§8): the stumble multiplier would otherwise stack onto §4's aggression numbers.
 const base = { ...defaults, aiProbeWeight: 0, aiCircleWeight: 0, aiHoldWeight: 0, aiResetChance: 0, aiHitResetChance: 0, aiReactionTime: 0, aiPressureSpeed: 999, aiChaseDelay: 0, aiComboChance: 0, aiCounterChance: 0, aiCoverChance: 0, aiStumbleSpeed: 999 };

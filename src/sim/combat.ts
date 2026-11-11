@@ -20,10 +20,13 @@ import { slipBack, slipLateral } from './slip';
 import { applyPunish } from './vulnerability';
 import { applyBodyHurt, applyStun, stunPunchLocked } from './stun';
 import { VARIANTS, aimAtPress, pickVariant } from './variants';
-import { ESCAPE_AT, addHop } from './footing';
+import { ESCAPE_AT, addHop, guardOf } from './footing';
+import { rated } from './ratings';
 import { gradeHit } from './grade';
 
 const DEG = Math.PI / 180;
+/** No block absorbs more than this, whatever the defense rating. Shape. */
+const BLOCK_MAX = 0.95;
 
 /** Two pressed on the same tick: the faster punch wins. */
 function fastestOf(mask: number): PunchType | null {
@@ -71,7 +74,9 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   const loaded = cfg.slipLoadedOn && f.loaded !== 0 && (f.loaded === -1) === (hand === 'lead');
   const slow = cfg.fatigueOn ? f.punchSlow : 1;
   const ph = def.phases(cfg);
-  let cock = (f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1) * (chained ? cfg.comboCockScale : 1) * v.time(cfg) * (loaded ? cfg.slipLoadedCock : 1);
+  // (Hand speed — the speed rating, and the style's guard for a jab thrown from it — shortens or lengthens the wind-up.)
+  const hands = rated(f, 'speed', cfg.ratingSpeedHands, cfg) / (type === 'jab' ? guardOf(f, cfg).jabTime : 1);
+  let cock = (f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1) * (chained ? cfg.comboCockScale : 1) * v.time(cfg) * (loaded ? cfg.slipLoadedCock : 1) / hands;
   // The tell: a heavy punch that opens an attack is always readable.
   if (cfg.tellsOn && type !== 'jab' && !chained && ph.cock > 0) cock = Math.max(cock, (cfg.tellMinHeavy / slow - ph.extend) / ph.cock);
   setCockMult(f, cock);
@@ -81,7 +86,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // The body pose the last punch leaves behind (2026-09-22): a chained
   // wind-up blends out of it instead of snapping to zero and reloading.
   setChainCarry(f, { on: chained, twist: f.torsoTwist, fwd: f.lean.fwd, lat: f.lean.lat, crouch: f.crouch });
-  f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost);
+  f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg));
   f.punch = {
     ...idlePunch(hand), type, phase: 'cock', variant,
     tell: (ph.cock * cock + ph.extend) * slow, timeMult: slow,
@@ -203,7 +208,7 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   // The variant's time scale is in the cock multiplier (set at the press) and
   // applies again to the recovery; fatigue (timeMult) slows every phase.
   const rate = rewinding ? -(p.feint ? cfg.feintRewindRate : cfg.interruptRewindRate)
-    : (was < ph.cock - PHASE_EPS ? 1 / cockMult(f) : was >= ph.cock + ph.extend - PHASE_EPS ? 1 / (whiffMult(f) * VARIANTS[p.variant].time(cfg)) : 1) / Math.max(1e-6, p.timeMult);
+    : (was < ph.cock - PHASE_EPS ? 1 / cockMult(f) : was >= ph.cock + ph.extend - PHASE_EPS ? rated(f, 'speed', cfg.ratingSpeedHands, cfg) / (whiffMult(f) * VARIANTS[p.variant].time(cfg)) : 1) / Math.max(1e-6, p.timeMult);
   const elapsed = clamp(was + dt * rate, 0, ph.total);
   p.progress = elapsed / ph.total;
   if (rewinding && elapsed <= 0) {
@@ -298,7 +303,7 @@ function interruptPunch(d: FighterState, target: Side, by: Side, cfg: Config, ev
 function missed(a: FighterState, cfg: Config, whiff: boolean): void {
   a.combo = 0; a.comboT = 0;
   if (whiff && cfg.whiffCostOn) {
-    a.stamina = Math.max(0, a.stamina - cfg.staminaWhiffCost);
+    a.stamina = Math.max(0, a.stamina - cfg.staminaWhiffCost * rated(a, 'stamina', -cfg.ratingStaminaCost, cfg));
     a.wear += cfg.whiffCapLoss;
   }
 }
@@ -314,12 +319,19 @@ function missed(a: FighterState, cfg: Config, whiff: boolean): void {
 function guardCover(d: FighterState, base: PunchType, part: BodyPart, dirX: number, dirZ: number, cfg: Config): number {
   let cover = 1;
   if (cfg.guardShapeOn) {
+    // Phase 2: the numbers are the guard SHAPE's when styles are on (core/styles.ts GUARDS; `high` equals the config
+    // defaults), the config's when they are off — so the guard… sliders still tune the one-guard game.
+    const g = cfg.stylesOn ? guardOf(d, cfg) : null;
+    const full = g ? g.arcFullDeg : cfg.guardArcFullDeg, none = g ? g.arcNoneDeg : cfg.guardArcNoneDeg;
     const fr = frameOf(d.yaw);
     const c = clamp(-(dirX * fr.fwd.x + dirZ * fr.fwd.z), -1, 1);
     const arrive = atan2(sqrt(Math.max(0, 1 - c * c)), c) / DEG;   // 0 = straight down the blocker's facing line
-    cover *= 1 - smoothstep(clamp((arrive - cfg.guardArcFullDeg) / Math.max(1e-6, cfg.guardArcNoneDeg - cfg.guardArcFullDeg), 0, 1));
-    if (base === 'uppercut') cover *= cfg.guardUppercutCover;
-    if (part === 'body') cover *= cfg.guardBodyCover;
+    cover *= 1 - smoothstep(clamp((arrive - full) / Math.max(1e-6, none - full), 0, 1));
+    if (base === 'uppercut') cover *= g ? g.uppercutCover : cfg.guardUppercutCover;
+    else if (part === 'body') cover *= g ? g.bodyCover : cfg.guardBodyCover;
+    else if (g) cover *= g.headCover;
+    // A block raised from a low guard takes a beat to get there.
+    if (g && g.raise > 0) cover *= clamp(d.blockT / g.raise, 0, 1);
   }
   if (cfg.guardWearOn) cover *= lerp(cfg.guardWornCover, 1, clamp(d.guardHp, 0, 1));
   return cover;
@@ -460,8 +472,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   mag = Math.max(cfg.punchImpulseBase * cfg.punchImpulseFloor, mag);
   mag *= 1 + a.lean.fwd * cfg.punchLeanScale;
   mag *= def.impulseMult(cfg);
-  // The variant's own weight and a loaded counter's bonus, fixed at the press.
-  mag *= a.punch.powerMult;
+  // The variant's own weight and a loaded counter's bonus, fixed at the press; and the puncher's power rating.
+  mag *= a.punch.powerMult * rated(a, 'power', cfg.ratingPowerImpulse, cfg);
   // A tired man's punches are arm punches (overhaul): up to tiredPowerLoss of the impulse goes with the wind.
   if (cfg.fatigueOn) mag *= 1 - cfg.tiredPowerLoss * a.fatigue;
   // A punch hit late in its own flight arrives with less behind it (interruptPunch).
@@ -520,14 +532,16 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // The flight as thrown (the tell), in sim seconds: cock × its multipliers + extension.
   const flight = a.punch.timeMult > 0 ? a.punch.tell / a.punch.timeMult : a.punch.tell;
   // Only a HELD block can be perfect — a fist absorbed by a relaxed guard pinned on the face is a plain block.
-  const perfect = d.block && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight);
+  // (From a guard that takes a beat to come up — hands low — the block must at least be half-way there.)
+  const perfect = d.block && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight) && d.blockT >= guardOf(d, cfg).raise * 0.5;
   // The guard's shape and wear (overhaul): how much of it this punch meets. A perfect block meets all of it.
   // A RESTING guard that the fist pinned against the face is not a block: the hands were in the way (guardPinnedCover).
   const cover = !guarded ? 0 : perfect ? 1 : !d.block ? (cfg.guardShapeOn ? cfg.guardPinnedCover : 1) : guardCover(d, type, part, dirX, dirZ, cfg);
   const through = guarded && !perfect && cfg.guardShapeOn && cover < cfg.guardThroughAt;   // it came round or through: a land, at what the guard left of it
   const blocked = guarded && !through;
   const raw = mag;   // what arrived at the guard — block stun, guard wear and the chip threshold read this
-  if (guarded) mag *= 1 - cfg.blockReduction * cover * (d.hurt > 0 ? cfg.stunBlockScale : 1);   // a rocked guard is loose
+  // (What a block absorbs rises a little with the blocker's defense rating, capped.)
+  if (guarded) mag *= 1 - Math.min(BLOCK_MAX, cfg.blockReduction * rated(d, 'defense', cfg.ratingDefenseBlock, cfg)) * cover * (d.hurt > 0 ? cfg.stunBlockScale : 1);   // a rocked guard is loose
 
   // The grade (overhaul): only a land has one.
   let grade: HitGrade = 'clean';
@@ -568,8 +582,10 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   let chip = 0, stun = 0;
   const light = blocked && !perfect && cfg.chipOn && rawPower < cfg.chipMinPower;
   if (d.block && !perfect) {
-    if (cfg.blockStunOn) { stun = Math.min(cfg.blockStunMax, cfg.blockStunBase * rawPower); d.blockStun = Math.max(d.blockStun, stun); }
-    if (cfg.guardWearOn) { d.guardHp = Math.max(0, d.guardHp - cfg.guardWearPerImpulse * raw); d.guardRest = 0; }
+    // Stun and wear taken: the base × the blocker's guard shape × his defense rating.
+    const gd = guardOf(d, cfg);
+    if (cfg.blockStunOn) { stun = Math.min(cfg.blockStunMax, cfg.blockStunBase * rawPower * gd.stun * rated(d, 'defense', -cfg.ratingDefenseStun, cfg)); d.blockStun = Math.max(d.blockStun, stun); }
+    if (cfg.guardWearOn) { d.guardHp = Math.max(0, d.guardHp - cfg.guardWearPerImpulse * raw * gd.wear * rated(d, 'defense', -cfg.ratingDefenseGuard, cfg) * (rawPower < cfg.chipMinPower ? cfg.guardWearLight : 1)); d.guardRest = 0; }
     if (blocked && !light) chip = mag * cfg.healthDamagePerImpulse * (part === 'body' && cfg.bodyDamageOn ? cfg.bodyHealthScale : 1);
   }
 
@@ -586,7 +602,16 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   if (counter && !blocked) events.push({ type: 'counter', side, target, punch: type });
   if (!blocked) interruptPunch(d, target, side, cfg, events);
 
-  const stumble = 1 + retreat * cfg.punchRetreatStumble;   // hit while backing off: the feet go
+  let stumble = 1 + retreat * cfg.punchRetreatStumble;   // hit while backing off: the feet go
+  // INSIDE IS EARNED (phase 2): a jab that lands on a man walking straight in stops him — his forward speed is
+  // killed, he is knocked back further the faster he was coming, and he cannot punch for a beat.
+  if (cfg.jabStopOn && type === 'jab' && !blocked && grade !== 'glancing' && closing >= cfg.jabStopSpeed) {
+    stumble *= 1 + cfg.jabStopScale * closing;
+    const toward = d.vel.x * dirX + d.vel.z * dirZ;   // negative = he is walking into it
+    if (toward < 0) { d.vel.x -= dirX * toward; d.vel.z -= dirZ * toward; }
+    d.hop.x = 0; d.hop.z = 0;
+    d.blockStun = Math.max(d.blockStun, cfg.jabStopStun);
+  }
   d.stagger.x += impulse.x / d.body.massKg * stumble;
   d.stagger.z += impulse.z / d.body.massKg * stumble;
   applyReaction(d, type, dir, mag, cfg);

@@ -27,6 +27,7 @@ import type { BodyPart, Config, FighterState, GetUpPhase, Side, SimEvent, SimSta
 import { clamp, lerp, rngChance, rngRange } from '../core';
 import { getUpAt, healthCap, healthRegenDelay, idlePunch, idleSlip, regenDelay, setGetUpAt, setHealthCap, setHealthRegenDelay, setRegenDelay } from './state';
 import { clearPunish } from './vulnerability';
+import { rated } from './ratings';
 
 /**
  * Per tick: the guard drains stamina, idling regains it (after any post-hit
@@ -42,8 +43,9 @@ export function stepStamina(f: FighterState, cfg: Config, dt: number): void {
   const hDelay = Math.max(0, healthRegenDelay(f) - dt);
   setHealthRegenDelay(f, hDelay);
   if (f.down) return;
-  if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * dt);
-  else if (f.punch.type === null && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + cfg.staminaRegen * dt);
+  // (The stamina rating: the guard costs less to hold and wind comes back faster.)
+  if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * dt);
+  else if (f.punch.type === null && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + cfg.staminaRegen * rated(f, 'stamina', cfg.ratingStaminaRegen, cfg) * dt);
   if (hDelay === 0 && f.health < healthCap(f)) f.health = Math.min(healthCap(f), f.health + cfg.healthRegen * dt);
 }
 
@@ -57,7 +59,9 @@ export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean
   if (d.down) return;
   const body = part === 'body' && cfg.bodyDamageOn;
   d.stamina = Math.max(0, d.stamina - mag * cfg.staminaHitCost * (blocked ? cfg.staminaBlockedHitMult : 1) * (body ? cfg.staminaBodyHitMult : 1));
-  setRegenDelay(d, Math.max(regenDelay(d), cfg.staminaRegenDelay));
+  // (Phase 2: a light shot — a jab — pauses the wind for only a fraction of that. At the full pause a man jabbing
+  // twice a second held the other's stamina at zero for the whole fight.)
+  setRegenDelay(d, Math.max(regenDelay(d), cfg.staminaRegenDelay * (light ? cfg.staminaRegenDelayLight : 1)));
   if (noHealth) return;
   const full = mag * cfg.healthDamagePerImpulse;
   // The ledger is in head-shot health fractions for both, so the two are comparable; a blocked shot's chip counts.
