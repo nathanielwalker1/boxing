@@ -25,14 +25,20 @@ import { greyscaleCopy } from './greyscale.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const label = args.find(a => /^(before|after)$/.test(a)) ?? null;
-const tier = Number((args.find(a => /^tier=/.test(a)) ?? 'tier=0').slice(5));
+// Headless Chromium is software GL, which the app treats as a low-tier device. The look is judged on the high
+// tier, so this script forces the tier: 2 unless told. (Software GL at 1× pixel ratio manages ~10 fps on the high
+// tier, enough for stills. GPU=1 runs Chromium on the real GPU for an honest fps line — but screenshots of a
+// GPU-backed headless canvas come back black, so that mode is for the numbers only.)
+const tierArg = args.find(a => /^tier=/.test(a));
+const tier = tierArg ? Number(tierArg.slice(5)) : 0;
+const SOFT = process.env.GPU !== '1';
 const hot = args.includes('hot');
 const OUT = label ? resolve(HERE, '..', 'docs', 'overhaul') : resolve(HERE, 'output', 'arena_look');
 mkdirSync(OUT, { recursive: true });
 const name = (view) => `${OUT}/${label ? `arena_${label}` : 'wip'}${tier ? `_t${tier}` : ''}_${view}.png`;
 const W = 960, H = 600;
 
-const browser = await chromium.launch();
+const browser = await chromium.launch(SOFT ? {} : { args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
 const logs = [];
 page.on('console', m => { if ((m.type() === 'error' || m.type() === 'warning') && !/GPU stall due to ReadPixels/.test(m.text())) logs.push(m.text()); });
@@ -43,7 +49,7 @@ await page.evaluate((tier) => {
   const c = window.__cfg;
   c.debugHitboxes = false; c.debugFps = false; c.refEnabled = false;
   c.camDriftAmp = 0; c.camFollowLambda = 1000; c.camDollyLambda = 1000;
-  if (tier && 'qualityTier' in c) c.qualityTier = tier;
+  if ('qualityTier' in c) c.qualityTier = tier || 2;
   const hud = document.getElementById('hud'); if (hud) hud.style.opacity = '0';
 }, tier);
 

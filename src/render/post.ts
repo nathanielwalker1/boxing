@@ -65,10 +65,12 @@ export class PostPass {
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, w: number, h: number, cfg: Config, samples: number) {
     this.samples = samples;
-    // Our own target: half-float for the bloom's headroom, MSAA so the ropes do not alias, and — passed in — the
-    // composer takes its size as device pixels as given (its own default multiplies by the pixel ratio a second time).
+    // Our own target: half-float for the bloom's headroom, MSAA so the ropes do not alias. Sizes here are DEVICE
+    // pixels; the composer would multiply by the renderer's pixel ratio a second time (16× the pixels on a Retina
+    // display — the old pass did exactly that), so its ratio is pinned to 1.
     const target = new THREE.WebGLRenderTarget(Math.max(1, Math.round(w)), Math.max(1, Math.round(h)), { type: THREE.HalfFloatType, samples: this.samples });
     this.composer = new EffectComposer(renderer, target);
+    this.composer.setPixelRatio(1);
     this.composer.addPass(new RenderPass(scene, camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(w, h), cfg.bloomStrength, cfg.bloomRadius, cfg.bloomThreshold);
     this.composer.addPass(this.bloom);

@@ -124,7 +124,7 @@ export const SCHEMA = {
   fillSkyColor:     color('#b4c8ff', 'light', 'hemisphere fill, from above — the cool half of the warm/cool split'),
   fillGroundColor:  color('#2a1d14', 'light', 'hemisphere fill, from below — canvas bounce'),
   rimColor:         color('#dfe8ff', 'light', 'rim light colour (it rides the camera, always behind the far ropes)'),
-  backIntensity:    num(1.4, 0, 8, 0.05, 'light', 'the two coloured back lights on the truss corners above the red and blue corners (fixed in the room, so the rim on a fighter changes as the pair circles). Off on the low tier'),
+  backIntensity:    num(1.4, 0, 8, 0.05, 'light', 'the two coloured back lights on the truss corners above the red and blue corners (fixed in the room, so the rim on a fighter changes as the pair circles). On in both quality tiers — a tier never changes how a fighter is lit'),
   backColorA:       color('#ff8a4a', 'light', 'back light over the red corner (+x, +z) — warm'),
   backColorB:       color('#4a9aff', 'light', 'back light over the blue corner (−x, −z) — cool'),
 
@@ -651,7 +651,7 @@ export const SCHEMA = {
   rigMoveLeanShift:        num(0.05, 0, 0.15, 0.005, 'rig', 'walking: the hips shift this far into the direction of travel at top speed, m — the weight goes where the fighter is going, so the legs trail'),
 
   // ── show (RENDER + audio) — overhaul 2026-11-11, "the show": the quality tier, the crowd's mood (one excitement value the stands, the flashes and the crowd audio all follow; src/render/mood.ts), the grade, ring dressing ──
-  qualityTier:      num(0, 0, 2, 1, 'show', '0 = auto (low on touch / small-screen / few-core devices, else high), 1 = low (no post, thinner crowd, no haze or motes, two beams, small shadow map, no back lights), 2 = high'),
+  qualityTier:      num(0, 0, 2, 1, 'show', '0 = auto (low on touch / small-screen / few-core devices and on software WebGL — which is what headless test runs use; else high), 1 = low (no post, thinner crowd, no haze or motes, two key beams, small shadow map), 2 = high'),
   lowTierMinScreen: num(560, 300, 1400, 10, 'show', 'auto tier: a screen whose short side is under this many CSS px is low tier (phones; a small desktop window still has a big screen)'),
   lowTierMaxCores:  num(4, 1, 16, 1, 'show', 'auto tier: a device reporting this many logical cores or fewer is low tier'),
   lowCrowdScale:    num(0.4, 0.05, 1, 0.05, 'show', 'low tier: crowd instances as a fraction of crowdCount'),
@@ -674,7 +674,9 @@ export const SCHEMA = {
   exciteBell:       num(0.42, 0, 1, 0.01, 'show', 'the bell lifts excitement to at least this (applause)'),
   countHushDelay:   num(1.6, 0, 6, 0.1, 'show', 'seconds the eruption on a knockdown runs before the house hushes for the count'),
   postBloomScale:   num(0.5, 0.25, 1, 0.05, 'show', 'post: resolution of the bloom chain against the frame (0.5 = quarter the pixels — cheap, and softer)'),
-  postMsaa:         num(4, 0, 8, 1, 'show', 'post: MSAA samples on the scene target (the ropes alias without it)'),
+  postPixelRatio:   num(1.5, 1, 2, 0.05, 'show', 'post: while the post pass runs the frame is drawn at no more than this device pixel ratio (a Retina display is 2; the pass is paid per pixel, and 1.5 with MSAA is hard to tell from 2)'),
+  postMsaa:         num(2, 0, 8, 1, 'show', 'post: MSAA samples on the scene target (the ropes alias without it). 2 holds 60 fps at 1440×900 on the M1; 4 does not'),
+  postBudgetMs:     num(21, 0, 50, 0.5, 'show', 'post governor: if the average frame over 120 frames is slower than this with post on, the pass gives ground — pixel ratio down a quarter-step at a time to 1, then MSAA off. It never steps back up. Above a 50 Hz display\'s 20 ms so that one is left alone. 0 = off'),
   postContrast:     num(0.22, 0, 1, 0.01, 'show', 'post grade: strength of the gentle filmic S-curve (deeper shadows, a soft shoulder)'),
   postSaturation:   num(1.06, 0, 2, 0.01, 'show', 'post grade: saturation'),
   postSplitTone:    num(0.035, 0, 0.2, 0.005, 'show', 'post grade: shadows lean cool, highlights lean warm by this much'),

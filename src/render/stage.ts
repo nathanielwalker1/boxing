@@ -15,7 +15,7 @@ import { Arena, arenaKey } from './arena';
 import { PostPass } from './post';
 import { disposeTree } from './util';
 import { mood, type ReactionKind } from './mood';
-import { qualityTier, softwareGL, type Tier } from './tier';
+import { qualityTier, noteRenderer, type Tier } from './tier';
 
 /** A framing the host asks for instead of the two-fighter default: the knockdown count, looking at the downed fighter. */
 export interface CameraShot { focus: Vec2 }
@@ -58,6 +58,9 @@ export class Stage {
   private post: PostPass | null = null;
   private aniso: number;
   private software: boolean;   // WebGL is a CPU rasteriser (headless): post runs without MSAA
+  private govSum = 0; private govN = 0;   // the post governor's frame-time window
+  private govDrop = 0;                    // pixel ratio the governor has taken off postPixelRatio
+  private govNoMsaa = false;              // ...and its last resort
 
   // camera state (smoothed dolly/FOV + impact punch-in)
   private dist = -1;
@@ -104,7 +107,7 @@ export class Stage {
     this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
     this.aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
-    this.software = softwareGL(this.renderer.getContext());
+    this.software = noteRenderer(this.renderer.getContext());
 
     this.fog = new THREE.Fog(new THREE.Color(cfg.fogColor), cfg.fogNear, cfg.fogFar);
     this.scene.fog = this.fog;
@@ -302,7 +305,7 @@ export class Stage {
     this.fill.groundColor.set(c.fillGroundColor);
     this.rim.intensity = c.rimIntensity;
     this.rim.color.set(c.rimColor);
-    const back = this.tier === 2 && c.backIntensity > 0;
+    const back = c.backIntensity > 0;   // both tiers: they light the fighters, and a tier must not change how a fighter reads
     const S = c.trussSize / 2;
     this.backA.visible = this.backB.visible = back;
     this.backA.intensity = this.backB.intensity = c.backIntensity;
@@ -383,11 +386,25 @@ export class Stage {
     this.rim.position.set(-Math.cos(az) * 6, 3.5, -Math.sin(az) * 6);
     this.rim.target.position.copy(this.look);
 
+    // Post is paid per pixel: while it runs, the frame is drawn at no more than postPixelRatio (MSAA covers the
+    // difference). The governor: if frames stay over postBudgetMs with post on, post gives ground — resolution a
+    // quarter-step at a time down to 1, then MSAA. It only ever steps down (no hunting); a tier change resets it.
+    if (this.postOn && c.postBudgetMs > 0 && dt > 0 && dt < 0.1) {
+      this.govSum += dt; this.govN++;
+      if (this.govN >= 120) {
+        if (this.govSum / this.govN > c.postBudgetMs / 1000) {
+          if (c.postPixelRatio - this.govDrop > 1) this.govDrop += 0.25; else this.govNoMsaa = true;
+        }
+        this.govSum = 0; this.govN = 0;
+      }
+    }
+    const wantPr = Math.min(devicePixelRatio, this.postOn ? Math.max(1, c.postPixelRatio - this.govDrop) : 2);
+    if (Math.abs(this.renderer.getPixelRatio() - wantPr) > 1e-3) { this.renderer.setPixelRatio(wantPr); this.resize(); }
     const pr = this.renderer.getPixelRatio();
     this.arena.update(c, dt, this.camera, this.fog, this.size[1] * pr, mood.value);
 
     if (this.postOn) {
-      const samples = this.software ? 0 : c.postMsaa;
+      const samples = this.software || this.govNoMsaa ? 0 : c.postMsaa;
       if (this.post && this.post.samples !== samples) { this.post.dispose(); this.post = null; }
       if (!this.post) {
         const [w, h] = this.size;
