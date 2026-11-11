@@ -12,11 +12,12 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 | Core: `FrameInput.level` + bindings | done |
 | A — the fighting (sim, AI, tests) | sim side merged 2026-11-11, 36/36 green (`docs/OVERHAUL_SIM.md`); nothing new is DRAWN or HEARD yet; AI too easy (phase 2 running) |
 | B — bodies and variance (rig, roster, generator) | merged 2026-11-11 (`docs/OVERHAUL_RIG.md`, `docs/overhaul/lookbook_after.png`); weak spots listed below |
-| Reads: the new fight state drawn on the new bodies | in progress (RIG workstream, phase 2) |
+| Reads: the new fight state drawn on the new bodies | first pass merged 2026-11-11 (41/41 green); about a third wired but never filmed — RIG phase 3 is filming and fixing each |
 | C — styles, the four unread ratings, AI difficulty, drill opponents | merged 2026-11-11, 40/40 green; not yet connected to the menus (UI workstream) or the rig's stance (RIG phase 2) |
-| Balance on the roster of eight, punch heights, the loaded counter, fight length | in progress (SIM workstream, phase 3) |
+| Balance on the roster of eight, punch heights, the loaded counter, fight length | phase 3 merged 2026-11-11 (heights, counter retune, fight length, three difficulty matrices); balance still breaks the brief in three places — phase 4 running |
 | D — arena, lighting, haze, crowd, post, audio | merged 2026-11-11 (see `docs/OVERHAUL_SHOW.md`); audio unheard, polish list below |
-| D — title, select, cards, ring walk, replay, ladder, gym shell, controls card | in progress (UI workstream; log `docs/OVERHAUL_UI.md`) |
+| D — title, select, cards, ring walk, replay, ladder, gym, controls card | first pass merged 2026-11-11 and connected to styles, difficulty and the seven drills; polish and input coverage in progress (UI phase 2) |
+| Sound for the new events; arena polish | merged 2026-11-11 (`docs/OVERHAUL_SHOW.md` phase 2); audio rendered and measured, still unheard |
 
 Workstream logs (each agent keeps its own, merged into this file at integration):
 `docs/OVERHAUL_SIM.md`, `docs/OVERHAUL_RIG.md`, `docs/OVERHAUL_SHOW.md`.
@@ -202,6 +203,46 @@ size in the after-lookbook cells:
 - None of the new state is drawn or heard yet (variants, grades, guard wear,
   body damage, the get-up struggle). That is step 5 of the plan.
 
+**Reads (RIG phase 2, merged)** — `docs/OVERHAUL_RIG.md`, phase 2 section.
+- Seen and good: `strip_flush_counter_after.png` (slip, loaded hook, head
+  whip with the mouth open, arms flung apart, the fall); the level drop and
+  body-shot bend; the roll as a U under a hook; the two knockdowns and the
+  get-up (head: falls back, props on an arm, a knee, rises; body: sags to a
+  knee with a hand down).
+- Seen and weak: the burst's hop does not read; the clinch has the heads
+  apart and arms passing through the other man; the sweat spray is barely
+  visible; the winded buckle is subtle; a downed man lies knees-up.
+- Wired but never looked at when merged: glancing vs clean vs flush side by
+  side; block stun, guard break and guard droop; the bounce, flat feet and
+  the ropes posture; most punch variants (step / retreat jab, overhand,
+  rising punches, check hook, feint); swelling, cuts and the open mouth at
+  play distance; the get-up slump. Phase 3 films each.
+- The blade is partly back: the ribcage turns 20° while the shoulder joints
+  stay on the sim's, hips still 12° (were 28°). A full blade at the shoulders
+  needs the sim's shoulder placement changed.
+- The drawn arms leave the sim's joints in the clinch and the push-off (the
+  sim keeps the gloves at the guard for both) — an exception to "drawn = hit
+  geometry", harmless today because neither can be hit there, but it should
+  be the sim's to place.
+- In play framing a downed man drops out of the bottom of the frame; the
+  knockdown shot covers it live.
+
+**Menus and flow (UI, merged)** — `docs/OVERHAUL_UI.md`; captures
+`docs/overhaul/ui_*.png`. Working title LONG COUNT.
+- Never run by anyone: gamepad menus and all tap / click input (the checks
+  drive the keyboard).
+- The title's ring is empty and the wordmark is a system font; the stare-down
+  card and the results panel cover the fighters; the corner card covers the
+  ring; the debug fps overlay sits over the menus; skipping a card with a
+  punch button throws that punch when the fight resumes; pause does not
+  silence the crowd.
+- The replay interrupts the count at 2 (`flowReplayAtCount`, `flowReplayOn`);
+  cloth and feet may jump on its first frames; its KO path has no check.
+- Scores are hidden until the results; the corner card shows punch stats,
+  condition and one line of advice.
+- No stool or corner men in the rest; the ring walk is short (1.6 m, no
+  tunnel).
+
 **Styles, ratings, difficulty (SIM phase 2, merged)** — `docs/OVERHAUL_SIM.md`
 "Phase 2".
 - Style → guard: pressure = high, outboxer = long, counter = shell, swarmer =
@@ -225,6 +266,59 @@ size in the after-lookbook cells:
   Phase 3 is on these.
 - In a scripted probe one flush loaded counter floors a fresh fighter every
   time. Being retuned so a fresh man is badly rocked and a worn one goes down.
+
+**Balance on the real roster (SIM phase 3, merged)** — `docs/OVERHAUL_SIM.md`
+"Phase 3". Each style fought on its own roster body, 20 fights a cell on
+medium, win % for the bot ("AI" = the AI's share against the three real plans):
+
+  | Bot | pressure | outboxer | counter | swarmer | slugger | avg |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | jab-and-move | 0 | 0 | 100 | 65 | 0 | 33 |
+  | inside fighter | 75 | 100 | 90 | 65 | 80 | 82 |
+  | counter puncher | 65 | 0 | 100 | 0 | 95 | 52 |
+  | turtle | 0 | 0 | 0 | 0 | 0 | 0 |
+  | masher | 5 | 0 | 0 | 20 | 15 | 8 |
+  | AI | 43 | 67 | 3 | 50 | 42 | |
+
+  Easy averages 84% for the real plans, hard 45% (10 fights a cell).
+- Breaks the brief: **stick-and-move is not a complete way to win** (0 of 60
+  against pressure, outboxer and slugger); **the counter style cannot fight**
+  (3%); **the tall outboxer cannot keep a man off him** (0 of 20 against the
+  inside fighter). The inside fighter wins 82% overall. Phase 4 is on these.
+- About 3 knockdowns a fight on average — too many for a Fight Night-style
+  game; being brought down in phase 4.
+- Met: one flush loaded counter now rocks a fresh fighter (2.6 s) and floors a
+  worn one, a weak chin or anyone hit by a heavy puncher; a second clean shot
+  while rocked finishes. Punches aim at the real head and body of a 1.63 m or
+  1.98 m opponent (`heights_test`, 56 pairs × 7 punches; one known limit: an
+  uppercut thrown down at the 1.63 m man lands on his chest). Fights reaching
+  the last round 57% → 77%; stopped in round 1 26% → 10%.
+- New rules a player will notice: a jab is capped in power; the 112 kg man
+  walks through jabs; a rocked man cannot be finished by the rest of the same
+  combination; a man gets up with half a bar and some wind.
+
+**Sound for the new events and arena polish (SHOW phase 2, merged)**
+- Every new event has a sound (grades, combination build, variants, body
+  shots with an exhale, the liver thud, the delayed buckle, guard wear and
+  break, slips by kind, burst, pivot, push-off, clinch, the get-up, footfalls,
+  rope creak) and the crowd reacts to them. Nobody has heard any of it.
+- It was rendered to WAV and measured (`scripts/audio_render.mjs`, table in
+  `docs/OVERHAUL_SHOW.md`). The numbers caught real faults, now fixed: the
+  slip whoosh was the loudest sound in the game; the crowd bed was as loud as
+  a clean cross at full excitement; most crowd reactions were inaudible under
+  the bed; the worst overlap clipped. Flush is now louder and longer than
+  clean than glancing in every class; a flush counter hook is the heaviest
+  thing in the mix and is held to −1 dBFS by a soft clipper — whether that
+  reads as heavy or as distortion needs ears.
+- Arena: tunnel mouths instead of orange rectangles; warm and cool crowd; the
+  near corner post dissolves near the lens; the scoreboard shows round and
+  clock; a fighters' entrance. Still wrong: the lower bowl is brighter, so a
+  dark-skinned fighter separates from it less in greyscale; post dither shows
+  as speckle from the low camera; the white rope is faintly pink; the near
+  ropes still cross the frame at the diagonals; ringside figures are simple.
+- `flow_check` times out in the full parallel run (a wall-clock wait for a
+  round to end on software GL) and passes alone; being made load-proof by the
+  UI pass.
 
 **Arena and audio (SHOW, merged)** — full list in `docs/OVERHAUL_SHOW.md`.
 - Every audio level and recipe (crowd bed, reactions, the three impact

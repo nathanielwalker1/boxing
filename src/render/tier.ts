@@ -41,6 +41,9 @@ export function noteRenderer(gl: WebGLRenderingContext | WebGL2RenderingContext)
   return software;
 }
 
+/** WebGL is a CPU rasteriser (set by noteRenderer). Blended full-screen layers are skipped there: they are what a software frame is made of. */
+export function softwareRenderer(): boolean { return software; }
+
 /** The tier in force for this config on this device. */
 export function qualityTier(c: Config): Tier {
   if (c.qualityTier === 1 || c.qualityTier === 2) return c.qualityTier;

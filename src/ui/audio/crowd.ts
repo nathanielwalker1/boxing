@@ -22,9 +22,13 @@ export class CrowdBed {
   applause: AudioBuffer | null = null;
   private nodes: { rumble: GainNode; murmur: GainNode; chatter: GainNode; roar: GainNode; murmurLp: BiquadFilterNode; chatterHp: BiquadFilterNode; swellA: GainNode; swellB: GainNode } | null = null;
 
-  constructor(private ctx: AudioContext, private cfg: Config, private out: AudioNode, private noise: AudioBuffer) {
+  /** Resolves once the walla loop is rendered and the bed's layers are playing (the offline renderer waits on it). */
+  readonly ready: Promise<void>;
+
+  /** Any BaseAudioContext: the live AudioContext, or an OfflineAudioContext for scripts/audio_render.mjs. */
+  constructor(private ctx: BaseAudioContext, private cfg: Config, private out: AudioNode, private noise: AudioBuffer) {
     try { this.applause = this.buildApplause(); } catch { this.applause = null; }
-    this.renderWalla().then(buf => { this.walla = buf; this.start(); }).catch(() => { /* no walla: reactions fall back to noise, the bed stays off */ });
+    this.ready = this.renderWalla().then(buf => { this.walla = buf; this.start(); }).catch(() => { /* no walla: reactions fall back to noise, the bed stays off */ });
   }
 
   /** A few hundred claps scattered over a loop; each a few ms of decaying noise. Claps wrap round the end, so it loops clean. */
@@ -127,10 +131,10 @@ export class CrowdBed {
   }
 
   /** Called ~10×/s: levels and brightness follow the mood. `e` excitement 0..1, `hush` 0..1. */
-  update(e: number, hush: number): void {
+  update(e: number, hush: number, when = this.ctx.currentTime, k = 0.18): void {
     const n = this.nodes;
     if (!n) return;
-    const c = this.cfg, t = this.ctx.currentTime, k = 0.18;
+    const c = this.cfg, t = when;
     const on = c.audioEnabled && c.audioCrowdEnabled ? 1 : 0;
     const quiet = 1 - c.audioHushDepth * hush;
     const murmur = c.audioBedMurmur * (0.75 + 0.5 * e) * quiet * on;
