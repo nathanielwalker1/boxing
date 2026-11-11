@@ -191,6 +191,9 @@ export function stepCount(s: SimState, cfg: Config, dt: number, events: SimEvent
       f.getUp = { phase: 'none', t: 0, tries: 0, owed: false };
       f.health = Math.max(f.health, cfg.knockdownHealthRestore);
       setHealthCap(f, Math.max(healthCap(f), f.health));
+      // The count is a breather (phase 3): he gets up with some wind. Without it a man floored with an empty tank got
+      // up with an empty tank — no guard, no punches — and was floored again (measured: 3 knockdowns in 26 s, stamina 0.01 at each get-up).
+      f.stamina = Math.max(f.stamina, Math.min(f.staminaCap, cfg.knockdownStaminaRestore));
       events.push({ type: 'getUp', side });
       s.round.phase = 'fighting';
       s.round.phaseT = 0;

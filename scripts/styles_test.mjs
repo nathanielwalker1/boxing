@@ -117,6 +117,20 @@ console.log('\n=== 6. Inside is earned ===');
   check('…and the same jab is no heavier for it (the stop is in his feet, not on the bar)', near(on.at.power, off.at.power, 1e-9));
   const standing = run(fresh(quiet, 0.8, 10, 0, 1, [as('pressure'), as('pressure')]), 12, i => [inp({ jab: i === 0 }), NONE], quiet).s.fighters[1];
   check('a jab on a man standing still does not stun-lock him', standing.blockStun === 0);
+
+  // Phase 3: behind the gloves is not free either. He walks in with the guard up; the jab lands on it.
+  const guarded = c => {
+    let pressed = false, hit = null, closest = 9, blocked = false;
+    run(fresh(c, 1.7, 10, 0, 1, [as('pressure'), as('pressure')]), 110, (i, s) => { const go = !pressed && k.dist(s) < 1.1; if (go) pressed = true; return [inp({ jab: go }), inp({ block: true, move: { x: 0, y: 1 } })]; }, c,
+      (s, i, ev) => { if (hit === null && ev.some(e => e.type === 'punchBlock' && e.side === 0)) { hit = i; blocked = true; } if (hit !== null && i <= hit + 12) closest = Math.min(closest, k.dist(s)); });
+    return { closest, blocked };
+  };
+  const gOn = guarded(quiet), gOff = guarded({ ...quiet, jabStopGuard: 0 });
+  check(`a jab on the GUARD of a man walking in takes his step: 0.2 s later he is at ${gOn.closest.toFixed(2)} m (${gOff.closest.toFixed(2)} m with jabStopGuard 0)`, gOn.blocked && gOff.blocked && gOn.closest > gOff.closest + 0.03);
+  // …and a jab is a jab: whatever stacked on it, it lands with at most jabImpulseCap.
+  const big = walkIn({ ...quiet, jabImpulseMult: 3 }), capOff = walkIn({ ...quiet, jabImpulseMult: 3, jabImpulseCap: 0 });
+  const magOf = e => Math.hypot(e.impulse.x, e.impulse.z);
+  check(`a jab never lands with more than jabImpulseCap (${magOf(big.at).toFixed(0)} N·s; ${magOf(capOff.at).toFixed(0)} with the cap off)`, magOf(big.at) <= quiet.jabImpulseCap + 1e-6 && magOf(capOff.at) > quiet.jabImpulseCap);
 }
 
 done();

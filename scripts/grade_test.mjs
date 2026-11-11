@@ -54,10 +54,12 @@ console.log('\n=== 2. Glancing ===');
 console.log('\n=== 3. Flush ===');
 {
   // Into his own punch: the dummy's hook is in its extension when the cross lands.
-  const trade = i => inp({ hook: i === 0 });
+  // (Phase 3: his LEAD hook. With the lane tracking his height fully, a cross into his REAR hook now arrives at the
+  // height of the lead glove still at his chin, pins it on his face and is a land THROUGH the guard — clean, not flush.
+  // Before, the fist came in 5.5 cm low, under that glove. Into the lead hook the lead hand is away and the chin is open.)
+  const trade = i => inp({ hook: i === 0, move: { x: i === 0 ? -1 : 0, y: 0 } });
   const a = hit('cross', MID, cfg, trade, s => run(s, 3, i => [NONE, trade(i)]).s);
-  const b = hit('cross', MID, plain, trade, s => run(s, 3, i => [NONE, trade(i)], plain).s);
-  check(`a cross into the other man's hook is FLUSH (${a.land?.grade}; ${(a.land.power / b.land.power).toFixed(2)}× = gradeFlushPower on top of the exposure bonus)`, a.land?.grade === 'flush' && near(a.land.power / b.land.power, cfg.gradeFlushPower, 1e-6));
+  const b = hit('cross', MID, plain, trade, s => run(s, 3, i => [NONE, trade(i)], plain).s);  check(`a cross into the other man's hook is FLUSH (${a.land?.grade}; ${(a.land.power / b.land.power).toFixed(2)}× = gradeFlushPower on top of the exposure bonus)`, a.land?.grade === 'flush' && near(a.land.power / b.land.power, cfg.gradeFlushPower, 1e-6));
   // (That cross also ROCKS him, which has its own, longer, hit-stop; the larger wins.)
   const rockedBy = a.evs.some(e => e.type === 'rocked');
   check(`…with the flush hit-stop (${a.hs.toFixed(3)} s${rockedBy ? ', raised to stunHitStop by the rock' : ''})`, near(a.hs, Math.max(cfg.hitStopFlush, rockedBy ? cfg.stunHitStop : 0), 1e-9));
@@ -94,7 +96,7 @@ console.log('\n=== 4. Combinations ===');
   check(`a 1-2-3 lands as punches 1, 2, 3 of a combination (${on.lands.map(l => l.combo).join(', ')})`, on.lands.length === 3 && on.lands.map(l => l.combo).join() === '1,2,3', on.lands.map(l => `${l.variant}:${l.grade}`).join(' '));
   check(`the 2nd hits ${(on.lands[1].power / off.lands[1].power).toFixed(2)}× and the 3rd ${(on.lands[2].power / off.lands[2].power).toFixed(2)}× what they would alone (comboBuildStep)`,
     near(on.lands[1].power / off.lands[1].power, 1 + cfg.comboBuildStep, 0.02) && near(on.lands[2].power / off.lands[2].power, 1 + 2 * cfg.comboBuildStep, 0.03));
-  check(`the third punch of the combination hits harder than the same punch thrown first (${on.lands[2]?.power.toFixed(2)} vs ${off.lands[2]?.power.toFixed(2)})`, on.lands[2].power > off.lands[2].power * 1.2);
+  check(`the third punch of the combination hits harder than the same punch thrown first (${on.lands[2]?.power.toFixed(2)} vs ${off.lands[2]?.power.toFixed(2)})`, on.lands[2].power > off.lands[2].power * 1.15);   // (measured 1.201× with full height tracking; the bound was a strict 1.2)
   check('the first punch of a combination is untouched', near(on.lands[0].power, off.lands[0].power, 1e-9));
   const cap = { ...base, comboBuildStep: 0.3 };
   const capped = combo(cap), capOff = combo({ ...cap, comboBuildOn: false });

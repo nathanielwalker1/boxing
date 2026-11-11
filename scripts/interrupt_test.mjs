@@ -167,4 +167,23 @@ const resolvesOf = (evs, side) => evs.filter(e => e.side === side && (e.type ===
   check('no NaN anywhere in the state after a stuff', !isNaNDeep(a));
 }
 
+// ── Weight (phase 3): a big man is not stopped by a light shot ───────────────
+{
+  const heavy = ROSTER.find(f => f.id === 'raffle');   // 112 kg
+  const vs = (who, press, c = cfg, late = 0) => {
+    let s = sim.createState([specs[0], who], c, 1);
+    s.fighters[0].pos = { x: -MID / 2, z: 0 }; s.fighters[1].pos = { x: MID / 2, z: 0 };
+    for (let i = 0; i < 30; i++) s = sim.step(s, [NONE, NONE], c).state;
+    return run(s, 90, i => [inp({ [press]: i === 0, move: { x: i === 0 && press === 'hook' ? -1 : 0, y: 0 } }), inp({ hook: i === late })], c).evs;
+  };
+  const bar = cfg.interruptPoise * (heavy.massKg - cfg.interruptPoiseMass);
+  const jabOnHeavy = vs(heavy, 'jab'), jabLand = jabOnHeavy.find(e => e.type === 'punchLand' && e.side === 0);
+  check(`a jab (${Math.hypot(jabLand.impulse.x, jabLand.impulse.z).toFixed(0)} N·s) on the 112 kg man winding up a hook lands but does not stuff it (his bar: ${bar.toFixed(0)} N·s)`, !!jabLand && !jabOnHeavy.some(e => e.type === 'punchStuffed') && resolvesOf(jabOnHeavy, 1).length === 1);
+  const hookOnHeavy = vs(heavy, 'hook', cfg, 8);   // (his hook starts 8 ticks after mine, so mine arrives in his wind-up)
+  const hookLand = hookOnHeavy.find(e => e.type === 'punchLand' && e.side === 0);
+  check(`a hook (${hookLand ? Math.hypot(hookLand.impulse.x, hookLand.impulse.z).toFixed(0) : '-'} N·s) on him still stuffs it`, hookOnHeavy.some(e => e.type === 'punchStuffed' && e.side === 1));
+  check('the same jab on an 82 kg man stuffs his hook, as always (interruptPoiseMass 90)', vs(specs[1], 'jab').some(e => e.type === 'punchStuffed' && e.side === 1));
+  check('interruptPoise 0: weight does not matter', vs(heavy, 'jab', { ...cfg, interruptPoise: 0 }).some(e => e.type === 'punchStuffed' && e.side === 1));
+}
+
 done();

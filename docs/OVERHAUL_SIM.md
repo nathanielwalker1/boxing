@@ -478,3 +478,319 @@ On hard (6 fights a cell, measured before decision 7, so stale): jab-and-move
    lines, or scripting a hook instead of the cross, should restore it.
 10. **Nothing here was feel-tested or drawn.** Guard shapes move the sim's
    gloves and boxes; whether the rig draws them is the rig's.
+
+---
+
+# Phase 3 — heights, balance on the roster bodies, the loaded counter, fight length (2026-11-11)
+
+Phase 2's "not done" items 1–7 are superseded by this section. Nothing in it
+was feel-tested: it is measured in Node and by the bot matrix.
+
+## 1. Heights
+
+- **`punchAimDeadband` 0.08 → 0.** The lane tracks the opponent's standing
+  height fully, head lane to head, body lane to body, and now includes the
+  crouch of each man's guard (the peek-a-boo sits 4 cm down).
+- **`hitBody(f, cfg)` (`sim/reaction.ts`), `bodyBoxChinSection` 0.78.** The
+  body capsule has one radius, hips to shoulders. On the 112 kg man (bodyR
+  23 cm) its top stood 15 cm above his chin and further forward than his
+  face, so every cross, hook and uppercut at his head stopped on air above
+  his chest and scored to the body. For FISTS only (the hit test, the glove
+  clamp, the target cut) the capsule's top end comes down its own axis until
+  the capsule is no wider than 0.78 × the head radius at chin height. Red
+  (0.77) and blue (0.61) are untouched; body-to-body separation and the rig
+  keep `bodyBox`. **For the rig:** this is a hit volume only, nothing to draw.
+- **A body punch stopped on the guard is a body shot.** It was scored to the
+  head (the shell's forearm lies across the ribs; every body cross on the two
+  shell-guard men read "head, glancing").
+- **Slipping into the hand is a rule** (`wrongWayShoulder` 0.08 m). It was
+  geometry: red's lane sat 5.5 cm low on blue and clipped the capsule by 2 cm.
+  With the lane on the head the fist clears the shoulder by ~6 cm, so a head
+  punch going past a head that slipped TOWARD the punching hand is caught by
+  the shoulder counted 8 cm higher. Same outcome as before (a body shot,
+  wrong way), now for every pair of heights.
+- **Tried and rejected: aiming at the chin** (`punchAimChin`, kept as a key
+  at 0). At 0.055 — where red's punches used to arrive on blue — every
+  ported red/blue number held without a rule, but hooks then landed on the
+  shoulder of any thick-set man (14 of 392 pair × punch rows failing) and a
+  jab landed clean on a ducked head of the same height.
+- **`heights_test.mjs`** (24 checks): all 56 ordered roster pairs × seven
+  punches (jab, cross, hook, uppercut, body jab, body cross, body hook),
+  each scanned from 1.5 m to 0.45 m. Every punch lands on every opponent;
+  head punches on the head and body punches on the body from the middle of
+  the distances each lands from. Before (dead band 0.08, plain capsule):
+  65 of 392 rows failed. Now 4, all the same case, pinned as a known limit.
+  Short and tall: the 1.98 m man's jab and cross hit the standing 1.63 m man
+  on the head, clean, from 7 of 10 landing distances (0.60–1.05 m); the
+  1.63 m man's hit him from 4 of 6 and 4 of 7 (0.60–0.83 m). Reach: the tall
+  man's jab lands from 1.125 m, where the short man's whiffs; his own longest
+  is 0.825 m. With `punchAimTrack` 0 the tall man's cross finds the short
+  man's head clean from 0 distances.
+
+Re-measured red / blue assertions:
+
+| Test | Was | Now | Why |
+| --- | --- | --- | --- |
+| `grade_test` "a cross into the other man's hook is flush" | into his REAR hook | into his LEAD hook | on his head lane the cross now meets the lead glove still at his chin, pins it and lands THROUGH the guard (clean). It used to pass 5.5 cm under that glove |
+| `grade_test` third punch of a combination | `> 1.2 ×` | `> 1.15 ×` | measured 1.201 × |
+| `slipx_test` "the loaded cross is harder" | loaded-off-the-slip vs a square cross | vs the same cross off the same slip with the load off | from the slipped position the cross pins his resting glove either way (measured 0.84 × a square cross); like is now compared with like, ratio = `slipLoadedPower` |
+| `slipx_test` wrong way | with the rule off the shot clips the shoulder, glancing | with the rule off it is a clean dodge; `wrongWayShoulder` 0 no longer catches it | see above |
+| `slip_test`, `punch_test`, `counter_test`, `level_test` | — | unchanged, all green | the shoulder rule restores the one `slip_test` case that moved |
+
+## 2. Balance on the roster bodies
+
+`bot_table.mjs` now fights each style on a roster body of that style, with
+that man's ratings, reach and guard: pressure → monsoon, outboxer →
+lighthouse (1.98 m), counter → alambre (southpaw), swarmer → boiler (1.63 m),
+slugger → raffle (112 kg). The bot fights half of each cell as red and half as
+blue (the two reference bodies, one each side of average). `on=counter:grandad`
+swaps a body; `only=` / `cols=` run part of the matrix. It also prints the
+AI's win share per column and the fight-length numbers.
+
+What was wrong, in the order it was found (each measured in a trace, then
+fixed):
+
+1. **The AI's distances were blue's.** `styleFor(spec, cfg)` now scales every
+   range it holds or commits from to the body's arm (`withReach`,
+   `aiReachRefArm`, `aiReachPerArm`, `aiReachEager`). Where it stands only
+   grows with the arm; hooks and uppercuts shrink less than straights.
+2. **Under fire it could not get its wind back.** A man under the
+   inside-fighter bot went from 0.76 stamina to empty in 5 s and stayed
+   there: no guard, no punches, three knockdowns in 26 s. `staminaHitCost`
+   0.00026 → 0.00015; `knockdownStaminaRestore` 0.6 (he gets up with wind).
+3. **The jab did a cross's damage.** Step jabs landed at 310–480 N·s on a man
+   walking in (a standing cross is 272). `jabImpulseCap` 260.
+4. **It stood armed and silent.** In `reset` (stepping out) it never threw —
+   the outboxer started 12 punches in a 27 s fight, 51 against — and a
+   straight armed for a man now chest to chest waited there for seconds. It
+   now fights while stepping out if he is on top of it, jabs going away, and
+   changes an armed punch that does not fit where he is for one that does.
+5. **Any touch stopped its hands.** It threw nothing while "stumbling", at a
+   bar (0.6–2.5 m/s) every jab clears. With the tools the bar is 4.5 m/s.
+6. **It "slipped" punches that had already landed.** A slip or roll is now
+   chosen only if the punch's tell less its own reaction leaves 0.05 s; what
+   it cannot slip it blocks. The counter style reads at 0.13 s.
+7. **Walking in behind the gloves was free.** `jabStopGuard`: a jab on the
+   guard of a man walking in takes his forward speed (no stumble, no stun).
+8. **A guard held inside was broken in one combination** and the shots after
+   it landed at 680–1165 N·s. `guardWearPerImpulse` 0.0008 → 0.0006,
+   `guardBreakVuln` 0.8 → 0.5. The AI now covers a COMBINATION (first one
+   lands, guard up a reaction later, stays up while he keeps throwing, then
+   it fires back): `aiCoverOn`.
+9. **The big man could not throw.** Every slow punch he started was stuffed
+   by whatever touched him first; the masher beat him 67%.
+   `interruptPoise` 14 N·s per kg over `interruptPoiseMass` 90: he throws
+   through jabs and a standing cross; a flush cross or any hook still stuffs
+   him. Slugger style: comes forward, commits from the end of his reach.
+10. **Counters were thrown away.** The opening was dropped whenever its guard
+    was up or it was stepping out. It now takes it from both, once his punch
+    has been and gone. Against a jab the answer is the jab with the cross
+    behind it.
+11. **Difficulty did nothing.** Scaling reaction, defence and tempo moved the
+    legitimate bots' average from 57% (easy) to 54% (hard). `Difficulty` now
+    also has `hesitate` (set and in range, it waits a beat instead of
+    throwing) and `offence` (× the stiff jab, the reply off the guard, the
+    shove). The styles as written are close to hard; medium gives a little
+    away.
+
+## 3. The loaded counter
+
+`stunFlashFrac` 1.85 → 3.0 (× `counterFlashScale` 0.95 = 2.85 for a counter).
+The probe (blue jabs at 0.79 m, red slips to the lead side, lead hook) lands
+flush, counter, loaded: **1046 N·s**. Pinned in `danger_test` §4b:
+
+| Target | × his threshold after the shot | Result |
+| --- | --- | --- |
+| fresh blue (chin 62) | 2.69 | rocked 2.6 s, health 1.00 → 0.79, not floored |
+| the same man, the next clean hook while rocked | — | down (finish) |
+| worn to 80% health | over 2.85 (not printed) | down on the land tick (flash) |
+| worn to 60% health | over 2.85 (not printed) | down on the land tick (flash) |
+| chin 90, fresh | 2.32 | rocked |
+| chin 40, fresh | over 2.85 (not printed) | down (flash) |
+| thrown by a power-90 man (1207 N·s) | over 2.85 (not printed) | down (flash) |
+| thrown by a power-40 man (841 N·s) | under 2.85 (not printed) | rocked |
+
+Before: 1046 N·s against a bar of 1.85 × floored a fresh blue every time, on
+the land tick. The margin is thin: 2.69 against 2.85 for the fresh man, and
+80% health is already over it. A few percent of power, chin or wind decide
+it, so retuning damage or wind will move this — the test will say so.
+
+Side effect: the flash is now rare outside counters and worn men. The other
+routes down are the finish (rocked for `stunFinishGrace` 0.3 s, then a shot
+at `stunFinishFrac` 0.85 × threshold — was the very next punch at 0.65) and
+the bar running out.
+
+## 4. Fight length
+
+Turned: `healthDamagePerImpulse` 0.0003 → 0.0002, `stunFinishFrac` 0.65 →
+0.85 with `stunFinishGrace` 0.3 s, `knockdownHealthRestore` 0.35 → 0.5,
+`knockdownStaminaRestore` 0.6, `guardBreakVuln` 0.8 → 0.5,
+`guardWearPerImpulse` 0.0008 → 0.0006, `jabImpulseCap` 260, `staminaHitCost`
+0.00015.
+
+Fights between the three legitimate bots and the medium AI, default rounds
+(3 × 30 s), roster bodies:
+
+| | Before (start of phase 3, 90 fights) | After (300 fights) |
+| --- | --- | --- |
+| End by stoppage | 54% | 30% |
+| Median stoppage, seconds of boxing | 40 | 51 |
+| Stopped in round 1 | 26% | 10% |
+| Reach the last round | 57% | 77% |
+| Knockdowns a fight (both men) | 3.2 | 3.1 |
+
+All five bots (the turtle and the masher included): stoppages 58% → 41%,
+median 26 s → 46 s, round-1 stoppages 29% → 18%, reaching the last round
+49% → 66%.
+
+Knockdowns a fight did not fall. Fewer come from the bar running out and
+from the finish, but a man now gets up with half a bar and wind and is in the
+fight again, so fights that used to end on the third knockdown go on. If
+three a fight is too many for a 90-second fight, `healthDamagePerImpulse`
+again, or `knockdownsForTko`.
+
+## The three matrices
+
+`node scripts/bot_table.mjs 20 medium detail`, `… 10 easy`, `… 10 hard`. Win
+% for the bot. "AI" is the AI's share of the fights against the three
+legitimate bots in that column.
+
+**Medium, 20 fights a cell**
+
+| Bot | pressure (monsoon) | outboxer (lighthouse) | counter (alambre) | swarmer (boiler) | slugger (raffle) | avg |
+| --- | --- | --- | --- | --- | --- | --- |
+| jab-and-move | 0 | 0 | 100 | 65 | 0 | 33 |
+| inside-fighter | 75 | 100 | 90 | 65 | 80 | 82 |
+| counter-puncher | 65 | 0 | 100 | 0 | 95 | 52 |
+| turtle | 0 | 0 | 0 | 0 | 0 | 0 |
+| masher | 5 | 0 | 0 | 20 | 15 | 8 |
+| AI | 43 | 67 | 3 | 50 | 42 | |
+
+Legitimate plans average 56%.
+
+**Easy, 10 fights a cell**
+
+| Bot | pressure | outboxer | counter | swarmer | slugger | avg |
+| --- | --- | --- | --- | --- | --- | --- |
+| jab-and-move | 70 | 100 | 100 | 80 | 70 | 84 |
+| inside-fighter | 90 | 100 | 100 | 90 | 100 | 96 |
+| counter-puncher | 60 | 80 | 100 | 20 | 100 | 72 |
+| turtle | 0 | 0 | 0 | 0 | 0 | 0 |
+| masher | 10 | 0 | 0 | 20 | 50 | 16 |
+| AI | 17 | 7 | 0 | 30 | 3 | |
+
+Legitimate plans average 84%.
+
+**Hard, 10 fights a cell**
+
+| Bot | pressure | outboxer | counter | swarmer | slugger | avg |
+| --- | --- | --- | --- | --- | --- | --- |
+| jab-and-move | 0 | 0 | 100 | 70 | 0 | 34 |
+| inside-fighter | 80 | 90 | 20 | 60 | 40 | 58 |
+| counter-puncher | 40 | 10 | 80 | 0 | 90 | 44 |
+| turtle | 0 | 0 | 0 | 0 | 0 | 0 |
+| masher | 0 | 0 | 0 | 0 | 20 | 4 |
+| AI | 50 | 67 | 23 | 57 | 57 | |
+
+Legitimate plans average 45%.
+
+Against the targets, on medium:
+
+| Target | Result |
+| --- | --- |
+| Every legitimate plan wins against ≥ 1 style and is clearly worse against ≥ 1 | met (jab-and-move 100 / 0; inside-fighter 100 / 65; counter-puncher 100 / 0) |
+| No legitimate plan over 80% overall | **missed**: inside-fighter 82% |
+| Masher ≤ 15%, turtle ≤ 5% everywhere | turtle met; **masher 20% against the swarmer** (4 of 20) |
+| No style loses over 85% to any one legitimate plan | **missed** in six cells: the counter to all three (100 / 90 / 100), the outboxer to the inside-fighter (100), the slugger to the counter-puncher (95) — and, the other way, three bot cells at 0% |
+| No column under 25% or over 75% for the AI | **missed** for the counter (3%); the other four are 42–67% |
+| The best plan against the swarmer is not the best against the outboxer | met (jab-and-move; inside-fighter) |
+| Easy ≥ ~75%, hard ≤ ~45% for the legitimate plans | met: 84%, 45% (medium 56%) |
+
+## Interface changes (phase 3)
+
+- **Call for main.ts, unchanged in shape:** `createAi(side, seed, cfg, styleFor(spec, cfg))`.
+  Pass the WHOLE roster spec: with `heightM`, `reachM` and `massKg` present
+  `styleFor` now scales the style's ranges to that body. A bare
+  `{ style }` still works and gives the distances as written.
+- No export was renamed. Added: `withReach(style, spec, cfg)` (ai);
+  `hitBody(f, cfg)` (sim, internal to the hit test).
+- `Difficulty` gained `offence` and `hesitate`; `StyleParams` gained
+  `hesitate`. `DIFFICULTY[1]` (medium) is no longer the identity: the styles
+  as written sit near hard.
+- `AiState` gained `oppQuiet` and `coverT` (plain numbers, serialisable).
+- No `FighterState` field was added in phase 3. Nothing new for the rig to
+  draw; `hitBody` is a hit volume only.
+- Config, new: `punchAimChin` (0), `bodyBoxChinSection`, `wrongWayShoulder`,
+  `jabImpulseCap`, `jabStopGuard`, `interruptPoiseMass`, `interruptPoise`,
+  `stunFinishGrace`, `knockdownStaminaRestore`, `aiReachRefArm`,
+  `aiReachPerArm`, `aiReachEager`, `aiCoverOn`. Changed: `punchAimDeadband`
+  0, `stunFlashFrac` 3, `stunFinishFrac` 0.85, `healthDamagePerImpulse`
+  0.0002, `staminaHitCost` 0.00015, `knockdownHealthRestore` 0.5,
+  `guardWearPerImpulse` 0.0006, `guardBreakVuln` 0.5.
+
+## Existing assertions changed in phase 3, and why
+
+Beyond the four re-measured red / blue rows under "Heights":
+
+| Test | Change | Why |
+| --- | --- | --- |
+| `stun_test` flash | the flooring cross is × 6 (was × 3.5) | `stunFlashFrac` 3 |
+| `stun_test` | added: a cross inside `stunFinishGrace` of the rock does not finish | new rule |
+| `danger_test` §4 | `counterFlashScale` 0.4 makes the counter a flash (was 0.7) | `stunFlashFrac` 3, less wind lost per hit |
+| `danger_test` §6 | the get-up section pins `stunFlashFrac` 1.85 for its one big cross | it is about the get-up, not the flash |
+| `danger_test` | added §4b (the loaded counter) and the wind-on-getting-up check | new |
+| `health_test` | regen-resumes bound 0.03 → 0.02; "at 0 stamina" is "at or just over 0" | a jab now takes 0.029 wind |
+| `attrition_test` | the jab-floor case starts at 0.03 health (was 0.04) | a jab now takes 0.039 health |
+| `ai_tools_test` | "it slipped or rolled" is checked on the counter style and must make punches miss; difficulty check reads "medium makes some mistakes, hard none"; reach scaling added | slips need time; medium is no longer the identity |
+| `interrupt_test`, `styles_test` | added: weight, the jab on the guard, the jab cap | new rules |
+
+No assertion was deleted.
+
+## Not done / below standard (phase 3)
+
+1. **The counter style loses to everything.** 3% across the legitimate bots
+   on medium (2 wins in 60), 23% on hard. On alambre (62 kg, power 52) it is
+   out-landed two to one and loses decisions; on grandad it was no better
+   (0 of 18 at 6 a cell). Measured causes, from two traced fights: 29% and
+   42% of its punches were stuffed (any clean touch stuffs a light man), it
+   cannot slip a jab on reaction, and its counters do not hurt. It does make
+   the inside-fighter pay more than it did (1.0 knockdowns a fight on the
+   bot, was 0.2) but not enough. What I would turn next: a counter that is safe from the stuff for
+   its first ticks when thrown into a recovery; a pull-counter against the
+   jab (step back out of it, cross over the top) rather than a slip; then
+   his body — a counter-puncher with power 52 has nothing to counter with.
+2. **The inside-fighter is at 82% on medium** (limit 80) and beats the
+   outboxer 20 of 20. The 1.98 m man is harder to get to than he was (fights
+   now go 71 s of boxing, were 18; most are decisions) but he is knocked down
+   4.5 times a fight once the bot is on his chest: chin 52. He ties up when
+   hurt and the finish now needs a beat, and it was not enough. Next: his
+   exit after the shove (a pivot out instead of a straight hop), and the
+   clinch cooldown (4 s) for a style built on it.
+3. **The jab-and-move bot wins 0 of 60 against pressure, outboxer and
+   slugger.** Against the slugger it is stopped 18 times in 20 (he walks
+   through the jab and lands the cross). That is the matchup the brief
+   describes for the outboxer, and too much for the other two. The bot does
+   not move its head or change range when the same answer keeps landing; a
+   person would. `interruptPoise` and the slugger's `intercept` are the knobs
+   if a person finds him unfair.
+4. **The masher wins 20% against the swarmer** (4 of 20; limit 15) and 50%
+   against the slugger on easy.
+5. **The slugger loses 95% to the counter-puncher bot.** Slow, loud punches
+   are what that bot is for; 95% is still outside the target.
+6. **Uppercuts thrown down at the 1.63 m man land on his chest** for four of
+   the seven opponents (pinned in `heights_test` as a known limit). His chest
+   capsule is thicker than his head and directly under it. It lands, on the
+   wrong part.
+7. **Easy and hard are 10 fights a cell** (± 15 points a cell; the averages
+   over 150 fights are firmer). Medium is 20.
+8. **The matrix is one body per style.** Red (pressure), blue (outboxer) and
+   grandad (counter) as AI were only spot-checked.
+9. **Three knockdowns a fight** on medium, unchanged (see Fight length).
+10. **Southpaw.** Alambre is the only southpaw and the bots assume an
+    orthodox opponent when they circle "away from the power hand". Not
+    examined; it may be part of item 1.
+11. **None of this has been played.** Every number here is bots against the
+    AI. In particular the new rules a person will feel at once — the jab cap,
+    the jab holding off a guarded walk-in, the big man walking through jabs,
+    the 0.3 s before a rocked man can be finished, health lasting half as
+    long again — are unfelt.

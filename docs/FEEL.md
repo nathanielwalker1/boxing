@@ -480,6 +480,35 @@ then `blockStunBase`; body pays too fast → `bodyWearFull`; feet too sticky in
 punches → the `…Move` keys; bursts firing by accident → `burstConfirm` /
 `burstTapWindow`; the AI too slippery → `aiSlipShare`, `aiShellTime`.
 
+### Phase 3 changes to those specs (2026-11-11; measured in Node and the bot matrix, NOT felt)
+
+The numbers above are as phase 1 / 2 left them. Phase 3 moved these
+(docs/OVERHAUL_SIM.md "Phase 3" has the why and the measurements):
+
+| What | Was | Now | Key |
+| --- | --- | --- | --- |
+| Health per N·s | 0.0003 (≈ 12 crosses / 8 hooks a bar) | 0.0002 (≈ 18 / 13) | `healthDamagePerImpulse` |
+| Wind per N·s taken | 0.00026 | 0.00015 (a cross taken ≈ a punch thrown) | `staminaHitCost` |
+| A jab's impulse | whatever stacked (310–480 N·s seen) | at most 260 | `jabImpulseCap` |
+| The finish | the next clean power shot ≥ 0.65 T while rocked | ≥ 0.85 T, and only once he has been rocked 0.3 s | `stunFinishFrac`, `stunFinishGrace` |
+| The flash | 1.85 T | 3.0 T (2.85 for a counter) | `stunFlashFrac` |
+| Getting up | 35% health, whatever wind he had | 50% health, at least 60% wind | `knockdownHealthRestore`, `knockdownStaminaRestore` |
+| Guard wear | a hook ≈ 0.33 of the meter | ≈ 0.23 | `guardWearPerImpulse` |
+| Guard break | exposure 0.8 for 1.1 s | 0.5 | `guardBreakVuln` |
+| Aim | own-height lane inside 8 cm of difference | his head / his body, always | `punchAimDeadband` 0 |
+| Slipping into the hand | caught if the geometry happened to | caught by the shoulder, counted 8 cm up | `wrongWayShoulder` |
+| A jab on the guard of a walker | nothing | takes his forward speed | `jabStopGuard` |
+| A light shot on a man over 90 kg | stuffs his punch | does not (under 14 N·s per kg over) | `interruptPoise`, `interruptPoiseMass` |
+
+What to look for in a feel-test, first: (1) the loaded hook off a slip — it
+should stagger a fresh man badly and floor a worn one; if a fresh man goes
+down to it, `stunFlashFrac` is too low for his chin. (2) Health now lasts
+half as long again — if exchanges feel weightless, `healthDamagePerImpulse`
+is the knob, not the stun numbers. (3) Walking in behind the guard against a
+jab should feel like being held off; if it feels like glue, `jabStopGuard`.
+(4) The 112 kg man walks through jabs: if that reads as unfair rather than
+heavy, `interruptPoise` down.
+
 ## Open
 
 - Overhaul (2026-11-11): everything in "Overhaul feel specs" is sim-side and
@@ -489,12 +518,10 @@ punches → the `…Move` keys; bursts firing by accident → `burstConfirm` /
   flat-footed bounce, ropes, pivot / burst / clinch / push-off, winded,
   get-up phases. A winded fighter currently draws the ROCKED wobble (the rig
   reads `hurt`, not `hurtKind`).
-- Balance against the scripted bots (docs/OVERHAUL_SIM.md): legitimate plans
-  win 90–100%, the inside fighter by stoppage in ~30 s. The default AI does
-  not defend the inside fight or the jab well enough; that is the style /
-  difficulty pass.
-- Per-fighter styles (the roster's `style` field is unread). The AI now takes
-  a `StyleParams` (src/ai/style.ts); one default instance exists.
+- Balance against the scripted bots is in docs/OVERHAUL_SIM.md "Phase 3":
+  five styles on their own roster bodies, three difficulty levels, the
+  matrices and what is still below standard (the counter style loses to
+  every legitimate bot). None of it has been played by a person.
 - Follow camera near a corner: a ring post can sit in the foreground as the
   orbit comes round (see `camera-never-shows-outside-the-ring` in memory —
   the overscan decision is still open). A post-avoidance nudge on the
