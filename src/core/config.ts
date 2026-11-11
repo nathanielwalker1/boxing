@@ -830,7 +830,7 @@ export const SCHEMA = {
   padDeadZone:      num(0.2, 0, 0.6, 0.01, 'input', 'gamepad left-stick dead zone (radial, 0..1)'),
 
   // ── rig (RIG) — proportions not in BodyDims, stance, springs, idle life, squash. src/rig ──
-  rigStanceHipYawDeg:      num(12, 0, 60, 1, 'rig', 'hips bladed off-square toward the lead side, degrees. Was 28 while the chest prism was bladed 38°; the chest now turns with the sim\'s shoulder joints (square at rest), so 28 put a standing twist in the waist (2026-11-11)'),
+  rigStanceHipYawDeg:      num(26, 0, 60, 1, 'rig', 'hips bladed off-square toward the lead side, degrees. 28 on the prism figure; 12 through overhaul phases 1–2 (the chest was square to the sim\'s shoulders and 28 stood a twist in the waist); 26 since phase 3, now that the ribcage blades 20° under the shoulders (rigStanceChestYawDeg) and the two agree'),
   rigStanceShoulderYawDeg: num(38, 0, 75, 1, 'rig', 'RETIRED 2026-11-11 (kept so saved tunings load): the chest and head now turn to the line between the sim\'s shoulder joints, which the arms and deltoids are drawn on — the old blade turned the chest 38° off the shoulders it carries'),
   rigHeadFollow:           num(0.35, 0, 1, 0.01, 'rig', 'fraction of the shoulder yaw the head follows (0 = always faces the opponent)'),
   rigStanceFwd:            num(0.20, 0, 0.5, 0.01, 'rig', 'lead foot forward of the hips, m'),
@@ -1061,8 +1061,8 @@ export const SCHEMA = {
   rigPostureTiltDeg:       num(8, 0, 25, 0.5, 'rig reads', 'inside posture (FighterState.posture): the chest rolls forward this far and the shoulders come up — "shoulders rolling inside"'),
   rigLevelTiltDeg:         num(12, 0, 30, 0.5, 'rig reads', 'a held level: the chest pitches forward this far on top of the sim\'s drop, so the crouch is knees AND a bend, not a lift going down'),
   rigRollTiltDeg:          num(16, 0, 40, 1, 'rig reads', 'a roll: extra forward bend at the bottom of the U (per slipx rollDip of head dip)'),
-  rigRopesLeanDeg:         num(7, 0, 20, 0.5, 'rig reads', 'on the ropes: the chest leans BACK this far at ropes = 1 and the hips sit back toward them'),
-  rigRopesHip:             num(0.05, 0, 0.15, 0.005, 'rig reads', 'on the ropes: the hips sit back this far, m'),
+  rigRopesLeanDeg:         num(13, 0, 20, 0.5, 'rig reads', 'on the ropes: the chest leans BACK this far at ropes = 1 and the hips sit back toward them'),
+  rigRopesHip:             num(0.09, 0, 0.15, 0.005, 'rig reads', 'on the ropes: the hips sit back this far, m'),
   rigBounceHeel:           num(0.028, 0, 0.08, 0.002, 'rig reads', 'on the balls of the feet: the rear heel is this far off the canvas while the fighter is bouncing (× 1 − flat); flat-footed = heels down'),
   rigBounceOutside:        num(1.25, 0.5, 2, 0.05, 'rig reads', 'the bounce at outside range as a multiple of mid range — tall and bouncing outside'),
   rigBounceInside:         num(0.45, 0, 1.5, 0.05, 'rig reads', 'the bounce at inside range as a multiple of mid range — set, not bouncing'),
@@ -1100,7 +1100,7 @@ export const SCHEMA = {
   rigSpraySpeed:           num(2.6, 0.5, 8, 0.1, 'rig reads', 'droplet launch speed, m/s'),
   rigClinchLeanDeg:        num(22, 0, 35, 1, 'rig reads', 'clinch: the chest leans in this far, the head goes to the side, and the drawn arms wrap (the sim\'s gloves do not move for a clinch; nobody can punch in one)'),
   rigPushTime:             num(0.3, 0.1, 1, 0.02, 'rig reads', 'push-off: seconds the two-forearm shove is drawn for'),
-  rigGetUpStir:            num(0.1, 0, 0.5, 0.01, 'rig reads', 'the get-up, "stir": how far up from lying the torso comes (0 = flat, 1 = standing) while he stirs'),
+  rigGetUpStir:            num(0.22, 0, 0.5, 0.01, 'rig reads', 'the get-up, "stir": how far up from lying the torso comes (0 = flat, 1 = standing) while he stirs'),
   rigGetUpKnee:            num(0.55, 0.2, 0.9, 0.01, 'rig reads', 'the get-up, "knee": how far up he is on one knee'),
   rigGetUpSlump:           num(0.14, 0, 0.6, 0.01, 'rig reads', 'the get-up, "slump": where the failed try drops him back to'),
   rigFallLaySlide:         num(0.34, 0, 0.7, 0.01, 'rig reads', 'laid out on his back: the hips slide this much further along the fall line than rigFallSlide, so the legs lie nearly straight instead of knees-up (the feet stay where they were planted)'),

@@ -97,10 +97,13 @@ export const SCENARIOS = {
   g_long: { dist: 1.2, ids: ['blue'], s0: hold([], 'block', 20, 60), s1: [], from: 4, to: 46, step: 6 },
   g_low: { dist: 1.2, ids: ['raffle'], s0: hold([], 'block', 20, 60), s1: [], from: 4, to: 46, step: 6 },
   // BODY-SHOT DETAIL, close on the man who takes it: the fold, the elbow dropping to cover, then the buckle; liver side marked.
-  body_detail: { dist: 0.7, s0: hold(at({ 12: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], grade: 'clean', over: [null, { damage: { head: 0, body: 0.25, liver: 0.3 } }], cfg: { camDistMin: 1.9, camLookY: 1.15 }, focus: 1, from: 24, to: 86, step: 3 },
+  // (Side 1 throws it, so the man hit is side 0, whose right — the liver side, the arm that covers — is toward the camera.
+  //  Filmed the other way round first: the covering arm and the red flank were on the far side of the body and nothing could be seen.)
+  body_detail: { dist: 0.7, s0: [], s1: hold(at({ 12: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), grade: 'clean', over: [{ damage: { head: 0, body: 0.25, liver: 0.3 } }, null], cfg: { camDistMin: 1.9, camLookY: 1.2 }, focus: 0, from: 22, to: 91, step: 3 },
   // FATIGUE AND DAMAGE on the face and chest, close (lookbook distance) — and the same man from the play camera.
-  face_close: { dist: 1.3, s0: [], s1: [], over: [{ fatigue: 1, flat: 1, staminaCap: 0.45, wear: 0.4, guardDroop: 0.06, damage: { head: 0.75, body: 0.4, liver: 0.2 } }, null], cfg: { camDistMin: 1.15, camLookY: 1.5 }, focus: 0, from: 0, to: 70, step: 10 },
-  face_play: { dist: 1.3, s0: [], s1: [], over: [{ fatigue: 1, flat: 1, staminaCap: 0.45, wear: 0.4, guardDroop: 0.06, damage: { head: 0.75, body: 0.4, liver: 0.2 } }, null], from: 0, to: 70, step: 10 },
+  // (On side 1: the play camera sits behind side 0's shoulder, so HIS face is never seen — the first cut filmed the back of a head.)
+  face_close: { dist: 1.3, s0: [], s1: [], over: [null, { fatigue: 1, flat: 1, staminaCap: 0.45, wear: 0.4, damage: { head: 0.75, body: 0.4, liver: 0.2 } }], cfg: { camDistMin: 1.25, camLookY: 1.55 }, focus: 1, from: 10, to: 55, step: 15 },
+  face_play: { dist: 1.3, s0: [], s1: [], over: [null, { fatigue: 1, flat: 1, staminaCap: 0.45, wear: 0.4, damage: { head: 0.75, body: 0.4, liver: 0.2 } }], from: 10, to: 55, step: 15 },
   // THE GET-UP, phase by phase, close: the view is told he is down at each phase (a slump cannot be rolled on demand).
   up_down: { dist: 1.2, s0: [], s1: [], over: [null, { down: true, downT: 3, getUp: { phase: 'down', t: 0, tries: 0, owed: true } }], cfg: { camDistMin: 2.6, camLookY: 0.6 }, focus: 1, from: 30, to: 100, step: 10 },
   up_stir: { dist: 1.2, s0: [], s1: [], over: [null, { down: true, downT: 3, getUp: { phase: 'stir', t: 0, tries: 0, owed: true } }], cfg: { camDistMin: 2.6, camLookY: 0.6 }, focus: 1, from: 30, to: 100, step: 10 },

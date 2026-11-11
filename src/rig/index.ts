@@ -433,7 +433,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       if (h.spray > 0) {
         // Off the FAR side of the head (the way the punch is going), not from the contact point: thrown from the
         // contact they sat on the face like paint for the first frames (phase 3 film).
-        const dl = Math.hypot(h.dir.x, h.dir.y, h.dir.z) || 1, off = body.headR * 1.25;
+        const dl = Math.hypot(h.dir.x, h.dir.y, h.dir.z) || 1, off = body.headR * 2.3;   // right through to the back of the skull: at 1.25 R they started INSIDE the head and only the stragglers showed
         v2.set(h.at.x + h.dir.x / dl * off, h.at.y + body.headR * 0.3, h.at.z + h.dir.z / dl * off);
         spray.burst(h.spray, v2, h.dir, c.rigSpraySpeed, c.rigSpraySize, c.rigSprayLife);
       }
@@ -755,7 +755,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
         gl.set(elbowJ[i]!.x + body.forearm * 0.3, elbowJ[i]!.y - body.forearm * 0.95, elbowJ[i]!.z + latSign[i]! * 0.03);
       }
       // Reads on the drawn arm root (a few cm, non-hitbox): the shoulders hunch or slump, and a feint twitches the punching one.
-      sh.y += shrug;
+      sh.y += shrug + (i === 0 ? reads.shrugLead : 0);
       if ((next.punch.hand === 'lead') === (i === 0)) sh.x += reads.feintReach;
       // Clinch and push-off: the sim leaves the gloves at the guard (nobody can punch in a clinch; a shove has no
       // fist), so the DRAWN arms leave the sim's joints for these two — wrapped round the other man, or both
@@ -837,8 +837,15 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       stepStyle.lateral = lateralTravel;
       if (i === 0 && next.pivot.dir !== 0) {
         // The pivot: the body swings round the planted lead foot — it stays on the sim's pivot point, turning with him.
+        // MEASURED (scripts/_debug.mjs pivot): once there the drawn foot is 0.0 cm off the sim's point for the whole
+        // pivot — but it got there by teleporting 28 cm in one tick (the sim plants the foot pivotReach ahead). It
+        // now takes a quick step to the point (≈ 4 ticks) and plants.
         footDesired.x = next.pivot.cx; footDesired.z = next.pivot.cz;
-        feet[0].snap(footDesired);
+        footRest.x = footDesired.x; footRest.z = footDesired.z;
+        const off = Math.hypot(feet[0].out.x - footDesired.x, feet[0].out.z - footDesired.z);
+        if (feet[0].stepping) feet[0].update(footDesired, footRest, stepStyle, dt, c, feet[1]);
+        else if (off > 0.03) feet[0].stepNow(footDesired, c, 0.3);
+        else feet[0].snap(footDesired);
       } else if (reads.airborne > 0) {
         // The burst: both feet leave the canvas and travel with him; they land where the hop ends.
         feet[i]!.snap(footDesired);

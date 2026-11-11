@@ -59,12 +59,12 @@ export class FootPlanter {
   }
 
   /** Start a quick step to `target` now, whatever the threshold says (a step jab's lead foot). No-op mid-step. */
-  stepNow(target: FootPose, cfg: Config): void {
+  stepNow(target: FootPose, cfg: Config, quick = 0.6): void {
     if (!this.inited || this.t < 1) return;
     this.from = { ...this.planted };
     this.to = { ...target, y: 0 };
     this.t = 0;
-    this.dur = cfg.rigStepDur * 0.6;
+    this.dur = cfg.rigStepDur * quick;
     this.lift = cfg.rigStepLift * 0.7;
   }
 
