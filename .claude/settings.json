@@ -5,6 +5,7 @@
       "Edit",
       "Write(scripts/**)",
       "Write(src/**)",
+      "Write(docs/**)",
 
       "Bash(node:*)",
       "Bash(npm:*)",
