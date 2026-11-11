@@ -468,5 +468,13 @@ On hard (6 fights a cell, measured before decision 7, so stale): jab-and-move
 8. **Flush on the frozen frame**: probed and recorded (FEEL.md). Every flush
    power shot pins the neck clamp, so flush and clean differ on the frozen
    frame only by torso travel and freeze length. Not changed.
-9. **Nothing here was feel-tested or drawn.** Guard shapes move the sim's
+9. **`stun_check` fails its second half with ratings on** ("the player
+   rocked" times out). It rocks red at 5% health with blue's standing cross.
+   That cross was 272 N·s against a threshold of 269; blue's power rating
+   (58) now makes it 259, so it lands clean and does not rock. Reproduced in
+   Node (`_debug.mjs stunchk`: rocks with `ratingsOn` off, not with it on);
+   the fix was not tried in the browser. The check is not this workstream's
+   to edit: setting `window.__cfg.ratingsOn = false` beside its other config
+   lines, or scripting a hook instead of the cross, should restore it.
+10. **Nothing here was feel-tested or drawn.** Guard shapes move the sim's
    gloves and boxes; whether the rig draws them is the rig's.
