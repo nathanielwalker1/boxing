@@ -20,7 +20,7 @@
  */
 import * as THREE from 'three';
 import {
-  angleDelta, closestOnSegment, frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, v3dist, worldToLocal,
+  ROSTER, addToRoster, generateFighter, angleDelta, closestOnSegment, frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, v3dist, worldToLocal,
   type Config, type FighterSpec, type FighterState, type FighterView, type Frame, type PunchType, type Side, type SimEvent, type Vec2, type Vec3,
 } from '../core';
 import { BONE, MORPHS, buildRigMesh, rigGeomKey, type RigMesh } from './mesh';
@@ -63,6 +63,8 @@ export interface RigProbe {
   /** Test hooks for the face / body state (lookbook): same as the view's. */
   setFace?: (face: FaceState) => void;
   setBodyState?: (body: BodyState) => void;
+  /** Lookbook only: hang the arms so the face and chest are clear (the drawn arms leave the sim's joints while it is on). */
+  portrait?: (on: boolean) => void;
   head(): Vec3;
   gloves(): [Vec3, Vec3];
   /** Main-pass draw calls, shadow-pass draw calls, and triangles for this fighter. */
@@ -74,7 +76,17 @@ export interface RigProbe {
 }
 
 declare global {
-  interface Window { __rig?: Partial<Record<Side, RigProbe>> }
+  interface Window {
+    __rig?: Partial<Record<Side, RigProbe>>;
+    /** Lookbook: generate a fighter per seed (core/generator.ts), add them to the roster, return their ids — so `__look(id)` can show them. */
+    __rigGen?: (seeds: readonly number[]) => string[];
+    /** Lookbook: a roster fighter's spec by id (row labels). */
+    __rosterSpec?: (id: string) => FighterSpec | null;
+  }
+}
+if (typeof window !== 'undefined') {
+  window.__rosterSpec = id => ROSTER.find(f => f.id === id) ?? null;
+  window.__rigGen = seeds => seeds.map(s => { const f = generateFighter(s); addToRoster(f); return f.id; });
 }
 
 const DOWN = new THREE.Vector3(0, -1, 0);
@@ -118,6 +130,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const hingeArm = [new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 1)] as const;
   const hingeLeg = [new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 1)] as const;
   let cuts: Partial<Record<CutPlace, number>> = {};
+  let portrait = false;
   let glowAmt = 0;   // the read: 0..1 from the UI, drawn as a warm rim (readGlowStrength × this)
   let rig: RigMesh | null = null;
   let geomKey = '';
@@ -209,6 +222,14 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   /** World direction → rig-local direction (rotation only). */
   const dirToLocal = (x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 =>
     out.set(x * frame.fwd.x + z * frame.fwd.z, y, x * frame.right.x + z * frame.right.z);
+  // Sprung cloth and hair, in world space.
+  const hemS = [spring3(), spring3()] as const;
+  const tailS = spring3();
+  let sprungInit = false;
+  let rootYaw = 0;
+  /** Rig-local point → world, in place (the root is a yaw and a floor position). */
+  const toWorldV = (p: THREE.Vector3): THREE.Vector3 => p.applyAxisAngle(YAXIS, -rootYaw).add(root.position);
+  const toLocalV = (p: THREE.Vector3): THREE.Vector3 => p.sub(root.position).applyAxisAngle(YAXIS, rootYaw);
   const bone = (id: number): THREE.Bone => rig!.bones[id]!;
   /** A bone frame: local −y along `dir`, local +z along `hinge` (made perpendicular), +x = y × z. */
   const frameQuat = (dir: THREE.Vector3, hinge: THREE.Vector3, out: THREE.Quaternion): void => {
@@ -348,6 +369,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     frame = frameOf(yaw);
     root.position.set(pos.x, 0, pos.z);
     root.rotation.set(0, -yaw, 0);
+    rootYaw = yaw;
     lerpLocal(prev.headBox, next.headBox, alpha, headL);
     lerpLocal(prev.gloves[0].pos, next.gloves[0].pos, alpha, gloveL[0]);
     lerpLocal(prev.gloves[1].pos, next.gloves[1].pos, alpha, gloveL[1]);
@@ -599,9 +621,24 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     bNeck.quaternion.multiplyQuaternions(qTmp, qNeck);
     bNeck.scale.set(1, Math.max(0.3, Math.min(1.6, neckLen / Math.max(1e-3, d.neckBind))), 1);
     // Hanging hair rides the head (cloth.ts springs it).
+    // Hanging hair: a point 0.3 m down the head's own axis is chased in WORLD space on a loose spring, and the
+    // tail bone swings to it — so the hair trails a slip, a turn and a punch landing, and settles.
     const bTail = bone(BONE.tail);
     bTail.position.copy(headL);
-    bTail.quaternion.copy(bHead.quaternion);
+    v.set(0, -1, 0).applyQuaternion(bHead.quaternion);
+    v2.copy(headL).addScaledVector(v, 0.3);
+    toWorldV(v2);
+    if (!sprungInit || Math.hypot(tailS.x - v2.x, tailS.y - v2.y, tailS.z - v2.z) > 0.6) { tailS.x = v2.x; tailS.y = v2.y; tailS.z = v2.z; tailS.vx = tailS.vy = tailS.vz = 0; }
+    chase3(tailS, v2.x, v2.y, v2.z, c.rigTailK, c.rigTailZeta, dt);
+    v2.set(tailS.x, tailS.y, tailS.z);
+    toLocalV(v2).sub(headL);
+    if (v2.lengthSq() > 1e-8) {
+      v2.normalize();
+      qTmp.setFromUnitVectors(v, v2);
+      const ang = 2 * Math.acos(Math.min(1, Math.abs(qTmp.w))), maxA = c.rigTailMaxDeg * DEG;
+      if (ang > maxA && ang > 1e-6) qTmp.slerp(qInv.identity(), 1 - maxA / ang);
+      bTail.quaternion.multiplyQuaternions(qTmp, bHead.quaternion);
+    } else bTail.quaternion.copy(bHead.quaternion);
     bTail.scale.set(1, 1, 1);
 
     // Arms: drawn on the SIM's joints (2026-09-18 — hit geometry is drawn
@@ -614,6 +651,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const sh = shoulderJ[i]!, gl = gloveL[i]!;
       lerpLocal(prev.arms[i]!.shoulder, next.arms[i]!.shoulder, alpha, sh);
       lerpLocal(prev.arms[i]!.elbow, next.arms[i]!.elbow, alpha, elbowJ[i]!);
+      if (portrait) {
+        // Lookbook portrait: the arms hang, a little forward and bent, so the face and chest are clear. Never set in play.
+        elbowJ[i]!.set(sh.x - 0.02, sh.y - body.upperArm * 0.98, sh.z + latSign[i]! * 0.07);
+        gl.set(elbowJ[i]!.x + body.forearm * 0.3, elbowJ[i]!.y - body.forearm * 0.95, elbowJ[i]!.z + latSign[i]! * 0.03);
+      }
       elbowCleared[i] = false;
       let stretch = 1;
       if (fallK > 1e-3) {
@@ -722,6 +764,17 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       bHem.quaternion.copy(bone(lb.thigh).quaternion);
       bHem.position.set(0, -d.trunkLen, 0).applyQuaternion(bHem.quaternion).add(hipJ[i]!);
       bHem.scale.set(1, 1, 1);
+      // Cloth on a spring: the hem's place is chased in WORLD space, so it lags the leg and the hips and swings past.
+      const hsp = hemS[i]!;
+      v2.copy(bHem.position);
+      toWorldV(v2);
+      if (!sprungInit || Math.hypot(hsp.x - v2.x, hsp.y - v2.y, hsp.z - v2.z) > 0.6) { hsp.x = v2.x; hsp.y = v2.y; hsp.z = v2.z; hsp.vx = hsp.vy = hsp.vz = 0; }
+      chase3(hsp, v2.x, v2.y, v2.z, c.rigClothK, c.rigClothZeta, dt);
+      let ox = hsp.x - v2.x, oy = hsp.y - v2.y, oz = hsp.z - v2.z;
+      const ol = Math.hypot(ox, oy, oz);
+      if (ol > c.rigClothMax) { const k = c.rigClothMax / ol; ox *= k; oy *= k; oz *= k; hsp.x = v2.x + ox; hsp.y = v2.y + oy; hsp.z = v2.z + oz; }
+      v2.set(hsp.x, hsp.y, hsp.z);
+      bHem.position.copy(toLocalV(v2));
       const bBoot = bone(lb.boot);
       bBoot.position.copy(ankle);
       bBoot.quaternion.setFromAxisAngle(YAXIS, yawL);
@@ -757,6 +810,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     u.uRedden.value.x += (bodyTarget.reddenHead - u.uRedden.value.x) * kF;
     u.uRedden.value.y += (bodyTarget.reddenBody - u.uRedden.value.y) * kF;
 
+    sprungInit = true;
     root.updateMatrixWorld(true);
   }
 
@@ -774,6 +828,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   };
   probe.setFace = setFace;
   probe.setBodyState = setBodyState;
+  probe.portrait = (on: boolean): void => { portrait = on; };
 
   return {
     side,

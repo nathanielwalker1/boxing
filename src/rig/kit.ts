@@ -183,19 +183,19 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
       sampleKeys(leg.keys, leg.vals, Math.max(sh, 0), row);
       const t = Math.max(0, sh) / len;
       // Starts under the body panel (no two cloth surfaces share a plane), then hangs away from the thigh toward the hem, with a few folds.
-      const g = 0.004 + (gap - 0.004) * smooth01(t / 0.35) + 0.022 * t + 0.01 * t * Math.cos(phi * 5 + i);
+      const g = 0.01 + (gap - 0.01) * smooth01(t / 0.35) + 0.024 * t + 0.008 * t * Math.cos(phi * 5 + i);
       out.set(J.x + row[2]! + (row[0]! + g) * Math.cos(phi), J.y - sh, Math.abs(J.z) + row[3]! + (row[1]! + g) * Math.sin(phi));
     };
     const weights = (p: THREE.Vector3): BW[] => {
       const s = J.y - p.y;
       const t = Math.min(1, Math.max(0, s / len));
-      const wHips = 0.7 * (1 - smooth01(t / 0.45));
+      const wHips = 0.3 * (1 - smooth01(t / 0.4));    // mostly the thigh's: more of the hips and the thigh comes through the cloth when it lifts
       const wHem = 0.8 * smooth01((t - 0.15) / 0.85);
       return [[BONE.hips, wHips], [bones.hem, wHem], [bones.thigh, Math.max(0, 1 - wHips - wHem)]];
     };
     addGrid(c.g, {
       rows: ss.length, cols: lc, wrap: true, mirror,
-      point: (r, j, out) => ring(ss[r]!, (j / lc) * TAU - Math.PI / 2, 0.016, out),
+      point: (r, j, out) => ring(ss[r]!, (j / lc) * TAU - Math.PI / 2, 0.022, out),
       weights,
       rect: c.rect(mirror ? 'trunkLegL' : 'trunkLegR'), kind: KIND.cloth,
       uv: (r, j) => [j / lc, (ss[r]! - s0) / (len - s0)],
@@ -206,7 +206,7 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
       rows: 2, cols: lc, wrap: true, mirror,
       point: (r, j, out) => {
         const phi = (j / lc) * TAU - Math.PI / 2;
-        if (r === 0) ring(len, phi, 0.016, out); else { ring(len - 0.03, phi, -0.03, out); }
+        if (r === 0) ring(len, phi, 0.022, out); else { ring(len - 0.03, phi, -0.03, out); }
       },
       weights,
       outward: (_p, o) => { o.set(0, -1, 0); },

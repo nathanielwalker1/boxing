@@ -624,6 +624,14 @@ export const SCHEMA = {
   rigSweatGloss:           num(0.9, 0, 3, 0.05, 'rig skin', 'tight highlight and sweat beads at sweat = 1'),
   rigLeatherGloss:         num(0.7, 0, 3, 0.05, 'rig skin', 'tight highlight on gloves and boots'),
   rigClothSheen:           num(0.1, 0, 0.6, 0.01, 'rig skin', 'satin sheen on trunks'),
+
+  // ── rig cloth (RIG) — secondary motion on springs, in world space: the trunks\' hems and hanging hair lag what carries them ──
+  rigClothK:               num(70, 10, 400, 5, 'rig cloth', 'trunks hem spring stiffness, 1/s² (lower = the cloth trails the leg and the hips further)'),
+  rigClothZeta:            num(0.28, 0.05, 1.5, 0.01, 'rig cloth', 'trunks hem damping ratio (< 1 swings past and settles)'),
+  rigClothMax:             num(0.09, 0, 0.25, 0.005, 'rig cloth', 'the hem may leave its place on the thigh by at most this, m'),
+  rigTailK:                num(45, 5, 300, 5, 'rig cloth', 'hanging hair (braids, dreads, a tail, a long beard) spring stiffness, 1/s²'),
+  rigTailZeta:             num(0.25, 0.05, 1.5, 0.01, 'rig cloth', 'hanging hair damping ratio'),
+  rigTailMaxDeg:           num(50, 0, 90, 1, 'rig cloth', 'hanging hair may swing this far off the head, degrees'),
 } satisfies Record<string, Entry>;
 
 export type Schema = typeof SCHEMA;

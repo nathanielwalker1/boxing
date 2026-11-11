@@ -60,7 +60,10 @@ export function bodyDims(spec: FighterSpec, cfg: Config): BodyDims {
   const gloveR = anatomicalFist * cfg.gloveScale;
   const armFromReach = (spec.reachM - shoulderW) / 2 - gloveR;
   const armFromHeight = h * cfg.armRatio;
-  const armLen = Math.max(armFromHeight * 0.85, Math.min(armFromHeight * 1.15, armFromReach));
+  // A frame wider than neutral takes its extra shoulder out of the shortest arm allowed, so a broad, short-armed
+  // fighter is not handed a long wingspan by the floor (0 for a neutral or narrower frame: the old numbers hold).
+  const extraShoulder = Math.max(0, shoulderW - h * cfg.shoulderRatio) / 2;
+  const armLen = Math.max(armFromHeight * 0.85 - extraShoulder, Math.min(armFromHeight * 1.15, armFromReach));
   const upperArm = armLen * 0.5;
   const forearm = armLen * 0.5;
 
