@@ -28,6 +28,28 @@ at "What to feel-test, in order".
 Workstream logs (each agent keeps its own, merged into this file at integration):
 `docs/OVERHAUL_SIM.md`, `docs/OVERHAUL_RIG.md`, `docs/OVERHAUL_SHOW.md`.
 
+## The black screen (found by Nate on first play, fixed)
+
+The first time Nate opened the game the 3D scene was black behind the menus
+and in the ring. Cause: on a real GPU the post pass's multisampled (MSAA)
+render target comes out black; the default was 2 samples. Every browser check
+runs on headless software GL, which the game treats as a low-tier device (no
+post pass, no MSAA), so the desktop frame was never rendered by any test, and
+the two agents that reported 60 fps on the real GPU measured frame time, not
+the picture. I reported "44/44 green" for a game that did not draw on the
+machine it is played on. Reproduced with Chromium on Metal (mean brightness 4
+of 255 in the fight, 62 with MSAA at 0); not caused by bloom, shadows, the
+crowd or the menu scene; root cause not found.
+- Fix: `postMsaa` defaults to 0. The picture is right; the ropes alias a
+  little more. A cheap post-process anti-aliasing pass would be the proper
+  replacement.
+- Guard: `scripts/gpu_check.mjs` launches Chromium on the real GPU and
+  asserts the fight and the title are lit with the default config. It is part
+  of `npm test`.
+- Also: a dev server left running across many merges serves a stale
+  dependency bundle (it logged "Multiple instances of Three.js"). Restart it
+  with `node_modules/.bin/vite --port 5191 --force` after pulling big changes.
+
 ## How the run ended
 
 Four workstreams ran in parallel worktrees and were merged here phase by
