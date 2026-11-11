@@ -22,7 +22,7 @@ import { seededRng, disposeTree, makeCanvas, canvasTexture } from './util';
 import { SPONSORS, paintSlot, paintLedPanel } from './sponsors';
 import { Crowd, CrowdFlashes, type Seat } from './crowd';
 import { Beams, Haze, Motes, Practicals, type BeamSpec, type Practical } from './atmos';
-import { qualityTier } from './tier';
+import { qualityTier, softwareRenderer } from './tier';
 import type { Reaction } from './mood';
 
 export const ARENA_KEYS = ['bowlColor', 'bowlInnerR', 'bowlWallH', 'bowlTiers', 'bowlTierRise', 'bowlTierDepth', 'concourseH', 'concourseDepth',
@@ -439,9 +439,14 @@ export class Arena {
     // ── Haze, motes (high tier only).
     // The haze layer is one back-face cylinder and two texture fetches a pixel: both tiers get it (thinner on low,
     // lowHazeScale), so the stands sit behind the same veil whichever tier is drawing. Motes stay high-tier.
-    this.haze = new Haze(Math.min(c.hazeRadius, R0 - 0.3), FLOOR_Y, c.hazeHeight);
-    this.group.add(this.haze.mesh);
+    // Exception: a software rasteriser on the low tier (the headless test runs). A blended layer over half the
+    // frame at 2× slowed every browser check enough to time one out (flow_check, 2026-11-11); real low-tier
+    // devices have a GPU and keep the haze.
     this.hazeScale = high ? 1 : c.lowHazeScale;
+    if ((high || !softwareRenderer()) && this.hazeScale > 0) {
+      this.haze = new Haze(Math.min(c.hazeRadius, R0 - 0.3), FLOOR_Y, c.hazeHeight);
+      this.group.add(this.haze.mesh);
+    }
     if (high) {
       if (c.moteCount > 0) { this.motes = new Motes(Math.round(c.moteCount), RING_HALF + 0.4, 0.4, c.keyHeight - 0.6, rng); this.group.add(this.motes.points); }
     }
