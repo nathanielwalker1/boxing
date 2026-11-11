@@ -73,6 +73,14 @@ console.log('\n=== 3. Fatigue ===');
   check('whiffCostOn off: a miss costs the punch and nothing else', near(miss.stamina, 1 - cfg.staminaPunchCost, 1e-9) && miss.wear === 0);
   const many = run(fresh(cfg, 2.0, 5), 600, i => [inp({ jab: i % 30 === 0 }), NONE]).s.fighters[0];
   check(`twenty missed jabs wear the ceiling to ${many.staminaCap.toFixed(2)} — the round has an arc`, near(many.staminaCap, 1 - 20 * cfg.whiffCapLoss, 1e-6));
+  // A jab never puts a man down by itself; a tired man's punches are arm punches.
+  const nearly = c => { const s = fresh(c, MID, 20); s.fighters[1].health = 0.04; return run(s, 20, i => [inp({ jab: i === 0 }), NONE], c); };
+  const j = nearly(quiet), j0 = nearly({ ...quiet, jabHealthFloor: 0 });
+  check('a jab cannot take the bar under jabHealthFloor (or below where it already is): no knockdown', landOf(j.evs) && of(j.evs, 'knockdown').length === 0 && near(j.s.fighters[1].health, 0.04, 1e-9));
+  check('…jabHealthFloor 0: it can', of(j0.evs, 'knockdown').length === 1);
+  const cross = st => { const c = { ...cfg, staminaRegen: 0, lowStamina: 0 }; const s = fresh(c, MID, 20); s.fighters[0].stamina = st; return landOf(run(s, 40, i => [inp({ cross: i === 3 }), NONE], c).evs); };
+  const tiredX = cross(cfg.staminaPunchCost), freshX = cross(1);
+  check(`a gassed cross is an arm punch: ${tiredX?.grade}, ${(tiredX.power / freshX.power).toFixed(2)} of a fresh one`, tiredX.power < freshX.power * 0.55);
   const floor = fresh(cfg, 2.0, 5); floor.fighters[0].wear = 2;
   check('the ceiling never falls below staminaCapFloor', run(floor, 3).s.fighters[0].staminaCap === cfg.staminaCapFloor);
 }

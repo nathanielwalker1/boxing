@@ -76,6 +76,8 @@ export interface StyleParams {
   // ── Hurt, and finishing ──
   /** Hurt with the opponent close: odds it ties up (else it covers and gives ground). */
   hurtClinch: number;
+  /** Picked off at range: seconds it then walks in behind a held guard. Taking a combination inside: odds it ties up / shoves off. */
+  shellTime: number; crowdClinch: number;
   /** Against a hurt opponent: odds each armed punch becomes a power shot. */
   finishPower: number;
 
@@ -114,6 +116,7 @@ export function defaultStyle(cfg: Config): StyleParams {
     cutOff: tools ? cfg.aiCutOff : 0, cutOffZone: cfg.aiCutOffZone,
     ropePivotRate: tools ? cfg.aiRopePivotRate : 0, pushOffRate: tools ? cfg.aiPushOffRate : 0,
     hurtClinch: tools ? cfg.aiHurtClinch : 0,
+    shellTime: tools ? cfg.aiShellTime : 0, crowdClinch: tools ? cfg.aiCrowdClinch : 0,
     finishPower: tools ? cfg.aiFinishPower : 0,
     guard: 'high',
   };

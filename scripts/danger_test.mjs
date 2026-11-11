@@ -93,9 +93,9 @@ console.log('\n=== 4. Counter flash ===');
   };
   const base = exchange(cfg);
   check('a slip-counter cross ROCKS a fresh man but does not floor him', base.evs.some(e => e.type === 'counter') && base.evs.some(e => e.type === 'rocked' && e.side === 0) && of(base.evs, 'knockdown').length === 0);
-  const eager = { ...cfg, counterFlashScale: 0.8 };
+  const eager = { ...cfg, counterFlashScale: 0.7 };
   const fl = exchange(eager), flOff = exchange({ ...eager, counterFlashOn: false });
-  check('with the counter flash threshold lower (counterFlashScale 0.8) the same counter floors him: cause flash', first(fl.evs, 'knockdown')?.cause === 'flash' && first(fl.evs, 'knockdown').side === 0);
+  check('with the counter flash threshold lower (counterFlashScale 0.7) the same counter floors him: cause flash', first(fl.evs, 'knockdown')?.cause === 'flash' && first(fl.evs, 'knockdown').side === 0);
   check('…and with counterFlashOn off it is back to a rock', of(flOff.evs, 'knockdown').length === 0 && flOff.evs.some(e => e.type === 'rocked'));
 }
 

@@ -154,6 +154,8 @@ export interface AiState {
   /** It was hurt last tick (the survive plan is rolled on the rising edge) and the plan: tie up, or cover and move. */
   wasHurt: boolean;
   hurtPlan: 'none' | 'clinch' | 'cover';
+  /** Shots taken lately (decays one a second): two = it is taking a combination. Seconds left of walking in behind the guard after being picked off at range. */
+  hits: number; shellT: number;
   /** How many times it has used each tool. Read by tests and the bot table. */
   used: { body: number; slip: number; roll: number; pivot: number; push: number; burst: number; feint: number; clinch: number; cutOff: number };
 }
@@ -198,6 +200,7 @@ export function createAi(side: Side, seed: number, cfg: Config, style: StylePara
     stickX: 0, stickY: 999, stickT: 0,
     wasHurt: false,
     hurtPlan: 'none',
+    hits: 0, shellT: 0,
     used: { body: 0, slip: 0, roll: 0, pivot: 0, push: 0, burst: 0, feint: 0, clinch: 0, cutOff: 0 },
   };
 }
@@ -283,7 +286,8 @@ function runMacro(a: AiState, input: FrameInput, s: SimState, cfg: Config): bool
       if (t >= FEINT_END) a.macro = null;
       return true;
     case 'clinch':
-      if (me.clinch.active || me.hurt <= 0 || t > CLINCH_MAX_TICKS || me.clinch.cd > 0) { a.macro = null; return me.clinch.active; }
+      // (x = 1: a tie-up to smother a combination, not to clear the head — it does not need to be hurt.)
+      if (me.clinch.active || (m.x === 0 && me.hurt <= 0) || t > CLINCH_MAX_TICKS || me.clinch.cd > 0) { a.macro = null; return me.clinch.active; }
       input.block = true; input.level = true;
       if (a.dist > cfg.clinchRange - 0.05) input.move.y = 0.55;   // walk in under the flick threshold: a push here must not read as a shove
       return true;
@@ -377,6 +381,22 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   if (tools && a.hurtPlan === 'clinch' && a.macro === null && cfg.clinchOn && me.clinch.cd === 0 && !me.clinch.active && !punching && dist <= cfg.clinchRange + CLINCH_WALK_IN) {
     a.macro = { kind: 'clinch', t: 0, x: 0, y: 0, punch: null };
     a.used.clinch += 1;
+  }
+
+  // ── Under fire (overhaul). Picked off from outside its own range → it shells up and walks in behind the guard.
+  // Two shots inside a second at close range → it is taking a combination: tie up, or shove off.
+  a.hits = Math.max(0, a.hits - dt);
+  a.shellT = Math.max(0, a.shellT - dt);
+  if (tools && hurt > HIT_NOTICED) {
+    a.hits += 1;
+    a.shellT = st.shellTime;   // any shot that gets through: hands up until it has something to throw
+    if (a.hits >= 2 && dist <= cfg.clinchRange && a.macro === null && !punching && !nowHurt) {
+      a.hits = 0.5;
+      if (rngChance(a.rngT, st.crowdClinch)) {
+        if (cfg.clinchOn && me.clinch.cd === 0) { a.macro = { kind: 'clinch', t: 0, x: 1, y: 0, punch: null }; a.used.clinch += 1; }
+        else if (cfg.pushOffOn && me.pushCd === 0) { a.macro = { kind: 'push', t: 0, x: 0, y: 1, punch: null }; a.used.push += 1; }
+      }
+    }
   }
 
   // ── Reading the hit states (2026-09-22) ────────────────────────────────────
@@ -484,6 +504,9 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     }
   }
   input.block = a.blockTimer > 0 && !punching;
+  // Shelled up (picked off at range): the guard stays up while it walks in, and comes down to throw once it is there.
+  const shelled = tools && a.shellT > 0 && !punching && !(a.armed !== null && dist <= engageOf(a.armed, st) && dist >= nearDist(a.armed, cfg));
+  if (shelled) input.block = true;
 
   // ── 2. Arm: the timer expiring picks the punch (and hand) — it does not throw.
   // Expired = ARMED: the timer holds at 0 and the punch waits for range rather
@@ -636,12 +659,20 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // would complete a double-tap, keeps it just under the push threshold until
   // the window has passed. A burst is always a macro. (A push on the stick at
   // a punch press is that punch's hand selection — the sim spends it.)
+  // With the guard up a flick is a pivot or a shove: behind the guard the steer's stick stays under the push threshold
+  // (it walks in a little slower with its hands up). Those two are always macros.
+  if (input.block) {
+    const m = Math.hypot(input.move.x, input.move.y);
+    if (m >= cfg.slipInputThreshold) { const kk = cfg.slipInputThreshold * UNDER_PUSH / m; input.move.x *= kk; input.move.y *= kk; }
+  }
   trackStick(a, input, dt, cfg, pressed, true);
   // Never the clinch by accident: level and block together are a macro's.
   if (input.block) input.level = false;
 
   return { ai: a, input };
 }
+/** A health drop in one tick above this is a shot it noticed (any clean land; a blocked jab is 0). Shape. */
+const HIT_NOTICED = 0.005;
 /** A push held back from completing a double-tap sits at this fraction of the push threshold. Shape. */
 const UNDER_PUSH = 0.95;
 /** How far outside clinchRange a hurt AI will still walk in to tie up, m. Shape. */

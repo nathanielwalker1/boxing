@@ -462,6 +462,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   mag *= def.impulseMult(cfg);
   // The variant's own weight and a loaded counter's bonus, fixed at the press.
   mag *= a.punch.powerMult;
+  // A tired man's punches are arm punches (overhaul): up to tiredPowerLoss of the impulse goes with the wind.
+  if (cfg.fatigueOn) mag *= 1 - cfg.tiredPowerLoss * a.fatigue;
   // A punch hit late in its own flight arrives with less behind it (interruptPunch).
   mag *= brokenMult(a);
   // Context (2026-09-16): a defender moving AWAY along the impulse rolls with
@@ -594,7 +596,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // Deflected: the arm hangs out there for the window (overhaul).
     setWhiffMult(a, Math.max(whiffMult(a), cfg.perfectBlockRecoverMult));
   } else {
-    takeHit(s, target, mag, blocked, cfg, events, part, light);
+    takeHit(s, target, mag, blocked, cfg, events, part, light, type === 'jab');
     // Hit-stop by grade: a glancing land barely registers, a clean one scales with its power, a flush one holds.
     const stop = blocked || !cfg.gradesOn || grade === 'clean' ? clamp(cfg.hitStopBase * power, 0, cfg.hitStopMax)
       : grade === 'glancing' ? cfg.hitStopGlancing : cfg.hitStopFlush;

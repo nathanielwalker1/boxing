@@ -9,7 +9,8 @@ import { check, near, done } from './check.js';
 const [core, sim] = await load('/src/core/index.ts', '/src/sim/index.ts');
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // Short rounds so a whole fight is a few hundred ticks; no stamina cost so nothing goes gassed mid-test.
-const cfg = { ...createConfig(), roundSeconds: 2, betweenRoundSeconds: 1, roundCount: 3, staminaPunchCost: 0 };
+// jabHealthFloor 0 (overhaul 2026-11-11): the knockdown cases here floor a man with jabs; by default a jab can no longer empty the bar (attrition_test pins that).
+const cfg = { ...createConfig(), roundSeconds: 2, betweenRoundSeconds: 1, roundCount: 3, staminaPunchCost: 0, jabHealthFloor: 0 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();

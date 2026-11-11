@@ -52,7 +52,7 @@ export function stepStamina(f: FighterState, cfg: Config, dt: number): void {
  * stamina, take the damage (and the cap), maybe go down. `part`: where it
  * landed. `noHealth`: a light shot on the guard — it costs wind, not health.
  */
-export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean, cfg: Config, events: SimEvent[], part: BodyPart = 'head', noHealth = false): void {
+export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean, cfg: Config, events: SimEvent[], part: BodyPart = 'head', noHealth = false, light = false): void {
   const d = s.fighters[target];
   if (d.down) return;
   const body = part === 'body' && cfg.bodyDamageOn;
@@ -63,7 +63,9 @@ export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean
   // The ledger is in head-shot health fractions for both, so the two are comparable; a blocked shot's chip counts.
   if (part === 'body') d.damage.body += full; else d.damage.head += full;
   const damage = full * (body ? cfg.bodyHealthScale : 1);
-  d.health = Math.max(0, d.health - damage);
+  // A jab never puts a man down by itself (overhaul; it can neither rock nor finish either): it cannot take the bar under jabHealthFloor.
+  const floor = light && cfg.jabHealthFloor > 0 ? Math.min(d.health, cfg.jabHealthFloor) : 0;
+  d.health = Math.max(floor, d.health - damage);
   setHealthCap(d, Math.max(d.health, healthCap(d) - damage * cfg.healthCapLoss));
   setHealthRegenDelay(d, Math.max(healthRegenDelay(d), cfg.healthRegenDelay));
   if (d.health <= 0) knockDown(s, target, cfg, events, 'health');

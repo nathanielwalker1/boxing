@@ -8,7 +8,8 @@ import { check, near, done } from './check.js';
 
 const [core, sim] = await load('/src/core/index.ts', '/src/sim/index.ts');
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT, frameOf, worldToLocal } = core;
-const cfg = createConfig();
+// jabHealthFloor 0 (overhaul 2026-11-11): one case here uses a jab as its knockdown blow; by default a jab can no longer empty the bar (attrition_test pins that).
+const cfg = { ...createConfig(), jabHealthFloor: 0 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
