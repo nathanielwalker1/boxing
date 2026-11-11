@@ -25,7 +25,7 @@ function fight(bot, seed, c = fast, style = null) {
   let s = sim.createState(specs, c, seed);
   let a = ai.createAi(1, seed, c, style);
   const player = bot.create(k, seed, c);
-  const out = { winner: undefined, evs: {}, variants: new Set(), aiBurstsNoMacro: 0, dist: 0, n: 0 };
+  const out = { winner: undefined, evs: {}, variants: new Set(), aiBurstsNoMacro: 0, dist: 0, n: 0, dodged: 0 };
   const limit = Math.round((c.roundCount * (c.roundSeconds + c.betweenRoundSeconds) + 30) / SIM_DT) * 2;
   for (let i = 0; i < limit && s.round.phase !== 'over'; i++) {
     const d = ai.aiStep(a, s, c);
@@ -35,6 +35,7 @@ function fight(bot, seed, c = fast, style = null) {
     for (const e of r.events) {
       if (e.side === 1 || e.type === 'clinch') out.evs[e.type] = (out.evs[e.type] ?? 0) + 1;
       if (e.type === 'punchStart' && e.side === 1) out.variants.add(e.variant);
+      if (e.type === 'slip' && e.side === 1 && e.dodged) out.dodged++;
       if (e.type === 'burst' && e.side === 1 && !inMacro && a.used.burst === 0) out.aiBurstsNoMacro++;
       if (e.type === 'ko' || e.type === 'tko' || e.type === 'decision') out.winner = e.winner;
     }
@@ -55,7 +56,12 @@ for (const bot of [jabAndMove, insideFighter, counterPuncher, turtle]) for (cons
   for (const f of fights) for (const [key, v] of Object.entries(f.used)) used[key] = (used[key] ?? 0) + v;
   console.log(`     ${Object.entries(used).map(([key, v]) => `${key} ${v}`).join(' · ')}`);
   for (const tool of ['body', 'pivot', 'push', 'burst', 'feint', 'clinch', 'cutOff']) check(`it used: ${tool}`, used[tool] > 0, `${used[tool]}`);
-  check('it slipped or rolled under something', used.slip + used.roll > 0, `slip ${used.slip}, roll ${used.roll}`);
+  // (Phase 3: a slip is only chosen when there is time for it — the punch's tell less the AI's reaction. At the
+  // default 0.2 s reaction nothing quicker than a hook qualifies, so the head movement is checked on the counter
+  // style, which reads a cross in time; and it must actually make some of them miss.)
+  const slick = [1, 2, 3].map(seed => fight(insideFighter, seed, fast, ai.styleParams('counter', fast)));
+  const moved = sum(slick, f => f.used.slip + f.used.roll), made = sum(slick, f => f.dodged);
+  check(`the counter style slipped or rolled (${moved} times in three fights) and made punches miss with it (${made})`, moved > 0 && made > 0);
   const variants = new Set(); for (const f of fights) for (const v of f.variants) variants.add(v);
   check(`it threw body variants and inside variants (${[...variants].join(', ')})`, ['bodyJab', 'bodyCross', 'bodyHook'].some(v => variants.has(v)) && ['shovelHook', 'insideUppercut'].some(v => variants.has(v)));
   check('the sim saw the moves as events (pivot, pushOff, burst, feint, slip)', ['pivot', 'pushOff', 'burst', 'feint', 'slip'].every(t => sum(fights, f => f.evs[t] ?? 0) > 0), JSON.stringify(Object.fromEntries(['pivot', 'pushOff', 'burst', 'feint', 'slip', 'clinch'].map(t => [t, sum(fights, f => f.evs[t] ?? 0)]))));
@@ -109,8 +115,15 @@ console.log('\n=== 5. Styles and difficulty ===');
   check('every style has signature combinations and a tired / hurt plan', table.every(st => st.combos.length > 0 && st.tiredTempo >= 1));
   const [easy, medium, hard] = [0, 1, 2].map(d => styleParams('pressure', fast, d));
   check(`three difficulty levels as data: ${DIFFICULTY.map(d => d.id).join(', ')}`, DIFFICULTY.map(d => d.id).join() === 'easy,medium,hard');
-  check('easy reacts slower, defends less, throws less often and makes mistakes; hard the other way; medium is the style as written', easy.reaction > medium.reaction && medium.reaction > hard.reaction && easy.blockChance < medium.blockChance && hard.blockChance >= medium.blockChance && easy.attackDelayMax > medium.attackDelayMax && medium.attackDelayMax > hard.attackDelayMax && easy.mistake > 0 && medium.mistake === 0 && hard.mistake === 0);
+  // (Phase 3: the style as written is close to HARD; medium gives a little away — slower, some mistakes.)
+  check('easy reacts slower, defends less, throws less often and makes more mistakes than medium; hard the other way and makes none', easy.reaction > medium.reaction && medium.reaction > hard.reaction && easy.blockChance < medium.blockChance && hard.blockChance >= medium.blockChance && easy.attackDelayMax > medium.attackDelayMax && medium.attackDelayMax > hard.attackDelayMax && easy.mistake > medium.mistake && medium.mistake > 0 && hard.mistake === 0);
   check('styleFor(spec, cfg) reads the spec style and cfg.aiDifficulty (default medium); the third argument overrides it', fast.aiDifficulty === 1 && JSON.stringify(styleFor({ style: 'swarmer' }, fast)) === JSON.stringify(styleParams('swarmer', fast, 1)) && JSON.stringify(styleFor({ style: 'swarmer' }, { ...fast, aiDifficulty: 2 })) === JSON.stringify(styleFor({ style: 'swarmer' }, fast, 2)) && JSON.stringify(styleFor({ style: 'swarmer' }, fast, 0)) !== JSON.stringify(styleFor({ style: 'swarmer' }, fast)));
+  // Phase 3: a style on a body. styleFor(spec) with a whole spec scales the ranges to that man's arm.
+  const R = id => k.core.ROSTER.find(f => f.id === id);
+  const tall = styleFor(R('lighthouse'), fast), short = styleFor(R('boiler'), fast), bare = styleFor({ style: 'outboxer' }, fast), bareS = styleFor({ style: 'swarmer' }, fast);
+  check(`on the 1.98 m body the outboxer commits its straights from further (${tall.engageStraight.toFixed(2)} m vs ${bare.engageStraight.toFixed(2)} written) and stands further off; on the 1.63 m body the swarmer from closer (${short.engageStraight.toFixed(2)} vs ${bareS.engageStraight.toFixed(2)})`, tall.engageStraight > bare.engageStraight && tall.standoff > bare.standoff && short.engageStraight < bareS.engageStraight);
+  check('a short man never stands closer than the style says, and his hooks shrink less than his straights', short.standoff === bareS.standoff && short.engageHook / bareS.engageHook > short.engageStraight / bareS.engageStraight);
+  check('aiReachPerArm 0 and aiReachEager 1: one set of distances for every body', JSON.stringify(styleFor(R('lighthouse'), { ...fast, aiReachPerArm: 0, aiReachEager: 1 })) === JSON.stringify(bare));
   // Behaviour, measured: the table styles against a man who only covers up.
   const run = id => [1, 2].map(seed => fight(turtle, seed, fast, styleParams(id, fast)));
   const far = run('outboxer'), near = run('swarmer');

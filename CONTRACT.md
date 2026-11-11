@@ -508,3 +508,22 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   (`setFace`, `setBodyState`). `rigQuality` (render group) follows the stage's
   `qualityTier` (main.ts). Toon banding is retired for fighters. The chest follows the
   sim's shoulder joints (the stance is squarer; open).
+- 2026-11-11 — **Styles, ratings, difficulty, drills** (SIM phase 2).
+  `src/core/styles.ts`: `GUARDS` (high, shell, peekaboo, long, low — rest and block
+  hand poses), `STYLES` / `fighterStyle(id)` (`guard, stanceWidth, bounceHz, bounceAmp,
+  range, desc, beat`). `FighterState.styleId` and `guardShape`, set at `createState`
+  from `spec.style` (pressure → high = the old poses). All five ratings are read
+  (`sim/ratings.ts`, neutral 65). `styleFor(spec, cfg, difficulty?)`, `aiDifficulty`
+  (0 easy / 1 medium / 2 hard), `DRILLS` / `drillState` (`src/ai/drills.ts`). Toggles
+  `ratingsOn`, `stylesOn`, `jabStopOn`. The ported tests run with ratings and styles off.
+- 2026-11-11 — **The flow** (UI, `docs/OVERHAUL_UI.md`): title → fighter select
+  (turntable) → opponent select (difficulty, rounds) → ring walk → fight → corner card →
+  results; ladder (`localStorage`); gym (drills); controls; pause. `CameraShot` gained
+  optional `key, azimuth, dist, elevationDeg, lookY, fov, lambda, cut`. A knockdown
+  replay renders buffered `SimState`s with the sim held (`ui/replay.ts`). The camera
+  kick scales by grade (`flowKickGlancing`, `flowKickFlush`). Config group `flow`.
+  §8's HUD rule stands; scores stay hidden until the results.
+- 2026-11-11 — **Reads** (RIG phase 2): `src/rig/reads.ts` drives pose, face and skin
+  from `FighterState` and events inside `apply()`; `stanceParams(state, cfg)` reads the
+  style table. The drawn arms leave the sim's joints for the clinch and the push-off
+  only. Config group `rig reads`. `window.__rigReplay` feeds events to a filmstrip.

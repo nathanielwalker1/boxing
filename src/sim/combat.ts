@@ -14,7 +14,7 @@ import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, S
 import { atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
 import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult } from './state';
-import { applyReaction } from './reaction';
+import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
 import { applyPunish } from './vulnerability';
@@ -375,10 +375,11 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // shot stays a body shot).
   const afr = frameOf(a.yaw);
   const sweep = { a: { x: g.pos.x - afr.fwd.x * cfg.punchSweepLen, y: g.pos.y, z: g.pos.z - afr.fwd.z * cfg.punchSweepLen }, b: { x: g.pos.x, y: g.pos.y, z: g.pos.z }, r: a.body.gloveR };
+  const dBody = hitBody(d, cfg);   // the capsule a fist sees (a thick torso's top end sits lower — reaction.ts)
   const bodyHit = (): boolean => {
     for (const t of [1, 0.5, 0]) {
       const p = { x: lerp(sweep.a.x, sweep.b.x, t), y: lerp(sweep.a.y, sweep.b.y, t), z: lerp(sweep.a.z, sweep.b.z, t), r: glove.r };
-      if (sphereCapsuleOverlap(p, d.bodyBox)) return true;
+      if (sphereCapsuleOverlap(p, dBody)) return true;
     }
     return false;
   };
@@ -391,7 +392,22 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const hand = a.punch.hand === 'lead' ? 0 : 1;
   const stoppedByGuard = touchedBlock(a, hand) && (d.block || targetCut(a, hand));
   const headHit = sphereCapsuleOverlap(d.headBox, sweep);
-  const part: BodyPart | null = headHit ? 'head' : bodyHit() ? 'body' : stoppedByGuard ? 'head' : null;
+  // (A BODY punch stopped on the guard — the shell's forearm lies across the ribs — is a body shot on the arms, not a head shot.)
+  // The shoulder he brought with him (phase 3): a head punch that goes past a head slipped TOWARD the punching hand is
+  // caught by that shoulder, counted wrongWayShoulder higher than the capsule — it hunches up into the lane as he
+  // leans onto the fist. Was pure geometry on the two reference fighters (red's lane sat 5.5 cm low on blue and
+  // caught the capsule by 2 cm); with the lane on his head it has to be said.
+  const intoHand = cfg.wrongWayOn && cfg.wrongWayShoulder > 0 && !v.body && d.slip.active && (d.slip.dir === 1 || d.slip.dir === -1) && d.slip.kind !== 'roll'
+    && slipLateral(d) * -handLateralSign(a.punch.hand, a.stance) > 0;
+  const shoulderHit = (): boolean => {
+    if (!intoHand) return false;
+    const up = { a: dBody.a, b: { x: dBody.b.x, y: dBody.b.y + cfg.wrongWayShoulder, z: dBody.b.z }, r: dBody.r };
+    for (const t of [1, 0.5, 0]) {
+      if (sphereCapsuleOverlap({ x: lerp(sweep.a.x, sweep.b.x, t), y: lerp(sweep.a.y, sweep.b.y, t), z: lerp(sweep.a.z, sweep.b.z, t), r: glove.r }, up)) return true;
+    }
+    return false;
+  };
+  const part: BodyPart | null = headHit ? 'head' : bodyHit() || shoulderHit() ? 'body' : stoppedByGuard ? (v.body ? 'body' : 'head') : null;
   if (part === null) {
     whiff();
     // Slip classification (legacy main.js Stage 19 part 1): a punch that missed
@@ -498,8 +514,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // side it arrived from — a hook rests on the cheek, an uppercut under the
   // chin. Bodies are flesh and bone, not empty (feel-test 2026-09-03).
   const sink = a.body.gloveR * cfg.contactSquash;
-  const centre = part === 'head' ? { x: d.headBox.x, y: d.headBox.y, z: d.headBox.z } : closestOnSegment(d.bodyBox.a, d.bodyBox.b, g.pos);
-  const r = (part === 'head' ? d.headBox.r : d.bodyBox.r) + a.body.gloveR - sink;
+  const centre = part === 'head' ? { x: d.headBox.x, y: d.headBox.y, z: d.headBox.z } : closestOnSegment(dBody.a, dBody.b, g.pos);
+  const r = (part === 'head' ? d.headBox.r : dBody.r) + a.body.gloveR - sink;
   let nx = g.pos.x - centre.x, ny = g.pos.y - centre.y, nz = g.pos.z - centre.z;
   const nlen = Math.hypot(nx, ny, nz);
   if (nlen > 1e-6) { nx /= nlen; ny /= nlen; nz /= nlen; } else { nx = -adX; ny = 0; nz = -adZ; }
@@ -539,6 +555,10 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const cover = !guarded ? 0 : perfect ? 1 : !d.block ? (cfg.guardShapeOn ? cfg.guardPinnedCover : 1) : guardCover(d, type, part, dirX, dirZ, cfg);
   const through = guarded && !perfect && cfg.guardShapeOn && cover < cfg.guardThroughAt;   // it came round or through: a land, at what the guard left of it
   const blocked = guarded && !through;
+  // A jab is a jab (phase 3): whatever stacked on it — the step, his walking onto it, his exposure, the combination —
+  // it carries at most jabImpulseCap. MEASURED before: step jabs landing at 310–480 N·s (a standing cross is 272) on
+  // a man walking in; the inside-fighter bot took most of every style's health bar with the jab alone.
+  if (type === 'jab' && cfg.jabImpulseCap > 0) mag = Math.min(mag, cfg.jabImpulseCap);
   const raw = mag;   // what arrived at the guard — block stun, guard wear and the chip threshold read this
   // (What a block absorbs rises a little with the blocker's defense rating, capped.)
   if (guarded) mag *= 1 - Math.min(BLOCK_MAX, cfg.blockReduction * rated(d, 'defense', cfg.ratingDefenseBlock, cfg)) * cover * (d.hurt > 0 ? cfg.stunBlockScale : 1);   // a rocked guard is loose
@@ -561,6 +581,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     }
     combo = a.combo;
   } else missed(a, cfg, false);
+  if (type === 'jab' && cfg.jabImpulseCap > 0) mag = Math.min(mag, cfg.jabImpulseCap);   // …and again after the grade and the combination
 
   const power = mag / cfg.punchImpulseBase;
   const rawPower = raw / cfg.punchImpulseBase;
@@ -600,7 +621,9 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   }
   events.push({ type: 'hurt', side: target, part, impulse });
   if (counter && !blocked) events.push({ type: 'counter', side, target, punch: type });
-  if (!blocked) interruptPunch(d, target, side, cfg, events);
+  // (Phase 3, weight: a big man is not stopped by a light shot. Under interruptPoise N·s for every kg he carries over
+  // interruptPoiseMass the hit lands — damage, reaction, all of it — but his own punch keeps coming.)
+  if (!blocked && mag >= cfg.interruptPoise * Math.max(0, d.body.massKg - cfg.interruptPoiseMass)) interruptPunch(d, target, side, cfg, events);
 
   let stumble = 1 + retreat * cfg.punchRetreatStumble;   // hit while backing off: the feet go
   // INSIDE IS EARNED (phase 2): a jab that lands on a man walking straight in stops him — his forward speed is
@@ -611,6 +634,12 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     if (toward < 0) { d.vel.x -= dirX * toward; d.vel.z -= dirZ * toward; }
     d.hop.x = 0; d.hop.z = 0;
     d.blockStun = Math.max(d.blockStun, cfg.jabStopStun);
+  } else if (cfg.jabStopOn && cfg.jabStopGuard > 0 && type === 'jab' && blocked && !perfect && closing >= cfg.jabStopSpeed) {
+    // …and on his GUARD (phase 3): walking in behind the gloves is not free either. The jab on the guard takes
+    // jabStopGuard of his forward speed — no stumble, no stun: he keeps his hands, he loses the step.
+    const toward = d.vel.x * dirX + d.vel.z * dirZ;
+    if (toward < 0) { d.vel.x -= dirX * toward * cfg.jabStopGuard; d.vel.z -= dirZ * toward * cfg.jabStopGuard; }
+    d.hop.x *= 1 - cfg.jabStopGuard; d.hop.z *= 1 - cfg.jabStopGuard;
   }
   d.stagger.x += impulse.x / d.body.massKg * stumble;
   d.stagger.z += impulse.z / d.body.massKg * stumble;

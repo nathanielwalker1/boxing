@@ -102,10 +102,41 @@ console.log('\n=== 4. Counter flash ===');
   };
   const base = exchange(cfg);
   check('a slip-counter cross ROCKS a fresh man but does not floor him', base.evs.some(e => e.type === 'counter') && base.evs.some(e => e.type === 'rocked' && e.side === 0) && of(base.evs, 'knockdown').length === 0);
-  const eager = { ...cfg, counterFlashScale: 0.7 };
+  // (Phase 3: stunFlashFrac 1.85 → 3.2 and a hit costs less wind, so the scale that makes this cross a flash is 0.4, was 0.7.)
+  const eager = { ...cfg, counterFlashScale: 0.4 };
   const fl = exchange(eager), flOff = exchange({ ...eager, counterFlashOn: false });
-  check('with the counter flash threshold lower (counterFlashScale 0.7) the same counter floors him: cause flash', first(fl.evs, 'knockdown')?.cause === 'flash' && first(fl.evs, 'knockdown').side === 0);
+  check('with the counter flash threshold lower (counterFlashScale 0.4) the same counter floors him: cause flash', first(fl.evs, 'knockdown')?.cause === 'flash' && first(fl.evs, 'knockdown').side === 0);
   check('…and with counterFlashOn off it is back to a rock', of(flOff.evs, 'knockdown').length === 0 && flOff.evs.some(e => e.type === 'rocked'));
+}
+
+// ── 4b. The loaded counter (phase 3) ────────────────────────────────────────
+// The biggest single shot in the game: blue jabs at 0.79 m, red slips to the lead side and throws the lead hook —
+// a counter, flush, off the loaded hand. The game as shipped (ratings and guard shapes on).
+console.log('\n=== 4b. The loaded counter ===');
+{
+  const r = await kit({ rated: true });
+  const c = r.cfg;
+  const len = v => Math.hypot(v.x, v.y, v.z);
+  const GAP = 3;
+  const counter = (prep = () => {}) => {
+    const s = r.fresh(c, MID, 20); prep(s.fighters[0], s.fighters[1]);
+    let hurtAtLand = 0;
+    const out = r.run(s, 80, i => [r.inp({ move: { x: (i >= 2 && i < 4) || i === 4 + GAP ? -1 : 0, y: 0 }, hook: i === 4 + GAP }), r.inp({ jab: i === 0 })], c,
+      (st, i, ev) => { if (ev.some(e => e.type === 'punchLand' && e.side === 0)) hurtAtLand = st.fighters[1].hurt; });
+    const land = out.evs.find(e => e.type === 'punchLand' && e.side === 0), kd = out.evs.find(e => e.type === 'knockdown' && e.side === 1);
+    return { ...out, land, kd, rocked: out.evs.find(e => e.type === 'rocked' && e.side === 1), hurtAtLand, mag: land ? len(land.impulse) : 0 };
+  };
+  const fr = counter();
+  check(`it is a flush, loaded counter (${fr.land?.grade}, counter ${fr.land?.counter}, ${fr.mag.toFixed(0)} N·s)`, fr.land?.grade === 'flush' && fr.land.counter === true && fr.mag > 900);
+  check(`a FRESH, average-chin man is badly rocked by one, not floored (hurt ${fr.hurtAtLand.toFixed(1)} s, ${(fr.mag / fr.rocked?.threshold).toFixed(2)} × his threshold; health left ${fr.s.fighters[1].health.toFixed(2)})`, !fr.kd && fr.rocked && fr.hurtAtLand >= 2.4);
+  // A second one — any rocking shot at stunFinishFrac × T while he is rocked — finishes it.
+  const again = (() => { const s = fr.s; s.fighters[0].pos = { x: -0.36, z: 0 }; s.fighters[1].pos = { x: 0.36, z: 0 }; return r.run(s, 40, i => [r.inp({ hook: i === 0, move: { x: i === 0 ? -1 : 0, y: 0 } }), r.NONE], c); })();
+  check(`…and the next clean hook while he is rocked puts him down (cause ${again.evs.find(e => e.type === 'knockdown')?.cause})`, again.evs.find(e => e.type === 'knockdown' && e.side === 1)?.cause === 'finish');
+  for (const hp of [0.8, 0.6]) { const w = counter((a, d) => { d.health = hp; }); check(`worn to ${hp * 100}% health the same counter floors him on the land tick (cause ${w.kd?.cause})`, w.kd?.cause === 'flash' && w.kd.tick === w.land.tick); }
+  const iron = counter((a, d) => { d.ratings = { ...d.ratings, chin: 90 }; }), glass = counter((a, d) => { d.ratings = { ...d.ratings, chin: 40 }; });
+  check(`ratings move it: a chin-90 man is further from the floor (${(iron.mag / iron.rocked?.threshold).toFixed(2)} × his threshold vs ${(fr.mag / fr.rocked?.threshold).toFixed(2)}; the flash is at ${(c.stunFlashFrac * c.counterFlashScale).toFixed(2)}) and a chin-40 man goes down fresh (${glass.kd?.cause})`, !iron.kd && iron.rocked && iron.rocked.threshold > fr.rocked.threshold && glass.kd?.cause === 'flash');
+  const heavy = counter(a => { a.ratings = { ...a.ratings, power: 90 }; }), light = counter(a => { a.ratings = { ...a.ratings, power: 40 }; });
+  check(`…a power-90 man's floors a fresh one (${heavy.mag.toFixed(0)} N·s, ${heavy.kd?.cause}); a power-40 man's rocks him (${light.mag.toFixed(0)} N·s)`, heavy.kd?.cause === 'flash' && !light.kd && !!light.rocked);
 }
 
 // ── 5. Surviving ────────────────────────────────────────────────────────────
@@ -122,7 +153,8 @@ console.log('\n=== 5. Surviving ===');
 console.log('\n=== 6. The get-up ===');
 {
   const floor = c => run(fresh(c, MID, 20), T(10 * c.countTickSeconds) + 60, i => [inp({ cross: i === 0 }), NONE], c);
-  const huge = { ...soft, crossImpulseMult: 3.5, getUpSlumpChance: 0 };
+  // (stunFlashFrac 1.85: this section is about the get-up, and floors its man with one big cross — the flash bar it was written on; phase 3 raised it to 3.2.)
+  const huge = { ...soft, crossImpulseMult: 3.5, getUpSlumpChance: 0, stunFlashFrac: 1.85 };
   const r = floor(huge);
   const kd = first(r.evs, 'knockdown'), up = first(r.evs, 'getUp');
   const ph = of(r.evs, 'getUpPhase');
@@ -134,6 +166,10 @@ console.log('\n=== 6. The get-up ===');
   let midPhase = null;
   run(fresh(huge, MID, 20), ph[1].tick + 3, i => [inp({ cross: i === 0 }), NONE], huge, s => { midPhase = s.fighters[1].getUp; });
   check('the phase is on the state while he is down, and cleared when he is up', midPhase.phase === 'knee' && midPhase.tries === 1 && r.s.fighters[1].getUp.phase === 'none');
+  // Phase 3: the count is a breather. He goes down with an empty tank and gets up with knockdownStaminaRestore of it.
+  const windAtGetUp = c => { const s0 = fresh(c, MID, 20); s0.fighters[1].stamina = 0.02; let w = null; run(s0, T(10 * c.countTickSeconds) + 60, i => [inp({ cross: i === 0 }), NONE], c, (s, i, ev) => { if (w === null && ev.some(e => e.type === 'getUp')) w = s.fighters[1].stamina; }); return w; };
+  const wOn = windAtGetUp(huge), wOff = windAtGetUp({ ...huge, knockdownStaminaRestore: 0 });
+  check(`floored with an empty tank he gets up with wind (${wOn?.toFixed(2)}; ${wOff?.toFixed(2)} with knockdownStaminaRestore 0)`, wOn !== null && wOff !== null && wOn >= Math.min(huge.knockdownStaminaRestore, 0.45) - 1e-9 && wOff < 0.1);
   // The first try fails.
   // (A short slump so it fits this ~2.5 s get-up; at the default 0.4 s it plays only on the longer counts.)
   const slumpy = { ...huge, getUpSlumpChance: 3, getUpSlumpSeconds: 0.15 };

@@ -77,7 +77,9 @@ export function applyStun(s: SimState, target: Side, by: Side, punch: PunchType,
   const d = s.fighters[target];
   if (d.down || cfg.stunBase <= 0) return;
   const T = stunThreshold(d, cfg);
-  if (d.hurt > 0 && d.hurtKind !== 'body' && mag >= cfg.stunFinishFrac * T) { knockDown(s, target, cfg, events, 'finish'); return; }
+  // (Phase 3: the finish needs him to have been rocked for stunFinishGrace already — the next punch of the SAME
+  // combination, four ticks behind the one that rocked him, is not a finish. Nobody, person or AI, can answer that.)
+  if (d.hurt > 0 && d.hurtKind !== 'body' && d.hurtMax - d.hurt >= cfg.stunFinishGrace && mag >= cfg.stunFinishFrac * T) { knockDown(s, target, cfg, events, 'finish'); return; }
   const flash = cfg.stunFlashFrac * (counter && cfg.counterFlashOn ? cfg.counterFlashScale : 1);
   if (mag >= flash * T) { knockDown(s, target, cfg, events, 'flash'); return; }
   if (mag < T) return;
