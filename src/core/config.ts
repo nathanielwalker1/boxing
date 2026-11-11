@@ -792,7 +792,7 @@ export const SCHEMA = {
   ratingsOn:        bool(true, 'ratings', 'RATINGS: power, speed, stamina and defense (and chin, as before) change how a fighter fights. Off = everybody is rated ratingNeutral'),
   ratingNeutral:    num(65, 30, 90, 1, 'ratings', 'the rating at which every effect is × 1 — today\'s numbers. 65 is about the middle of the roster'),
   ratingRange:      num(35, 10, 70, 1, 'ratings', 'this many points above / below neutral is the full span (100 = +span, 30 = −span)'),
-  ratingPowerImpulse: num(0.25, 0, 0.6, 0.01, 'ratings', 'POWER: impulse of every punch ± this (power 90 hits 18% harder than neutral, 40 18% softer — and the rock / flash bars are that much nearer or further)'),
+  ratingPowerImpulse: num(0.4, 0, 0.6, 0.01, 'ratings', 'POWER: impulse of every punch ± this (power 90 hits 29% harder than neutral, 40 29% softer — and the rock / flash bars are that much nearer or further). Was 0.25 until phase 4: with a jab scoring nearly what a cross does and health lasting longer, the power-93 slugger out-landed 22 to 82 lost every decision and hurt nobody'),
   ratingSpeedHands: num(0.22, 0, 0.5, 0.01, 'ratings', 'SPEED: wind-up and recovery of every punch ÷ (1 ± this). The 3-tick extension is untouched; tellMinHeavy still holds'),
   ratingSpeedFeet:  num(0.14, 0, 0.4, 0.01, 'ratings', 'SPEED: walking speed and burst length ± this'),
   ratingStaminaCost: num(0.3, 0, 0.6, 0.01, 'ratings', 'STAMINA: what a punch, a miss and holding the guard cost ∓ this'),
@@ -809,6 +809,8 @@ export const SCHEMA = {
   jabStopOn:        bool(true, 'styles', 'INSIDE IS EARNED: a jab that lands on a man walking straight in STOPS him — his forward speed is killed and he is knocked back further the faster he was coming. Off = walking in through the jab is free'),
   jabStopSpeed:     num(0.35, 0, 1, 0.05, 'styles', 'closing speed (fraction of moveSpeed) above which a landed jab stops the walker'),
   jabStopScale:     num(0.9, 0, 3, 0.05, 'styles', 'the stopped walker\'s stumble is × (1 + this × his closing speed fraction)'),
+  jabStopHeavy:     num(0.7, 0, 1, 0.05, 'styles', 'WEIGHT: how much of the jab stop a much heavier man shrugs off (1 = he is not checked at all, 0 = weight does not matter). Scales in from interruptPoiseMass kg'),
+  jabStopMassSpan:  num(22, 1, 80, 1, 'styles', '…reaching that at this many kg over interruptPoiseMass (112 kg at the defaults). An 88 kg man is checked like anyone'),
   jabStopGuard:     num(1, 0, 1, 0.05, 'styles', 'a jab that lands on the GUARD of a man walking in takes this fraction of his forward speed (no stumble, no stun). 0 = walking in behind the gloves is free: MEASURED, the inside-fighter bot covered up when it saw the jab, kept walking and was on every style\'s chest inside two seconds'),
   jabStopStun:      num(0.14, 0, 0.5, 0.01, 'styles', '…and he cannot start a punch for this long, s (the jab bought the space)'),
 

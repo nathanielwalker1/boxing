@@ -637,18 +637,23 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   let stumble = 1 + retreat * cfg.punchRetreatStumble;   // hit while backing off: the feet go
   // INSIDE IS EARNED (phase 2): a jab that lands on a man walking straight in stops him — his forward speed is
   // killed, he is knocked back further the faster he was coming, and he cannot punch for a beat.
+  // (Phase 4, weight: a much heavier man is checked less. Over interruptPoiseMass the stop fades — by jabStopHeavy of
+  // it at jabStopMassSpan kg over. He still takes every jab; he keeps most of his step. MEASURED without it: the
+  // 112 kg slugger, stopped dead by each jab, landed 20 punches a fight on a man who jabbed and moved, and lost 8 of 8.)
+  const stop = 1 - cfg.jabStopHeavy * clamp((d.body.massKg - cfg.interruptPoiseMass) / Math.max(1, cfg.jabStopMassSpan), 0, 1);
   if (cfg.jabStopOn && type === 'jab' && !blocked && grade !== 'glancing' && closing >= cfg.jabStopSpeed) {
-    stumble *= 1 + cfg.jabStopScale * closing;
+    stumble *= 1 + cfg.jabStopScale * closing * stop;
     const toward = d.vel.x * dirX + d.vel.z * dirZ;   // negative = he is walking into it
-    if (toward < 0) { d.vel.x -= dirX * toward; d.vel.z -= dirZ * toward; }
-    d.hop.x = 0; d.hop.z = 0;
-    d.blockStun = Math.max(d.blockStun, cfg.jabStopStun);
+    if (toward < 0) { d.vel.x -= dirX * toward * stop; d.vel.z -= dirZ * toward * stop; }
+    d.hop.x *= 1 - stop; d.hop.z *= 1 - stop;
+    d.blockStun = Math.max(d.blockStun, cfg.jabStopStun * stop);
   } else if (cfg.jabStopOn && cfg.jabStopGuard > 0 && type === 'jab' && blocked && !perfect && closing >= cfg.jabStopSpeed) {
     // …and on his GUARD (phase 3): walking in behind the gloves is not free either. The jab on the guard takes
     // jabStopGuard of his forward speed — no stumble, no stun: he keeps his hands, he loses the step.
     const toward = d.vel.x * dirX + d.vel.z * dirZ;
-    if (toward < 0) { d.vel.x -= dirX * toward * cfg.jabStopGuard; d.vel.z -= dirZ * toward * cfg.jabStopGuard; }
-    d.hop.x *= 1 - cfg.jabStopGuard; d.hop.z *= 1 - cfg.jabStopGuard;
+    const g = cfg.jabStopGuard * stop;
+    if (toward < 0) { d.vel.x -= dirX * toward * g; d.vel.z -= dirZ * toward * g; }
+    d.hop.x *= 1 - g; d.hop.z *= 1 - g;
   }
   d.stagger.x += impulse.x / d.body.massKg * stumble;
   d.stagger.z += impulse.z / d.body.massKg * stumble;

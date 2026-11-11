@@ -127,6 +127,16 @@ console.log('\n=== 6. Inside is earned ===');
   };
   const gOn = guarded(quiet), gOff = guarded({ ...quiet, jabStopGuard: 0 });
   check(`a jab on the GUARD of a man walking in takes his step: 0.2 s later he is at ${gOn.closest.toFixed(2)} m (${gOff.closest.toFixed(2)} m with jabStopGuard 0)`, gOn.blocked && gOff.blocked && gOn.closest > gOff.closest + 0.03);
+  // Phase 4, weight: the 112 kg man is checked far less by the same jab (he still takes it).
+  const heavyIn = c => {
+    const raffle = k.core.ROSTER.find(f => f.id === 'raffle');
+    let pressed = false, landed = null, closest = 9;
+    run(fresh(c, 1.7, 10, 0, 1, [as('pressure'), raffle]), 110, (i, s) => { const go = !pressed && k.dist(s) < 1.1; if (go) pressed = true; return [inp({ jab: go }), inp({ move: { x: 0, y: 1 } })]; }, c,
+      (s, i, ev) => { if (landed === null && ev.some(e => e.type === 'punchLand' && e.side === 0)) landed = i; if (landed !== null && i <= landed + 30) closest = Math.min(closest, k.dist(s)); });
+    return { closest, landed };
+  };
+  const hv = heavyIn(quiet), hvOff = heavyIn({ ...quiet, jabStopHeavy: 0 });
+  check(`a 112 kg man walks through most of it: half a second after the jab he is at ${hv.closest.toFixed(2)} m (${hvOff.closest.toFixed(2)} m with jabStopHeavy 0)`, hv.landed !== null && hvOff.landed !== null && hv.closest < hvOff.closest - 0.05);
   // …and a jab is a jab: whatever stacked on it, it lands with at most jabImpulseCap.
   const big = walkIn({ ...quiet, jabImpulseMult: 3 }), capOff = walkIn({ ...quiet, jabImpulseMult: 3, jabImpulseCap: 0 });
   const magOf = e => Math.hypot(e.impulse.x, e.impulse.z);

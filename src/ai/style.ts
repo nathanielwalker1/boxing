@@ -214,6 +214,7 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     insideGuard: 0.4, insideBlock: 0.6, hurtClinch: 0.5, hurtSwing: 0.2, shellTime: 1.6, wildRate: 0.8,
     speed: 1, insideTempo: 2.6, blockCounter: 0.6, backFoot: 0, approachSlip: 0.5, intercept: 0.5, stumbleSpeed: 1.6,
     tiredTempo: 1.25, guard: 'high',
+    readAfter: 2.5, readChance: 0.45, readReaction: 0.2, pullShare: 0, slipCounter: 0.7,   // (phase 4) he times a jab he has seen three times and comes in under it
   },
   // OUTBOXER — long guard, long jab, always leaving. Probes from outside his opponent's reach, circles away from
   // the power hand, resets after every exchange, shoves and ties up when crowded. Beaten by cutting the ring off.
@@ -270,6 +271,7 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     insideGuard: 0.6, insideBlock: 0.6, crowdClinch: 0.2, hurtClinch: 0.7, hurtSwing: 0.2, shellTime: 2,
     speed: 1, insideTempo: 2.5, blockCounter: 0.5, backFoot: 0, crowdPush: 0.3, pushThen: 'work', approachSlip: 1.6, intercept: 0.2, stumbleSpeed: 2,
     tiredTempo: 1.7, tiredClinchRate: 0.8, guard: 'peekaboo',
+    readAfter: 2, readChance: 0.5, readReaction: 0.2, pullShare: 0, slipCounter: 0.8,   // (phase 4) bobbing in under a jab he has timed
   },
   // SLUGGER — hands low, feet planted, one punch. Slow, throws heavy singles and the overhand, dips before the big
   // one (the tell), swings back when hurt. Beaten by making him miss and never standing in front of him.
@@ -277,15 +279,15 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     // (Phase 3: he comes forward and throws from the edge of his own reach — engageStraight 1.0, was the default
     // 0.9 — through whatever touches him (interruptPoise). Standing off at 0.9 behind a 1.9 s clock he started 21
     // punches in a three-round fight against a jabber and lost every one of them on points.)
-    standoff: 0.8, probeDist: 0.98, engageStraight: 0.95, speed: 0.9,
+    standoff: 0.8, probeDist: 0.98, engageStraight: 1.0, speed: 1,
     pressWeight: 6, probeWeight: 2, circleWeight: 0.5, holdWeight: 1,
     jabWeight: 1.5, crossWeight: 4, hookWeight: 4, uppercutWeight: 2.5, bodyRate: 0.15,
-    attackDelayMin: 0.75, attackDelayMax: 1.5, comboChance: 0.35, comboMax: 2,
+    attackDelayMin: 0.55, attackDelayMax: 1.15, comboChance: 0.45, comboMax: 2,
     combos: [[X, LH], [LH, X], [J, X]], comboSignature: 0.7,
     resetChance: 0.15, hitResetChance: 0.1, burstChance: 0, feintChance: 0.02,
     blockChance: 0.25, slipShare: 0.1, rollShare: 0.1, counterChance: 0.7,
     giveGroundChance: 0.1, chaseDelay: 0.3,
-    cutOff: 0.8, leadPursuit: 0.45, ringUse: 'cutOff', pushOffRate: 0.3,
+    cutOff: 1, leadPursuit: 0.6, ringUse: 'cutOff', pushOffRate: 0.3,
     // (Phase 4: a big slow man with a quick one on his chest leans on him and shoves him off — crowdClinch 0.3 → 0.75,
     // crowdPush 0.45 → 0.8, hurtClinch 0.15 → 0.5. Trading inside he was mid-punch, and so exposed, all the time:
     // stopped 8 times in 8 by the inside-fighter bot.)
