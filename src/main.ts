@@ -46,6 +46,10 @@ declare global {
      * and the reaction that follows can be captured frame by frame.
      */
     __replay: (dist: number, script: readonly Partial<FrameInput>[], ticks: number, script1?: readonly Partial<FrameInput>[]) => void;
+    /** Roster ids (lookbook). */
+    __roster: () => string[];
+    /** Lookbook: show roster fighter `id` alone at the ring centre in a settled rest guard, a held block, or mid-cross. */
+    __look: (id: string, kind: 'rest' | 'block' | 'cross', yawDeg?: number) => void;
     /** -1 = frame both fighters (default); 0/1 = centre the camera on that fighter (pose grid). */
     __focus: -1 | Side;
     __states: () => readonly FighterState[];
@@ -163,7 +167,7 @@ function simPunchPose(side: Side, pos: { x: number; z: number }, yaw: number, pu
     const f = s.fighters[side];
     if (f.punch.type === null) return last;            // not in the table (null) or just finished (the last frame)
     last = f;
-    if (f.punch.progress >= progress) return f;
+    if (progress < 0 ? f.punch.resolved : f.punch.progress >= progress) return f;   // progress < 0: the tick of the hit test (full extension)
   }
   return last;
 }
@@ -185,8 +189,33 @@ window.__replay = (dist, script, ticks, script1 = []) => {
   }
   posed[0] = s.fighters[0]; posed[1] = s.fighters[1];
 };
+// Lookbook (scripts/lookbook.mjs): roster fighter `id` alone at the ring centre
+// facing +x, in a sim-settled pose; the other fighter is parked out of sight.
+window.__roster = () => ROSTER.map(f => f.id);
+window.__look = (id, kind, yawDeg = 0) => {
+  const a = ROSTER.find(f => f.id === id);
+  if (!a) throw new Error(`__look: no fighter '${id}'`);
+  const b = ROSTER.find(f => f.id !== id)!;
+  if (specs[0].id !== a.id || specs[1].id !== b.id) startFight(a, b);
+  const origin = { x: 0, z: 0 };
+  const yaw = yawDeg * Math.PI / 180;
+  let st: FighterState | null;
+  if (kind === 'cross') st = simPunchPose(0, origin, yaw, 'cross', 'rear', -1);
+  else {
+    let s = createState([specs[0], specs[1]], cfg, 1);
+    s.fighters[0].pos = { x: 0, z: 0 }; s.fighters[0].yaw = yaw;
+    s.fighters[1].pos = { x: Math.cos(yaw) * 1.6, z: Math.sin(yaw) * 1.6 }; s.fighters[1].yaw = yaw + Math.PI;
+    const idle = cloneInput(NULL_INPUT);
+    const mine = cloneInput(NULL_INPUT); mine.block = kind === 'block';
+    for (let i = 0; i < 40; i++) s = step(s, [mine, idle], cfg).state;
+    st = s.fighters[0];
+  }
+  posed[0] = st ?? restFighterState(a, cfg, origin, yaw);
+  posed[1] = restFighterState(b, cfg, { x: 60, z: 60 }, 0);
+  window.__focus = 0;
+};
 window.__focus = -1;
-window.__states = () => [posed[0] ?? next.fighters[0], posed[1] ?? next.fighters[1]];
+window.__states =() => [posed[0] ?? next.fighters[0], posed[1] ?? next.fighters[1]];
 window.__camAz = () => stage.inputAzimuth;
 window.__camDist = () => stage.dollyDistance;
 window.__camEl = () => stage.elevation;
