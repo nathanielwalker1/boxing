@@ -12,11 +12,12 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 | Core: `FrameInput.level` + bindings | done |
 | A — the fighting (sim, AI, tests) | sim side merged 2026-11-11, 36/36 green (`docs/OVERHAUL_SIM.md`); nothing new is DRAWN or HEARD yet; AI too easy (phase 2 running) |
 | B — bodies and variance (rig, roster, generator) | merged 2026-11-11 (`docs/OVERHAUL_RIG.md`, `docs/overhaul/lookbook_after.png`); weak spots listed below |
-| Reads: the new fight state drawn on the new bodies | in progress (RIG workstream, phase 2) |
+| Reads: the new fight state drawn on the new bodies | first pass merged 2026-11-11 (41/41 green); about a third wired but never filmed — RIG phase 3 is filming and fixing each |
 | C — styles, the four unread ratings, AI difficulty, drill opponents | merged 2026-11-11, 40/40 green; not yet connected to the menus (UI workstream) or the rig's stance (RIG phase 2) |
 | Balance on the roster of eight, punch heights, the loaded counter, fight length | in progress (SIM workstream, phase 3) |
 | D — arena, lighting, haze, crowd, post, audio | merged 2026-11-11 (see `docs/OVERHAUL_SHOW.md`); audio unheard, polish list below |
-| D — title, select, cards, ring walk, replay, ladder, gym shell, controls card | in progress (UI workstream; log `docs/OVERHAUL_UI.md`) |
+| D — title, select, cards, ring walk, replay, ladder, gym, controls card | first pass merged 2026-11-11 and connected to styles, difficulty and the seven drills; polish and input coverage in progress (UI phase 2) |
+| Sound for the new events; arena polish | in progress (SHOW phase 2) |
 
 Workstream logs (each agent keeps its own, merged into this file at integration):
 `docs/OVERHAUL_SIM.md`, `docs/OVERHAUL_RIG.md`, `docs/OVERHAUL_SHOW.md`.
@@ -201,6 +202,46 @@ size in the after-lookbook cells:
   fighters' tests); to be re-measured once the roster of eight is in.
 - None of the new state is drawn or heard yet (variants, grades, guard wear,
   body damage, the get-up struggle). That is step 5 of the plan.
+
+**Reads (RIG phase 2, merged)** — `docs/OVERHAUL_RIG.md`, phase 2 section.
+- Seen and good: `strip_flush_counter_after.png` (slip, loaded hook, head
+  whip with the mouth open, arms flung apart, the fall); the level drop and
+  body-shot bend; the roll as a U under a hook; the two knockdowns and the
+  get-up (head: falls back, props on an arm, a knee, rises; body: sags to a
+  knee with a hand down).
+- Seen and weak: the burst's hop does not read; the clinch has the heads
+  apart and arms passing through the other man; the sweat spray is barely
+  visible; the winded buckle is subtle; a downed man lies knees-up.
+- Wired but never looked at when merged: glancing vs clean vs flush side by
+  side; block stun, guard break and guard droop; the bounce, flat feet and
+  the ropes posture; most punch variants (step / retreat jab, overhand,
+  rising punches, check hook, feint); swelling, cuts and the open mouth at
+  play distance; the get-up slump. Phase 3 films each.
+- The blade is partly back: the ribcage turns 20° while the shoulder joints
+  stay on the sim's, hips still 12° (were 28°). A full blade at the shoulders
+  needs the sim's shoulder placement changed.
+- The drawn arms leave the sim's joints in the clinch and the push-off (the
+  sim keeps the gloves at the guard for both) — an exception to "drawn = hit
+  geometry", harmless today because neither can be hit there, but it should
+  be the sim's to place.
+- In play framing a downed man drops out of the bottom of the frame; the
+  knockdown shot covers it live.
+
+**Menus and flow (UI, merged)** — `docs/OVERHAUL_UI.md`; captures
+`docs/overhaul/ui_*.png`. Working title LONG COUNT.
+- Never run by anyone: gamepad menus and all tap / click input (the checks
+  drive the keyboard).
+- The title's ring is empty and the wordmark is a system font; the stare-down
+  card and the results panel cover the fighters; the corner card covers the
+  ring; the debug fps overlay sits over the menus; skipping a card with a
+  punch button throws that punch when the fight resumes; pause does not
+  silence the crowd.
+- The replay interrupts the count at 2 (`flowReplayAtCount`, `flowReplayOn`);
+  cloth and feet may jump on its first frames; its KO path has no check.
+- Scores are hidden until the results; the corner card shows punch stats,
+  condition and one line of advice.
+- No stool or corner men in the rest; the ring walk is short (1.6 m, no
+  tunnel).
 
 **Styles, ratings, difficulty (SIM phase 2, merged)** — `docs/OVERHAUL_SIM.md`
 "Phase 2".
