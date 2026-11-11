@@ -215,6 +215,9 @@ console.log('\n=== 9. The clinch ===');
   check(`…and sends them apart to about clinchBreakDist (${apart.toFixed(2)} m)`, Math.abs(apart - cfg.clinchBreakDist) < 0.1);
   const cd = run(c0, T(cfg.clinchSeconds) + 150, (i, s) => [tie, inp({ move: { x: 0, y: s.fighters[1].clinch.active ? 0 : 1 } })]);
   check('the fighter who tied up cannot do it again inside clinchCooldown', of(cd.evs, 'clinch').length === 1);
+  // Phase 4: unless he is HURT — a hurt man can always hold on.
+  const hurtAgain = c => run(c0, T(c.clinchSeconds) + 150, (i, s) => { if (i === T(c.clinchSeconds) + 40) { s.fighters[0].hurt = 1.5; s.fighters[0].hurtMax = 1.5; s.fighters[0].hurtKind = 'head'; } return [tie, inp({ move: { x: 0, y: s.fighters[1].clinch.active ? 0 : 1 } })]; }, c);
+  check('…but a HURT man can, cooldown or not (clinchHurtFree); with it off he cannot', of(hurtAgain(cfg).evs, 'clinch').length === 2 && of(hurtAgain({ ...cfg, clinchHurtFree: false }).evs, 'clinch').length === 1);
   // The other man can shove his way out.
   const out = run(c0, 80, i => [i < 30 ? tie : NONE, inp({ block: i >= 30 && i < 40, move: flick(0, 1, 30)(i) })]);
   check('the other man pushes off out of it', first(out.evs, 'clinchBreak')?.reason === 'pushOff' && first(out.evs, 'clinchBreak').tick < ev.tick + T(cfg.clinchSeconds) - 10);

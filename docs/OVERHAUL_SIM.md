@@ -794,3 +794,155 @@ No assertion was deleted.
     the jab holding off a guarded walk-in, the big man walking through jabs,
     the 0.3 s before a rocked man can be finished, health lasting half as
     long again — are unfelt.
+
+---
+
+# Phase 4 — the balance failures that contradicted the brief (2026-11-11)
+
+Measured in Node and by the bot matrix; nothing here was feel-tested. The
+phase 3 matrices and "not done" items 1–5 and 9 are superseded.
+
+## What the traces showed, and what changed
+
+### 1. Stick and move (0 of 60 against pressure, outboxer and slugger)
+
+Traced fights of the phase-3 bot against the slugger, the outboxer and the
+pressure style. It was the BOT, mostly:
+
+- It held 1.0 m whoever was in front of it. That is inside the slugger's and
+  the pressure man's reach and nearly a foot inside the 1.98 m man's.
+- It threw only the jab. Against the slugger it landed about 60 a fight to
+  his 20 and held him on the jab floor (5% health) for a minute at a time
+  with nothing to finish him, while he walked through and landed crosses of
+  280–560 N·s. Stopped 18 times in 20.
+- It had no answer to a punch: no cover, no reading of the slugger's dip, no
+  tie-up when hurt. It circled one way whatever the other man's stance.
+- Not the cause: the 260 N·s jab cap (its jabs were landing), the jab-on-the-
+  guard rule, the ropes (it was rarely there).
+
+The rewritten bot (`scripts/bots/jab_and_move.mjs`) waits just outside the
+other man's reach (from his arm), steps in behind the jab, throws the double
+jab, the body jab, the 1-2 and the straight right when he walks onto it or
+is worn, leaves at an angle away from his power hand (mirrored for a
+southpaw), steps out when it sees the dip, covers a punch it cannot leave,
+shoves and hops out when crowded, pivots off the ropes and ties up when
+hurt. With that alone, before any sim change, it went from 0% to 50% against
+pressure and 100% against the slugger (6 a cell).
+
+Two things were the sim's and were changed:
+
+- **Judging.** A round was landed + impulse × 0.005, so a cross was worth two
+  jabs and nothing was given for defence. Now: `scorePowerWeight` 0.003
+  (three clean jabs out-score two crosses), a glancing land counts
+  `scoreGlancing` 0.4 of one, and **control** — each punch a man makes the
+  other miss counts `scoreControlWeight` 0.5 of a landed punch, up to the
+  number he landed himself (`RoundState.control`). Without that cap the
+  turtle, who never throws, took 6 of 8 decisions from the outboxer on his
+  misses.
+- **The jab exposed its thrower as much as a hook.** A man hit while merely
+  jabbing took the full × 1.9 exposure bonus (the 1.98 m outboxer, jabbing
+  going away, was hit at 775–954 N·s and floored by single shots).
+  `vulnerabilityJab` 0.45: a jab's exposure tops out at 45% of a power
+  punch's.
+
+The jab's stopping power was already there (`jabStopOn`, phase 2; on the
+guard, phase 3). Phase 4 makes it give way to weight: a man over 90 kg is
+checked less, down to 30% of the stop at 112 kg (`jabStopHeavy`,
+`jabStopMassSpan`). He still takes every jab.
+
+The natural bad matchup is the **outboxer**: a longer man who jabs back.
+
+### 2. The counter style (3% on medium)
+
+Traces (phase 3): 29% and 42% of its punches were stuffed, it "slipped" jabs
+that had already landed, it dropped openings whenever its guard was up, and
+on alambre its counters did not hurt. Southpaw: the only bot that assumed an
+orthodox opponent was jab-and-move (it circled into alambre's left hand);
+fixed in the rewrite. The inside-fighter and counter-puncher bots already
+read the hand from his stance.
+
+What it does now (`StyleParams.readAfter / readChance / readReaction /
+pullShare / slipCounter`, `AiState.learn / since / gap / steady`):
+
+- **The read.** Every punch the other man starts is counted by type; the
+  counts fade over 6 s. A punch shown more than `readAfter` times is one it
+  is waiting for. When he starts it again it moves on `readReaction` of its
+  reaction time: a slip away from the hand of a cross, a roll under a head
+  hook, a pull from an uppercut or from a jab at the end of his reach.
+- **The beat.** A jab cannot be slipped from its start (0.11 s; the flick
+  and the head's travel take 0.10), so the jab is read off the rhythm: if
+  his last two jabs came the same interval apart (± 25%), it slips 0.085 s
+  before the next is due — whether or not it comes.
+- **The loaded hand comes back** behind the move (`slipCounter`), and the
+  sim no longer lets a jab stuff a loaded counter (`slipLoadedPoise` 265).
+- So the same punch at the same pace gets countered; mixing punches keeps
+  every count under the bar; breaking the rhythm or showing the jab and not
+  throwing it leaves it slipped at nothing. `ai_tools_test` §6 pins: the
+  same jab thrown over and over is read, made to miss and countered, and
+  lands less than on a man who is not waiting for it; mixed punches at the
+  same pace are read less; a style with `readAfter` never does not read.
+- The outboxer reads too (pulls from a jab he has seen three times);
+  pressure and swarmer time a jab and come in under it.
+
+Not built: the shell guard's shoulder roll as its own move (the read uses
+the slip, the pull and the roll that exist).
+
+### 3. The outboxer (lost 20 of 20 to the inside fighter)
+
+Traces of the 1.98 m man against the inside-fighter bot:
+
+- **He was not jabbing, he was retreat-jabbing.** 40 of his 60 lands in a
+  fight were retreat jabs at 36–141 N·s, half of them glancing. The AI was
+  backing up when it pressed, and the sim reads a back stick on the press as
+  the retreat jab. A glancing jab stops nobody (`jabStop` needs a clean
+  one). Now the stiff jab and any jab not meant as a retreat jab is thrown
+  with the feet set (`backFoot` 0.8 → 0.3). After: 18 clean and 20 flush
+  jabs in the same fight, five flush crosses, the bot rocked five times.
+- **Trading, he was mid-punch and so fully exposed.** See `vulnerabilityJab`
+  above and `exposedImpulseBonus` below.
+- **Hurt, he could not hold on.** He ties up all fight, so his clinch was on
+  its 4 s cooldown every time he was rocked; the finish was 25 of the 33
+  knockdowns he took in 8 fights. `clinchHurtFree`: a hurt man can always
+  tie up (the reach time and the clean shot that breaks the grab still
+  apply).
+- His stamina hit zero repeatedly (111 punches started, 26 whiffs, shoves,
+  hops, clinches). Not changed beyond what the planted jab saves him.
+
+The inside-fighter bot: its entry is the step jab every 0.27 s while walking
+in, landing at the old 260 cap — a cross's weight, four times a second, for
+0.04 stamina each. `jabImpulseCap` 260 → 220. Continuous jabbing is not free
+(no regen while punching: about 8 s to an empty tank), and its inside
+punches are blockable (they land "through" a worn guard at reduced weight),
+so nothing else in it was a hole; it is a strong plan because it never
+stops.
+
+### 4 and 5. Knockdowns and the over-strong plans
+
+What produced knockdowns, from the cause column of the matrix: the bar
+running out, then the finish. In an inside exchange both men are always
+mid-punch, so every shot carried up to × 1.9, a clean hook rocked a
+half-health man, and the next punch finished him.
+
+- `exposedImpulseBonus` 0.45: a man caught mid-punch, rocked or with his
+  guard broken is hit at this; only a COUNTER (inside a slip's window) keeps
+  `counterImpulseBonus` 0.9.
+- `stunFinishFrac` 0.85 → 1.3 and `stunVuln` 1 → 0.7: it takes a hook, an
+  uppercut or a counter to finish a rocked man above about half health.
+- `knockdownMinImpulse` 330: the bar running out puts a man down only if
+  the shot that empties it carries that much (over a flush standing cross);
+  under it the bar stops at the floor, as for a jab.
+- `healthDamagePerImpulse` 0.0002 → 0.00015; `knockdownHealthRestore` 0.5 →
+  0.6.
+- Tried and withdrawn: `stunHealthFloor` 0.55 → 0.75. It cut knockdowns, but
+  a clean cross then never rocks an average chin at any health, which
+  `stun_test` and the browser `stun_check` both pin.
+- `ratingPowerImpulse` 0.25 → 0.4: with a jab scoring nearly what a cross
+  does and health lasting longer, the power-93 slugger was out-landed 22 to
+  82, lost every decision and hurt nobody.
+
+The loaded counter (phase 3) still does what it did, at slightly different
+numbers: 1059 N·s (red's power 68 now counts for a little more), a fresh
+average chin rocked for 2.6 s at 2.66 × his threshold against a bar of 2.85,
+health 1.00 → 0.84, floored from 80% health down; chin 90 rocked (2.30 ×),
+chin 40 floored fresh; a power-90 man's (1317 N·s) floors a fresh one, a
+power-40 man's (732) rocks him. `danger_test` §4b passes as written.

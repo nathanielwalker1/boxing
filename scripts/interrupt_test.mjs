@@ -186,4 +186,16 @@ const resolvesOf = (evs, side) => evs.filter(e => e.side === side && (e.type ===
   check('interruptPoise 0: weight does not matter', vs(heavy, 'jab', { ...cfg, interruptPoise: 0 }).some(e => e.type === 'punchStuffed' && e.side === 1));
 }
 
+// ── The loaded counter is not stopped by a jab (phase 4) ─────────────────────
+{
+  // Side 1 throws the cross with its rear hand LOADED (as a slip to the rear side leaves it: the state is set directly,
+  // so no slip is in play); side 0's BODY jab, pressed on the same tick, lands in its wind-up (the body: a loaded
+  // cross dips the head off a head jab's line).
+  const exchange = (c, load) => { const s = fresh(MID, c); if (load) { s.fighters[1].loaded = 1; s.fighters[1].loadedT = c.slipLoadedTime; } return run(s, 90, i => [inp({ level: i <= 9, jab: i === 9 }), inp({ cross: i === 12 })], c).evs; };   // (the cross starts 3 ticks after the jab, so the jab arrives early in its wind-up)
+  const loaded = exchange(cfg, true), cold = exchange(cfg, false), off = exchange({ ...cfg, slipLoadedPoise: 0 }, true);
+  const jabLanded = evs => evs.some(e => e.type === 'punchLand' && e.side === 0);  check('a jab that lands in the wind-up of a cold cross stuffs it (control)', jabLanded(cold) && cold.some(e => e.type === 'punchStuffed' && e.side === 1));
+  check('the same jab in the wind-up of a LOADED cross lands but does not stuff it: the counter still arrives', jabLanded(loaded) && !loaded.some(e => e.type === 'punchStuffed') && resolvesOf(loaded, 1).length === 1);
+  check('slipLoadedPoise 0: it is stuffed like any other punch', off.some(e => e.type === 'punchStuffed' && e.side === 1));
+}
+
 done();

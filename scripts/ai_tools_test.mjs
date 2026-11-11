@@ -98,8 +98,11 @@ console.log('\n=== 4. Plans ===');
 {
   // (Short fights to keep the suite fast; `node scripts/bot_table.mjs` is the full table at the real fight length.)
   const N = 8;
-  const tally = bot => { let w = 0, l = 0; for (let seed = 1; seed <= N; seed++) { const f = fight(bot, seed, fast); if (f.winner === 0) w++; else if (f.winner === 1) l++; } return { w, l }; };
-  for (const bot of [jabAndMove, insideFighter, counterPuncher]) { const t = tally(bot); check(`${bot.name} (a legitimate plan) can win: ${t.w}-${t.l} over ${N}`, t.w > 0); }
+  const tally = (bot, style = null) => { let w = 0, l = 0; for (let seed = 1; seed <= N; seed++) { const f = fight(bot, seed, fast, style); if (f.winner === 0) w++; else if (f.winner === 1) l++; } return { w, l }; };
+  for (const bot of [jabAndMove, insideFighter]) { const t = tally(bot); check(`${bot.name} (a legitimate plan) can win: ${t.w}-${t.l} over ${N}`, t.w > 0); }
+  // (Phase 4: the counter-puncher is measured against a man who LEADS — the pressure style. Against the default AI in
+  // these 40-second fights both wait and six of eight are drawn; a counter-puncher needs something to counter.)
+  { const t = tally(counterPuncher, ai.styleParams('pressure', fast)); check(`${counterPuncher.name} (a legitimate plan) can win against a man who leads: ${t.w}-${t.l} over ${N}`, t.w > 0); }
   for (const bot of [turtle, masher]) { const t = tally(bot); check(`${bot.name} (not a plan) loses more than it wins: ${t.w}-${t.l} over ${N}`, t.l > t.w); }
 }
 
@@ -132,6 +135,48 @@ console.log('\n=== 5. Styles and difficulty ===');
   const starts = fs => Math.round(60 * sum(fs, f => f.evs.punchStart ?? 0) / (sum(fs, f => f.n) * SIM_DT));   // per minute of fighting (a hard fight ends sooner)
   const eF = [1, 2].map(seed => fight(turtle, seed, fast, styleParams('pressure', fast, 0))), hF = [1, 2].map(seed => fight(turtle, seed, fast, styleParams('pressure', fast, 2)));
   check(`hard throws more than easy (${starts(hF)} vs ${starts(eF)} punches a minute)`, starts(hF) > starts(eF));
+}
+
+// ── 6. The read (phase 4): show it the same punch and it is waiting for it ──
+console.log('\n=== 6. The read ===');
+{
+  // A player who holds mid range and throws one punch every `gap` ticks, chosen by `pick(n)`. AI = the counter style.
+  const drill = (pick, style, gap = 42, secs = 24) => {
+    // (No damage and no rocking: without that the counters it lands floor the player in a few seconds and the drill is over.)
+    const c = { ...fast, roundCount: 1, roundSeconds: secs + 2, healthDamagePerImpulse: 0, stunBase: 0 };
+    let s = sim.createState(specs, c, 5);
+    let a = ai.createAi(1, 5, c, style);
+    const out = { dodged: 0, landed: 0, thrown: 0, countered: 0, read: 0 };
+    let n = 0, wait = 0;
+    for (let i = 0; i < Math.round(secs / SIM_DT) && s.round.phase === 'fighting'; i++) {
+      const d = ai.aiStep(a, s, c); a = d.ai;
+      const dd = k.dist(s), me = s.fighters[0];
+      wait = Math.max(0, wait - 1);
+      const press = wait === 0 && me.punch.type === null && !me.down && dd < 1.12 ? pick(n++) : null;
+      if (press) wait = gap;
+      const r = sim.step(s, [k.inp({ ...(press ? { [press]: true } : {}), move: { x: press === 'hook' ? -1 : 0, y: press ? (dd > 0.95 ? 1 : 0) : dd > 0.92 ? 1 : dd < 0.8 ? -0.6 : 0 } }), d.input], c); s = r.state;
+      for (const e of r.events) {
+        if (e.type === 'punchStart' && e.side === 0) out.thrown++;
+        if (e.type === 'punchLand' && e.side === 0) out.landed++;
+        if (e.type === 'punchLand' && e.side === 1 && e.counter) out.countered++;
+        if (e.type === 'slip' && e.side === 1 && e.dodged) out.dodged++;
+      }
+    }
+    out.read = a.used.read;
+    return out;
+  };
+  // (The counter style with everything else it does switched off — it does not lead, leave, shove, tie up or throw the
+  // stiff jab — so what is measured is the read and the hand that comes back behind it.)
+  const still = { intercept: 0, attackDelayMin: 30, attackDelayMax: 30, resetChance: 0, hitResetChance: 0, giveGroundChance: 0, hurtClinch: 0, insideClinch: 0, crowdClinch: 0, crowdPush: 0, pushOffRate: 0, burstChance: 0, blockCounter: 0, approachSlip: 0, feintChance: 0 };
+  const counter = { ...ai.styleParams('counter', fast, 2), ...still }, blind = { ...counter, readChance: 0 };
+  const same = drill(() => 'jab', counter), sameBlind = drill(() => 'jab', blind);
+  check(`the same jab, over and over: it reads it (${same.read} reads), makes it miss (${same.dodged} of ${same.thrown} dodged; ${sameBlind.dodged} with the read off) and comes back (${same.countered} counters landed)`, same.read >= 5 && same.dodged >= sameBlind.dodged + 3 && same.countered >= 1);
+  check(`…so the jab lands less than it does on a man who is not waiting for it (${same.landed} vs ${sameBlind.landed})`, same.landed < sameBlind.landed);
+  const order = ['jab', 'cross', 'hook', 'jab', 'hook', 'cross'];
+  const mixed = drill(n => order[n % order.length], counter, 70);
+  const sameSlow = drill(() => 'jab', counter, 70);
+  check(`mixing the punches up, at the same pace, is read less (${mixed.read} reads in ${mixed.thrown} punches vs ${sameSlow.read} in ${sameSlow.thrown})`, mixed.read < sameSlow.read);
+  check('a style that does not read (readAfter never) does not', drill(() => 'jab', { ...ai.styleParams('slugger', fast, 2), ...still }).read === 0);
 }
 
 done();

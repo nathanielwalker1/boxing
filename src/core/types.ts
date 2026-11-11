@@ -364,6 +364,8 @@ export interface RoundState {
   /** This round's tallies, the judges' inputs (sim/round.ts): clean landed punches and their summed impulse, N·s. Reset at each roundStart. */
   landed: [number, number];
   power: [number, number];
+  /** Control (phase 4): punches of the OTHER man's each side made miss this round — the defence and ring generalship the judges credit (scoreControlWeight). */
+  control: [number, number];
   /** The referee's count while phase = 'count' (1…10), else 0. */
   count: number;
 }

@@ -69,7 +69,11 @@ export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean
   const damage = full * (body ? cfg.bodyHealthScale : 1);
   // A jab never puts a man down by itself (overhaul; it can neither rock nor finish either): it cannot take the bar under jabHealthFloor.
   // (Not when that one jab is worth a whole bar: only a rigged test config does that — referee_check floors its dummy that way.)
-  const floor = light && cfg.jabHealthFloor > 0 && damage < 1 ? Math.min(d.health, cfg.jabHealthFloor) : 0;
+  // (Phase 4: nor does any shot under knockdownMinImpulse — a glancing blow, a punch on the guard, an arm punch. The
+  // bar running out puts a man down only when something real lands on it. MEASURED before: 3.0 knockdowns a fight,
+  // most of them the bar emptied by whatever touched it last.)
+  const soft = light || (cfg.knockdownMinImpulse > 0 && mag < cfg.knockdownMinImpulse);
+  const floor = soft && cfg.jabHealthFloor > 0 && damage < 1 ? Math.min(d.health, cfg.jabHealthFloor) : 0;
   d.health = Math.max(floor, d.health - damage);
   setHealthCap(d, Math.max(d.health, healthCap(d) - damage * cfg.healthCapLoss));
   setHealthRegenDelay(d, Math.max(healthRegenDelay(d), cfg.healthRegenDelay));
@@ -175,6 +179,10 @@ function stepGetUp(f: FighterState, side: Side, cfg: Config, dt: number, events:
  * (getUp, part of the bar back, fighting resumes) or hears ten (ko, over).
  */
 export function stepCount(s: SimState, cfg: Config, dt: number, events: SimEvent[]): void {
+  // The fight is over and a man is on the canvas (phase 4): his clock keeps running, so whatever draws the fall
+  // from downT has a fall to draw. A stoppage with no count (the third knockdown of a round goes straight to
+  // `over`) left downT at 0 and him frozen upright. He stays down: no count, no get-up, no phases.
+  if (s.round.phase === 'over') { for (const f of s.fighters) if (f.down) f.downT += dt; return; }
   if (s.round.phase !== 'count') return;
   for (const side of [0, 1] as const) {
     const f = s.fighters[side];

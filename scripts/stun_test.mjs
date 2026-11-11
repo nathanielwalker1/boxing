@@ -47,7 +47,8 @@ function run(s, n, inputs = () => [NONE, NONE], c = base, onTick) {
 }
 const of = (evs, type) => evs.filter(e => e.type === type);
 // Light damage so the bar never empties by itself in these cases, and no regen to muddy the threshold.
-const soft = { ...base, healthDamagePerImpulse: 0.00002, healthRegen: 0 };
+// (knockdownMinImpulse 0: these cases sit a man on a sliver of health and measure what small shots take off it; phase 4 stops the bar at the floor for anything under 280 N·s.)
+const soft = { ...base, healthDamagePerImpulse: 0.00002, healthRegen: 0, knockdownMinImpulse: 0 };
 /** One cross from the player, run `n` ticks; the dummy holds `dummy` input. */
 const cross = (s, c, n = 40, dummy = NONE) => run(s, n, i => [inp({ cross: i === 0 }), dummy], c);
 

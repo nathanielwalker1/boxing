@@ -119,6 +119,13 @@ export interface StyleParams {
   mistake: number;
   /** Odds that, set and in range, it does not pull the trigger this time and waits a beat instead — difficulty (phase 3). */
   hesitate: number;
+  /**
+   * THE READ (phase 4): a punch he has started more than readAfter times lately (fading over ~6 s) is one it is
+   * waiting for. When he starts it again, at readChance, it moves on readReaction × its reaction time — a pull (at
+   * pullShare, from a jab or an uppercut), a slip away from the hand, a roll under a head hook — and at slipCounter
+   * the loaded hand comes back behind it.
+   */
+  readAfter: number; readChance: number; readReaction: number; pullShare: number; slipCounter: number;
 
   /** The guard its fighter holds (core/styles.ts) — informational here; the sim reads the fighter's own. */
   guard: GuardShape;
@@ -177,6 +184,7 @@ export function defaultStyle(cfg: Config): StyleParams {
     hurtSwing: 0,
     tiredTempo: 1.3, tiredClinchRate: 0,
     mistake: 0, hesitate: 0,
+    readAfter: NEVER, readChance: 0, readReaction: 0.2, pullShare: 0.5, slipCounter: 0.8,
     guard: 'high',
   };
 }
@@ -206,6 +214,7 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     insideGuard: 0.4, insideBlock: 0.6, hurtClinch: 0.5, hurtSwing: 0.2, shellTime: 1.6, wildRate: 0.8,
     speed: 1, insideTempo: 2.6, blockCounter: 0.6, backFoot: 0, approachSlip: 0.5, intercept: 0.5, stumbleSpeed: 1.6,
     tiredTempo: 1.25, guard: 'high',
+    readAfter: 2.5, readChance: 0.45, readReaction: 0.2, pullShare: 0, slipCounter: 0.7,   // (phase 4) he times a jab he has seen three times and comes in under it
   },
   // OUTBOXER — long guard, long jab, always leaving. Probes from outside his opponent's reach, circles away from
   // the power hand, resets after every exchange, shoves and ties up when crowded. Beaten by cutting the ring off.
@@ -222,8 +231,9 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     // (Phase 3: hurt, he holds on — hurtClinch 0.9, was 0.35. On a chin of 52 he was rocked and finished standing:
     // 20 of his 23 knockdowns against the inside-fighter bot were the finish.)
     insideGuard: 0.5, insideBlock: 0.6, crowdClinch: 0.85, hurtClinch: 0.9, hurtSwing: 0, shellTime: 0.6,
-    insideTempo: 0.8, blockCounter: 0.25, backFoot: 0.8, crowdPush: 0.85, pushThen: 'leave', insideClinch: 0.8, intercept: 1, interceptGap: 0.3,
+    insideTempo: 0.8, blockCounter: 0.25, backFoot: 0.3, crowdPush: 0.85, pushThen: 'leave', insideClinch: 0.8, intercept: 1, interceptGap: 0.3,   // (backFoot 0.8 → 0.3, phase 4: he sets his feet and jabs)
     tiredTempo: 1.5, tiredClinchRate: 0.6, guard: 'long',
+    readAfter: 2.5, readChance: 0.5, readReaction: 0.2, pullShare: 0.85, slipCounter: 0.6,   // he pulls from a jab he has seen three times
   },
   // COUNTER — sits in the shell and waits. Throws little; slips and rolls most of what it reads; takes every opening
   // (a whiff, a slipped punch) with the cross and the hook behind it; feints to draw a lead. Beaten by not giving it one.
@@ -242,7 +252,9 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     insideGuard: 0.9, insideBlock: 0.85, crowdClinch: 0.5, hurtClinch: 0.8, hurtSwing: 0, shellTime: 1.2,
     insideTempo: 2.2, blockCounter: 0.9, backFoot: 0.5, crowdPush: 0.6, pushThen: 'work', approachSlip: 0.7, insideClinch: 0.4, intercept: 1, interceptGap: 0.3, stumbleSpeed: 0.9,
     wildRate: 0.8, tiredTempo: 1.2, guard: 'shell',
-    reaction: 0.13,   // the one style that reads a cross in time to slip it (tell 0.20 s; a slip needs 0.06)
+    reaction: 0.13,   // the one style that reads a cross in time to slip it (tell 0.20 s; a slip needs 0.05)
+    // (Phase 4: the read. Show him the same punch twice and he is waiting for the third.)
+    readAfter: 1.5, readChance: 0.9, readReaction: 0.15, pullShare: 0.6, slipCounter: 1,
   },
   // SWARMER — peek-a-boo, head on your chest. Comes in under the jab bobbing, lives inside, throws short hooks and
   // uppercuts in bunches, half of them to the body. Beaten by the jab and the feet, and by the uppercut as he comes.
@@ -259,6 +271,7 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     insideGuard: 0.6, insideBlock: 0.6, crowdClinch: 0.2, hurtClinch: 0.7, hurtSwing: 0.2, shellTime: 2,
     speed: 1, insideTempo: 2.5, blockCounter: 0.5, backFoot: 0, crowdPush: 0.3, pushThen: 'work', approachSlip: 1.6, intercept: 0.2, stumbleSpeed: 2,
     tiredTempo: 1.7, tiredClinchRate: 0.8, guard: 'peekaboo',
+    readAfter: 2, readChance: 0.5, readReaction: 0.2, pullShare: 0, slipCounter: 0.8,   // (phase 4) bobbing in under a jab he has timed
   },
   // SLUGGER — hands low, feet planted, one punch. Slow, throws heavy singles and the overhand, dips before the big
   // one (the tell), swings back when hurt. Beaten by making him miss and never standing in front of him.
@@ -266,18 +279,21 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     // (Phase 3: he comes forward and throws from the edge of his own reach — engageStraight 1.0, was the default
     // 0.9 — through whatever touches him (interruptPoise). Standing off at 0.9 behind a 1.9 s clock he started 21
     // punches in a three-round fight against a jabber and lost every one of them on points.)
-    standoff: 0.8, probeDist: 0.98, engageStraight: 0.95, speed: 0.9,
+    standoff: 0.8, probeDist: 0.98, engageStraight: 1.0, speed: 1,
     pressWeight: 6, probeWeight: 2, circleWeight: 0.5, holdWeight: 1,
     jabWeight: 1.5, crossWeight: 4, hookWeight: 4, uppercutWeight: 2.5, bodyRate: 0.15,
-    attackDelayMin: 0.75, attackDelayMax: 1.5, comboChance: 0.35, comboMax: 2,
+    attackDelayMin: 0.55, attackDelayMax: 1.15, comboChance: 0.45, comboMax: 2,
     combos: [[X, LH], [LH, X], [J, X]], comboSignature: 0.7,
     resetChance: 0.15, hitResetChance: 0.1, burstChance: 0, feintChance: 0.02,
     blockChance: 0.25, slipShare: 0.1, rollShare: 0.1, counterChance: 0.7,
     giveGroundChance: 0.1, chaseDelay: 0.3,
-    cutOff: 0.8, leadPursuit: 0.45, ringUse: 'cutOff', pushOffRate: 0.3,
-    insideGuard: 0.35, insideBlock: 0.4, crowdClinch: 0.3, hurtClinch: 0.15, hurtSwing: 0.75, shellTime: 0.5,
-    insideTempo: 2, blockCounter: 0.7, backFoot: 0.1, insideClinch: 0.3, intercept: 0.6, interceptGap: 0.7, interceptWith: 'cross', stumbleSpeed: 2.5,
-    overhandRate: 0.4, tell: 'dip', tellRate: 0.7, tiredTempo: 1.8, guard: 'low',
+    cutOff: 1, leadPursuit: 0.6, ringUse: 'cutOff', pushOffRate: 0.3,
+    // (Phase 4: a big slow man with a quick one on his chest leans on him and shoves him off — crowdClinch 0.3 → 0.75,
+    // crowdPush 0.45 → 0.8, hurtClinch 0.15 → 0.5. Trading inside he was mid-punch, and so exposed, all the time:
+    // stopped 8 times in 8 by the inside-fighter bot.)
+    insideGuard: 0.35, insideBlock: 0.4, crowdClinch: 0.75, crowdPush: 0.8, pushThen: 'work', hurtClinch: 0.5, hurtSwing: 0.5, shellTime: 0.5,
+    insideTempo: 2, blockCounter: 0.7, backFoot: 0.1, insideClinch: 0.3, intercept: 0.8, interceptGap: 0.7, interceptWith: 'cross', stumbleSpeed: 2.5,
+    overhandRate: 0.4, tell: 'dip', tellRate: 0.45, tiredTempo: 1.8, guard: 'low',   // (phase 4: 0.7 → 0.45; a man who reads the dip and leaves was never hit)
   },
 };
 
@@ -306,8 +322,8 @@ export const DIFFICULTY: readonly Difficulty[] = [
   // matrix: easy 57%, medium 57%, hard 54% for the legitimate bots. What decides a fight is how often the AI throws
   // when it could, so that is what difficulty now turns: hesitate, and the answers it gives off its clock.)
   { id: 'easy', reaction: 1.5, defence: 0.5, counter: 0.4, tempo: 1.8, combo: 0.5, mistake: 0.35, offence: 0.35, hesitate: 0.65 },
-  { id: 'medium', reaction: 1.15, defence: 0.85, counter: 0.8, tempo: 1.25, combo: 0.9, mistake: 0.12, offence: 0.8, hesitate: 0.2 },
-  { id: 'hard', reaction: 0.8, defence: 1.25, counter: 1.3, tempo: 0.65, combo: 1.3, mistake: 0, offence: 1.3, hesitate: 0 },
+  { id: 'medium', reaction: 1.2, defence: 0.8, counter: 0.7, tempo: 1.35, combo: 0.85, mistake: 0.18, offence: 0.7, hesitate: 0.3 },
+  { id: 'hard', reaction: 0.85, defence: 1.15, counter: 1.15, tempo: 0.8, combo: 1.2, mistake: 0, offence: 1.2, hesitate: 0 },
 ];
 
 /** A style with a difficulty applied. */
@@ -322,6 +338,7 @@ export function withDifficulty(st: StyleParams, d: Difficulty): StyleParams {
     attackDelayMin: st.attackDelayMin * d.tempo, attackDelayMax: st.attackDelayMax * d.tempo,
     comboChance: cap(st.comboChance * d.combo),
     intercept: cap(st.intercept * d.offence), blockCounter: cap(st.blockCounter * d.offence), crowdPush: cap(st.crowdPush * d.offence),
+    readChance: cap(st.readChance * d.defence), slipCounter: cap(st.slipCounter * d.counter),
     mistake: d.mistake, hesitate: d.hesitate,
   };
 }
