@@ -19,7 +19,27 @@ import { additiveGain } from './atmos';
 import { qualityTier, noteRenderer, type Tier } from './tier';
 
 /** A framing the host asks for instead of the two-fighter default: the knockdown count, looking at the downed fighter. */
-export interface CameraShot { focus: Vec2 }
+export interface CameraShot {
+  focus: Vec2;
+  // ── Directed shots (overhaul UI, 2026-11-11): menus, the ring walk, the replay. Every field is optional; a
+  //    bare `{ focus }` is the knockdown shot exactly as before (it holds the orbit and uses the camCount… keys). ──
+  /** Names the shot. A change of key into or out of a `cut` shot snaps the lens instead of easing it. */
+  key?: string;
+  /** Orbit angle, radians: the lens sits at (cos, sin) of this from the look point. Absent = hold the orbit where it is. The follow camera's own angle is put back when the shot ends. */
+  azimuth?: number;
+  /** Lens distance from the look point, m (default camCountDist). */
+  dist?: number;
+  /** Elevation, degrees (default camCountElevationDeg). */
+  elevationDeg?: number;
+  /** Look-at height, m (default camCountLookY). */
+  lookY?: number;
+  /** Vertical field of view, degrees (default camFovMin). */
+  fov?: number;
+  /** Ease rate toward the shot, 1/s (default camCountLambda). */
+  lambda?: number;
+  /** A cut, not a move: the lens is placed on the first frame of the shot and placed back on the first frame after it. */
+  cut?: boolean;
+}
 
 declare global {
   interface Window {
@@ -78,6 +98,11 @@ export class Stage {
   /** Extra handheld drift amplitude this frame, m (the hurt read: the host sets it from the player's hurt level). */
   wobble = 0;
   private following = false;   // last frame rode the fighters' line (vs the fixed seat)
+  // Directed shots (CameraShot.azimuth / cut): the last shot's key, whether it was a cut, and the follow camera's orbit to put back.
+  private shotKey: string | null = null;
+  private shotCut = false;
+  private azHome = NaN;
+  private azSaved = false;
 
   /**
    * The azimuth the stick/keys map against (ui/input.ts), radians. While
@@ -241,9 +266,11 @@ export class Stage {
       if (e.type === 'knockdown' || e.type === 'ko' || e.type === 'tko') this.koT = 0;
       if (e.type === 'punchLand') {
         const mag = Math.hypot(e.impulse.x, e.impulse.y, e.impulse.z);
-        this.pushPunchIn(Math.min(c.camPunchInMax, mag * c.camPunchIn), c.camPunchRecover);
+        // The grade is in the kick (overhaul UI): a glancing shot barely moves the lens, a flush one moves it more than a clean one.
+        const kick = e.grade === 'glancing' ? c.flowKickGlancing : e.grade === 'flush' ? c.flowKickFlush : 1;
+        this.pushPunchIn(Math.min(c.camPunchInMax, mag * c.camPunchIn) * kick, c.camPunchRecover);
         // Shake scales with the punch's power (jab ≈ 0.7, hook ≈ 1.4), a bigger hit restarts it.
-        const shake = Math.min(0.06, e.power * c.camShake);
+        const shake = Math.min(0.06, e.power * c.camShake) * kick;
         if (shake >= this.shakeAmp * Math.exp(-this.shakeT / Math.max(0.02, c.camShakeRecover))) { this.shakeAmp = shake; this.shakeT = 0; }
       } else if (e.type === 'knockdown' || e.type === 'ko' || e.type === 'tko') {
         this.pushPunchIn(c.camKoPunchIn, c.camKoRecover);
@@ -334,7 +361,23 @@ export class Stage {
       // side view with the player screen-left, + camBehindDeg goes round behind.
       azTarget = Math.atan2(abz, abx) + (90 + c.camBehindDeg) * Math.PI / 180;
     }
-    if (Number.isNaN(this.az) || !this.following) this.az = azTarget;   // the fixed seat is placed, not chased
+    // Directed shots (menus, ring walk, replay): the host names the orbit. The follow camera's own angle is kept
+    // aside and put back when the shot ends, so the band below picks up where it was.
+    const directed = shot !== null && shot.azimuth !== undefined;
+    const key = shot ? shot.key ?? '' : null;
+    const snap = key !== this.shotKey && ((shot?.cut ?? false) || this.shotCut);
+    this.shotKey = key; this.shotCut = shot?.cut ?? false;
+    if (directed && !this.azSaved) { this.azHome = this.az; this.azSaved = true; }
+    else if (!directed && this.azSaved) { this.az = this.azHome; this.azSaved = false; }
+    if (shot !== null && shot.azimuth !== undefined) {
+      const want = shot.azimuth;
+      if (snap || Number.isNaN(this.az)) this.az = want;
+      else {
+        const off = Math.atan2(Math.sin(want - this.az), Math.cos(want - this.az));
+        this.az += off * (1 - Math.exp(-(shot.lambda ?? c.camCountLambda) * dt));
+      }
+    }
+    else if (Number.isNaN(this.az) || !this.following) this.az = azTarget;   // the fixed seat is placed, not chased
     else if (shot) { /* the knockdown shot holds its orbit: nothing circles while a man is down */ }
     else {
       // The band (2026-09-17, "still too much panning… and still blocked"):
@@ -355,13 +398,13 @@ export class Stage {
     // The knockdown shot (Stage 3): the lens drops to the canvas and pushes
     // in on the downed fighter while the referee counts, then eases back to
     // the ringside seat. Same orbit, so it is a push, never a cut.
-    const elTarget = (shot ? c.camCountElevationDeg : c.camElevationDeg) * Math.PI / 180;
-    const distTarget = shot ? c.camCountDist : c.camDistMax + (c.camDistMin - c.camDistMax) * closeness;
-    const fovTarget = shot ? c.camFovMin : c.camFovMax + (c.camFovMin - c.camFovMax) * closeness;
-    if (this.dist < 0) { this.dist = distTarget; this.fov = fovTarget; }
-    if (Number.isNaN(this.el)) this.el = elTarget;
+    const elTarget = (shot ? shot.elevationDeg ?? c.camCountElevationDeg : c.camElevationDeg) * Math.PI / 180;
+    const distTarget = shot ? shot.dist ?? c.camCountDist : c.camDistMax + (c.camDistMin - c.camDistMax) * closeness;
+    const fovTarget = shot ? shot.fov ?? c.camFovMin : c.camFovMax + (c.camFovMin - c.camFovMax) * closeness;
+    if (this.dist < 0 || snap) { this.dist = distTarget; this.fov = fovTarget; }
+    if (Number.isNaN(this.el) || snap) this.el = elTarget;
     const easing = shot !== null || Math.abs(this.el - elTarget) > 0.003;   // into the shot, and back out of it, at the shot's rate
-    const dl = 1 - Math.exp(-(easing ? c.camCountLambda : c.camDollyLambda) * dt);
+    const dl = 1 - Math.exp(-(easing ? shot?.lambda ?? c.camCountLambda : c.camDollyLambda) * dt);
     this.dist += (distTarget - this.dist) * dl;
     this.fov += (fovTarget - this.fov) * dl;
     this.el += (elTarget - this.el) * dl;
@@ -369,10 +412,11 @@ export class Stage {
     this.punchT += dt;
     const dist = Math.max(1, this.dist - this.punchIn);
 
-    if (shot) this.lookTarget.set(shot.focus.x, c.camCountLookY, shot.focus.z);
+    if (shot) this.lookTarget.set(shot.focus.x, shot.lookY ?? c.camCountLookY, shot.focus.z);
     else this.lookTarget.set((a.x + b.x) / 2, c.camLookY, (a.z + b.z) / 2);
     const lam = 1 - Math.exp(-c.camFollowLambda * dt);
-    this.look.lerp(this.lookTarget, lam);
+    if (snap) this.look.copy(this.lookTarget);
+    else this.look.lerp(this.lookTarget, lam);
     const drift = c.camDriftAmp + this.wobble;   // the handheld drift grows while the player is rocked (main.ts sets it)
     this.shakeT += dt;
     const shake = this.shakeAmp * Math.exp(-this.shakeT / Math.max(0.02, c.camShakeRecover));

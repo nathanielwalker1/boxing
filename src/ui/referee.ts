@@ -170,6 +170,15 @@ export class Referee {
     this.view.apply(me, me, 1, dt, []);
   }
 
+  /** A copy of the state he is drawn from right now (the knockdown replay keeps one per tick). */
+  snapshot(): FighterState { return structuredClone(this.state); }
+
+  /** Draw him from a kept snapshot instead of walking him (the replay). */
+  draw(snap: FighterState, dt: number): void {
+    if (!this.view) this.view = createFighterView(1, REFEREE, this.cfg, this.scene, { key: 2, probe: false });
+    this.view.apply(snap, snap, 1, dt, []);
+  }
+
   /** Floor position and yaw (probes / checks). */
   get pose(): { pos: Vec2; yaw: number } { return { pos: { x: this.state.pos.x, z: this.state.pos.z }, yaw: this.state.yaw }; }
 

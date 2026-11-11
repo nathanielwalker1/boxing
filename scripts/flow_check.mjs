@@ -1,15 +1,17 @@
 /**
  * flow_check.mjs — the fight flow (src/ui/flow.ts) in the real app, forced on
  * with ?menu=1 (under Playwright it is off by default so the other checks
- * drive the sim directly). Walks menu → select → tale of the tape → fight →
- * results with the keyboard, with the rounds shortened through __cfg:
- *   - the sim is HELD on the menu, the select and the intro (gameTime still)
- *   - the bell rings once on the way into the fight
- *   - the lower-third shows at the end of round 1
- *   - the results screen comes up after the last bell with the scorecard
- *   - a rematch starts a fresh fight (tick 0, round 0)
- * Screenshots (+ greyscale) of each screen → scripts/output/flow_*.png.
- * Console must be clean.
+ * drive the sim directly). Walks it end to end with the keyboard, the rounds
+ * shortened through window.__flow.rounds:
+ *   title → select (turntable) → opponent (difficulty) → ring walk (three
+ *   beats, sim held) → fight → pause → the corner card between rounds (sim
+ *   held, stats, advice; a button runs the rest off) → results (scorecard +
+ *   punch stats) → rematch
+ *   ladder: a new one is saved, a saved one is picked up at its rung
+ *   gym: the drill list, a drill running with its panel, back out
+ *   controls card
+ * Screenshots (+ greyscale) → scripts/output/flow_*.png. Console must be clean.
+ * The knockdown replay has its own check (replay_check.mjs).
  */
 import { chromium } from 'playwright';
 import { mkdirSync } from 'fs';
@@ -31,71 +33,146 @@ page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
 await page.goto(`${DEV_URL}/?menu=1`, { waitUntil: 'networkidle', timeout: 15_000 });
 await bootReady(page);
 await page.evaluate(() => {
-  // Short rounds, but a rest long enough that a slow headless frame rate still sees both halves of the card.
-  window.__cfg.roundSeconds = 2; window.__cfg.betweenRoundSeconds = 4; window.__cfg.roundCount = 2;
-  window.__cfg.introSeconds = 60; window.__cfg.resultsDelaySeconds = 0.3;
-  window.__bells = 0;
+  const c = window.__cfg;
+  // Short rounds; the walk and the corner card are held open so a slow headless frame rate still sees them, and skipped by key.
+  window.__flow.rounds(2, 8);
+  c.resultsDelaySeconds = 0.3; c.flowWalkSeconds = 600; c.flowStareSeconds = 600; c.flowCornerSeconds = 600;
+  try { localStorage.removeItem('longcount.ladder.v1'); } catch { /* no storage */ }
 });
-const screen = () => page.evaluate(() => document.querySelector('#flow .screen.on')?.className.replace(/screen|dim|on/g, '').trim());
+const st = () => page.evaluate(() => window.__flow.state());
+const ticks = () => page.evaluate(() => window.__tick.simTicks);
+const key = async (k, n = 1) => { for (let i = 0; i < n; i++) { await page.keyboard.press(k); await frames(page, 1); } };
+const on = screen => until(page, s => window.__flow.state().screen === s, screen, { label: `screen ${screen}`, timeout: 30000 });
 const shot = async (name) => { const p = `${OUT}/flow_${name}.png`; await page.screenshot({ path: p }); console.log(`     ${name} → ${p}\n              ${await greyscaleCopy(page, p)}`); };
+const heldFor = async (n = 8) => { const a = await ticks(); await frames(page, n); return (await ticks()) === a; };
 
-// ── 1. Menu: the sim is held ─────────────────────────────────────────────────
-await frames(page, 10);
-const t0 = await page.evaluate(() => window.__tick.simTicks);
-await frames(page, 10);
-const t1 = await page.evaluate(() => window.__tick.simTicks);
-check(`boots to the menu with the sim held (ticks ${t0} → ${t1})`, (await screen()) === 'menu' && t1 === t0);
-check('the HUD is hidden on the menu', await page.evaluate(() => document.getElementById('hud').hidden));
-await shot('menu');
+// ── 1. Title: the sim is held ────────────────────────────────────────────────
+await frames(page, 6);
+check('boots to the title with the sim held', (await st()).screen === 'title' && await heldFor());
+check('the HUD is hidden on the title', await page.evaluate(() => document.getElementById('hud').hidden));
+check('title: Fight / Ladder / Gym / Controls', await page.evaluate(() => [...document.querySelectorAll('#flow .title .btn')].map(b => b.textContent).join('|')) === 'Fight|Ladder|Gym|Controls');
+await shot('title');
 
-// ── 2. Select ────────────────────────────────────────────────────────────────
-await page.keyboard.press('Enter');
-await frames(page, 2);
-check('Enter → fighter select with a card per roster entry', (await screen()) === 'select' && (await page.evaluate(() => document.querySelectorAll('#flow .card').length)) >= 2);
-await page.keyboard.press('ArrowRight');
-await frames(page, 2);
-check('→ moves the pick to the second card', await page.evaluate(() => document.querySelectorAll('#flow .card')[1].classList.contains('sel')));
+// ── 2. Fighter select ────────────────────────────────────────────────────────
+await key('Enter'); await on('select');
+check('Enter → fighter select: a plate per roster fighter and a random slot', await page.evaluate(() => document.querySelectorAll('#flow .select .plate').length) === 9);
+await key('ArrowRight');
+check('→ moves the pick to the second plate', await page.evaluate(() => document.querySelectorAll('#flow .select .plate')[1].classList.contains('sel')));
+await until(page, () => window.__flow.state().shown === 'blue', undefined, { label: 'his body on the turntable', timeout: 30000 });
+const info = await page.evaluate(() => { const i = document.querySelector('#flow .select .info'); return { name: i.querySelector('.fname').textContent, bars: i.querySelectorAll('.ratings .bar').length, lines: i.querySelectorAll('.style li').length, style: i.querySelector('.sname').textContent }; });
+check(`the panel shows him: ${info.name}, 5 rating bars, his style (${info.style}) and 3 lines`, info.name === 'Desmond Okafor' && info.bars === 5 && info.lines === 3 && info.style.length > 3, JSON.stringify(info));
+const az0 = await page.evaluate(() => window.__camAz());
+await frames(page, 6);
+check('the lens circles him (the turntable) at close range', (await page.evaluate(() => window.__camAz())) !== az0 && (await page.evaluate(() => window.__camDist())) < 3.2);
 await shot('select');
 
-// ── 3. Tale of the tape ──────────────────────────────────────────────────────
-await page.keyboard.press('Enter');
-await frames(page, 2);
-const intro = await page.evaluate(() => ({ screen: document.querySelector('#flow .screen.on')?.className, name0: document.querySelector('#hud .side.l .name')?.textContent, tape: document.querySelector('#flow .tape')?.textContent ?? '' }));
-check('confirm → the tale of the tape, the picked fighter as the player (side 0)', (await screen()) === 'intro' && intro.name0 === 'Desmond Okafor' && /OKAFOR/i.test(intro.tape) && /BRASK/i.test(intro.tape), `${intro.name0} / ${intro.tape.slice(0, 60)}`);
-const held = await page.evaluate(() => window.__tick.simTicks);
-await frames(page, 10);
-check('the sim is still held on the intro', (await page.evaluate(() => window.__tick.simTicks)) === held);
-await shot('intro');
+// ── 3. Opponent select ───────────────────────────────────────────────────────
+await key('Enter'); await on('opponent');
+const opp = await page.evaluate(() => ({ off: [...document.querySelectorAll('#flow .opponent .plate')].findIndex(p => p.classList.contains('off')), sel: [...document.querySelectorAll('#flow .opponent .plate')].findIndex(p => p.classList.contains('sel')), opts: document.querySelectorAll('#flow .opponent .opt').length }));
+check('opponent select: your own fighter cannot be picked; difficulty and rounds are offered', opp.off === 1 && opp.sel !== 1 && opp.opts === 2, JSON.stringify(opp));
+await key('ArrowDown'); await key('ArrowRight');
+check('↓ → sets the difficulty to Hard', await page.evaluate(() => document.querySelector('#flow .opponent .opt .ch.sel').textContent) === 'Hard');
+await shot('opponent');
 
-// ── 4. The fight ─────────────────────────────────────────────────────────────
-await page.keyboard.press('Enter');
+// ── 4. The ring walk ─────────────────────────────────────────────────────────
+await key('Enter'); await on('walk');
+await until(page, () => window.__flow.state().beat === 'walk1', undefined, { label: 'the opponent\'s walk' });
+const w1 = await page.evaluate(() => ({ card: document.querySelector('#flow .namecard')?.textContent ?? '', name0: document.querySelector('#hud .side.l .name')?.textContent, hud: document.getElementById('hud').hidden, diff: window.__cfg.difficulty, rounds: window.__cfg.roundCount }));
+check('confirm → the ring walk: the opponent\'s name card first, the picked fighter as side 0, difficulty stored', /BRASK/i.test(w1.card) && w1.name0 === 'Desmond Okafor' && w1.hud && w1.diff === 2 && w1.rounds === 2, JSON.stringify(w1));
+check('the sim is held through the walk', await heldFor(10));
+const x0 = await page.evaluate(() => window.__states()[1].pos.x);
+await frames(page, 6);
+check('the game\'s own sim state is untouched by the walk (tick 0)', (await page.evaluate(() => window.__sim.state().tick)) === 0 && (await page.evaluate(() => window.__states()[1].pos.x)) === x0);
+await shot('walk');
+await key('Enter');
+await until(page, () => window.__flow.state().beat === 'walk0', undefined, { label: 'the player\'s walk' });
+check('a button → the player\'s name card', /OKAFOR/i.test(await page.evaluate(() => document.querySelector('#flow .namecard')?.textContent ?? '')));
+await key('Enter');
+await until(page, () => window.__flow.state().beat === 'stare', undefined, { label: 'the stare-down' });
+const tape = await page.evaluate(() => document.querySelector('#flow .tapecard')?.textContent ?? '');
+check('a button → the stare-down card with both names', /OKAFOR/i.test(tape) && /BRASK/i.test(tape) && /2 ROUNDS/.test(tape), tape.slice(0, 80));
+check('the referee is in the ring for it', await page.evaluate(() => window.__ref() !== null));
+await shot('stare');
+
+// ── 5. The fight, and the pause ──────────────────────────────────────────────
+await key('Enter'); await on('fight');
 await until(page, () => window.__tick.simTicks > 5, undefined, { label: 'the sim running' });
-check('Enter → the fight: the sim runs and the HUD is up', (await screen()) === 'fight' && !(await page.evaluate(() => document.getElementById('hud').hidden)));
-await until(page, () => window.__sim.state().round.phase === 'between', undefined, { label: 'end of round 1', timeout: 30000 });
-await frames(page, 2);
-const card = await page.evaluate(() => ({ on: document.querySelector('#flow .black').classList.contains('on'), text: document.querySelector('#flow .black').textContent }));
-check('the rest is a black card: END OF ROUND 1', card.on && /end of round 1/i.test(card.text), JSON.stringify(card));
-await until(page, () => window.__sim.state().round.phaseT > window.__cfg.betweenRoundSeconds * 0.5, undefined, { label: 'the second half of the rest', timeout: 15000 });
-await frames(page, 2);
-const card2 = await page.evaluate(() => document.querySelector('#flow .black').textContent);
-check('…then ROUND 2', /round 2/i.test(card2), card2);
-await shot('round_end');
-// A 2 s round can pass between two slow polls, so accept anything past the rest.
-await until(page, () => window.__sim.state().round.phase !== 'between', undefined, { label: 'the rest to end', timeout: 20000 });
-await frames(page, 2);
-check('the card is gone at the bell', await page.evaluate(() => !document.querySelector('#flow .black').classList.contains('on')));
+check('a button → the fight: the sim runs and the HUD is up', !(await page.evaluate(() => document.getElementById('hud').hidden)));
+await key('Escape');
+const p1 = await st();
+check('Esc pauses: Resume / Controls / Quit, the sim held', p1.paused && await heldFor() && await page.evaluate(() => [...document.querySelectorAll('#flow .pause .btn')].map(b => b.textContent).join('|')) === 'Resume|Controls|Quit');
+await key('Escape');
+const tp = await ticks();
+await until(page, t => window.__tick.simTicks > t, tp, { label: 'the sim to resume' });
+check('Esc resumes', !(await st()).paused);
 
-// ── 5. Results ───────────────────────────────────────────────────────────────
-await until(page, () => document.querySelector('#flow .screen.results.on') !== null, undefined, { label: 'the results screen', timeout: 30000 });
-const res = await page.evaluate(() => ({ phase: window.__sim.state().round.phase, winner: document.querySelector('#flow .winner')?.textContent, method: document.querySelector('#flow .method')?.textContent, rows: document.querySelectorAll('#flow table tr').length }));
-check(`results after the last bell: "${res.winner}" ${res.method}`, res.phase === 'over' && !!res.winner && res.rows === 3, JSON.stringify(res));
+// ── 6. Between rounds: the corner card ───────────────────────────────────────
+await until(page, () => window.__flow.state().card, undefined, { label: 'the corner card', timeout: 30000 });
+await frames(page, 2);
+const card = await page.evaluate(() => { const c = document.querySelector('#flow .corner'); return { on: c.classList.contains('on'), text: c.textContent, bars: c.querySelectorAll('.cond .bar').length, advice: c.querySelector('.advice')?.textContent ?? '', hud: document.getElementById('hud').hidden, phase: window.__sim.state().round.phase }; });
+check('the rest is a corner card: END OF ROUND 1, punch stats, 8 condition bars, a line of advice', card.on && /end of round 1/i.test(card.text) && /Landed \/ thrown/i.test(card.text) && card.bars === 8 && card.advice.length > 20 && card.hud && card.phase === 'between', JSON.stringify({ ...card, text: card.text.slice(0, 60) }));
+check('no judges\' scores on it', !/\b10\s*[-–]\s*9\b/.test(card.text));
+check('the sim is held behind the card', await heldFor());
+await shot('corner');
+await key('Enter');
+await until(page, () => window.__sim.state().round.phase !== 'between', undefined, { label: 'the rest to be run off', timeout: 20000 });
+await frames(page, 2);
+check('a button closes the card and the next round starts at once', !(await st()).card && (await page.evaluate(() => window.__sim.state().round.index)) === 1);
+
+// ── 7. Results ───────────────────────────────────────────────────────────────
+await on('results');
+const res = await page.evaluate(() => ({ phase: window.__sim.state().round.phase, winner: document.querySelector('#flow .winner')?.textContent, method: document.querySelector('#flow .method')?.textContent, rows: document.querySelectorAll('#flow table.cards tr').length, stats: document.querySelector('#flow .sgrid')?.textContent ?? '', btns: [...document.querySelectorAll('#flow .results .btn')].map(b => b.textContent).join('|') }));
+check(`results after the last bell: "${res.winner}" ${res.method}, the round-by-round cards and the punch stats`, res.phase === 'over' && !!res.winner && res.rows === 3 && /Jabs/.test(res.stats) && /Knockdowns/.test(res.stats) && res.btns === 'Rematch|New fight|Menu', JSON.stringify({ ...res, stats: res.stats.slice(0, 40) }));
 await shot('results');
 
-// ── 6. Rematch ───────────────────────────────────────────────────────────────
-await page.keyboard.press('Enter');
-await frames(page, 2);
-const re = await page.evaluate(() => ({ screen: document.querySelector('#flow .screen.on')?.className, tick: window.__sim.state().tick, round: window.__sim.state().round.index, phase: window.__sim.state().round.phase }));
-check('rematch → a fresh fight behind a new tale of the tape', /intro/.test(re.screen) && re.tick === 0 && re.round === 0 && re.phase === 'fighting', JSON.stringify(re));
+// ── 8. Rematch, and back out to the title ────────────────────────────────────
+await key('Enter'); await on('walk');
+const re = await page.evaluate(() => ({ tick: window.__sim.state().tick, round: window.__sim.state().round.index, phase: window.__sim.state().round.phase }));
+check('rematch → a fresh fight behind a new ring walk', re.tick === 0 && re.round === 0 && re.phase === 'fighting', JSON.stringify(re));
+await key('Escape'); await on('opponent');
+await key('Escape'); await on('select');
+await key('Escape'); await on('title');
+check('Esc walks back out to the title', true);
+
+// ── 9. Ladder ────────────────────────────────────────────────────────────────
+await key('ArrowDown'); await key('Enter'); await on('select');
+await key('Enter'); await on('ladder');
+const l1 = await page.evaluate(() => ({ rungs: document.querySelectorAll('#flow .rung').length, next: document.querySelector('#flow .rung.next i')?.textContent, save: localStorage.getItem('longcount.ladder.v1'), st: window.__flow.state().ladder }));
+check('a new ladder: seven rungs, the first one next, saved', l1.rungs === 7 && l1.next === '1' && l1.st.wins === 0 && l1.st.fighter === 'blue' && /"fighter":"blue"/.test(l1.save ?? ''), JSON.stringify(l1));
+await shot('ladder');
+await page.evaluate(() => localStorage.setItem('longcount.ladder.v1', JSON.stringify({ fighter: 'blue', wins: 3, losses: 1 })));
+await key('Escape'); await on('title');
+await key('ArrowDown'); await key('Enter'); await on('ladder');
+const l2 = await page.evaluate(() => ({ next: document.querySelector('#flow .rung.next i')?.textContent, rec: document.querySelector('#flow .rec')?.textContent, won: document.querySelectorAll('#flow .rung.won').length, tag: document.querySelector('#flow .ladder .tag')?.textContent }));
+check(`saved progress is picked up: ${l2.rec}, rung ${l2.next} next (${l2.tag})`, l2.next === '4' && l2.won === 3 && /3 – 1/.test(l2.rec) && /Medium/.test(l2.tag), JSON.stringify(l2));
+await page.evaluate(() => localStorage.removeItem('longcount.ladder.v1'));
+await key('Escape'); await on('title');
+
+// ── 10. Gym ──────────────────────────────────────────────────────────────────
+await key('ArrowDown', 2); await key('Enter'); await on('gym');
+const g1 = await page.evaluate(() => ({ items: document.querySelectorAll('#flow .ditem').length, last: [...document.querySelectorAll('#flow .ditem .t')].pop()?.textContent }));
+check(`the gym lists its drills (${g1.items}; the built-in "${g1.last}" last)`, g1.items >= 1 && g1.last === 'Free sparring');
+await shot('gym');
+await key('ArrowUp', 2);   // wraps: Back, then the last drill — the built-in one
+await key('Enter'); await on('fight');
+await until(page, () => window.__sim.state().tick > 40, undefined, { label: 'the drill running', timeout: 30000 });
+const g2 = await page.evaluate(() => ({ drill: window.__flow.state().drill, panel: document.querySelector('#flow .drill').classList.contains('on'), text: document.querySelector('#flow .drill').textContent, stat: window.__flow.state().drillStat, secs: window.__cfg.roundSeconds, d: Math.abs(window.__sim.state().fighters[0].pos.x - window.__sim.state().fighters[1].pos.x) }));
+check('a drill runs: its panel shows the goal, a live stat and the way back; one long round; the two men placed', g2.drill === 'free-sparring' && g2.panel && /passive partner/i.test(g2.text) && /0 \/ 20/.test(g2.stat) && /Esc/.test(g2.text) && g2.secs === 180 && g2.d < 1.6, JSON.stringify(g2));
+await shot('drill');
+await until(page, () => window.__sim.state().tick > 240, undefined, { label: 'the drill a few seconds in', timeout: 30000 });
+await key('KeyR');
+await until(page, () => window.__sim.state().tick < 240, undefined, { label: 'the drill restarted' });
+check('R restarts the drill', true);
+await key('Escape'); await on('gym');
+check('Esc → back to the gym, the round length put back', (await page.evaluate(() => window.__cfg.roundSeconds)) === 8);
+await key('Escape'); await on('title');
+
+// ── 11. Controls ─────────────────────────────────────────────────────────────
+await key('ArrowDown', 3); await key('Enter'); await on('controls');
+const ctl = await page.evaluate(() => document.querySelector('#flow .controls').textContent);
+check('the controls card covers every move', ['Slip', 'Burst', 'Roll under', 'Pivot', 'Push-off', 'Clinch', 'Feint', 'Chained slip', 'overhand', 'Keyboard', 'Gamepad', 'Touch'].every(w => ctl.includes(w)));
+await shot('controls');
+await key('Escape'); await on('title');
 
 const benign = t => /GPU stall due to ReadPixels/.test(t);
 const bad = logs.filter(m => (m.type === 'error' || m.type === 'pageerror' || m.type === 'warning') && !benign(m.text));
