@@ -42,7 +42,7 @@ export async function resolved(page, arrayName = '__out', n = 1, opts = {}) {
 /** The app is ticking and its window hooks exist. */
 export async function bootReady(page, { frames = 5 } = {}) {
   await until(page, n => !!(window.__tick && window.__tick.ready && window.__tick.frames >= n && window.__cfg),
-    frames, { label: 'app booted and ticking' });
+    frames, { label: 'app booted and ticking', timeout: 90000 });   // the arena build on software GL with four checks in parallel takes well over 15 s (overhaul 2026-11-11)
 }
 
 /** Advance `seconds` of GAME time (hit-stop-scaled), however long that takes in wall clock. */
@@ -56,7 +56,7 @@ export async function gameTime(page, seconds) {
 export async function frames(page, n = 2) {
   const from = await page.evaluate(() => window.__tick.frames);
   await until(page, f => window.__tick.frames >= f, from + n,
-    { label: `${n} frames`, timeout: Math.max(TIMEOUT, n * 500) });
+    { label: `${n} frames`, timeout: Math.max(60000, n * 3000) });   // software GL in a parallel run can drop under 1 fps since the arena rebuild (overhaul 2026-11-11)
 }
 
 /** Wait until a numeric page getter stops changing. Returns the settled value. */

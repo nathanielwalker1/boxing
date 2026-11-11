@@ -115,7 +115,7 @@ const idle = i => !i.jab && !i.cross && !i.hook && !i.uppercut && !i.block && ne
   const tstate = () => page.evaluate(() => ({ joystick: window.__input.touch.joystick, buttons: window.__input.touch.buttons }));
 
   check('touch UI mounted with ?touch=1', await page.evaluate(() => !!document.getElementById('touch-ui')));
-  check('diamond + block buttons exist', await page.evaluate(() => document.querySelectorAll('#touch-ui .touch-btn').length === 5));
+  check('diamond + block + LOW buttons exist', await page.evaluate(() => document.querySelectorAll('#touch-ui .touch-btn').length === 6));
   const jab = await page.evaluate(() => {
     const r = document.querySelector('#touch-ui .touch-btn.jab').getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
