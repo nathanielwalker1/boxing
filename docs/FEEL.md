@@ -409,8 +409,17 @@ up to `tiredPunchSlow` 1.25× slower in every phase and loses up to
 | clean | jab at 0.80 m | × 1 → 195 N·s | 48 ms (`hitStopBase` × power) | 7.0 cm | identical |
 | clean | cross at 0.80 m | × 1 → 272 N·s | 67 ms | 17.8 cm | identical |
 | clean | hook at 0.74 m | × 1 → 391 N·s | 96 ms | 13.8 cm | identical |
-| flush | cross into the other man's hook (grade_test) | × 1.15 on top of the exposure bonus | 130 ms (`hitStopFlush`) | not probed; impulse-proportional up to the neck clamp (`reactionMaxNeck` 16 cm + torso) | clean, `hitStopBase` × power |
-| flush counter | cross inside a slip's window (counter_test) | × 1.9 × 1.15 = × 2.18 (loaded hand × 1.2 more = × 2.62) | 130 + 50 = 180 ms | as above | × 1.9, ~150 ms |
+| flush | cross into the other man's hook (grade_test) | × 1.15 on top of the exposure bonus | 130 ms (`hitStopFlush`; 140 ms here, the cross also rocks him) | 26.4 cm at 595 N·s: head 16 cm — pinned on the neck clamp (`reactionMaxNeck`) — plus torso 10.3 cm | clean, `hitStopBase` × power |
+| flush | jab on a man walking onto it | 224 N·s | 130 ms | 8.1 cm (head 7.5 + torso 0.5) | clean jab, 7.0 cm |
+| flush | jab on a rocked man | 425 N·s | 130 ms | 15.4 cm (head 14.3 + torso 1.0) | — |
+| flush counter | cross inside a slip's window (counter_test) | × 1.9 × 1.15 = × 2.18 (loaded hand × 1.2 more = × 2.62) | 130 + 50 = 180 ms | 26.5 cm at 595 N·s (head 16.3 on the clamp + torso 10.3); the same counter off the unloaded side is clean: 434 N·s, 150 ms, 23.6 cm | × 1.9, ~150 ms |
+
+Probed 2026-11-11 (phase 2; `scripts/_debug.mjs flush`, neutral config, displacement = head offset + torso offset
+on the land tick). What it says: every flush POWER shot shows the same head snap — the neck clamp — and differs only
+in the torso (4.7 cm clean cross → 10.3 cm flush) and the length of the freeze (67 → 130–180 ms). The flush read on a
+heavy shot is therefore carried by the freeze and the body, not the head. A flush jab barely differs from a clean one
+on the frozen frame (8.1 vs 7.0 cm); its read is the 130 ms freeze. Not changed — whether the head should travel
+further on flush (raise `reactionMaxNeck` for flush only) is a look call for the feel-test.
 
 A clean land is exactly what a land was before grades. Glancing never stacks
 on the smother or roll-with loss (the larger loss wins). Also glancing: a

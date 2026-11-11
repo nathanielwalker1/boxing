@@ -306,3 +306,167 @@ turtle lose. It is not a balanced table — see "below standard" 1 and 2.
     whole bar, so it passes.
 13. **`run_tests.mjs` prints "Not a test by convention: bot_table.mjs"** — a
     warning only; that file is the runner's (TEST) to list.
+
+---
+
+# Phase 2 — ratings, styles, difficulty, drills (2026-11-11)
+
+Items 1, 2, 3, 8, 9 and 11 of the list above are superseded by this section.
+
+## What landed
+
+- **Ratings** (`sim/ratings.ts`, `ratings_test`): power, speed, stamina and
+  defense are read for both fighters (chin already was). One curve:
+  `rated(f, which, span, cfg) = 1 + span × clamp((rating − ratingNeutral) / ratingRange, ±1)`.
+  Toggle `ratingsOn`. Spans are the `rating…` config keys.
+- **Styles as data** (`core/styles.ts`): `GUARDS: Record<GuardShape, GuardDef>`
+  and `STYLES: Record<AiStyle, FighterStyle>`. Five guard shapes are real in
+  the sim (hand rest / block poses, cover arc, head / body / uppercut cover,
+  wear, block stun, raise time, jab time and reach, crouch, exposure, foot
+  speed, slip). Applied by `spec.style` at `createState`; on the state as
+  `FighterState.styleId` and `FighterState.guardShape`. Toggle `stylesOn`.
+- **AI per style** (`ai/style.ts`): a full `StyleParams` per style
+  (`styleParams(id, cfg, difficulty)`), signature combinations, ring use,
+  inside defence, the shove under fire, the reply off the guard, the stiff
+  jab on a man walking in, rush detection (by his misses), stamina
+  discipline, tells, hurt and tired plans.
+- **Difficulty** as data: `DIFFICULTY` (easy / medium / hard), config key
+  `aiDifficulty` (0 / 1 / 2, default 1).
+- **Drills** (`ai/drills.ts`, `drills_test`): seven, in order — jab-and-move,
+  cut-off, get-inside, slip-timing, slip-counter, body-work, survive.
+- **Bot × style matrix** (`scripts/bot_table.mjs N [easy|medium|hard] [detail]`).
+- **Loose ends**: inside is earned (`jabStopOn`: a landed jab stops a man
+  walking straight in); a clinch rewinds a punch in flight instead of
+  dropping it; flush frozen-frame displacement probed (FEEL.md grade table).
+
+## Interface changes
+
+- `FighterState.styleId: AiStyle`, `FighterState.guardShape: GuardShape`
+  (`'high' | 'shell' | 'peekaboo' | 'long' | 'low'`). **The rig must draw the
+  guard from `GUARDS[f.guardShape]`** — `rest` and `block` hand poses
+  (`HandPose { fwd, up, lat }` per hand) and `crouch`; the sim's glove
+  positions already use them.
+- `core/styles.ts` (re-exported from `core/index.ts`): `GuardDef`,
+  `HandPose`, `GUARDS`, `FighterStyle { id, guard, stanceWidth, bounceHz,
+  bounceAmp, range, desc, beat: [string, string, string] }`, `STYLES`,
+  `fighterStyle(id)`.
+- AI: `createAi(side, seed, cfg, style)`; `styleFor(spec, cfg, difficulty = cfg.aiDifficulty)`;
+  `styleParams(id, cfg, difficulty)`; `withDifficulty(style, d)`;
+  `DIFFICULTY`; `STYLE_IDS`; types `Difficulty`, `ComboStep`.
+  **The call for main.ts: `createAi(side, seed, cfg, styleFor(spec, cfg))`.**
+- Drills: `DRILLS: readonly Drill[]`, `drillById(id)`,
+  `drillState(drill, specs, cfg, seed)`.
+  `Drill { id, title, goal, seconds, placement(cfg) → { player, opponent },
+  opponent?: Partial<FighterSpec>, setup?(state, cfg),
+  policy(state, tick, seed, cfg) → FrameInput,
+  metric(events, state, cfg) → { progress: 0..1, stat: string } }`. The host
+  steps the sim with `[playerInput, drill.policy(state, tick, seed, cfg)]`,
+  collects events, and calls `metric`.
+- Config, new: `ratingsOn`, `ratingNeutral`, `ratingRange`,
+  `ratingPowerImpulse`, `ratingSpeedHands`, `ratingSpeedFeet`,
+  `ratingStaminaCost`, `ratingStaminaRegen`, `ratingStaminaFatigue`,
+  `ratingDefenseGuard`, `ratingDefenseBlock`, `ratingDefenseStun`,
+  `ratingDefenseSlip`, `ratingChinBody`; `stylesOn`, `jabStopOn`,
+  `jabStopSpeed`, `jabStopScale`, `jabStopStun`; `aiDifficulty`,
+  `aiInsideGuard`, `aiInsideBlock`, `aiLeadPursuit`, `aiWildRate`, `aiCombos`;
+  `guardWearLight`, `guardWornCover`, `staminaRegenDelayLight`.
+  Retuned: `guardUppercutCover` and `guardBodyCover` 0.6, `liverMinImpulse`
+  430 (was 330), `liverSeconds` 1.6, `liverStaminaLoss` 0.2,
+  `staminaBodyHitMult` 1.2 (was 2).
+
+## Decisions made without asking
+
+1. **The neutral rating is 65, not 50.** Red and blue are rated 55–80; at a
+   neutral of 50 both would be well above "today's numbers". At 65 ± 35 the
+   roster straddles the old numbers. The pinned tests do not rely on it: see 2.
+2. **The ported tests run neutral.** Fourteen legacy test files (arms, block,
+   combo, counter, dummy_ai, fight, health, interrupt, movement, punch,
+   reaction, slip, timing, stun) and the bot kit by default build their
+   config with `ratingsOn: false, stylesOn: false`, so every ported number
+   is exactly what it was. The new behaviour is pinned by `ratings_test`,
+   `styles_test`, `drills_test` and `ai_tools_test` §5.
+3. **Style → guard**: pressure → high (today's poses), outboxer → long,
+   counter → shell, swarmer → peekaboo, slugger → low. The player's fighter
+   gets his style's guard as well.
+4. **A fresh guard blocks inside.** Uppercut and body cover went to 0.6 and
+   a guard above `guardWornCover` 0.7 blocks them with heavy chip; a worn one
+   splits. Before, a high guard was worth nothing at inside range.
+5. **A jab wears a guard at `guardWearLight` 0.35** (seven jabs broke one).
+6. **A liver shot needs something behind it** (`liverMinImpulse` 430): every
+   clean standing lead body hook (391 N·s) used to light the fuse.
+7. **A jab pauses the wind for a quarter of the usual delay**
+   (`staminaRegenDelayLight` 0.25). At the full pause a man jabbing twice a
+   second held the other's stamina at zero for the whole fight: the pressure
+   styles threw 25 punches in 110 s and lost every fight to the jab. This one
+   key moved jab-and-move from 97% to 62% across the board.
+8. **The AI calls a rush by misses** (`aiWildRate`, misses per second), not
+   by punches thrown: a clean combination is not a rush.
+9. **The slip drills telegraph with a dip** (10 ticks down, 20 up, then the
+   punch), so the punch goes to the head and a person can read it.
+
+## Existing assertions changed, and why
+
+| Test | Change | Why |
+| --- | --- | --- |
+| 14 ported tests (list above) | config built with ratings and styles off | they pin the pre-phase-2 numbers |
+| `health_test` | also `staminaRegenDelayLight: 1`; one assertion added (a jab pauses the wind for the light share, a cross for all of it) | its regen-pause assertion hits with a jab |
+| `guard_test` | uppercut / body shot on a FRESH guard is blocked with heavy chip; on a worn guard (0.3) it splits | decision 4 |
+| `level_test` | the clinch-deny case uses a worn guard on the grabber | decision 4 |
+| `danger_test` | a standing body hook does not light the liver fuse; the fuse cases hit 20% harder; the knockdown case ×4 (was ×3) | decisions 6 and `staminaBodyHitMult` 1.2 (the body threshold at the buckle is higher) |
+| `ai_tools_test` | the hand-built outboxer style also turns off combinations, the hook going away, the reply off the guard and the shove; §5 added (style table, difficulty) | those phase-2 behaviours throw hooks |
+
+No assertion was deleted.
+
+## Bots versus the styles
+
+`node scripts/bot_table.mjs 10 medium detail` — bot = side 0 in red's body,
+AI = side 1 in blue's body with the style overridden, ratings and styles on,
+3 × 30 s, 10 seeded fights a cell. Win %:
+
+| Bot | Legit | pressure | outboxer | counter | swarmer | slugger | avg |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| jab-and-move | yes | 20 | 100 | 90 | 30 | 70 | 62 |
+| inside-fighter | yes | 90 | 100 | 100 | 80 | 40 | 82 |
+| counter-puncher | yes | 70 | 70 | 100 | 30 | 100 | 74 |
+| turtle | no | 0 | 0 | 0 | 0 | 0 | 0 |
+| masher | no | 0 | 10 | 0 | 0 | 0 | 2 |
+
+Targets: met except one. Every legitimate plan wins against at least one
+style and is clearly worse against at least one; the masher is ≤ 15% and the
+turtle 0% everywhere; the best plan against the swarmer (inside-fighter) is
+not the best against the outboxer (jab-and-move). **Missed: the
+inside-fighter wins 82% across the board (limit 80%)** — 41 of 50, one fight
+over.
+
+On hard (6 fights a cell, measured before decision 7, so stale): jab-and-move
+87, inside-fighter 83, counter-puncher 70. Easy was not run.
+
+## Not done / below standard (phase 2)
+
+1. **The outboxer and the counter-puncher style lose every fight to the
+   inside-fighter bot**, by stoppage in ~40 s (lands 35–10 and 27–10). A man
+   who keeps punching stuffs their replies, and neither gets away from him
+   for long. What I would turn next, in order: the outboxer's exit (the
+   shove-then-leave covers too little ground: `pushDistance`, or a pivot out
+   instead of a straight burst); the counter style's `blockCounter` reply
+   being interrupt-proof for its first ticks; then `healthDamagePerImpulse`
+   if stoppages are this quick against a person.
+2. **The slugger is weak against the two plans that stay off him**
+   (jab-and-move 70%, counter-puncher 100%): 23 lands a fight. His tells are
+   long by design; his reach is not making up for it.
+3. **The counter style beats nobody** (90–100% losses). It waits for
+   openings the scripted bots rarely give; against a person it may play
+   differently. `attackDelay` down or `feintChance` up are the knobs.
+4. **Ten fights a cell is ±15 points.** The 82% is one fight over the line
+   and the 20–30% cells could be 10–45%.
+5. **Hard and easy are not balanced, only ordered** (`ai_tools_test` §5
+   checks easy reacts slower, defends less, throws less; hard the other way).
+   The hard matrix above predates the last sim change.
+6. **The matrix uses blue's body for all five styles**, not the roster of
+   eight: ratings and reach are held constant, only the style changes.
+7. **Height dead band**: untouched, waiting for the roster of eight.
+8. **Flush on the frozen frame**: probed and recorded (FEEL.md). Every flush
+   power shot pins the neck clamp, so flush and clean differ on the frozen
+   frame only by torso travel and freeze length. Not changed.
+9. **Nothing here was feel-tested or drawn.** Guard shapes move the sim's
+   gloves and boxes; whether the rig draws them is the rig's.
