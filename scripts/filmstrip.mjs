@@ -19,7 +19,8 @@ import { DEV_URL } from './devUrl.js';
 import { bootReady, frames } from './waits.js';
 
 const at = (o) => { const a = []; for (const [k, v] of Object.entries(o)) a[Number(k)] = v; return a; };
-const flick = (x, t) => ({ [t]: { move: { x, y: 0 } }, [t + 1]: { move: { x, y: 0 } } });
+const hold = (a, key, from, to) => { for (let i = from; i <= to; i++) a[i] = { ...(a[i] ?? {}), [key]: true }; return a; };
+const flick = (x, t) =>({ [t]: { move: { x, y: 0 } }, [t + 1]: { move: { x, y: 0 } } });
 
 /** dist (m), side-0 script, side-1 script, first tick, last tick, tick step, roster ids (optional). */
 export const SCENARIOS = {
@@ -29,6 +30,13 @@ export const SCENARIOS = {
   slip_counter: { dist: 0.79, s0: at({ ...flick(-1, 0), 12: { cross: true } }), s1: at({ 0: { jab: true } }), from: 0, to: 46, step: 2 },
   // The only body shot the baseline has: the dummy slips the wrong way and the cross finds the body.
   body: { dist: 0.79, s0: at({ 0: { cross: true } }), s1: at(flick(-1, 4)), from: 0, to: 46, step: 2 },
+  // ── Overhaul scenarios (need the SIM workstream's mechanics) ──
+  // The dummy jabs, the player slips to the lead side (which loads the lead hand) and hooks with it: a flush counter.
+  flush_counter: { dist: 0.79, s0: at({ ...flick(-1, 0), 12: { hook: true, move: { x: -1, y: 0 } } }), s1: at({ 0: { jab: true } }), from: 0, to: 69, step: 3 },
+  // Level held, lead hook: a clean liver shot at t=26; the buckle arrives about 36 ticks later.
+  body_hook: { dist: 0.7, s0: hold(at({ 12: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], from: 0, to: 92, step: 4 },
+  // Chest to chest: shovel hook, inside uppercut, then down for a body hook; the dummy hooks back.
+  inside: { dist: 0.55, s0: hold(at({ 2: { hook: true, move: { x: -1, y: 0 } }, 14: { uppercut: true, move: { x: 1, y: 0 } }, 30: { hook: true, move: { x: -1, y: 0 } } }), 'level', 26, 44), s1: at({ 20: { hook: true, move: { x: -1, y: 0 } } }), from: 0, to: 69, step: 3 },
 };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
