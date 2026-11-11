@@ -13,7 +13,11 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 | A — the fighting (sim, AI, tests) | in progress (SIM workstream) |
 | B — bodies and variance (rig, roster, generator) | in progress (RIG workstream) |
 | C — styles | after A + B integrate |
-| D — the show and the game around it | after A + B integrate |
+| D — arena, lighting, haze, crowd, post, audio | in progress (SHOW workstream, started early: independent folders) |
+| D — title, select, cards, ring walk, replay, ladder | after A + B integrate |
+
+Workstream logs (each agent keeps its own, merged into this file at integration):
+`docs/OVERHAUL_SIM.md`, `docs/OVERHAUL_RIG.md`, `docs/OVERHAUL_SHOW.md`.
 
 ## Audit (2026-11-11, before any change)
 
@@ -134,6 +138,12 @@ Priority if time runs short: A, then B, then C, then D.
    has no deliberate body shot to film.
 5. **Lookbook lens stays inside the ropes** (2.8 m, 46° FOV) and the fighter
    turns, because from outside the near ropes cut across the figure.
+
+6. **Three workstreams run at once, each in its own git worktree** (SIM, RIG,
+   SHOW), merged here. The brief allowed A and B in parallel; the arena and
+   audio half of D was added because it touches neither's folders and would
+   otherwise sit idle. The menu half of D waits, because it needs the new
+   fighter specs.
 
 ## Interface changes (also recorded in CONTRACT §13)
 
