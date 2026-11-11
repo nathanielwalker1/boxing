@@ -50,6 +50,9 @@ declare global {
      * and the reaction that follows can be captured frame by frame.
      */
     __replay: (dist: number, script: readonly Partial<FrameInput>[], ticks: number, script1?: readonly Partial<FrameInput>[]) => void;
+    /** Audit filmstrips: step a recorded fight (inputs per tick as [moveX, moveY, button bits]) to `tick` and hold both fighters there. */
+    __filmFight: (ids: readonly [string, string], seed: number, in0: readonly (readonly number[])[], in1: readonly (readonly number[])[], tick: number) =>
+      { tick: number; time: number; phase: string; x0: number; z0: number; x1: number; z1: number; h0: number; h1: number };
     /** Roster ids (lookbook). */
     __roster: () => string[];
     /** Lookbook: show roster fighter `id` alone at the ring centre in a settled rest guard, a held block, or mid-cross. */
@@ -252,6 +255,41 @@ window.__replay = (dist, script, ticks, script1 = []) => {
   }
   posed[0] = s.fighters[0]; posed[1] = s.fighters[1];
 };
+// A whole recorded fight, frame by frame (scripts/fight_film.mjs — the audit's filmstrips of real exchanges). The
+// fight was run in Node (a scripted bot against the AI) and every tick's input for both sides recorded; here the
+// same deterministic sim is stepped on those inputs to `tick`, every tick fed through the two rigs with its events
+// (so springs, faces, falls and sprays are what they were), and both fighters are held there. Cached while the
+// fight is the same and time moves forward. Returns a fingerprint of the state so the script can prove the browser
+// reached the same state Node did.
+{
+  let key = '', at = 0, s: SimState | null = null;
+  const unpack = (p: readonly number[]): FrameInput => {
+    const b = p[2] ?? 0;
+    return { ...cloneInput(NULL_INPUT), move: { x: p[0] ?? 0, y: p[1] ?? 0 }, jab: !!(b & 1), cross: !!(b & 2), hook: !!(b & 4), uppercut: !!(b & 8), block: !!(b & 16), level: !!(b & 32) };
+  };
+  window.__filmFight = (ids, fightSeed, in0, in1, tick) => {
+    const a = ROSTER.find(f => f.id === ids[0]), b = ROSTER.find(f => f.id === ids[1]);
+    if (!a || !b) throw new Error(`__filmFight: unknown fighter in ${ids.join(' v ')}`);
+    const k = `${ids.join('|')}|${fightSeed}|${in0.length}`;
+    const feeds = [0, 1].map(side => window.__rig?.[side as Side]);
+    for (const f of feeds) f?.freeze?.(false);
+    if (k !== key || tick < at || !s) {
+      if (specs[0].id !== a.id || specs[1].id !== b.id) startFight(a, b);
+      s = createState([a, b], cfg, fightSeed); key = k; at = 0;
+    }
+    for (; at < tick && at < in0.length; at++) {
+      const r = step(s, [unpack(in0[at]!), unpack(in1[at]!)], cfg);
+      for (const side of [0, 1] as const) {
+        feeds[side]?.feed?.(s.fighters[side], r.state.fighters[side], r.events.filter(e => !('side' in e) || e.side === side || ('target' in e && e.target === side)));
+      }
+      s = r.state;
+    }
+    posed[0] = s.fighters[0]; posed[1] = s.fighters[1];
+    for (const f of feeds) f?.freeze?.(true);
+    const [p, q] = s.fighters;
+    return { tick: at, time: s.time, phase: s.round.phase, x0: p.pos.x, z0: p.pos.z, x1: q.pos.x, z1: q.pos.z, h0: p.health, h1: q.health };
+  };
+}
 // Lookbook (scripts/lookbook.mjs): roster fighter `id` alone at the ring centre
 // facing +x, in a sim-settled pose; the other fighter is parked out of sight.
 window.__roster = () => ROSTER.map(f => f.id);
