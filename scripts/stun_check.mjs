@@ -30,7 +30,7 @@ page.on('console', m => logs.push({ type: m.type(), text: m.text() }));
 page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
 await page.goto(`${DEV_URL}/?ai=0`, { waitUntil: 'networkidle', timeout: 15_000 });
 await bootReady(page);
-await page.evaluate(() => { window.__cfg.healthDamagePerImpulse = 0.00002; window.__cfg.healthRegen = 0; });
+await page.evaluate(() => { window.__cfg.healthDamagePerImpulse = 0.00002; window.__cfg.healthRegen = 0; window.__cfg.ratingsOn = false; window.__cfg.stylesOn = false; });   // the check pins the pre-ratings numbers (blue's cross rocks red at 5% health); ratings and guard shapes have their own tests
 const shot = async (name) => { const p = `${OUT}/stun_${name}.png`; await page.screenshot({ path: p }); console.log(`     ${name} → ${p}\n              ${await greyscaleCopy(page, p)}`); };
 const read = () => page.evaluate(() => window.__read());
 
