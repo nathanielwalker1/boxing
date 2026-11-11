@@ -61,7 +61,7 @@ await shot('select');
 await page.keyboard.press('Enter');
 await frames(page, 2);
 const intro = await page.evaluate(() => ({ screen: document.querySelector('#flow .screen.on')?.className, name0: document.querySelector('#hud .side.l .name')?.textContent, tape: document.querySelector('#flow .tape')?.textContent ?? '' }));
-check('confirm → the tale of the tape, the picked fighter as the player (side 0)', (await screen()) === 'intro' && intro.name0 === 'Desmond Okafor' && /OKAFOR/i.test(intro.tape) && /CASTELLANO/i.test(intro.tape), `${intro.name0} / ${intro.tape.slice(0, 60)}`);
+check('confirm → the tale of the tape, the picked fighter as the player (side 0)', (await screen()) === 'intro' && intro.name0 === 'Desmond Okafor' && /OKAFOR/i.test(intro.tape) && /BRASK/i.test(intro.tape), `${intro.name0} / ${intro.tape.slice(0, 60)}`);
 const held = await page.evaluate(() => window.__tick.simTicks);
 await frames(page, 10);
 check('the sim is still held on the intro', (await page.evaluate(() => window.__tick.simTicks)) === held);

@@ -40,7 +40,9 @@ const logs = [];
 page.on('console', m => { if ((m.type() === 'error' || m.type() === 'warning') && !/GPU stall due to ReadPixels/.test(m.text())) logs.push(m.text()); });
 page.on('pageerror', e => logs.push(e.message));
 await page.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15_000 });
-await bootReady(page);
+// Software GL under a loaded machine can take well past waits.bootReady's 15 s to boot two skinned fighters; this sheet is not a test, so it waits longer.
+await page.waitForFunction(() => !!(window.__tick && window.__tick.ready && window.__tick.frames >= 5 && window.__cfg), null, { timeout: 120_000 });
+void bootReady;
 await page.evaluate(() => {
   window.__cfg.debugHitboxes = true;
   window.__cfg.debugFps = false;

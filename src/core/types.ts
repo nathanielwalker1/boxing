@@ -44,8 +44,50 @@ export function cloneInput(i: Readonly<FrameInput>): FrameInput {
 // ── Fighter definition (CONTRACT §5) ──────────────────────────────────────────
 
 export type Stance = 'orthodox' | 'southpaw';
-export type Build  = 'lean' | 'athletic' | 'heavy';
 export type AiStyle = 'pressure' | 'counter' | 'outboxer' | 'swarmer' | 'slugger';
+
+/**
+ * Head shape (overhaul 2026-11-11). Every value is −1..1 with 0 the average
+ * head; drawn only — the head hit sphere is `BodyDims.headR` whatever these say.
+ */
+export interface HeadMorph {
+  width: number;    // narrow ↔ wide skull and cheekbones
+  jaw: number;      // narrow ↔ wide, square jaw
+  chin: number;     // receding ↔ long, jutting chin
+  brow: number;     // smooth ↔ heavy brow ridge
+  nose: number;     // small ↔ big nose
+  ears: number;     // small, flat ↔ big, sticking out
+  height: number;   // low ↔ tall cranium
+}
+
+/**
+ * Build as continuous morphs (overhaul 2026-11-11; replaces `build: lean |
+ * athletic | heavy`). Every value is −1..1 with 0 the baseline athletic boxer.
+ * `frame`, `muscle`, positive `bodyFat`, `limbLength` and `neck` reach the
+ * sim through core/body.ts (`BodyDims`); the rest is drawn only.
+ */
+export interface BodyMorph {
+  frame: number;       // skeleton breadth: shoulders, ribcage, hips
+  muscle: number;      // muscle mass: limb and torso girth, definition (−0.5 is the old `lean`, +0.9 the old `heavy`)
+  bodyFat: number;     // < 0 shredded (drawn only), > 0 soft, then a gut (adds girth)
+  limbLength: number;  // leg length against the torso (arm length honours `reachM`)
+  neck: number;        // thin, long ↔ thick, short bull neck
+  head: HeadMorph;
+}
+
+export type HairStyle =
+  | 'none' | 'short' | 'afro' | 'braids' | 'long' | 'mohawk'                       // the six from Stage 1 ('none' = bald, 'short' = a crop)
+  | 'buzz' | 'fade' | 'flatTop' | 'curls' | 'cornrows' | 'dreads' | 'tied' | 'receding' | 'slick' | 'topKnot';
+export type FacialHair =
+  | 'none' | 'goatee' | 'beard'
+  | 'stubble' | 'moustache' | 'chinstrap' | 'longBeard' | 'muttonChops' | 'soulPatch' | 'handlebar';
+export type TattooPlace = 'chest' | 'back' | 'sleeveL' | 'sleeveR' | 'forearmL' | 'forearmR' | 'shoulderL' | 'shoulderR' | 'neck' | 'ribs';
+export type TattooMotif = 'tribal' | 'script' | 'cross' | 'star' | 'wings' | 'rose' | 'bands' | 'geometric' | 'serpent';
+/** One procedural tattoo: where, what, and the seed its strokes are drawn from. No real marks or logos. */
+export interface Tattoo { place: TattooPlace; motif: TattooMotif; seed: number }
+export type TrunksCut = 'short' | 'classic' | 'long' | 'belt' | 'skirt' | 'split';
+export type TrunksPattern = 'solid' | 'sideStripe' | 'waistStripe' | 'twoTone' | 'flames' | 'stars' | 'checker' | 'gradient';
+export type BootHeight = 'low' | 'mid' | 'high';
 
 export interface FighterSpec {
   id: string; name: string; nickname: string; hometown: string;
@@ -53,13 +95,22 @@ export interface FighterSpec {
   heightM: number;   // 1.60 – 2.00
   reachM: number;    // wingspan
   massKg: number;
-  build: Build;
+  morph: BodyMorph;
   skin: string; trunksPrimary: string; trunksSecondary: string;
-  trunksStyle: 'short' | 'long' | 'belt';
+  trunksStyle: TrunksCut;
+  /** Default 'sideStripe' (the Stage-1 look). The waistband carries the fighter's initials. */
+  trunksPattern?: TrunksPattern;
   gloves: string; boots: string;
-  hair: 'none' | 'short' | 'afro' | 'braids' | 'long' | 'mohawk';
-  facialHair: 'none' | 'goatee' | 'beard';
-  tattoos?: ('chest' | 'back' | 'leftArm' | 'rightArm')[];
+  /** Glove design: cuff, thumb and back-of-hand panel colours (defaults: white cuff, the glove colour) and the closure. */
+  gloveCuff?: string; gloveThumb?: string; glovePanel?: string; gloveClosure?: 'laces' | 'strap';
+  /** Boot design: shaft height (default 'mid'), trim colour (sole, laces, stripes; default trunksSecondary), tassels, side stripes. */
+  bootHeight?: BootHeight; bootTrim?: string; bootTassels?: boolean; bootStripes?: boolean;
+  hair: HairStyle;
+  /** Hair and facial hair colour (default: config rigHairColor). */
+  hairColor?: string;
+  facialHair: FacialHair;
+  eyeColor?: string;
+  tattoos?: Tattoo[];
   /** A dressed figure (the referee; contract addition 2026-10-15): shirt over the torso and upper arms, trousers to the boots, a bow tie, bare hands. */
   outfit?: { shirt: string; trousers: string; tie: string };
   power: number; speed: number; chin: number; stamina: number; defense: number; // 0–100
