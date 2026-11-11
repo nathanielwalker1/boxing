@@ -9,6 +9,7 @@
  *     feet in the picture at the start of the clip
  *   - a button skips it; the lens goes back where it was and the count goes on
  *   - with flowReplayOn off there is none
+ *   - a knockdown that ends the fight (TKO) is replayed with the fight over, and the results screen waits for it
  * Screenshot → scripts/output/replay_*.png. Console must be clean.
  */
 import { chromium } from 'playwright';
@@ -16,19 +17,22 @@ import { mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { DEV_URL } from './devUrl.js';
-import { bootReady, until, frames } from './waits.js';
+import { bootReady, until as untilFor, frames } from './waits.js';
 import { greyscaleCopy } from './greyscale.js';
 import { check, done } from './check.js';
 
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), 'output');
 mkdirSync(OUT, { recursive: true });
 
+// Every state wait gets three minutes: headless software GL under a parallel suite draws about a frame a second, and
+// the frame clamp makes that a quarter of a second of sim, so a wait bounded in tens of seconds is a flake.
+const until = (page, fn, arg = undefined, opts = {}) => untilFor(page, fn, arg, { ...opts, timeout: 180000 });
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
 const logs = [];
 page.on('console', m => logs.push({ type: m.type(), text: m.text() }));
 page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
-await page.goto(`${DEV_URL}/?menu=1&ai=0`, { waitUntil: 'networkidle', timeout: 15_000 });
+await page.goto(`${DEV_URL}/?menu=1&ai=0`, { waitUntil: 'networkidle', timeout: 60_000 });
 await bootReady(page);
 await page.evaluate(() => {
   const c = window.__cfg;
@@ -86,6 +90,21 @@ await page.evaluate(() => { window.__cfg.flowReplayOn = false; });
 await floor();
 await until(page, () => window.__sim.state().round.phase === 'count' && window.__sim.state().round.count >= 4, undefined, { label: 'count 4', timeout: 30000 });
 check('flowReplayOn off: no replay', !(await page.evaluate(() => window.__flow.state().replay)));
+
+// The stoppage: a knockdown that ends the fight outright (a TKO: the knockdown limit) is replayed BEFORE the results.
+await until(page, () => window.__sim.state().round.phase === 'fighting', undefined, { label: 'him back on his feet again', timeout: 40000 });
+await page.evaluate(() => { window.__cfg.flowReplayOn = true; window.__cfg.knockdownsForTko = 1; window.__cfg.resultsDelaySeconds = 2.5; });   // long enough for the fall to finish before the results hold the sim
+await floor();
+await until(page, () => window.__sim.state().round.phase === 'over', undefined, { label: 'the stoppage', timeout: 20000 });
+await until(page, () => window.__flow.state().replay, undefined, { label: 'the replay of the stoppage', timeout: 30000 });
+await frames(page, 6);
+const k1 = await page.evaluate(() => ({ phase: window.__sim.state().round.phase, screen: window.__flow.state().screen, replay: window.__flow.state().replay, headY: window.__rig?.[1]?.head().y ?? -1 }));
+check(`a stoppage is replayed with the fight already over, and the results wait for it (screen ${k1.screen})`, k1.phase === 'over' && k1.replay && k1.screen === 'fight', JSON.stringify(k1));
+await key('Enter');
+await until(page, () => !window.__flow.state().replay, undefined, { label: 'the skip' });
+await on('results');
+const k2 = await page.evaluate(() => ({ method: document.querySelector('#flow .method')?.textContent ?? '', winner: document.querySelector('#flow .winner')?.textContent ?? '', down: window.__sim.state().fighters[1].down, liveHead: window.__rig?.[1]?.head().y ?? -1 }));
+check(`…then the results: ${k2.winner}, "${k2.method}"; the picture is the live one again (the loser on the canvas, head at ${k2.liveHead.toFixed(2)} m)`, /TKO/i.test(k2.method) && k2.down && k2.liveHead < 0.9, JSON.stringify(k2));
 
 const benign = t => /GPU stall due to ReadPixels/.test(t);
 const bad = logs.filter(m => (m.type === 'error' || m.type === 'pageerror' || m.type === 'warning') && !benign(m.text));

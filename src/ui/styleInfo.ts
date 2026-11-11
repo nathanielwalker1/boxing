@@ -1,97 +1,64 @@
 /**
  * ui/styleInfo.ts — the words for a fighter's STYLE on the select, ladder and
- * name cards. An adapter over `src/core/styles.ts` (SIM phase 2, written in
- * parallel): it expects `STYLES[spec.style]` shaped like
- * `{ name, blurb, guard, howToBeat: string[] }` and fills any missing table or
- * field from the built-in text below, so the screens work before and after
- * that merge. ADAPTER: when the table lands, check the field names in
- * `fromTable` against it — that is the only place they are read.
+ * name cards. The facts come from `src/core/styles.ts` (`STYLES[style]`: the
+ * guard he holds, the range he wants, his rhythm, `desc`, `beat`); the names
+ * and the "how he fights" lines are here, because that table has none.
+ *
+ *   for YOUR pick       how he fights: what to do with him, what his guard
+ *                       gives and costs, where and how he moves
+ *   for an OPPONENT     how to beat him: the table's three `beat` lines
  */
-import type { AiStyle, FighterSpec } from '../core';
+import { GUARDS, STYLES, type AiStyle, type FighterSpec, type GuardShape, type RangeBand } from '../core';
 
 export interface StyleInfo {
   name: string;
   /** One line: what he is. */
   blurb: string;
-  /** Up to three plain lines: how he fights / how to beat him. */
-  lines: string[];
+  /** His guard by name, and the range he wants in plain words. */
+  guard: string;
+  range: string;
+  /** Three lines for the man who picks him. */
+  fights: string[];
+  /** Three lines for the man who faces him. */
+  beat: string[];
 }
 
-const BUILT_IN: Record<AiStyle, StyleInfo> = {
-  pressure: {
-    name: 'Pressure fighter',
-    blurb: 'Walks you down behind a high guard and makes you work every second.',
-    lines: [
-      'He comes forward all round and cuts off the ring.',
-      'Jab and step off to the side. Never back straight up to the ropes.',
-      'Hit the body early. A tired pressure fighter stops coming.',
-    ],
-  },
-  counter: {
-    name: 'Counter-puncher',
-    blurb: 'Waits for you to miss, then makes you pay for it.',
-    lines: [
-      'He stands off, lets you lead, slips and answers.',
-      'Feint first, and punch when he reacts to it.',
-      'No single big shots from range. Short combinations, then get out.',
-    ],
-  },
-  outboxer: {
-    name: 'Out-boxer',
-    blurb: 'Long jab, good feet. He wins the fight at arm\'s length.',
-    lines: [
-      'He keeps you on the end of the jab and circles away.',
-      'Slip the jab and step inside. Hooks and uppercuts work there; his long arms do not.',
-      'Cut off the ring: walk him to the ropes instead of following him round.',
-    ],
-  },
-  swarmer: {
-    name: 'Swarmer',
-    blurb: 'Short, busy, and always in your chest.',
-    lines: [
-      'He gets inside and throws in bunches, mostly to the body.',
-      'Keep him off with the jab and the push-off.',
-      'Tie him up when he gets in, and make his misses cost him.',
-    ],
-  },
-  slugger: {
-    name: 'Slugger',
-    blurb: 'Slow hands, heavy hands. One clean shot changes the fight.',
-    lines: [
-      'He loads up on big hooks and overhands. The wind-up is long.',
-      'Watch the wind-up and slip it. The punch after a slip is your best one.',
-      'Stay off the ropes and make him miss. Every miss tires him.',
-    ],
-  },
+const NAMES: Record<AiStyle, string> = {
+  pressure: 'Pressure fighter', counter: 'Counter-puncher', outboxer: 'Out-boxer', swarmer: 'Swarmer', slugger: 'Slugger',
+};
+const GUARD_NAMES: Record<GuardShape, string> = { high: 'High guard', shell: 'Shell', peekaboo: 'Peek-a-boo', long: 'Long guard', low: 'Hands low' };
+const RANGE_NAMES: Record<RangeBand, string> = { outside: 'At arm\'s length', mid: 'Middle range', inside: 'Chest to chest' };
+
+/** What to do with him, in one line. */
+const PLAN: Record<AiStyle, string> = {
+  pressure: 'Walk him forward behind the jab, then work the body.',
+  counter: 'Let the other man lead. Make him miss, then punch.',
+  outboxer: 'Jab and move. Never stand still and trade.',
+  swarmer: 'Get to his chest and throw short punches in bunches.',
+  slugger: 'Pick your moment: one clean heavy shot is the plan.',
+};
+/** What his guard gives and costs — each line is a number in core/styles.ts GUARDS. */
+const GUARD_LINES: Record<GuardShape, string> = {
+  high: 'High guard: covers head and body about evenly. Nothing special, nothing missing.',
+  shell: 'Shell: straight punches roll off it and the body is covered, but hooks come round it and his jab is slower.',
+  peekaboo: 'Peek-a-boo: hooks meet his gloves all the way round and he slips well, but the uppercut splits it, the body is open and his jab is short.',
+  long: 'Long guard: the lead hand is already out, so the jab is quicker and longer. It wears fast under fire and the body is open under the arm.',
+  low: 'Hands low: quicker feet and the longest slip. His chin is open until the hands come up, and that takes a beat.',
 };
 
-// `{}` when core/styles.ts does not exist yet.
-const mods = import.meta.glob('../core/styles.ts', { eager: true });
-
-const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
-const list = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : typeof v === 'string' && v.trim() ? [v.trim()] : []);
-
-/** The SIM table's entry for a style, mapped onto StyleInfo; null fields mean "use the built-in". */
-function fromTable(style: AiStyle): { name: string | null; blurb: string | null; lines: string[] } | null {
-  for (const m of Object.values(mods)) {
-    const mod = m as Record<string, unknown>;
-    const table = (mod['STYLES'] ?? mod['styles'] ?? mod['default']) as Record<string, unknown> | undefined;
-    const e = table && typeof table === 'object' ? table[style] as Record<string, unknown> | undefined : undefined;
-    if (!e || typeof e !== 'object') continue;
-    const fights = list(e['howHeFights'] ?? e['fights']);
-    const beat = list(e['howToBeat'] ?? e['beat'] ?? e['tips']);
-    return {
-      name: str(e['name']) ?? str(e['title']),
-      blurb: str(e['blurb']) ?? str(e['description']) ?? str(e['desc']),
-      lines: [...fights, ...beat].slice(0, 3),
-    };
-  }
-  return null;
-}
-
 export function styleInfo(spec: Pick<FighterSpec, 'style'>): StyleInfo {
-  const base = BUILT_IN[spec.style] ?? BUILT_IN.pressure;
-  const t = fromTable(spec.style);
-  if (!t) return base;
-  return { name: t.name ?? base.name, blurb: t.blurb ?? base.blurb, lines: t.lines.length ? t.lines : base.lines };
+  const id: AiStyle = spec.style in STYLES ? spec.style : 'pressure';
+  const st = STYLES[id];
+  const g = GUARDS[st.guard];
+  const feet = st.bounceHz >= 1.2 ? 'light on his feet' : st.bounceHz <= 0.7 ? 'planted, heavy-footed' : 'steady on his feet';
+  const stance = st.stanceWidth >= 1.1 ? 'a wide stance' : st.stanceWidth <= 0.95 ? 'a narrow stance' : 'a square stance';
+  const sits = g.crouch > 0 ? ', sitting low' : '';
+  return {
+    name: NAMES[id],
+    blurb: st.desc,
+    guard: GUARD_NAMES[st.guard],
+    range: RANGE_NAMES[st.range],
+    fights: [PLAN[id], GUARD_LINES[st.guard], `Best ${RANGE_NAMES[st.range].toLowerCase()}: ${feet}, ${stance}${sits}.`],
+    beat: [...st.beat],
+  };
 }

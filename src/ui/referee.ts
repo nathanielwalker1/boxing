@@ -44,7 +44,8 @@ export class Referee {
     return { fwd: 0.06, up: b.hipY + 0.02, lat: handLateralSign(hand, REFEREE.stance) * (b.shoulderW / 2 + 0.05) };
   }
 
-  update(s: SimState, events: readonly SimEvent[], dt: number, camAz: number, visible: boolean): void {
+  /** `snap`: put him on his spot, facing what he watches, instead of walking there (a cut to a new scene). */
+  update(s: SimState, events: readonly SimEvent[], dt: number, camAz: number, visible: boolean, snap = false): void {
     if (!visible) { if (this.view) { this.view.dispose(); this.view = null; } return; }
     if (!this.view) this.view = createFighterView(1, REFEREE, this.cfg, this.scene, { key: 2, probe: false });
     const c = this.cfg, me = this.state, b = me.body;
@@ -94,6 +95,7 @@ export class Referee {
     target.x = Math.max(-bound, Math.min(bound, target.x));
     target.z = Math.max(-bound, Math.min(bound, target.z));
 
+    if (snap) { me.pos = { x: target.x, z: target.z }; this.vel = { x: 0, z: 0 }; me.yaw = Math.atan2(face.z - target.z, face.x - target.x); }
     // ── Walk: velocity chases the target (dead zone so he stands still) ──
     const toX = target.x - me.pos.x, toZ = target.z - me.pos.z;
     const toLen = Math.hypot(toX, toZ);

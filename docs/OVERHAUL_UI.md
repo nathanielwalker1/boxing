@@ -1,267 +1,303 @@
 # Overhaul — UI workstream log
 
 The screens round a fight (`docs/OVERHAUL.md` step 8, second half, plus the gym
-shell of step 7). Written 2026-11-11. What was built, every call made without
-asking, the places SIM's phase 2 has to be connected, what the captures show,
-and what is not done or below standard.
+of step 7). Phase 1 written 2026-11-11; phase 2 (polish and proof, after SIM's
+styles / difficulty / drills, RIG's reads and SHOW's audio hooks landed) the
+same day. What was built, every call made without asking, what the captures
+show, and what is not done or below standard.
 
-Captures: `docs/overhaul/ui_*.png` (1280 × 720 on the high tier, then a phone
-upright and on its side). Regenerate with `PORT=<port> node scripts/flow_look.mjs`
-(about ten minutes on headless software GL).
+Captures: `docs/overhaul/ui_*.png`. Regenerate with
+`PORT=<port> node scripts/flow_look.mjs` (about 25 minutes on headless
+software GL), or one pass: `… flow_look.mjs desktop | gym | phone`.
 
 ## Kinds of done
 
 - **Verified renders / console clean / tests green:** every screen below.
-  `npm test`: 38/38 scripts (29 Node, 9 browser). `flow_check` 33 assertions,
-  `replay_check` 10.
+  Checks that are mine: `flow_check` (keyboard, end to end, 37), `gym_check`
+  (every drill, 41), `flow_input_check` (mouse, touch, gamepad, difficulty,
+  28), `replay_check` (12).
 - **Ready for Nate to feel-test:** all of it. Nothing here has been seen or
-  played by a person. Pacing (walk length, card length, replay length), the
-  camera kick per grade and every layout call are mine.
-- **Never exercised at all:** the gamepad on the menus (no pad in a headless
-  browser) and taps / clicks (the checks drive the keyboard; the pointer
-  handlers are written but unrun).
+  played by a person. Pacing (walk, card, replay), the camera kick per grade,
+  the drill panel and every layout call are mine.
+- **Run by a script, never by a hand:** touch (a touch-emulating browser
+  context), the gamepad (`navigator.getGamepads` replaced by a stub in the
+  page — no real pad has been plugged in), and the drills (scripted players).
 
-## What was built
+## What exists
 
 | # | Thing | Where |
 | --- | --- | --- |
-| 1 | Title over a slow orbit of the lit, empty ring: Fight / Ladder / Gym / Controls | `ui/flow.ts`, `ui/director.ts` `wide` |
-| 2 | Fighter select: nine plates (the roster of eight + a random slot), the highlighted man in a sim-settled rest guard at ring centre with the lens circling him, a panel with name, nickname, hometown, stance, height / reach / weight, five rating bars, style name, one line and three more | `flow.ts`, `director.ts` `turntable`, `ui/styleInfo.ts` |
-| 3 | Opponent select: same screen, your own plate greyed out, difficulty (easy / medium / hard) and rounds (3 × 0:30, 3 × 1:00, 6 × 1:00) | `flow.ts` |
-| 4 | Ring walk: the opponent walks from his side of the ring to his mark while the lens pushes in, name card in his colours; then the player; then a side-on two-shot with the referee and a tale-of-the-tape card; cut to the fight camera and the bell | `director.ts` `walkScene`, `flow.ts` |
-| 5 | Between rounds: a corner card with the round's punch stats, each man's condition as bars, one line from the corner, a countdown | `flow.ts` `openCard`, `ui/stats.ts` |
-| 6 | Knockdown replay: the 1.5 s before and 0.5 s after the knockdown, quarter speed, from the reverse side, low and close, a REPLAY bug in the corner | `main.ts`, `ui/replay.ts` |
-| 7 | Results: winner, method, round-by-round cards, a punch-stat table, the winner in the ring with the referee's arm up (existing) | `flow.ts` `renderResults` |
-| 8 | Seven-fight ladder with saved progress and a champion card | `ui/ladder.ts`, `flow.ts` |
-| 9 | Gym shell: drill list, a drill running with its panel, restart on completion or R, Esc back | `ui/drills.ts`, `flow.ts` |
-| 10 | Controls card (title and pause); pause with Resume / Controls / Quit | `ui/controls.ts`, `flow.ts` |
-| 11 | HUD: the stamina bar now shows its ceiling; bars for fighters in near-black trunks use the trim colour | `ui/hud.ts`, `ui/accent.ts` |
-| 12 | Wiring: `RigView` views, the style / difficulty adapter, the scoreboard, camera kick by grade | `main.ts`, `render/stage.ts` |
+| 1 | Title: the two men in view spar slowly under the wide orbit (a silent private sim, easy AI on both sides at half work rate), the referee with them; the wordmark is lettering drawn in code; Fight / Ladder / Gym / Controls | `ui/director.ts` `sparring`, `ui/wordmark.ts` |
+| 2 | Fighter select: nine plates (eight + a random slot), the man on the turntable in HIS guard, seen from the front first. His sheet: name, nickname, hometown, stance; height / reach / weight as bars against the roster's range; the five ratings; style name, guard by name, the range he wants, one line, and three lines of "how he fights" | `flow.ts` `infoHtml`, `ui/styleInfo.ts` |
+| 3 | Opponent select: the same sheet for the other man with THE MATCHUP in plain words ("He out-reaches you by 6 cm. He is taller by 10 cm. He is heavier by 35 kg.") and "how to beat him" (SIM's three `beat` lines); difficulty and rounds | `flow.ts` |
+| 4 | Ring walk: opponent, then player, each walked to his mark by a private sim with a name card; then a two-shot with the referee and a tape strip along the bottom edge | `director.ts` `walkScene` |
+| 5 | Between rounds: a corner sheet on the right (round stats, condition bars, one line of advice, optionally the judges' running cards); on the left the ring with both men in their corners | `flow.ts` `openCard`, `director.ts` `corners` |
+| 6 | Knockdown replay, the count path and the stoppage path | `main.ts`, `ui/replay.ts` |
+| 7 | Results: a sheet on the right (winner, method, the judges' cards, round by round, the fight's totals with accuracy); the pair and the referee on the left under a closer shot | `flow.ts` `renderResults`, `director.ts` `results` |
+| 8 | Ladder with saved progress, beaten rungs struck through, a champion card | `ui/ladder.ts` |
+| 9 | Gym: eight drills (SIM's seven, then free sparring), each with a strip along the top: what to do, the exact controls on keys / pad / touch, a progress bar, a stat line, a clock; next / previous / again | `ui/drills.ts`, `flow.ts` `updateDrill` |
+| 10 | Controls card, two columns, all three tables on one screen; pause | `ui/controls.ts` |
+| 11 | HUD: stamina ceiling on the thin bar; readable bars for dark trunks | `ui/hud.ts`, `ui/accent.ts` |
 
-The walk that was built is the real one, not the fallback: each fighter is
-walked by a private sim (stick input toward his mark), so the feet are the
-rig's own. It is short: about 1.6 m from the ropes on his side to his mark, not
-an entrance from a tunnel.
+## Difficulty: one key
 
-## Where SIM phase 2 connects (adapters and TODOs)
+`aiDifficulty` (SIM's, group `ai`). My phase-1 `difficulty` key is gone. The
+menu's choice (and each ladder rung's) is written to `cfg.aiDifficulty` when a
+flow fight starts (`flow.ts` `beginFight`) and passed to
+`styleFor(spec, cfg, difficulty)` in `main.ts` `styleForOpponent`. Only fights
+the flow starts get a style; tests and `?menu=0` keep the default.
+`flow_input_check` proves it: three runs against the same opponent at Easy /
+Medium / Hard give `aiDifficulty` 0 / 1 / 2 and three different
+`AiState.style`s (mistake rate 0.25 / 0 / 0; attack gap 0.49 / 0.35 / 0.28 s
+at the time of writing).
 
-Nothing here needs editing if the exports arrive with the expected names.
+## Lines the other workstreams should know
 
-| What | File and line | What it expects | Until it lands |
-| --- | --- | --- | --- |
-| Style and difficulty into the AI | `src/main.ts:95–104` (`styleForOpponent`), called at `src/main.ts:128` | `styleFor(spec, cfg, difficulty)` exported from `src/ai`, returning `StyleParams`. Only fights the flow starts use it; tests and `?menu=0` keep the default style | returns null: **the difficulty choice and the ladder's difficulty steps do nothing yet** |
-| Difficulty value | `src/ui/flow.ts:520` writes `cfg.difficulty` (0 / 1 / 2) at every flow fight; `src/ui/flow.ts:524` also passes it in `StartOpts` | — | stored only |
-| Style text | `src/ui/styleInfo.ts:69` (glob) and `:75` (`fromTable`) | `STYLES[style]` in `src/core/styles.ts` with `name`, `blurb`, `howToBeat: string[]` (also read: `title`, `description`, `desc`, `howHeFights`, `fights`, `beat`, `tips`). `guard` is not shown | built-in text per style, in the same file |
-| Drills | `src/ui/drills.ts:88` (glob) and `:46` (`mapDrill`) | `DRILLS` (or `drills`, or default) in `src/ai/drills.ts`: `{ id, title, goal, placement, opponent, setup?, metric? }`. An optional `controls` string is used if present; otherwise the text is matched from the drill's id / title in `CONTROLS` (`drills.ts:30`) | one built-in drill, "Free sparring" |
+- **SIM / RIG — a stoppage with no count freezes the loser upright.**
+  `stepCount` advances `downT` only in the `count` phase. When the fight ends
+  ON a knockdown (the knockdown limit: a TKO, phase `over` at once) `downT`
+  stays 0, and the rig draws the fall from `downT`, so the loser stood stiff
+  at the first frame of his fall for good. Found by the new stoppage check.
+  Worked round in presentation (`main.ts` `fallen`: once the fight is over the
+  views are handed a copy of a downed fighter with the seconds since added to
+  `downT`; the replay clip's tail gets the same). The sim is not touched. The
+  real fix is one line in the sim.
+- **SIM — `survive` floors a player who does nothing in about a second.** The
+  drill gives half a second's grace. With the scripted player it works; as a
+  first impression for a person it may be too fast to read the screen.
+- **SIM — a partner who is floored takes a count.** In `slip-counter` and
+  `body-work` the scripted player put him down after one or two clean shots.
+  The drill carries on through the count (it used to restart, which wiped the
+  tally), but the count is dead time. Free sparring runs with
+  `healthDamagePerImpulse` × 0.2 for its length so the bag stays up; the seven
+  SIM drills are left as SIM wrote them.
+- **SHOW —** `main.ts` keeps the `CombatAudio` instance and calls
+  `audio.update(next, sdt, paused)` once a frame; the flow also calls
+  `audio.setPaused` when the pause opens and closes. The title spar is a
+  private sim whose events never reach the bus, so it is silent.
+- **RIG —** the replay pre-rolls the rigs through `window.__rig[side].feed`
+  (24 buffered ticks before the clip, and the last 24 live ticks when it
+  ends) so cloth, hair and feet are settled on the first frame after each
+  cut. `freeze` is not used.
+- **Anyone writing a browser check —** `window.__sim.drive(side, fn)` calls
+  `fn(state)` on every sim tick (null clears it). A scripted player that has
+  to time something to a sixtieth of a second cannot do it from the test
+  process at a headless frame rate; this can. `scripts/lib/drill_bots.js` has
+  one per drill.
 
-A drill whose `opponent` is missing is driven by the normal AI. `setup` runs
-after the placement and a 30-tick settle (hands on the guard), not on tick 0;
-the `tick` handed to `opponent` counts from the drill's start.
+## Config (group `flow`)
 
-**Key name risk:** the brief asked for a `flow`-group key called `difficulty`.
-If SIM adds a key with the same name the merge has a duplicate key to resolve.
+Added in phase 2: `flowShowScores` (bool, off: the judges' running cards on
+the corner sheet). Removed: `difficulty`. Changed defaults of my own keys:
+`flowTurntableLookY` 0.8, `flowTurntablePortraitFov` 70,
+`flowTurntablePortraitLookY` 0.35, `flowDrillRestartSeconds` 4. The rest are
+as listed in phase 1: `flowTitle…` (3), `flowTurntable…` (8),
+`flowPreviewDelay`, `flowWalk…` (7 with `flowStareSeconds`),
+`flowCornerSeconds`, `flowReplay…` (8), `flowKickGlancing`, `flowKickFlush`.
+No key outside the group was changed. `debugFps` is switched off at boot when
+the flow is on (unless `?tune=1`), and the overlay is hidden over any menu or
+card.
 
-## New config keys (group `flow`, appended at the end of SCHEMA)
+## Interfaces
 
-`difficulty` · `flowTitleOrbitDegPerSec` `flowTitleDist` `flowTitleElevationDeg` ·
-`flowTurntableDegPerSec` `flowTurntableDist` `flowTurntableElevationDeg`
-`flowTurntableLookY` `flowTurntableOffset` `flowTurntableFov`
-`flowTurntablePortraitFov` `flowTurntablePortraitLookY` `flowPreviewDelay` ·
-`flowWalkOn` `flowWalkSeconds` `flowStareSeconds` `flowWalkDist`
-`flowWalkDistEnd` `flowWalkElevationDeg` `flowWalkCrowd` · `flowCornerSeconds` ·
-`flowReplayOn` `flowReplaySeconds` `flowReplayAfterSeconds` `flowReplaySpeed`
-`flowReplayAtCount` `flowReplayAzimuthDeg` `flowReplayDist`
-`flowReplayElevationDeg` · `flowKickGlancing` `flowKickFlush` ·
-`flowDrillRestartSeconds`.
+- **`CameraShot`** (`render/stage.ts`): optional `key`, `azimuth`, `dist`,
+  `elevationDeg`, `lookY`, `fov`, `lambda`, `cut` (phase 1; unchanged).
+- **`Scene`** (`ui/director.ts`): `fighters` may be null (= draw the live
+  fight under `shot`: the results); `refSnap` (put the referee on his spot
+  this frame); `events` (for the views only).
+- **`FlowHooks`**: `start`, `preview`, `bell`, `skipRest`, `skipReplay`,
+  `crowd`, `audioPaused`.
+- **`Referee.update(…, snap)`**; **`ReplayBuffer.tail`**, `clipAround().pre`.
+- **Hooks for scripts**: `window.__flow.state()` (now with `drillProgress`,
+  `drillDone`, `turnGuard`), `.rounds(count, seconds)`, `.drill(id)`;
+  `window.__sim.drive(side, fn)`. Every older hook is unchanged.
 
-No existing default was changed. `introSeconds` is no longer read (the walk
-has its own keys); `betweenRoundSeconds` is still the sim's rest, but in a flow
-fight the card holds the sim and the rest is run off when the card goes, so
-the player never waits through it.
+## Assertions changed (phase 2)
 
-## Interface changes
-
-- **`CameraShot`** (`render/stage.ts`) gained optional `key`, `azimuth`,
-  `dist`, `elevationDeg`, `lookY`, `fov`, `lambda`, `cut`. A bare `{ focus }`
-  is the knockdown shot exactly as before. A shot with `azimuth` takes the
-  orbit; the follow camera's own angle is kept aside and put back when the
-  shot ends. `cut` places the lens on the first frame of the shot and again on
-  the first frame after it. Follow, band and dolly are untouched.
-- **Camera kick by grade**: in `Stage.handleEvents`' `punchLand` branch only,
-  punch-in and shake are multiplied by `flowKickGlancing` (0.25) or
-  `flowKickFlush` (1.5); clean is unchanged.
-- **`FlowHooks`** (flow → main): `start(player, opponent, opts)`, `preview`,
-  `bell`, `skipRest`, `skipReplay`, `crowd`. `StartOpts` = `{ difficulty,
-  driver, prepare }`.
-- **`main.startFight`** keeps a body whose fighter has not changed (a rematch,
-  a drill restarting) instead of rebuilding it.
-- **`Referee`**: `snapshot()` and `draw(snapshot, dt)` (the replay shows him
-  where he stood). **`ReadOverlay.update(state, off)`**: the hurt tint, rim and
-  slow motion are off while a menu, a card or a replay is on screen.
-- **Test hooks**: `window.__flow.state()` and `window.__flow.rounds(count,
-  seconds)`. Every existing hook is unchanged.
-- **`src/ui/vite-glob.d.ts`** types `import.meta.glob` (tsconfig has
-  `types: []`).
-
-## Assertions changed
-
-`scripts/flow_check.mjs` was rewritten for the new flow (10 assertions → 33).
-Old → new: menu → title; a card per roster entry → nine plates; "tale of the
-tape" on its own screen → the ring walk's three beats (name card, name card,
-tape card); the black rest card "END OF ROUND 1, then ROUND 2" → the corner
-card (END OF ROUND 1, stats, bars, advice; "Round 2 of 2 next" is on the same
-card); results `table tr` × 3 → `table.cards tr` × 3 plus the stat grid;
-rematch → a fresh fight behind a new ring walk. Added: opponent select,
-pause, ladder save and resume, gym, controls. New: `scripts/replay_check.mjs`.
-No other test was touched.
+- `flow_check`: the sheet check now compares the rating bars with the spec's
+  real numbers and checks the size bars, guard, range and "how he fights";
+  new: the man on the turntable is in his own guard, the matchup lines, Hard
+  reaches the AI, results have the round-by-round table and accuracy, the gym
+  lists eight drills. `cfg.difficulty` → `cfg.aiDifficulty`; the tape strip
+  reads "2 × 0:08" (was "2 ROUNDS").
+- `replay_check`: + the stoppage path (2).
+- New: `gym_check`, `flow_input_check`.
+- Every state wait in these four has a 180 s ceiling (they were 15–90 s and
+  timed out in the full parallel suite, where software GL draws about one
+  frame a second).
 
 ## Decisions made without asking
 
-1. **Working title: LONG COUNT** ("Main Event Boxing" under it). A boxing
-   phrase, not a product I know of. Change it in `flow.ts` `renderTitle`.
-2. **The turntable is the lens circling a still fighter**, not a platform
-   turning him. A turning `FighterState` makes the rig's feet shuffle; the
-   orbit keeps the pose clean, and the key light is overhead so he is lit the
-   same all the way round. The room turns behind him.
-3. **Scores are hidden until the results.** The corner card shows punch stats,
-   condition and advice only.
-4. **The corner card holds the sim** for `flowCornerSeconds` (12 s) and then
-   runs the sim's own rest off in one go, so the bell comes when the card
-   goes. Reason: 5 s is too short to read a card and the sim's default was not
-   mine to change.
-5. **The replay holds the sim.** It starts after the live slow-motion fall,
-   once the referee reaches `flowReplayAtCount` (2), or at once if the fight is
-   over. The count stops while it plays and picks up where it was, so nothing
-   happens that the player cannot see. A button skips it. The results wait for
-   it. No replay in a drill.
-6. **Menu rounds default to 3 × 1:00**; the config default stays 3 × 0:30 so
-   the tests are unchanged. The flow writes `roundCount` / `roundSeconds` at
-   the start of each fight, so the tuning panel's values for those two keys
-   are overridden in a flow fight.
-7. **A drill is one 3-minute round** (`roundCount` 1, `roundSeconds` 180 while
-   it runs, put back on leaving). It restarts when its metric reaches 1, when
-   the round ends, or on R. No referee in a drill: he walked through the pair.
-8. **Ladder order** is the sum of the five ratings, weakest first; rungs 1–2
-   easy, 3–5 medium, 6–7 hard. A draw counts as a loss. A generated fighter
-   can climb it (saved as `gen-<seed>`); he faces the seven strongest of the
-   eight.
-9. **Opponent walks first, the player second.**
-10. **"House lights down" is the crowd only.** The walk pins the crowd's
-    excitement at 0.8 and cheers each man; no light changes, because lighting
-    is outside the files I could edit.
-11. **The HUD is hidden on the results** (the panel carries the numbers) and
-    behind the corner card.
-12. **Guard wear is not on the HUD.** It did not fit the existing bars without
-    a third bar per side. The stamina ceiling did: the thin bar's dark end
-    grows as body work and misses lower it.
-13. **The random slot's seeds are a fixed sequence** (first one is always the
-    same fighter), so captures are repeatable.
-14. **Words during the fight**: the round lower-third at a bell (kept from
-    before), the REPLAY bug, and a small pause button on touch. Nothing about
-    the action.
+Phase 1 (still standing): working title LONG COUNT; the turntable is the lens
+circling a still man; scores hidden until the results by default; the corner
+sheet holds the sim and the rest is run off when it goes; the replay holds
+the sim and starts at count 2; menu rounds default 3 × 1:00; ladder order by
+rating sum, a draw is a loss; opponent walks first; "house lights down" is
+the crowd only; no guard-wear bar on the HUD.
+
+Phase 2:
+
+1. **The title is a spar, not two men standing.** Easy AI on both sides, half
+   the aggression, attack gaps doubled, restarted every 45 s or when someone
+   wins. Silent.
+2. **The wordmark is a stroke alphabet of fourteen letters** on a 4 × 7 grid
+   (`ui/wordmark.ts`), slanted, with a gold rule and the strapline in the
+   same letters. No font is loaded.
+3. **"How he fights" is derived, not written per fighter:** one line of plan
+   per style, one line saying what his guard gives and costs (each claim is a
+   number in `core/styles.ts` `GUARDS`), one line from his range, rhythm and
+   stance width.
+4. **Sheets go on the right; the men go on the left.** Corner, results,
+   fighter and opponent sheets share one place and one build (scrolling body,
+   fixed foot with the buttons). The stare-down's tape is a strip on the
+   bottom edge.
+5. **A drill ends** when its metric reaches 1 ("Done"), when its suggested
+   length runs out ("Time"), when the player goes down, or when the fight is
+   over. It shows that for 4 s and starts again. N / P (or `]` / `[`, Select
+   on a pad, the panel's own buttons) move on or back at any time. The
+   partner going down does not end it.
+6. **A drill's setup runs after a 30-tick settle** (the hands have to get to
+   the guard after the pair is moved). `survive` therefore starts the clock
+   at 0.5 s; the player is rocked (3.0 s) and cornered on the first state.
+7. **On touch the drill strip shows the touch column only**, in one column on
+   the left (the punch diamond has the right), and there is no pause button
+   in a drill (the strip has its own Gym button).
+8. **A button held when the fight resumes is ignored until it is let go**
+   (after a card, a replay, the walk, a pause). All six flags, not only the
+   punches.
+9. **A fast skip into the two-shot puts the men and the referee on their
+   marks** rather than showing them hurry there.
+10. **Replay sound: silence.** A slowed whoosh needs a recipe in SHOW's
+    files.
+11. **Free sparring is tuned** (above). Logged because it is the one place
+    the flow changes a combat number.
+12. **The pause button is always on screen in a fight** (top right; under the
+    plaque on touch), so a mouse or a finger can pause.
 
 ## What the captures show (harsh)
 
-- **`ui_title`** — Reads as a title. The ring is lit and the room is behind
-  it. The ring is empty: no fighters, no referee, nothing moving but the lens
-  and the crowd. The wordmark is plain system-font italic; it is a working
-  title and looks like one.
-- **`ui_select`** (Kofi Adjei-Lund) — He is whole, head to boots, left of
-  centre, lit from above. The long name fits on one line in the panel and on
-  his plate. His boots dip a few pixels behind the plate strip. He is dark
-  skin in black trunks against a dark room: he reads, but less well than a
-  pale fighter. The panel has dead space between the style lines and the
-  buttons at this height. The hint line sits on top of the ring logo and is
-  hard to read.
-- **`ui_select_random`** — The generated fighter was caught from behind (the
-  lens was on that side), so the capture shows a back. That is the orbit doing
-  its job, but it means a quick look at any one fighter can land on his back.
-  Re-roll button present.
-- **`ui_opponent`** — Same layout; the player's own plate is greyed. The
-  difficulty and rounds rows are clear. Pike's forearm covers his face at this
-  angle.
-- **`ui_walk_opponent`** — The strongest frame of the set: the man centred,
-  the crowd on its feet, his card in green bottom left. He has already
-  finished his walk in this capture, so it shows him standing.
-- **`ui_walk_player`** — The opponent, waiting on his mark, fills the right
-  fifth of the frame out of focus-distance. It reads as an over-the-shoulder
-  shot, but it was not designed; from some pairings his shoulder may cover
-  more.
-- **`ui_stare`** — Two-shot with the referee between them. The tape card
-  covers both men from the thigh down. The fighters are at the frame edges and
-  the player is seen from behind his lead shoulder.
-- **`ui_fight`** — The fight as before, HUD unchanged apart from bar colours.
-  The near top rope runs across the bottom of the frame (existing camera).
-- **`ui_replay`** — Low, close, the reverse side, both men in profile, the bug
-  top left. Good angle on a jab. Not checked: a hook thrown from the far side
-  of the puncher, where his own back could cover the contact.
-- **`ui_replay_late`** — Taken just after the replay ended: the live count
-  (COUNT 4). The cut back is correct. This frame is the existing knockdown
-  shot, and two thick ropes cross it, one straight through the standing man's
-  head. That is the old shot's problem, made obvious by cutting to it from a
-  clean one.
-- **`ui_pause`** — Clear. The scene dims behind it.
-- **`ui_corner`** — Legible, aligned, the long name fits. Each man's bars are
-  in his colour, damage in red. Two faults: the card covers the middle of the
-  ring, so the two men standing in their corners are barely visible behind it
-  and the "corner beat" is in practice a card over a wide shot; and the four
-  condition labels are small (8.5 px caps).
-- **`ui_results`** — Winner, method, cards and stats all readable; the
-  referee's raised arm shows above the panel. The panel hides both men below
-  the chest. The scene behind is the fight camera, ropes across it.
-- **`ui_ladder`** — Next opponent on the turntable, seven numbered plates
-  along the bottom, record in the header. The header is one long line of small
-  gold caps and easy to miss. Beaten rungs are meant to be struck through and
-  dimmed; `flow_check` asserts the class is set, but no capture shows one, so
-  that look is unseen.
-- **`ui_gym`** — One drill, so the sheet is mostly empty. It will hold seven.
-- **`ui_drill`** — The panel top left is small and out of the way. The stat
-  line is the only thing that changes.
-- **`ui_controls`** — Dense but ordered. On 720 px the third table ("what each
-  button throws") is below the fold; up / down scroll it. Back is pinned top
-  right.
-- **`ui_champion`** — Card on the right, the fighter on the turntable on the
-  left. Plain.
-- **`ui_phone_title`** — Works. The menu sits over the ring.
-- **`ui_phone_select`** — He fits above the sheet, boots just cut by it. Only
-  three plates show at once; the strip scrolls and follows the highlight. The
-  style lines are below the fold of the sheet and need a scroll.
-- **`ui_phoneland_select`** — Tight. The panel shows name, numbers and bars;
-  the style text needs a scroll. Plate names are truncated ("COUNTER-P…").
-- The debug frame-time overlay (`debugFps`, on by default) sits top left over
-  every menu. It was switched off for these captures.
+Desktop, 1280 × 720, high tier:
+
+- **`ui_title`** — Two men sparring and a referee in a lit ring; the wordmark
+  is clearly lettering now, heavy and slanted, with a rule. The letters are
+  monoline and a little crude (the G and the C differ only by a spur); it
+  reads as a logo sketch, not a finished mark. The fighters are small in the
+  right half and at some orbit angles a corner post stands in front of them.
+- **`ui_select`** — Whole body from the front, boots clear of the plates, the
+  sheet complete without scrolling (sizes and ratings side by side; the lower
+  third of the sheet is empty at this height). *The capture is taken with the turntable slowed to
+  2°/s*, because a headless frame lasts up to a second and at the real speed
+  he is side-on before the shutter; a player sees him from the front for the
+  first second or two. The sheet is dense: thirteen rows of small caps before
+  the style block.
+- **`ui_select_random`** — Same. The generated man's lines are his style's,
+  so two sluggers read identically below the bars.
+- **`ui_opponent`** — The matchup box is the most useful thing on the sheet
+  and it is three sentences in one paragraph; the numbers do not stand out.
+  At 720 px all three "how to beat him" lines now fit; at 600 px the last
+  needs a scroll.
+- **`ui_walk_opponent` / `ui_walk_player`** — As phase 1. The waiting man's
+  shoulder still fills the right edge of the player's shot.
+- **`ui_stare`** — Both men head to boots above the strip, the referee
+  between them facing the lens. The strip's stat lines are small (11 px).
+- **`ui_fight`** — Unchanged, plus a small pause button top right.
+- **`ui_replay_first`** — The first frame after the cut: nothing visibly
+  mid-pop. A still cannot show a one-frame jump; this is weak evidence.
+- **`ui_replay`** — As phase 1: low, close, reverse side, both in profile.
+- **`ui_replay_after`** — The live fight after the replay; by the time of the
+  capture he was getting up.
+- **`ui_corner`** — The ring and both corners in view on the left (the lens
+  is square on to the diagonal and only sways), the sheet on the right. The two men are small and simply stand; there is still no
+  stool, no corner man, nothing happening in the corner.
+- **`ui_corner_scores`** — `flowShowScores` on: three "Judges" rows between
+  the stats and the bars. They look like more stat rows; a reader has to find
+  them.
+- **`ui_results`** — The pair and the raised arm on the left, clear of the
+  sheet; winner, cards, round by round, totals and buttons all on screen at
+  720 px. It is a wall of numbers: eleven rows of totals in 12 px. The near
+  ropes cross the men's legs (the shot is the fight camera moved in).
+- **`ui_ladder` / `ui_ladder_progress`** — Header is a name and a record you
+  can read from across a room. Beaten rungs are dimmed, struck through and
+  say BEATEN.
+- **`ui_gym`** — Eight drills, each with its length and what it trains, all
+  on screen.
+- **`ui_controls`** — All three tables on one screen. The moves column wraps
+  to two and three lines; it is the densest thing in the game.
+- **`ui_champion`** — As phase 1. Plain.
+
+The gym, each drill played by its scripted player (tier the machine picks):
+
+- **`ui_drill_jab-and-move`** — The strip sits above both heads. "8 jabs
+  landed · 0 taken", bar two-thirds. Clear.
+- **`ui_drill_cut-off`** — Caught at "Done … again in 3": the bot walked him
+  to the ropes in four seconds. The drill may be too easy to finish to teach
+  anything; that is SIM's metric (on the ropes with you within 1.1 m = done).
+- **`ui_drill_get-inside`** — "5 landed inside · inside now". The taller
+  partner is visibly taller.
+- **`ui_drill_slip-timing`** — "3 slipped · 0 taken". The "Roll under" row is
+  the longest in any strip and still fits.
+- **`ui_drill_slip-counter`** — "2 counters landed · 2 slipped". The third
+  control row ("Which hand — the side you slipped to") says the same thing
+  three times across the columns.
+- **`ui_drill_body-work`** — The partner is on the canvas being counted over
+  after three body shots; the drill goes on, but this is what a player will
+  see most of in this drill.
+- **`ui_drill_survive_start`** — First frames: player in the corner, health
+  bar already half gone, the other man on him. The red hurt edge is on.
+- **`ui_drill_survive`** — Mid-drill, clock at 7 s, out of the corner.
+- **`ui_drill_free-sparring`** — Eleven clean punches in and the partner is
+  still on his feet (before the bag tune he was down after six). He has been
+  driven back to the ropes: nothing walks him back to the middle.
+- In every drill capture the HUD plaque still shows a round clock ("2:55
+  ROUND 1 OF 1") that means nothing in a drill and disagrees with the drill's
+  own clock.
+
+Phone:
+
+- **`ui_phone_title`** — Works; the spar is small behind the menu.
+- **`ui_phone_select`** — He stands above the sheet, boots just cut by it.
+  Name, sizes, ratings, style name, guard and range are on screen; the three
+  lines start at the fold and need a scroll.
+- **`ui_phone_drill`** — The HUD, then the drill strip (touch controls only),
+  take the top third; the punch diamond covers both men from the knee down.
+  It is usable and crowded. The HUD's names run into the clock plaque at this
+  width (the HUD's own problem, older than this work).
+- **`ui_phoneland_title`** — Works.
+- **`ui_phoneland_select`** — The sheet shows everything down to the second
+  style line; the third needs a scroll. Plates are surnames only and fit.
+- **`ui_phoneland_drill`** — The strip is one column on the left so the
+  diamond is clear, but it sits right over the player's own fighter: from the
+  waist up he is behind the panel. On a phone on its side a drill is the worst
+  screen in the set.
 
 ## Not done / below standard
 
-1. **Difficulty does nothing yet** (see the adapter table). The opponent
-   screen and the ladder offer it; the AI ignores it until `styleFor` lands.
-2. **One drill.** The seven the brief names are SIM's; the shell lists
-   whatever `ai/drills.ts` exports.
-3. **No stool, no sitting, no corner men** in the rest. Two men stand in
-   opposite diagonal corners behind a card. The corners used are not matched
-   to the ring's red and blue dressing.
-4. **The ring walk is short and has no entrance**, and the lights do not
-   change. The referee can still be walking to his place when the two-shot
-   starts if the walk is skipped quickly.
-5. **Replay cuts are hard on the rig's springs.** Cloth, hair and the foot
-   solver jump for a frame or two at each cut. There is no sound during the
-   replay. The KO / TKO path (replay, then results) is built but only the
-   count path has a check.
-6. **The replay interrupts the count** at 2. If that is wrong in the hand, the
-   knob is `flowReplayAtCount`, or `flowReplayOn`.
-7. **Skipping with a punch button throws that punch** when the fight resumes
-   (the sim sees the held button as a fresh press). Same for Space and block.
-8. **Pause does not silence the crowd bed** (audio is not mine).
-9. **Gamepad menus and all pointer input are unverified** (above).
-10. **The scoreboard text is fed** (`ROUND n`, clock) but the board is above
-    every fight frame, so it has not been seen.
-11. **fps**: not measured on a real GPU. The menus add no draw calls; the
-    turntable draws one fighter instead of two. Headless software GL runs the
-    high tier at 1–2 fps at 1280 × 720, which says nothing about a real
-    machine.
-12. **`flow_look.mjs` prints a "not a test by convention" warning** from the
-    runner; the list that silences it is in `scripts/run_tests.mjs`, which is
-    not mine.
-13. **Results stats are counts only**: no accuracy percentage, no per-round
-    breakdown, no punch-family split by grade.
-14. **Phone on its side** is cramped on the select screens (above).
+1. **No stool, no corner men, no sitting** in the rest. The corners used are
+   the ring's diagonal, not matched to its red and blue dressing.
+2. **The ring walk is short, has no entrance, and the lights do not change.**
+3. **The wordmark is a first pass.** Monoline, fourteen glyphs, no kerning.
+4. **Replay**: silent; one-frame pops at the cuts cannot be ruled out from
+   stills; the replay still interrupts the count at 2.
+5. **The stoppage fall is a presentation patch** over a sim gap (above).
+6. **The drill HUD shows a meaningless round clock.**
+7. **Drill captures are low-tier**; the look of the gym on the high tier is
+   the same scene the fight captures show, but it was not captured.
+8. **A real gamepad and a real finger have not touched it.** The stub proves
+   the code paths, not the feel (stick thresholds, repeat rate: there is no
+   auto-repeat on a held d-pad).
+9. **The select sheet is dense**, and on a phone (either way up) its style
+   lines still need a scroll. **A drill on a phone on its side** hides the
+   player's fighter behind the strip.
+10. **Results**: no per-round split by punch type; the numbers are counts and
+    one percentage.
+11. **The scoreboard text is fed** but has still not been seen in a frame of
+    mine.
+12. **fps**: not measured on a real GPU. The title now steps a second sim and
+    two AIs every tick and draws two fighters and a referee, which the empty
+    title did not.
+13. **Suite time.** The full suite is now about ten minutes of wall time
+    (603 s; 44/44). My four checks are the slowest things in it under
+    parallel load: `flow` 511 s, `flow_input` 536 s (three page boots), `gym`
+    388 s, `replay` 96 s. Alone each takes 1.5–4 minutes. They wait on state,
+    not time, so they are slow rather than flaky; splitting `flow_input` into
+    three scripts would let the runner spread it.

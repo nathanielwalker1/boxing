@@ -14,10 +14,10 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 | B — bodies and variance (rig, roster, generator) | merged 2026-11-11 (`docs/OVERHAUL_RIG.md`, `docs/overhaul/lookbook_after.png`); weak spots listed below |
 | Reads: the new fight state drawn on the new bodies | first pass merged 2026-11-11 (41/41 green); about a third wired but never filmed — RIG phase 3 is filming and fixing each |
 | C — styles, the four unread ratings, AI difficulty, drill opponents | merged 2026-11-11, 40/40 green; not yet connected to the menus (UI workstream) or the rig's stance (RIG phase 2) |
-| Balance on the roster of eight, punch heights, the loaded counter, fight length | in progress (SIM workstream, phase 3) |
+| Balance on the roster of eight, punch heights, the loaded counter, fight length | phase 3 merged 2026-11-11 (heights, counter retune, fight length, three difficulty matrices); balance still breaks the brief in three places — phase 4 running |
 | D — arena, lighting, haze, crowd, post, audio | merged 2026-11-11 (see `docs/OVERHAUL_SHOW.md`); audio unheard, polish list below |
 | D — title, select, cards, ring walk, replay, ladder, gym, controls card | first pass merged 2026-11-11 and connected to styles, difficulty and the seven drills; polish and input coverage in progress (UI phase 2) |
-| Sound for the new events; arena polish | in progress (SHOW phase 2) |
+| Sound for the new events; arena polish | merged 2026-11-11 (`docs/OVERHAUL_SHOW.md` phase 2); audio rendered and measured, still unheard |
 
 Workstream logs (each agent keeps its own, merged into this file at integration):
 `docs/OVERHAUL_SIM.md`, `docs/OVERHAUL_RIG.md`, `docs/OVERHAUL_SHOW.md`.
@@ -266,6 +266,59 @@ size in the after-lookbook cells:
   Phase 3 is on these.
 - In a scripted probe one flush loaded counter floors a fresh fighter every
   time. Being retuned so a fresh man is badly rocked and a worn one goes down.
+
+**Balance on the real roster (SIM phase 3, merged)** — `docs/OVERHAUL_SIM.md`
+"Phase 3". Each style fought on its own roster body, 20 fights a cell on
+medium, win % for the bot ("AI" = the AI's share against the three real plans):
+
+  | Bot | pressure | outboxer | counter | swarmer | slugger | avg |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | jab-and-move | 0 | 0 | 100 | 65 | 0 | 33 |
+  | inside fighter | 75 | 100 | 90 | 65 | 80 | 82 |
+  | counter puncher | 65 | 0 | 100 | 0 | 95 | 52 |
+  | turtle | 0 | 0 | 0 | 0 | 0 | 0 |
+  | masher | 5 | 0 | 0 | 20 | 15 | 8 |
+  | AI | 43 | 67 | 3 | 50 | 42 | |
+
+  Easy averages 84% for the real plans, hard 45% (10 fights a cell).
+- Breaks the brief: **stick-and-move is not a complete way to win** (0 of 60
+  against pressure, outboxer and slugger); **the counter style cannot fight**
+  (3%); **the tall outboxer cannot keep a man off him** (0 of 20 against the
+  inside fighter). The inside fighter wins 82% overall. Phase 4 is on these.
+- About 3 knockdowns a fight on average — too many for a Fight Night-style
+  game; being brought down in phase 4.
+- Met: one flush loaded counter now rocks a fresh fighter (2.6 s) and floors a
+  worn one, a weak chin or anyone hit by a heavy puncher; a second clean shot
+  while rocked finishes. Punches aim at the real head and body of a 1.63 m or
+  1.98 m opponent (`heights_test`, 56 pairs × 7 punches; one known limit: an
+  uppercut thrown down at the 1.63 m man lands on his chest). Fights reaching
+  the last round 57% → 77%; stopped in round 1 26% → 10%.
+- New rules a player will notice: a jab is capped in power; the 112 kg man
+  walks through jabs; a rocked man cannot be finished by the rest of the same
+  combination; a man gets up with half a bar and some wind.
+
+**Sound for the new events and arena polish (SHOW phase 2, merged)**
+- Every new event has a sound (grades, combination build, variants, body
+  shots with an exhale, the liver thud, the delayed buckle, guard wear and
+  break, slips by kind, burst, pivot, push-off, clinch, the get-up, footfalls,
+  rope creak) and the crowd reacts to them. Nobody has heard any of it.
+- It was rendered to WAV and measured (`scripts/audio_render.mjs`, table in
+  `docs/OVERHAUL_SHOW.md`). The numbers caught real faults, now fixed: the
+  slip whoosh was the loudest sound in the game; the crowd bed was as loud as
+  a clean cross at full excitement; most crowd reactions were inaudible under
+  the bed; the worst overlap clipped. Flush is now louder and longer than
+  clean than glancing in every class; a flush counter hook is the heaviest
+  thing in the mix and is held to −1 dBFS by a soft clipper — whether that
+  reads as heavy or as distortion needs ears.
+- Arena: tunnel mouths instead of orange rectangles; warm and cool crowd; the
+  near corner post dissolves near the lens; the scoreboard shows round and
+  clock; a fighters' entrance. Still wrong: the lower bowl is brighter, so a
+  dark-skinned fighter separates from it less in greyscale; post dither shows
+  as speckle from the low camera; the white rope is faintly pink; the near
+  ropes still cross the frame at the diagonals; ringside figures are simple.
+- `flow_check` times out in the full parallel run (a wall-clock wait for a
+  round to end on software GL) and passes alone; being made load-proof by the
+  UI pass.
 
 **Arena and audio (SHOW, merged)** — full list in `docs/OVERHAUL_SHOW.md`.
 - Every audio level and recipe (crowd bed, reactions, the three impact
