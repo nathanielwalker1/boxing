@@ -74,13 +74,13 @@ console.log('\n=== 3. Fatigue ===');
   const many = run(fresh(cfg, 2.0, 5), 600, i => [inp({ jab: i % 30 === 0 }), NONE]).s.fighters[0];
   check(`twenty missed jabs wear the ceiling to ${many.staminaCap.toFixed(2)} — the round has an arc`, near(many.staminaCap, 1 - 20 * cfg.whiffCapLoss, 1e-6));
   // A jab never puts a man down by itself; a tired man's punches are arm punches.
-  // (0.02 of the bar left, was 0.04: at healthDamagePerImpulse 0.00015 — phase 4 — a jab takes 0.029.)
-  const nearly = c => { const s = fresh(c, MID, 20); s.fighters[1].health = 0.02; return run(s, 20, i => [inp({ jab: i === 0 }), NONE], c); };
+  // (0.012 of the bar left, was 0.04: at healthDamagePerImpulse 0.0001 — phase 4 — a jab takes 0.0195.)
+  const nearly = c => { const s = fresh(c, MID, 20); s.fighters[1].health = 0.012; return run(s, 20, i => [inp({ jab: i === 0 }), NONE], c); };
   const j = nearly(quiet), j0 = nearly({ ...quiet, jabHealthFloor: 0 });
-  check('a jab cannot take the bar under jabHealthFloor (or below where it already is): no knockdown', landOf(j.evs) && of(j.evs, 'knockdown').length === 0 && near(j.s.fighters[1].health, 0.02, 1e-9));
+  check('a jab cannot take the bar under jabHealthFloor (or below where it already is): no knockdown', landOf(j.evs) && of(j.evs, 'knockdown').length === 0 && near(j.s.fighters[1].health, 0.012, 1e-9));
   check('…jabHealthFloor 0: it can', of(j0.evs, 'knockdown').length === 1);
   // Phase 4: nor does any shot under knockdownMinImpulse. A weak cross on the same sliver of health; then a real hook.
-  const sliver = (c, press, extra = {}) => { const s = fresh(c, press === 'hook' ? 0.72 : MID, 20); s.fighters[1].health = 0.02; return run(s, 30, i => [inp({ [press]: i === 0, ...(i === 0 ? extra : {}) }), NONE], c); };
+  const sliver = (c, press, extra = {}) => { const s = fresh(c, press === 'hook' ? 0.72 : MID, 20); s.fighters[1].health = 0.012; return run(s, 30, i => [inp({ [press]: i === 0, ...(i === 0 ? extra : {}) }), NONE], c); };
   const weak = { ...quiet, crossImpulseMult: quiet.crossImpulseMult * 0.6 };
   const wk = sliver(weak, 'cross'), wkOff = sliver({ ...weak, knockdownMinImpulse: 0 }, 'cross'), hk = sliver(quiet, 'hook', { move: { x: -1, y: 0 } });
   const magOf = r => { const e = landOf(r.evs); return e ? Math.hypot(e.impulse.x, e.impulse.z) : 0; };

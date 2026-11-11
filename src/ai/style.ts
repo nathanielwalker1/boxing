@@ -322,8 +322,8 @@ export const DIFFICULTY: readonly Difficulty[] = [
   // matrix: easy 57%, medium 57%, hard 54% for the legitimate bots. What decides a fight is how often the AI throws
   // when it could, so that is what difficulty now turns: hesitate, and the answers it gives off its clock.)
   { id: 'easy', reaction: 1.5, defence: 0.5, counter: 0.4, tempo: 1.8, combo: 0.5, mistake: 0.35, offence: 0.35, hesitate: 0.65 },
-  { id: 'medium', reaction: 1.15, defence: 0.85, counter: 0.8, tempo: 1.25, combo: 0.9, mistake: 0.12, offence: 0.8, hesitate: 0.2 },
-  { id: 'hard', reaction: 0.8, defence: 1.25, counter: 1.3, tempo: 0.65, combo: 1.3, mistake: 0, offence: 1.3, hesitate: 0 },
+  { id: 'medium', reaction: 1.2, defence: 0.8, counter: 0.7, tempo: 1.35, combo: 0.85, mistake: 0.18, offence: 0.7, hesitate: 0.3 },
+  { id: 'hard', reaction: 0.85, defence: 1.15, counter: 1.15, tempo: 0.8, combo: 1.2, mistake: 0, offence: 1.2, hesitate: 0 },
 ];
 
 /** A style with a difficulty applied. */
