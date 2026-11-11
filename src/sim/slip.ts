@@ -137,8 +137,9 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
       // a BURST, and it is spent (never a second flick). The confirm is what
       // lets "slip left, lead hook" (stick left again + the button a tick or
       // two apart) be a hook and not a hop.
-      if (f.tap.dir === p.dir && f.tap.dir !== 0 && !p.hold && p.t >= cfg.burstConfirm) {
-        if (startBurst(f, side, p.dir, cfg, events)) p.hold = true;
+      const tapped = f.tap.dir;
+      if (tapped !== 0 && tapped === p.dir && !p.hold && p.t >= cfg.burstConfirm) {
+        if (startBurst(f, side, tapped, cfg, events)) p.hold = true;
         f.tap = { dir: 0, t: 0 };
       }
     } else {

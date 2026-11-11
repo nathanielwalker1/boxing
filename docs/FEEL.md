@@ -364,9 +364,128 @@ pull, dip), not the drawing.
   rocks too often, raise `stunBase` first; if the window slow-mo feels like
   a cheat, `readWindowSlowMo` toward 1.
 
+## Overhaul feel specs (2026-11-11, SIM workstream)
+
+Numbers per moment, measured from the sim with `node scripts/_debug.mjs specs`
+(two fighters of the same height, 0.8 m unless stated, target standing with
+its hands at rest). "Before" is the same probe with every overhaul toggle off
+(`node scripts/_debug.mjs grades off` for the outcome grid). None of this has
+been feel-tested; every system has an `…On` toggle. What each system is, its
+inputs and its state fields: `docs/OVERHAUL_SIM.md`.
+
+**Press to contact, recovery, feet — per variant** (tell = press → hit test;
+total = press → the hand is home; feet = walking speed while it is in flight)
+
+| Variant (how) | Tell ms | Total ms | Power | Feet | Before |
+| --- | --- | --- | --- | --- | --- |
+| jab | 110 | 250 | 0.80 | 0.85 | 110 / 250 / 0.80, feet 1.0 for every punch |
+| step jab (stick fwd) | 110 | 267 | 0.89 (the lunge) | 1.0 | same punch, unnamed |
+| retreat jab (stick back) | 104 | 233 | 0.57 | 1.0, hops back 12 cm | a jab |
+| body jab (level) | 113 | 250 | 0.68, on the body | 0.7 | did not exist |
+| cross | 200 | 417 | 1.12 | 0.35 | 200 / 417 / 1.12 |
+| body cross (level) | 208 | 417 | 1.06, body | 0.3 | — |
+| overhand (level + stick fwd) | 238 | 517 | 1.43 | 0.3 | — |
+| hook | 250 | 500 | 1.60 | 0.3 | 250 / 500 / 1.60 |
+| check hook (stick back) | 231 | 400 | 0.81 standing target; it is for a man walking in | 0.9, gives 10 cm | a hook |
+| shovel hook (inside range) | 212 | 417 | 1.44 | 0.3 | a hook: 250 / 1.60 |
+| body hook (level) | 250 | 500 | 1.60, body; lead hand = liver | 0.3 | — |
+| rising hook (just out of the crouch) | 222 | 500 | 1.92 | 0.3 | — |
+| uppercut | 300 | 550 | 1.66 | 0.25 | 300 / 550 / 1.66 |
+| inside uppercut (inside range) | 252 | 467 | 1.58 | 0.25 | an uppercut |
+| rising uppercut (level) | 276 | 567 | 1.99 | 0.2 | — |
+
+Tells never move by luck. Speed-ups that stack (a loaded counter × a compact
+variant) cannot take a lone heavy punch under `tellMinHeavy` 170 ms; the 2 of
+a 1-2 is exempt (140 ms — the combination is its own tell). A tired punch is
+up to `tiredPunchSlow` 1.25× slower in every phase and loses up to
+`tiredPowerLoss` 0.5 of its impulse.
+
+**Hit grades** (`sim/grade.ts`; the grade is on `punchLand`)
+
+| Grade | When (measured case) | Impulse | Hit-stop | Frozen-frame head displacement | Before |
+| --- | --- | --- | --- | --- | --- |
+| glancing | jab at 1.00 m (end of the arm) | × 0.6 → 117 N·s | 17 ms (1 tick) | 4.2 cm | 195 N·s, 48 ms, 7.0 cm |
+| glancing | cross at 1.03 m | × 0.6 → 163 N·s | 17 ms | 10.7 cm | 272, 67 ms, 17.8 cm |
+| clean | jab at 0.80 m | × 1 → 195 N·s | 48 ms (`hitStopBase` × power) | 7.0 cm | identical |
+| clean | cross at 0.80 m | × 1 → 272 N·s | 67 ms | 17.8 cm | identical |
+| clean | hook at 0.74 m | × 1 → 391 N·s | 96 ms | 13.8 cm | identical |
+| flush | cross into the other man's hook (grade_test) | × 1.15 on top of the exposure bonus | 130 ms (`hitStopFlush`) | not probed; impulse-proportional up to the neck clamp (`reactionMaxNeck` 16 cm + torso) | clean, `hitStopBase` × power |
+| flush counter | cross inside a slip's window (counter_test) | × 1.9 × 1.15 = × 2.18 (loaded hand × 1.2 more = × 2.62) | 130 + 50 = 180 ms | as above | × 1.9, ~150 ms |
+
+A clean land is exactly what a land was before grades. Glancing never stacks
+on the smother or roll-with loss (the larger loss wins). Also glancing: a
+straight on a ducked head, a head mostly slipped, a target going away at
+speed, a gassed puncher. Flush needs quality AND an open or closing target:
+mid-punch, in a punish window, hurt, taken from an angle (20–50° off his
+line), walking onto it.
+
+**Combination build**: each clean / flush land within `comboWindow` 0.6 s of
+the last: 2nd × 1.10, 3rd × 1.20, capped × 1.30 (grade_test: on / off ratio
+1.10 and 1.20). Measured: in open ring the 3 of a jab-cross-hook WHIFFS on a
+free target at 0.74 m (the first two knock him out of reach); on the ropes
+it lands as punch 3 and rocks. Before the overhaul the second punch of a 1-1
+or the 3 of a 1-2-3 was "blocked" by the target's RESTING guard pinned on
+his face; that is now a land through the hands at 70% (`guardPinnedCover`).
+
+**Blocking** (a held block, fresh guard)
+
+| Punch | Block stun | Guard meter after | Health chip | Before |
+| --- | --- | --- | --- | --- |
+| jab | 80 ms | 0.84 | 0 (light shot) | no stun, no meter, 25% of the impulse as damage |
+| cross | 112 ms | 0.78 | 0.020 | same |
+| hook (square on) | 160 ms | 0.69 | 0.029 | same |
+| uppercut | 158 ms | 0.69 | SPLITS the guard: lands at 66% (power 1.04), flagged `through` | blocked like anything else |
+| body shot | as its punch | as its punch | gets UNDER: lands at 66% | — |
+
+The guard breaks after about three hooks on it without a rest (`guardBreak`: 1.1 s
+with the hands down, exposure 0.8); it recovers at 0.2 /s after 1 s alone. A
+hook from 45° off the blocker's line comes round it (guard_test). A perfect
+block pays none of this and the deflected arm takes 1.5× as long to come home.
+
+**Slips**: window 250 ms (rise 50, return 120), unchanged. Chained slip:
+90 ms side to side, from 80 ms into the last one, three deep. Roll (level +
+flick): 400 ms, head down `levelDrop` 26 cm + `rollDip` 14 cm at the bottom.
+Counter window 700 ms, unchanged. Loaded: 900 ms from the flick, the hand on
+that side winds up × 0.65 (floored at 170 ms) and hits × 1.2. Slipping INTO
+a punch: × 1.3 and never glancing (slipx_test: 2.16× what the clipped
+shoulder shot was).
+
+**Footing**: flat-footed after 1.2 s still, fully at 2.0 s (first step 45%
+push-off, takes 10% more); 0.7 s of footwork clears it. Burst: 45 cm
+forward / 40 back / 38 sideways in ~0.16 s, 0.18 s landing, 0.45 s cooldown,
+0.015 stamina. Pivot: 65° round the planted lead foot in 0.2 s (hips travel
+~0.55 m); the opponent turns at 12% for 0.45 s — measured ~40° off his line
+at the peak (it was 20° at `pivotTurnScale` 0.3, i.e. no angle). On the
+ropes: +15% impulse taken, no rolling with it, a stumble rebounds at 45%.
+
+**Danger**: winded by a clean body shot ≥ 520 N·s fresh (234 at full body
+wear, ~10 body hooks): 1.4 s folded, feet 45%, hands down 20 cm, no punch
+0.6 s. Liver (lead body hook ≥ 330 N·s): nothing for 0.5 s, then 2 s folded
+and 25% of the wind gone; ≥ 1.8× the body threshold it is a knockdown.
+Finish bar 0.65 T (was 0.5), flash 1.85 T (was 1.6; × 0.95 for a counter) —
+rescaled because lands on an exposed man now carry the flush × 1.15.
+
+**If it feels wrong, first knob**: grades too stingy → `gradeGlanceBelow`;
+flush too rare → `gradeFlushAt`; blocking too costly → `guardWearPerImpulse`,
+then `blockStunBase`; body pays too fast → `bodyWearFull`; feet too sticky in
+punches → the `…Move` keys; bursts firing by accident → `burstConfirm` /
+`burstTapWindow`; the AI too slippery → `aiSlipShare`, `aiShellTime`.
+
 ## Open
 
-- Per-fighter styles (the roster's `style` field is unread).
+- Overhaul (2026-11-11): everything in "Overhaul feel specs" is sim-side and
+  unfelt. No rig, audio, camera or HUD consumer exists yet for: the grade
+  tiers, variants, level / posture / buckle (the boxes move, so the drawn
+  body follows, but nothing is authored for them), guard meter and break,
+  flat-footed bounce, ropes, pivot / burst / clinch / push-off, winded,
+  get-up phases. A winded fighter currently draws the ROCKED wobble (the rig
+  reads `hurt`, not `hurtKind`).
+- Balance against the scripted bots (docs/OVERHAUL_SIM.md): legitimate plans
+  win 90–100%, the inside fighter by stoppage in ~30 s. The default AI does
+  not defend the inside fight or the jab well enough; that is the style /
+  difficulty pass.
+- Per-fighter styles (the roster's `style` field is unread). The AI now takes
+  a `StyleParams` (src/ai/style.ts); one default instance exists.
 - Follow camera near a corner: a ring post can sit in the foreground as the
   orbit comes round (see `camera-never-shows-outside-the-ring` in memory —
   the overscan decision is still open). A post-avoidance nudge on the
@@ -375,9 +494,9 @@ pull, dip), not the drawing.
   ~25 before the player can start to cover the opponent at the far edge),
   less AI circling, or a longer dolly so the background parallax per degree
   drops.
-- Hit-stop is power-scaled only, no per-punch tiers; no audio / flash tiers
-  on a solid landing, and no read (sound or flash) for a stuff or a counter
-  the AI takes. (The chained-twist snap and the AI's blindness to the hit
+- Hit-stop now has grade tiers in the sim (glancing 17 ms / clean power-
+  scaled / flush 130 ms); still no audio or camera tiers on a solid landing,
+  and no read (sound) for a stuff or a counter the AI takes. (The chained-twist snap and the AI's blindness to the hit
   states were closed 2026-09-22.)
 - At Nate's ~0.85 m play distance a straight's fist stops at the head before
   full stretch (contact hold); the stretch shows at ~1.0 m.
