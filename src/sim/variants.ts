@@ -101,10 +101,27 @@ export function pickVariant(f: FighterState, type: PunchType, moveY: number, cfg
  * A base punch's path, bent into the variant: the peak (and half of it, the
  * wind-up) lowered by the aim drop, the peak pulled in by `reach`, and for a
  * looping punch a waypoint above the straight line. Works in whichever frame
- * the base path is authored in (a yaw never changes `up`).
+ * the base path is authored in (a yaw never changes `up`). `drop` is the
+ * punch's own aim (PunchState.aim, fixed at the press); it defaults to the
+ * variant's nominal drop.
  */
-export function shapePath(path: PunchPath, v: VariantDef, cfg: Config): PunchPath {
-  const drop = v.aimDrop(cfg), arc = v.arc(cfg);
+/**
+ * How far below its lane a punch of this variant is aimed, fixed at the
+ * press. The two punches that answer a low head are thrown at where the head
+ * IS at that moment: the overhand comes down on it (to overhandAimDrop), the
+ * uppercut comes up under it (to uppercutAimDrop). Straights and hooks keep
+ * their lane — that is what ducking is for.
+ */
+export function aimAtPress(v: VariantDef, opp: FighterState, cfg: Config): number {
+  const headDown = Math.max(0, opp.body.headY - opp.headBox.y);
+  if (v.arc(cfg) > 0) return Math.min(v.aimDrop(cfg), headDown);
+  if (v.base === 'uppercut') return Math.min(cfg.uppercutAimDrop, headDown);
+  return v.aimDrop(cfg);
+}
+
+/** (see above) */
+export function shapePath(path: PunchPath, v: VariantDef, cfg: Config, drop: number = v.aimDrop(cfg)): PunchPath {
+  const arc = v.arc(cfg);
   if (drop === 0 && arc === 0 && v.reach === 1) return path;
   const peak = { fwd: path.peak.fwd * v.reach, up: path.peak.up - drop, lat: path.peak.lat * v.reach };
   const cocked = { fwd: path.cocked.fwd, up: path.cocked.up - (v.body ? drop * 0.5 : 0), lat: path.cocked.lat };

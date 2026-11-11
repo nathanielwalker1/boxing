@@ -92,7 +92,7 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     const o = s.fighters[e.side === 0 ? 1 : 0];
     if (v2dist(s.fighters[e.side].pos, o.pos) <= cfg.pivotRange) o.turned = Math.max(o.turned, cfg.pivotTurnLag);
   }
-  for (const side of SIDES) stepActions(s.fighters[side], side, ins[side], cfg, dt, events);
+  for (const side of SIDES) stepActions(s.fighters[side], side, ins[side], cfg, dt, events, s.fighters[side === 0 ? 1 : 0]);
   if (fighting) stepClinch(s, ins, reqs, cfg, dt, events);
   for (const side of SIDES) stepStamina(s.fighters[side], cfg, dt);
   // Footing: level, range and posture, flat-footed, ropes, the angle, fatigue — derived before anything moves.

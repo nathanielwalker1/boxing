@@ -52,7 +52,7 @@ export function restFighterState(spec: FighterSpec, cfg: Config, pos: Vec2, yaw:
     block: false,
     blockT: 0,
     guard: 'rest',
-    punch: { type: null, hand: 'lead', phase: 'idle', t: 0, progress: 0, resolved: false, contact: null, variant: 'jab', tell: 0, timeMult: 1, powerMult: 1, moveScale: 1, loaded: false, feint: false },
+    punch: { type: null, hand: 'lead', phase: 'idle', t: 0, progress: 0, resolved: false, contact: null, variant: 'jab', tell: 0, timeMult: 1, powerMult: 1, moveScale: 1, loaded: false, aim: 0, feint: false },
     slip: { active: false, dir: 0, t: 0, offset: 0, kind: 'slip', from: 0, chain: 0, dip: 0 },
     moveHist: [],
     vuln: 0,

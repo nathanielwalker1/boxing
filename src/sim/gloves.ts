@@ -10,7 +10,7 @@
  */
 import type { Config, FighterState, GloveState, Hand, Side, Vec3 } from '../core';
 import { TAU, closestOnSegment, closestSegSeg, frameOf, localToWorld, sin, sqrt } from '../core';
-import { PUNCHES, blockLocal, guardLocal, punchLocal, whiffPhases, type LocalPose } from './punches';
+import { PUNCHES, blockLocal, guardLocal, punchEnvelope, punchLocal, whiffPhases, type LocalPose } from './punches';
 import { slipBack, slipLateral } from './slip';
 import { setTargetCut, setTouchedBlock } from './state';
 import { stepArms } from './arms';
@@ -31,7 +31,7 @@ const BOB_PHASE_HAND = [0, 1.9];
 const BOB_PHASE_SIDE = [0, 2.6];
 
 /** `guard`: the hand is at rest or blocking (it rides the shoulders through a slip); a punching hand aims from the fighter's frame. */
-function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPose; kMul: number; contact: Vec3 | null; guard: boolean } {
+function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterState): { pose: LocalPose; kMul: number; contact: Vec3 | null; guard: boolean } {
   const p = f.punch;
   if (p.type !== null && p.hand === hand) {
     const def = PUNCHES[p.type];
@@ -44,7 +44,21 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPos
       // contactSolid 0, where it is all that stops the fist floating inside.
       const rt = (p.progress * ph.total - ph.cock - ph.extend) / ph.recover;
       const contact = cfg.contactSolid <= 0 && p.contact && p.phase === 'recover' && rt < ph.hold ? p.contact : null;
-      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg, f.torsoTwist, VARIANTS[p.variant]), kMul, contact, guard: false };
+      const pose = punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg, f.torsoTwist, VARIANTS[p.variant], p.aim);
+      // Aim (overhaul): punch paths are authored at the thrower's own height. The lane is lifted (or lowered) by
+      // punchAimTrack of the difference to the OPPONENT's standing height — head lane to head, body lane to body —
+      // riding the punch's own envelope, so the guard is untouched and the fist arrives on his lane, not mine.
+      // His standing height, never where his head is now: a duck or a slip still takes it away.
+      if (cfg.punchAimTrack > 0) {
+        const v = VARIANTS[p.variant];
+        const raw = v.body
+          ? (other.body.shoulderY + other.body.hipY - f.body.shoulderY - f.body.hipY) / 2
+          : other.body.headY - f.body.headY;
+        // Inside the dead band the difference is the matchup (a slightly taller man's chin sits higher on your fist).
+        const dy = Math.sign(raw) * Math.max(0, Math.abs(raw) - cfg.punchAimDeadband);
+        pose.up += dy * cfg.punchAimTrack * punchEnvelope(p.progress * ph.total, ph);
+      }
+      return { pose, kMul, contact, guard: false };
     }
   }
   if (f.block) return { pose: blockLocal(f.body, hand, f.stance), kMul: 1, contact: null, guard: true };
@@ -129,7 +143,7 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
   const sink = f.body.gloveR * cfg.contactSquash;
   for (let i = 0; i < 2; i++) {
     const hand = HANDS[i]!;
-    const { pose, kMul, contact, guard } = targetLocal(f, hand, cfg);
+    const { pose, kMul, contact, guard } = targetLocal(f, hand, cfg, other);
     const bob = sin(time * TAU * cfg.chainBobHz + BOB_PHASE_HAND[i]! + BOB_PHASE_SIDE[side]!) * cfg.chainBobAmp;
     // The hands ride the body down through a crouch (guard and punch alike).
     // The guard also rides the shoulders sideways through a slip; a punching

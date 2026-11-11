@@ -337,10 +337,10 @@ function uppercutPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): 
  * sits at the peak so the punch is actually on screen, then snaps home in
  * what is left.
  */
-export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: Hand, elapsed: number, ph: PunchPhases, cfg: Config, twist = 0, variant: VariantDef | null = null): LocalPose {
+export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: Hand, elapsed: number, ph: PunchPhases, cfg: Config, twist = 0, variant: VariantDef | null = null, aim?: number): LocalPose {
   const g = guardLocal(body, hand, stance);
   // The variant bends the base path (overhaul): a body shot's peak is lower, an overhand loops, a compact punch is shorter.
-  const path = variant ? shapePath(def.path(body, hand, stance, cfg), variant, cfg) : def.path(body, hand, stance, cfg);
+  const path = variant ? shapePath(def.path(body, hand, stance, cfg), variant, cfg, aim) : def.path(body, hand, stance, cfg);
   // Torso-frame paths are yawed by the CURRENT twist into the fighter frame
   // before mixing with the guard, so the fist rides the turn.
   const cocked = def.torsoFrame ? yawPose(path.cocked, twist) : path.cocked;

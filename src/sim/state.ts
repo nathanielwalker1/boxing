@@ -154,7 +154,7 @@ export function setHealthRegenDelay(f: FighterState, t: number): void { f.moveHi
 
 /** No punch in flight (every punch field at rest). */
 export function idlePunch(hand: Hand): PunchState {
-  return { type: null, hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null, variant: 'jab', tell: 0, timeMult: 1, powerMult: 1, moveScale: 1, loaded: false, feint: false };
+  return { type: null, hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null, variant: 'jab', tell: 0, timeMult: 1, powerMult: 1, moveScale: 1, loaded: false, aim: 0, feint: false };
 }
 /** The head at home. */
 export function idleSlip(): SlipState {

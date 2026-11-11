@@ -19,7 +19,7 @@ import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
 import { applyPunish } from './vulnerability';
 import { applyBodyHurt, applyStun, stunPunchLocked } from './stun';
-import { VARIANTS, pickVariant } from './variants';
+import { VARIANTS, aimAtPress, pickVariant } from './variants';
 import { ESCAPE_AT, addHop } from './footing';
 import { gradeHit } from './grade';
 
@@ -60,7 +60,7 @@ export function canStartPunch(f: FighterState, cfg: Config): boolean {
  * the hand a slip LOADED winds up faster and hits harder; fatigue slows every
  * phase; and a lone heavy punch never beats its tell (tellMinHeavy).
  */
-function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number, moveY: number, cfg: Config, events: SimEvent[]): void {
+function startPunch(f: FighterState, opp: FighterState | null, side: Side, type: PunchType, moveX: number, moveY: number, cfg: Config, events: SimEvent[]): void {
   const def = PUNCHES[type];
   const hand = punchHand(def, moveX);
   const variant = pickVariant(f, type, moveY, cfg);
@@ -86,6 +86,7 @@ function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number,
     ...idlePunch(hand), type, phase: 'cock', variant,
     tell: (ph.cock * cock + ph.extend) * slow, timeMult: slow,
     powerMult: v.power(cfg) * (loaded ? cfg.slipLoadedPower : 1), moveScale: v.move(cfg), loaded,
+    aim: opp ? aimAtPress(v, opp, cfg) : v.aimDrop(cfg),
   };
   if (loaded) { f.loaded = 0; f.loadedT = 0; }
   const fr = frameOf(f.yaw);
@@ -128,7 +129,7 @@ function startPunch(f: FighterState, side: Side, type: PunchType, moveX: number,
  * feintCommit cancels the punch — it rewinds home fast (advancePunch), most
  * of its stamina comes back, and the guard is up the moment the fist is home.
  */
-export function stepActions(f: FighterState, side: Side, input: Readonly<FrameInput>, cfg: Config, dt: number, events: SimEvent[]): void {
+export function stepActions(f: FighterState, side: Side, input: Readonly<FrameInput>, cfg: Config, dt: number, events: SimEvent[], opp: FighterState | null = null): void {
   const mask = punchMask(input);
   const pressed = fastestOf(mask & ~prevPunchMask(f));
   setPrevPunchMask(f, mask);
@@ -160,14 +161,14 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
 
   const open = canStartPunch(f, cfg);
   if (pressed !== null) {
-    if (open) { startPunch(f, side, pressed, input.move.x, input.move.y, cfg, events); buf.mask = 0; buf.mask2 = 0; buf.t = 0; }
+    if (open) { startPunch(f, opp, side, pressed, input.move.x, input.move.y, cfg, events); buf.mask = 0; buf.mask2 = 0; buf.t = 0; }
     else if (cfg.punchBuffer > 0) {
       if (buf.mask && cfg.punchBufferDepth >= 2) { buf.mask2 = maskOf(pressed); buf.x2 = input.move.x; }
       else { buf.mask = maskOf(pressed); buf.t = cfg.punchBuffer; buf.x = input.move.x; buf.mask2 = 0; }
     }
   } else if (open && buf.mask) {
     // A buffered press keeps the hand it chose; the step-in reads the stick as it fires.
-    startPunch(f, side, fastestOf(buf.mask)!, buf.x, input.move.y, cfg, events);
+    startPunch(f, opp, side, fastestOf(buf.mask)!, buf.x, input.move.y, cfg, events);
     // The queued press moves up with a fresh life.
     buf.mask = buf.mask2; buf.x = buf.x2; buf.mask2 = 0; buf.t = buf.mask ? cfg.punchBuffer : 0;
   }
@@ -550,11 +551,13 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const impulse: Vec3 = { x: dirX * mag, y: 0, z: dirZ * mag };
   const at: Vec3 = { x: g.pos.x, y: g.pos.y, z: g.pos.z };
 
-  // The liver: a hook to the body that lands on the target's right side.
+  // The liver: a hook to the body thrown with the hand that is on the target's RIGHT side (facing each other, the
+  // attacker's left — an orthodox lead hook, a southpaw's rear). The hand, not the contact point: in this sim a hook
+  // finishes across the front of the body, past the centre line.
   let liver = false;
   if (!blocked && part === 'body' && type === 'hook') {
-    const dfr = frameOf(d.yaw);
-    liver = (at.x - d.pos.x) * dfr.right.x + (at.z - d.pos.z) * dfr.right.z >= cfg.liverSide;
+    const dfr = frameOf(d.yaw), s = handLateralSign(a.punch.hand, a.stance);
+    liver = (afr.right.x * dfr.right.x + afr.right.z * dfr.right.z) * s > 0;
   }
 
   // What the guard paid (overhaul): a shot on a HELD guard wears it and holds

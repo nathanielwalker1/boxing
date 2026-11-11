@@ -134,6 +134,8 @@ export interface PunchState {
   moveScale: number;
   /** Thrown with the hand a slip had LOADED (the natural counter from that side). */
   loaded: boolean;
+  /** How far below its lane the punch is aimed, m, fixed at the press: a body shot's drop; for an overhand, how far the target's head was down at that moment (it is thrown at where the head IS). */
+  aim: number;
   /** Cancelled before the commit point (a feint): rewinding home, never resolves. */
   feint: boolean;
 }
