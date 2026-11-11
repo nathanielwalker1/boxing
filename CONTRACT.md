@@ -467,3 +467,34 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   the level; punches thrown under it go to the body or come up from underneath).
   Shift / left trigger / the LOW touch button. `window.__look(id, kind, yawDeg)` and
   `window.__roster()` test hooks (lookbook).
+- 2026-11-11 — **The fighting, extended** (SIM workstream; the full one-line-per-field
+  list is `docs/OVERHAUL_SIM.md` "Interface changes"; every system has a default-on
+  config toggle and a Node test). **Input combinations** (a flick = a stick push
+  released inside `slipFlickMax`): flick twice the same way = burst (hop); `level` +
+  lateral flick = roll; `block` + lateral flick = pivot off the lead foot; `block` +
+  forward flick = push-off; `block` + `level` held 0.2 s inside 0.75 m = clinch;
+  `block` in the first 60% of a wind-up = feint; a lateral flick the other way while
+  slipped = chained slip (3 deep). **Punch variants** (`PunchState.variant`, on
+  `punchStart` / `punchLand`): the four buttons pick from 15 by level, range, the stick
+  and whether the fighter has just come up — step / retreat / body jab, body cross,
+  overhand, check / shovel / body / rising hook, inside / rising uppercut.
+  **Grades**: `punchLand.grade` 'glancing' | 'clean' | 'flush' scales impulse, damage
+  and hit-stop; `combo` counts a clean combination and builds. **Guard**: `guardHp`
+  wears and breaks (`guardBreak`), block stun, chip on heavy shots, shots that split
+  or go round a guard (`through`). **Slips**: a slip loads that side's hand
+  (`loaded`), slipping into a punch is `wrongWay`. **Body**: `damage {head, body,
+  liver}` ledgers, `hurtKind` head | body, `buckle`, a liver fuse (`liverShot`,
+  `bodyHurt`), `knockdown.cause` gains 'body'. **Footing**: `flat`, `ropes`,
+  `cornered`, `angle`, `pivot`, `burstT`; `escape` when a pivot / slip / roll gets off
+  the ropes. **Fatigue**: `fatigue`, `punchSlow`, `guardDroop`, `staminaCap`.
+  **Get-up** is a process (`getUp.phase` down → stir → knee → slump → rise,
+  `getUpPhase` event). `range` / `posture` / `level` are real height. New events:
+  `feint`, `burst`, `pivot`, `escape`, `pushOff`, `clinch`, `clinchBreak`,
+  `guardBreak`, `liverShot`, `bodyHurt`, `getUpPhase`. `createAi(side, seed, cfg,
+  style)` takes `StyleParams` (`src/ai/style.ts`). Retuned: `stunFinishFrac` 0.65,
+  `stunFlashFrac` 1.85. A jab cannot empty the health bar (`jabHealthFloor`).
+- 2026-11-11 — **The show** (SHOW workstream, `docs/OVERHAUL_SHOW.md`): a quality tier
+  (`qualityTier` 0 auto / 1 low / 2 high; software GL counts as low), post on by
+  default, `Stage.react` / `setExcitement` / `setBoardText`, a crowd mood driven from
+  sim events inside `Stage.handleEvents`, config group `show`, audio split into
+  `src/ui/audio/`. The suite no longer fits §13's 60 s (about 2–4 min).

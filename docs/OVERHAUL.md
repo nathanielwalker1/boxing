@@ -10,9 +10,9 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 | --- | --- |
 | Baseline (lookbook + 3 filmstrips, `docs/overhaul/*_before.png`) | done |
 | Core: `FrameInput.level` + bindings | done |
-| A — the fighting (sim, AI, tests) | in progress (SIM workstream) |
+| A — the fighting (sim, AI, tests) | sim side merged 2026-11-11, 36/36 green (`docs/OVERHAUL_SIM.md`); nothing new is DRAWN or HEARD yet; AI too easy (phase 2 running) |
 | B — bodies and variance (rig, roster, generator) | in progress (RIG workstream) |
-| C — styles | after A + B integrate |
+| C — styles, the four unread ratings, AI difficulty, drill opponents | in progress (SIM workstream, phase 2) |
 | D — arena, lighting, haze, crowd, post, audio | merged 2026-11-11 (see `docs/OVERHAUL_SHOW.md`); audio unheard, polish list below |
 | D — title, select, cards, ring walk, replay, ladder | after A + B integrate |
 
@@ -153,6 +153,22 @@ Priority if time runs short: A, then B, then C, then D.
 ## Not done / below standard
 
 (Filled in as the run goes.)
+
+**The fighting (SIM, merged)** — full list and the 15 decisions it made are in
+`docs/OVERHAUL_SIM.md`; the new controls table is there too.
+- First bot table (20 seeded fights each, default AI): jab-and-move 20–0,
+  inside fighter 18–2 (17 stoppages, average 32 s), counter puncher 18–2,
+  turtle 0–20, masher 6–14. The masher and turtle lose as asked, but the
+  default AI is far too easy for any competent plan and the masher still wins
+  30%. Phase 2 is fixing this per style.
+- "Inside is earned" is not yet a rule: nothing stops a fighter walking in.
+- In open ring the third punch of a combination usually misses because the
+  first two knock the target out of reach; combinations build on the ropes.
+- The clinch is minimal (both freeze; a punch in flight pops home).
+- Punch lanes ignore height differences under 8 cm (to keep the two pinned
+  fighters' tests); to be re-measured once the roster of eight is in.
+- None of the new state is drawn or heard yet (variants, grades, guard wear,
+  body damage, the get-up struggle). That is step 5 of the plan.
 
 **Arena and audio (SHOW, merged)** — full list in `docs/OVERHAUL_SHOW.md`.
 - Every audio level and recipe (crowd bed, reactions, the three impact
