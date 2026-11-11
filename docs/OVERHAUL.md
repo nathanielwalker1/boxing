@@ -13,7 +13,8 @@ on Nate's behalf, and what is done / not done. Kept current as the work lands.
 | A — the fighting (sim, AI, tests) | sim side merged 2026-11-11, 36/36 green (`docs/OVERHAUL_SIM.md`); nothing new is DRAWN or HEARD yet; AI too easy (phase 2 running) |
 | B — bodies and variance (rig, roster, generator) | merged 2026-11-11 (`docs/OVERHAUL_RIG.md`, `docs/overhaul/lookbook_after.png`); weak spots listed below |
 | Reads: the new fight state drawn on the new bodies | in progress (RIG workstream, phase 2) |
-| C — styles, the four unread ratings, AI difficulty, drill opponents | in progress (SIM workstream, phase 2) |
+| C — styles, the four unread ratings, AI difficulty, drill opponents | merged 2026-11-11, 40/40 green; not yet connected to the menus (UI workstream) or the rig's stance (RIG phase 2) |
+| Balance on the roster of eight, punch heights, the loaded counter, fight length | in progress (SIM workstream, phase 3) |
 | D — arena, lighting, haze, crowd, post, audio | merged 2026-11-11 (see `docs/OVERHAUL_SHOW.md`); audio unheard, polish list below |
 | D — title, select, cards, ring walk, replay, ladder, gym shell, controls card | in progress (UI workstream; log `docs/OVERHAUL_UI.md`) |
 
@@ -200,6 +201,30 @@ size in the after-lookbook cells:
   fighters' tests); to be re-measured once the roster of eight is in.
 - None of the new state is drawn or heard yet (variants, grades, guard wear,
   body damage, the get-up struggle). That is step 5 of the plan.
+
+**Styles, ratings, difficulty (SIM phase 2, merged)** — `docs/OVERHAUL_SIM.md`
+"Phase 2".
+- Style → guard: pressure = high, outboxer = long, counter = shell, swarmer =
+  peek-a-boo, slugger = hands low. The player's fighter gets his style's
+  guard too. All five ratings are read; the neutral rating is 65.
+- Bot × style matrix, medium, 10 fights a cell, win % for the bot:
+
+  | Bot | pressure | outboxer | counter | swarmer | slugger | avg |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | jab-and-move | 20 | 100 | 90 | 30 | 70 | 62 |
+  | inside fighter | 90 | 100 | 100 | 80 | 40 | 82 |
+  | counter puncher | 70 | 70 | 100 | 30 | 100 | 74 |
+  | turtle | 0 | 0 | 0 | 0 | 0 | 0 |
+  | masher | 0 | 10 | 0 | 0 | 0 | 2 |
+
+  Different plans beat the swarmer (inside) and the outboxer (jab-and-move),
+  and the masher and turtle lose. Below standard: the counter style loses
+  90–100% to every real plan; the outboxer and counter lose every fight to the
+  inside fighter; the inside fighter wins 82% overall; cells are ±15 points;
+  all five styles were fought on one body; easy and hard are untested.
+  Phase 3 is on these.
+- In a scripted probe one flush loaded counter floors a fresh fighter every
+  time. Being retuned so a fresh man is badly rocked and a worn one goes down.
 
 **Arena and audio (SHOW, merged)** — full list in `docs/OVERHAUL_SHOW.md`.
 - Every audio level and recipe (crowd bed, reactions, the three impact
