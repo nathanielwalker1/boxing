@@ -37,6 +37,8 @@ declare global {
       place: (dist: number) => void;
       /** Tick-exact input for one side: `inputs[i]` (merged over NULL_INPUT) is fed on the i-th sim tick from now, then the side goes back to its live/AI input (tests). */
       script: (side: Side, inputs: readonly Partial<FrameInput>[]) => void;
+      /** A policy for one side, called on EVERY sim tick with the state (tests: a scripted player that reacts tick-exactly whatever the frame rate). null from it = no opinion this tick; null instead of a function clears it. */
+      drive: (side: Side, fn: ((s: SimState) => Partial<FrameInput> | null) | null) => void;
     };
     /** The side-1 AI's state (tests). Stale while side 1 is overridden or aiEnabled is off. */
     __ai: { state: () => AiState };
@@ -85,16 +87,16 @@ if (params.get('tune') === '1') mountTuningPanel(cfg);
 // ── Sim + views ──────────────────────────────────────────────────────────────
 let specs: readonly [FighterSpec, FighterSpec] = [ROSTER[0]!, ROSTER[1]!];
 const bus = new EventBus();
-new CombatAudio(cfg, bus);   // synthesized SFX on the outcome events; silent until the first click/key (autoplay policy)
+const audio = new CombatAudio(cfg, bus);   // synthesized SFX on the outcome events; silent until the first click/key (autoplay policy)
 const seed = Number(params.get('seed') ?? 1);
 let prev: SimState = createState([specs[0], specs[1]], cfg, seed);
 let next: SimState = prev;
 let ai: AiState = createAi(1, seed, cfg);
 /**
  * The opponent's style for a fight the FLOW started (null = the default style, which is what every test drives).
- * TODO(SIM phase 2): this is the one place the style table and the difficulty reach the AI. It calls
- * `styleFor(spec, cfg, difficulty)` if src/ai exports it (difficulty 0 easy / 1 medium / 2 hard, also in
- * cfg.difficulty); until then it returns null. If the export lands with another name or argument order, change it here.
+ * This is the one place the style table and the difficulty reach the AI: `styleFor(spec, cfg, difficulty)` from
+ * src/ai (difficulty 0 easy / 1 medium / 2 hard — the menu's choice, which the flow also writes to cfg.aiDifficulty,
+ * the single difficulty key). Looked up by name so a build without it still runs on the default style.
  */
 let aiStyle: StyleParams | null = null;
 function styleForOpponent(spec: FighterSpec, difficulty: number): StyleParams | null {
@@ -116,6 +118,9 @@ const read = new ReadOverlay(cfg, bus, views);   // the slip's counter window, d
 // (navigator.webdriver) or ?menu=0 there is no flow: the fight runs from boot
 // and restarts itself (sparRestartSeconds) as it always has. ?menu=1 forces it.
 const wantsFlow = params.get('menu') === '1' || (!navigator.webdriver && params.get('menu') !== '0');
+// The frame-time overlay is a developer's tool: with the flow on it is off unless the tuning panel is open (the
+// checks that read it run without the flow, where it stays on).
+if (wantsFlow && params.get('tune') !== '1') cfg.debugFps = false;
 let fightNo = 0;
 /** A fresh fight between `a` (the player, side 0) and `b`: new state, AI and rigs; the HUD renamed. The views array is mutated in place — the read overlay holds it. */
 function startFight(a: FighterSpec, b: FighterSpec, opts: StartOpts | null = null): void {
@@ -151,8 +156,10 @@ const flow = wantsFlow ? new FightFlow(document.body, ROSTER, cfg, bus, {
   },
   bell: () => bus.emit([{ type: 'bell' }]),
   skipRest: () => { skipRest = true; },
-  skipReplay: () => { replay = null; replayDue = false; },
+  skipReplay: () => endReplay(),
   crowd: (level, cheer) => { stage.setExcitement(level); if (cheer) stage.react('decision', 0.7); },
+  // SHOW is adding a pause call to the audio class; until it lands this is a no-op.
+  audioPaused: on => (audio as unknown as { setPaused?: (on: boolean) => void }).setPaused?.(on),
 }, wantsTouch(params)) : null;
 
 // Inputs: side 0 is the player (InputManager → liveInput[0] each frame), side 1
@@ -177,8 +184,16 @@ window.__sim = {
     ai = createAi(1, s.seed, cfg);
   },
   script: (side, inputs) => { scriptInput[side] = inputs.map(i => ({ ...cloneInput(NULL_INPUT), ...i })); },
+  drive: (side, fn) => { drive[side] = fn; },
 };
 const scriptInput: [FrameInput[] | null, FrameInput[] | null] = [null, null];
+const drive: [((s: SimState) => Partial<FrameInput> | null) | null, ((s: SimState) => Partial<FrameInput> | null) | null] = [null, null];
+/** A test's tick-exact policy for `side`, if one is set and has an answer this tick. */
+function driven(side: Side): FrameInput | null {
+  const fn = drive[side];
+  const i = fn ? fn(next) : null;
+  return i ? { ...cloneInput(NULL_INPUT), ...i } : null;
+}
 /** The next scripted tick for `side`, or null once the script is spent. */
 function takeScript(side: Side): FrameInput | null {
   const q = scriptInput[side];
@@ -281,13 +296,13 @@ let boardText = '';
 
 /** One sim tick: inputs (script → test override → a drill's driver → the AI → live), step, events, the replay's memory. */
 function tickOnce(): void {
-  let side1 = takeScript(1) ?? overrideInput[1];
+  let side1 = takeScript(1) ?? overrideInput[1] ?? driven(1);
   if (side1 === null && driver) side1 = driver(next);
   if (side1 === null) {
     if (cfg.aiEnabled) { const d = aiStep(ai, next, cfg); ai = d.ai; side1 = d.input; }
     else side1 = liveInput[1];
   }
-  const inputs: [FrameInput, FrameInput] = [takeScript(0) ?? overrideInput[0] ?? liveInput[0], side1];
+  const inputs: [FrameInput, FrameInput] = [takeScript(0) ?? overrideInput[0] ?? driven(0) ?? liveInput[0], side1];
   const r = step(next, inputs, cfg);
   prev = next;
   next = r.state;
@@ -302,9 +317,15 @@ function startReplay(): void {
   replayDue = false;
   const clip = buffer.clipAround(Math.round(cfg.flowReplaySeconds * 60), Math.round(cfg.flowReplayAfterSeconds * 60));
   if (!clip || clip.frames.length < 12) return;
+  preroll(clip.pre.concat(clip.frames.slice(0, 1)));   // the rig's springs (cloth, hair, feet) arrive at the clip's first frame settled
   const at = clip.frames[clip.at]!.state.fighters;
+  // A stoppage at the knockdown itself (the knockdown limit): see `fallen` — the clip's frames after it get the same clock.
+  const k0 = clip.frames.findIndex(f => f.state.round.phase === 'over');
+  const frames = k0 < 0 ? clip.frames : clip.frames.map((fr, i) => (i <= k0 ? fr : {
+    ...fr, state: { ...fr.state, fighters: fr.state.fighters.map(f => (f.down ? { ...f, downT: f.downT + (i - k0) * SIM_DT } : f)) as [FighterState, FighterState] },
+  }));
   replay = {
-    player: new ReplayPlayer(clip.frames, clip.at),
+    player: new ReplayPlayer(frames, clip.at),
     shot: {
       key: 'replay', cut: true, lambda: 6,
       focus: { x: (at[0].pos.x + at[1].pos.x) / 2, z: (at[0].pos.z + at[1].pos.z) / 2 },
@@ -314,6 +335,32 @@ function startReplay(): void {
   };
 }
 
+/** Walk the rigs through `frames` at the fixed step without drawing them, so secondary motion is settled on the last one (the replay's cuts). */
+function preroll(frames: readonly { state: SimState }[]): void {
+  for (let i = 1; i < frames.length; i++) {
+    for (const side of [0, 1] as const) window.__rig?.[side]?.feed?.(frames[i - 1]!.state.fighters[side], frames[i]!.state.fighters[side], []);
+  }
+}
+
+/** The replay is over (played out or skipped): back to the live fight, the rigs settled on it. */
+function endReplay(): void {
+  if (replay) preroll(buffer.tail(24));
+  replay = null; replayDue = false;
+}
+
+/**
+ * The sim advances a downed fighter's `downT` only while the referee counts. When the fight ends ON a knockdown (the
+ * knockdown limit: a TKO with no count) it stays at 0, and the rig — which draws the fall from `downT` — would hold
+ * the loser upright at the first frame of his fall for good. So once the fight is over the views are handed a COPY of
+ * a downed fighter with the seconds since added on. Presentation only: the sim's state is not touched.
+ */
+let overWall = 0;
+const fallen = (f: FighterState): FighterState => (overWall > 0 && f.down ? { ...f, downT: f.downT + overWall } : f);
+
+const FLAGS = ['jab', 'cross', 'hook', 'uppercut', 'block', 'level'] as const;
+const swallowed = new Set<typeof FLAGS[number]>();   // buttons held when the fight resumed: ignored until let go
+let wasHeld = true;
+
 function loop(nowMs: number): void {
   const dt = Math.min(MAX_FRAME, (nowMs - lastMs) / 1000);
   lastMs = nowMs;
@@ -321,6 +368,13 @@ function loop(nowMs: number): void {
   const held = paused || replay !== null || (flow !== null && flow.holdsSim);   // a menu / card / replay is up: the sim waits
   frameEvents.length = 0;
   liveInput[0] = input.current();
+  // A button that skipped a card, a replay or the walk (or was down when a pause ended) is not a punch: whatever is
+  // held at the moment the fight resumes is ignored until it is let go.
+  if (flow) {
+    if (wasHeld && !held) for (const k of FLAGS) if (liveInput[0][k]) swallowed.add(k);
+    for (const k of [...swallowed]) { if (liveInput[0][k]) liveInput[0][k] = false; else swallowed.delete(k); }
+  }
+  wasHeld = held;
   if (stage.tier !== rigTier) { rigTier = stage.tier; cfg.rigQuality = rigTier === 2 ? 1 : 0; }
 
   // The fall in slow motion (Stage 3 presentation): for knockdownSlowMoSeconds
@@ -372,7 +426,8 @@ function loop(nowMs: number): void {
   }
 
   // What is drawn: the live fight, or a pose grid's frozen states, or the replay's clip, or a menu's scene.
-  const scene = paused || replay || !flow ? null : flow.scene(dt);
+  const scene = paused || replay || !flow ? null : flow.scene(dt, stage.orbitAzimuth);
+  const staged = scene?.fighters ?? null;   // a menu's own figures (null = the live fight, perhaps under a directed shot)
   let alpha = paused ? 1 : acc / SIM_DT;
   let drawPrev: readonly [FighterState, FighterState] = [posed[0] ?? prev.fighters[0], posed[1] ?? prev.fighters[1]];
   let shown: readonly FighterState[] = window.__states();
@@ -382,8 +437,11 @@ function loop(nowMs: number): void {
     const fr = replay.player.advance(dt * 60 * cfg.flowReplaySpeed);
     drawPrev = fr.prev.state.fighters; shown = fr.next.state.fighters; alpha = fr.alpha; viewEvents = fr.events;
     refSnap = fr.next.ref;
-  } else if (scene) {
-    drawPrev = scene.fighters.prev; shown = scene.fighters.next; alpha = scene.fighters.alpha; viewEvents = [];
+  } else if (staged) {
+    drawPrev = staged.prev; shown = staged.next; alpha = staged.alpha; viewEvents = scene!.events ?? [];
+  } else if (!paused) {
+    overWall = next.round.phase === 'over' ? overWall + sdt : 0;
+    if (overWall > 0) { drawPrev = [fallen(drawPrev[0]), fallen(drawPrev[1])]; shown = [fallen(shown[0]!), fallen(shown[1]!)]; }
   }
   for (const v of views) {
     const s = v.side;
@@ -400,7 +458,7 @@ function loop(nowMs: number): void {
   else if (!cfg.refEnabled && referee) { referee.dispose(); referee = null; }
   if (referee) {
     if (replay && refSnap) referee.draw(refSnap, dt);                                              // the replay: where he stood then
-    else if (scene) referee.update(scene.refSim ?? next, [], dt, stage.orbitAzimuth, scene.refSim !== null);   // a menu: off, or walking to the ring walk's two men
+    else if (scene && staged) referee.update(scene.refSim ?? next, [], dt, stage.orbitAzimuth, scene.refSim !== null, scene.refSnap ?? false);   // a menu: off, or with the menu's two men
     else if (!replay) referee.update(next, frameEvents, sdt, stage.orbitAzimuth, !paused && !(flow !== null && flow.hidesReferee));
   }
   // The knockdown shot: while a man is down (the count, or the KO / TKO he did not beat) the lens goes to him.
@@ -410,7 +468,7 @@ function loop(nowMs: number): void {
   const f = window.__focus;
   if (f === -1) stage.frame(a.pos, b.pos, closeness, nowMs / 1000, dt, shot);
   else stage.frame(shown[f]!.pos, shown[f]!.pos, 1, nowMs / 1000, dt);
-  if (replay && replay.player.done) replay = null;
+  if (replay && replay.player.done) endReplay();
 
   // The hanging scoreboard carries the round and the clock during a flow fight (the sponsor card otherwise).
   if (flow) {
@@ -422,10 +480,10 @@ function loop(nowMs: number): void {
   hud.visible = !paused && !replay && (flow === null || flow.showHud);
   hud.update(next, dt);
   if (flow) { flow.replaying = replay !== null; flow.replayDue = replayDue; flow.update(next, dt, frameEvents); }
-  const offLive = scene !== null || replay !== null;   // the live fight is not what is on screen
+  const offLive = staged !== null || replay !== null;   // the live fight is not what is on screen
   read.update(next, offLive);
   stage.wobble = offLive ? 0 : hurtLevel(next.fighters[0]) * cfg.readHurtWobble;   // you are rocked: the lens drifts more
-  fps.visible = cfg.debugFps;
+  fps.visible = cfg.debugFps && !(flow !== null && flow.holdsSim);   // never over a menu or a card
   const info = stage.info;
   fps.tick(info.calls, info.triangles);
   window.__tick.frames++;

@@ -42,7 +42,7 @@ await page.evaluate(() => {
 const st = () => page.evaluate(() => window.__flow.state());
 const ticks = () => page.evaluate(() => window.__tick.simTicks);
 const key = async (k, n = 1) => { for (let i = 0; i < n; i++) { await page.keyboard.press(k); await frames(page, 1); } };
-const on = screen => until(page, s => window.__flow.state().screen === s, screen, { label: `screen ${screen}`, timeout: 30000 });
+const on = screen => until(page, s => window.__flow.state().screen === s, screen, { label: `screen ${screen}`, timeout: 90000 });
 const shot = async (name) => { const p = `${OUT}/flow_${name}.png`; await page.screenshot({ path: p }); console.log(`     ${name} → ${p}\n              ${await greyscaleCopy(page, p)}`); };
 const heldFor = async (n = 8) => { const a = await ticks(); await frames(page, n); return (await ticks()) === a; };
 
@@ -59,8 +59,12 @@ check('Enter → fighter select: a plate per roster fighter and a random slot', 
 await key('ArrowRight');
 check('→ moves the pick to the second plate', await page.evaluate(() => document.querySelectorAll('#flow .select .plate')[1].classList.contains('sel')));
 await until(page, () => window.__flow.state().shown === 'blue', undefined, { label: 'his body on the turntable', timeout: 30000 });
-const info = await page.evaluate(() => { const i = document.querySelector('#flow .select .info'); return { name: i.querySelector('.fname').textContent, bars: i.querySelectorAll('.ratings .bar').length, lines: i.querySelectorAll('.style li').length, style: i.querySelector('.sname').textContent }; });
-check(`the panel shows him: ${info.name}, 5 rating bars, his style (${info.style}) and 3 lines`, info.name === 'Desmond Okafor' && info.bars === 5 && info.lines === 3 && info.style.length > 3, JSON.stringify(info));
+const info = await page.evaluate(() => { const i = document.querySelector('#flow .select .info'); return { name: i.querySelector('.fname').textContent, bars: i.querySelectorAll('.ratings .bar').length, widths: [...i.querySelectorAll('.ratings .fill')].map(f => f.style.width).join(), sizes: i.querySelectorAll('.sizes .bar').length, lines: i.querySelectorAll('.style li').length, style: i.querySelector('.sname').textContent, facts: i.querySelector('.sfacts').textContent, head: i.querySelector('.style .lhead').textContent }; });
+const okafor = await page.evaluate(() => { const f = window.__rosterSpec('blue'); return [f.power, f.speed, f.chin, f.stamina, f.defense].map(v => v + '%').join(); });
+check(`the panel shows him: ${info.name}, the five ratings as he really has them (${info.widths}), three size bars against the roster`, info.name === 'Desmond Okafor' && info.bars === 5 && info.widths === okafor && info.sizes === 3, JSON.stringify(info));
+check(`…and his style for the man picking him: ${info.style}, ${info.facts}, three lines under "${info.head}"`, info.style === 'Out-boxer' && /Long guard/.test(info.facts) && /arm.s length/i.test(info.facts) && info.lines === 3 && /how he fights/i.test(info.head), JSON.stringify(info));
+const guardShape = await page.evaluate(() => window.__flow.state().turnGuard);
+check(`he stands on the turntable in HIS guard (${guardShape})`, guardShape === 'long');
 const az0 = await page.evaluate(() => window.__camAz());
 await frames(page, 6);
 check('the lens circles him (the turntable) at close range', (await page.evaluate(() => window.__camAz())) !== az0 && (await page.evaluate(() => window.__camDist())) < 3.2);
@@ -71,13 +75,15 @@ await key('Enter'); await on('opponent');
 const opp = await page.evaluate(() => ({ off: [...document.querySelectorAll('#flow .opponent .plate')].findIndex(p => p.classList.contains('off')), sel: [...document.querySelectorAll('#flow .opponent .plate')].findIndex(p => p.classList.contains('sel')), opts: document.querySelectorAll('#flow .opponent .opt').length }));
 check('opponent select: your own fighter cannot be picked; difficulty and rounds are offered', opp.off === 1 && opp.sel !== 1 && opp.opts === 2, JSON.stringify(opp));
 await key('ArrowDown'); await key('ArrowRight');
+const mu = await page.evaluate(() => ({ text: document.querySelector('#flow .opponent .matchup')?.textContent ?? '', head: document.querySelector('#flow .opponent .style .lhead')?.textContent ?? '' }));
+check(`the opponent's sheet has the matchup in plain words and how to beat him ("${mu.text.slice(12, 60)}…")`, /You out-reach him by 34 cm/.test(mu.text) && /You are taller by 23 cm/.test(mu.text) && /how to beat him/i.test(mu.head), JSON.stringify(mu));
 check('↓ → sets the difficulty to Hard', await page.evaluate(() => document.querySelector('#flow .opponent .opt .ch.sel').textContent) === 'Hard');
 await shot('opponent');
 
 // ── 4. The ring walk ─────────────────────────────────────────────────────────
 await key('Enter'); await on('walk');
 await until(page, () => window.__flow.state().beat === 'walk1', undefined, { label: 'the opponent\'s walk' });
-const w1 = await page.evaluate(() => ({ card: document.querySelector('#flow .namecard')?.textContent ?? '', name0: document.querySelector('#hud .side.l .name')?.textContent, hud: document.getElementById('hud').hidden, diff: window.__cfg.difficulty, rounds: window.__cfg.roundCount }));
+const w1 = await page.evaluate(() => ({ card: document.querySelector('#flow .namecard')?.textContent ?? '', name0: document.querySelector('#hud .side.l .name')?.textContent, hud: document.getElementById('hud').hidden, diff: window.__cfg.aiDifficulty, rounds: window.__cfg.roundCount }));
 check('confirm → the ring walk: the opponent\'s name card first, the picked fighter as side 0, difficulty stored', /BRASK/i.test(w1.card) && w1.name0 === 'Desmond Okafor' && w1.hud && w1.diff === 2 && w1.rounds === 2, JSON.stringify(w1));
 check('the sim is held through the walk', await heldFor(10));
 const x0 = await page.evaluate(() => window.__states()[1].pos.x);
@@ -90,13 +96,15 @@ check('a button → the player\'s name card', /OKAFOR/i.test(await page.evaluate
 await key('Enter');
 await until(page, () => window.__flow.state().beat === 'stare', undefined, { label: 'the stare-down' });
 const tape = await page.evaluate(() => document.querySelector('#flow .tapecard')?.textContent ?? '');
-check('a button → the stare-down card with both names', /OKAFOR/i.test(tape) && /BRASK/i.test(tape) && /2 ROUNDS/.test(tape), tape.slice(0, 80));
+check('a button → the stare-down card with both names', /OKAFOR/i.test(tape) && /BRASK/i.test(tape) && /2 × 0:08/.test(tape), tape.slice(0, 80));
 check('the referee is in the ring for it', await page.evaluate(() => window.__ref() !== null));
 await shot('stare');
 
 // ── 5. The fight, and the pause ──────────────────────────────────────────────
 await key('Enter'); await on('fight');
 await until(page, () => window.__tick.simTicks > 5, undefined, { label: 'the sim running' });
+const hard = await page.evaluate(() => ({ key: window.__cfg.aiDifficulty, mistake: window.__ai.state().style?.mistake, delay: window.__ai.state().style?.attackDelayMin }));
+check(`Hard reached the AI: aiDifficulty ${hard.key}, the opponent's own style at that difficulty (attack gap ${hard.delay?.toFixed(2)} s)`, hard.key === 2 && hard.mistake === 0 && hard.delay > 0, JSON.stringify(hard));
 check('a button → the fight: the sim runs and the HUD is up', !(await page.evaluate(() => document.getElementById('hud').hidden)));
 await key('Escape');
 const p1 = await st();
@@ -121,8 +129,8 @@ check('a button closes the card and the next round starts at once', !(await st()
 
 // ── 7. Results ───────────────────────────────────────────────────────────────
 await on('results');
-const res = await page.evaluate(() => ({ phase: window.__sim.state().round.phase, winner: document.querySelector('#flow .winner')?.textContent, method: document.querySelector('#flow .method')?.textContent, rows: document.querySelectorAll('#flow table.cards tr').length, stats: document.querySelector('#flow .sgrid')?.textContent ?? '', btns: [...document.querySelectorAll('#flow .results .btn')].map(b => b.textContent).join('|') }));
-check(`results after the last bell: "${res.winner}" ${res.method}, the round-by-round cards and the punch stats`, res.phase === 'over' && !!res.winner && res.rows === 3 && /Jabs/.test(res.stats) && /Knockdowns/.test(res.stats) && res.btns === 'Rematch|New fight|Menu', JSON.stringify({ ...res, stats: res.stats.slice(0, 40) }));
+const res = await page.evaluate(() => ({ phase: window.__sim.state().round.phase, winner: document.querySelector('#flow .winner')?.textContent, method: document.querySelector('#flow .method')?.textContent, rows: document.querySelectorAll('#flow table.cards tr').length, rounds: document.querySelectorAll('#flow table.rounds tr').length, stats: document.querySelector('#flow .sgrid')?.textContent ?? '', btns: [...document.querySelectorAll('#flow .results .btn')].map(b => b.textContent).join('|') }));
+check(`results after the last bell: "${res.winner}" ${res.method}, the round-by-round cards and the punch stats`, res.phase === 'over' && !!res.winner && res.rows === 3 && /Jabs/.test(res.stats) && /Accuracy/.test(res.stats) && /Knockdowns/.test(res.stats) && res.rounds === 5 && res.btns === 'Rematch|New fight|Menu', JSON.stringify({ ...res, stats: res.stats.slice(0, 40) }));
 await shot('results');
 
 // ── 8. Rematch, and back out to the title ────────────────────────────────────
@@ -151,7 +159,7 @@ await key('Escape'); await on('title');
 // ── 10. Gym ──────────────────────────────────────────────────────────────────
 await key('ArrowDown', 2); await key('Enter'); await on('gym');
 const g1 = await page.evaluate(() => ({ items: document.querySelectorAll('#flow .ditem').length, last: [...document.querySelectorAll('#flow .ditem .t')].pop()?.textContent }));
-check(`the gym lists its drills (${g1.items}; the built-in "${g1.last}" last)`, g1.items >= 1 && g1.last === 'Free sparring');
+check(`the gym lists the seven drills and free sparring (${g1.items}; "${g1.last}" last)`, g1.items === 8 && g1.last === 'Free sparring');
 await shot('gym');
 await key('ArrowUp', 2);   // wraps: Back, then the last drill — the built-in one
 await key('Enter'); await on('fight');

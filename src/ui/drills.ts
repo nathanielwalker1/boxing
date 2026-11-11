@@ -1,103 +1,118 @@
 /**
- * ui/drills.ts — the gym's drill list. An adapter over `src/ai/drills.ts`
- * (SIM phase 2, written in parallel), expected to export an array (`DRILLS`,
- * `drills` or default) of
- *   { id, title, goal, placement: { dist?, player?, opponent? },
- *     opponent(state, tick, rng) => FrameInput, setup?(state),
- *     metric?(state, events, acc) => { progress, stat } }
- * ADAPTER: `mapDrill` is the only place those field names are read. If the
- * module or the export is missing `loadDrills()` returns [] and the gym shows
- * the one built-in drill below, so the shell works before that merge.
+ * ui/drills.ts — the gym's drill list: SIM's seven drills (`src/ai/drills.ts`:
+ * placement, a pure opponent policy, setup, a metric over every event since
+ * the start) mapped onto what the flow runs, plus the built-in free sparring.
+ * What this file adds is the part a person needs on screen: for each drill,
+ * the exact controls it trains, for keyboard, gamepad and touch (the bindings
+ * are ui/input.ts's; the moves are docs/OVERHAUL_SIM.md's input tables).
+ *
+ * Directions: the fight camera keeps the opponent to your right, so "toward
+ * him" is right (D / stick right), "away" is left, and "to the side" is up or
+ * down (W or S / stick up or down).
  */
-import { NULL_INPUT, cloneInput, type Config, type FighterSpec, type FrameInput, type RngState, type SimEvent, type SimState, type Vec2 } from '../core';
+import { NULL_INPUT, cloneInput, type Config, type FighterSpec, type FrameInput, type SimEvent, type SimState, type Vec2 } from '../core';
+import { DRILLS } from '../ai/drills';
 
 export interface DrillMetric { progress: number; stat: string }
+/** One thing to do in a drill, and how on each device. */
+export interface DrillControl { move: string; keys: string; pad: string; touch: string }
 export interface Drill {
   id: string;
   title: string;
   /** One sentence: what to do. */
   goal: string;
-  /** The controls it trains, in plain words. */
-  controls: string;
+  /** The controls it trains. */
+  controls: readonly DrillControl[];
+  /** Suggested length, s (0 = no clock). */
+  seconds: number;
   placement: { dist?: number; player?: Vec2; opponent?: Vec2 };
-  /** Changes to the opponent's spec for this drill (a taller man, a style). */
+  /** Changes to the partner's spec for this drill (a taller man, a style). */
   opponentSpec?: Partial<FighterSpec>;
-  /** The opponent's input for this tick; null = let the normal AI drive him. */
-  opponent: ((s: SimState, tick: number, rng: RngState) => FrameInput) | null;
+  /** The partner's input for a tick counted from the drill's start; null = let the normal AI drive him. */
+  opponent: ((s: SimState, tick: number) => FrameInput) | null;
   setup: ((s: SimState) => void) | null;
+  /** `events` = this frame's; `acc` = the drill run's own memory. */
   metric: ((s: SimState, events: readonly SimEvent[], acc: Record<string, unknown>) => DrillMetric) | null;
 }
 
-/** Controls text for the seven drills the brief names, matched on id / title, used when the drill itself carries none. */
-const CONTROLS: readonly (readonly [RegExp, string])[] = [
-  [/slip.*counter|counter/i, 'Flick the stick to the side to slip, then punch with the hand on that side'],
-  [/slip/i, 'Flick the stick to the side (tap and let go) as the punch comes'],
-  [/jab/i, 'Jab, and the stick: step in, step out, circle'],
-  [/cut|ring/i, 'The stick: step across his path instead of following him'],
-  [/inside|close/i, 'Slip or block your way in; hook and uppercut once you are chest to chest'],
-  [/body/i, 'Hold LOW and punch: body jab, body cross, body hook'],
-  [/hurt|surviv/i, 'Hold block, move, clinch (block + LOW when chest to chest)'],
-];
+const c = (move: string, keys: string, pad: string, touch: string): DrillControl => ({ move, keys, pad, touch });
+const MOVE = c('Move', 'W A S D', 'Left stick', 'Drag, left half');
+const JAB = c('Jab', 'J', 'Y', 'JAB');
+const BLOCK = c('Block (hold)', 'Space', 'RB', 'BLOCK');
+const SLIP = c('Slip', 'Tap W or S', 'Flick stick up / down', 'Flick up / down');
+const ROLL = c('Roll under', 'Shift + tap W or S', 'LT + flick up / down', 'LOW + flick up / down');
 
-const str = (v: unknown, d = ''): string => (typeof v === 'string' && v.trim() ? v.trim() : d);
-const vec = (v: unknown): Vec2 | undefined => {
-  const o = v as { x?: unknown; z?: unknown } | null;
-  return o && typeof o.x === 'number' && typeof o.z === 'number' ? { x: o.x, z: o.z } : undefined;
+const CONTROLS: Record<string, readonly DrillControl[]> = {
+  'jab-and-move': [
+    JAB,
+    c('Step back out', 'Hold A', 'Stick left', 'Drag left'),
+    c('Circle', 'Hold W or S', 'Stick up / down', 'Drag up / down'),
+    c('Jab on the retreat', 'A + J', 'Stick left + Y', 'Drag left + JAB'),
+  ],
+  'cut-off': [
+    c('Step across his path', 'Hold W or S', 'Stick up / down', 'Drag up / down'),
+    c('Close the gap', 'Hold D', 'Stick right', 'Drag right'),
+    c('Burst (quick hop)', 'Double-tap a direction', 'Flick, then push again', 'Flick, then push again'),
+  ],
+  'get-inside': [
+    c('Walk in behind the guard', 'Space + D', 'RB + stick right', 'BLOCK + drag right'),
+    c('Slip the jab', 'Tap W or S', 'Flick stick up / down', 'Flick up / down'),
+    c('Go under it', 'Hold Shift', 'Hold LT', 'Hold LOW'),
+    c('Inside: hook, uppercut', 'L  ;', 'X  A', 'HOK  UPP'),
+  ],
+  'slip-timing': [
+    SLIP,
+    c('Pull back', 'Tap A', 'Flick stick left', 'Flick left'),
+    ROLL,
+  ],
+  'slip-counter': [
+    SLIP,
+    c('Then punch at once', 'K or L', 'B or X', 'CRS or HOK'),
+    c('Which hand', 'The side you slipped to', 'The side you slipped to', 'The side you slipped to'),
+  ],
+  'body-work': [
+    c('Go low (hold)', 'Shift', 'LT', 'LOW'),
+    c('Body jab / cross / hook', 'Shift + J / K / L', 'LT + Y / B / X', 'LOW + JAB / CRS / HOK'),
+    c('Close the gap', 'Hold D', 'Stick right', 'Drag right'),
+  ],
+  'survive': [
+    BLOCK,
+    c('Get off the ropes', 'W A S D', 'Left stick', 'Drag'),
+    c('Tie him up (chest to chest)', 'Space + Shift', 'RB + LT', 'BLOCK + LOW'),
+    c('Pivot out', 'Space + tap W or S', 'RB + flick up / down', 'BLOCK + flick up / down'),
+    c('Shove him off', 'Space + tap D', 'RB + flick right', 'BLOCK + flick right'),
+  ],
+  'free-sparring': [
+    MOVE,
+    c('Jab / cross / hook / uppercut', 'J  K  L  ;', 'Y  B  X  A', 'JAB  CRS  HOK  UPP'),
+    BLOCK,
+    c('Go low (hold)', 'Shift', 'LT', 'LOW'),
+    SLIP,
+  ],
 };
 
 /** The seed SIM's drill policies hash their cadences from (fixed: a drill replays the same way every time). */
 const DRILL_SEED = 7;
 
-function mapDrill(raw: unknown, i: number, cfg: Config): Drill | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const id = str(r['id'], `drill-${i}`);
-  const title = str(r['title'] ?? r['name'], id);
-  // SIM's shape (src/ai/drills.ts, merged 2026-11-11): placement(cfg), policy(state, tick, seed, cfg),
-  // setup(state, cfg), metric(ALL events since the start, state, cfg), opponent = spec changes.
-  if (typeof r['policy'] === 'function') {
-    const policy = r['policy'] as (s: SimState, tick: number, seed: number, cfg: Config) => FrameInput;
-    const place = typeof r['placement'] === 'function' ? (r['placement'] as (cfg: Config) => { player?: Vec2; opponent?: Vec2 })(cfg) : {};
-    const setup = typeof r['setup'] === 'function' ? r['setup'] as (s: SimState, cfg: Config) => void : null;
-    const metric = typeof r['metric'] === 'function' ? r['metric'] as (ev: readonly SimEvent[], s: SimState, cfg: Config) => DrillMetric : null;
-    const found = CONTROLS.find(([re]) => re.test(id) || re.test(title));
-    const placement: Drill['placement'] = {};
-    const pl = vec(place.player), op = vec(place.opponent);
-    if (pl) placement.player = pl;
-    if (op) placement.opponent = op;
-    const spec = r['opponent'];
+/** SIM's drills as the flow runs them. */
+export function simDrills(cfg: Config): Drill[] {
+  return DRILLS.map(d => {
+    const place = d.placement(cfg);
     return {
-      id, title,
-      goal: str(r['goal']),
-      controls: str(r['controls'], found ? found[1] : ''),
-      placement,
-      ...(spec && typeof spec === 'object' ? { opponentSpec: spec as Partial<FighterSpec> } : {}),
-      opponent: (s, tick) => policy(s, tick, DRILL_SEED, cfg),
-      setup: setup ? s => setup(s, cfg) : null,
-      metric: metric ? (s, events, acc) => {
+      id: d.id, title: d.title, goal: d.goal, seconds: d.seconds,
+      controls: CONTROLS[d.id] ?? [MOVE],
+      placement: { player: place.player, opponent: place.opponent },
+      ...(d.opponent ? { opponentSpec: d.opponent } : {}),
+      opponent: (s: SimState, tick: number) => d.policy(s, tick, DRILL_SEED, cfg),
+      setup: d.setup ? (s: SimState) => d.setup!(s, cfg) : null,
+      // SIM's metric is a pure function of EVERY event since the start: the run keeps them.
+      metric: (s: SimState, events: readonly SimEvent[], acc: Record<string, unknown>) => {
         const all = (acc['events'] ??= []) as SimEvent[];
         for (const e of events) all.push(e);
-        return metric(all, s, cfg);
-      } : null,
+        return d.metric(all, s, cfg);
+      },
     };
-  }
-  const p = (r['placement'] ?? {}) as Record<string, unknown>;
-  const placement: Drill['placement'] = {};
-  if (typeof p['dist'] === 'number') placement.dist = p['dist'];
-  const pl = vec(p['player']), op = vec(p['opponent']);
-  if (pl) placement.player = pl;
-  if (op) placement.opponent = op;
-  const fn = <T>(v: unknown): T | null => (typeof v === 'function' ? v as T : null);
-  const found = CONTROLS.find(([re]) => re.test(id) || re.test(title));
-  return {
-    id, title,
-    goal: str(r['goal'] ?? r['description']),
-    controls: str(r['controls'] ?? r['inputs'], found ? found[1] : ''),
-    placement,
-    opponent: fn<NonNullable<Drill['opponent']>>(r['opponent']),
-    setup: fn<NonNullable<Drill['setup']>>(r['setup']),
-    metric: fn<NonNullable<Drill['metric']>>(r['metric']),
-  };
+  });
 }
 
 /** The built-in drill: a man who stands in his guard and does nothing. */
@@ -105,7 +120,8 @@ export const FREE_SPARRING: Drill = {
   id: 'free-sparring',
   title: 'Free sparring',
   goal: 'A passive partner who stands in front of you: try every punch and every move with nothing coming back.',
-  controls: 'Everything: the four punches, LOW for the body, flicks to slip, block',
+  controls: CONTROLS['free-sparring']!,
+  seconds: 0,
   placement: { dist: 1.3 },
   opponent: () => cloneInput(NULL_INPUT),
   setup: null,
@@ -117,19 +133,5 @@ export const FREE_SPARRING: Drill = {
   },
 };
 
-// `{}` when ai/drills.ts does not exist yet.
-const mods = import.meta.glob('../ai/drills.ts');
-
-/** SIM's drills, or [] when the module / export is not there. */
-export async function loadDrills(cfg: Config): Promise<Drill[]> {
-  try {
-    for (const load of Object.values(mods)) {
-      const mod = await load() as Record<string, unknown>;
-      let raw: unknown = mod['DRILLS'] ?? mod['drills'] ?? mod['default'];
-      if (typeof raw === 'function') raw = (raw as () => unknown)();
-      if (!Array.isArray(raw)) continue;
-      return raw.map((d, i) => mapDrill(d, i, cfg)).filter((d): d is Drill => d !== null);
-    }
-  } catch { /* the gym falls back to the built-in drill */ }
-  return [];
-}
+/** Every drill, in the order to meet them. */
+export function drillList(cfg: Config): Drill[] { return [...simDrills(cfg), FREE_SPARRING]; }

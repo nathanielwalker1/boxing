@@ -1024,14 +1024,13 @@ export const SCHEMA = {
   rigTailMaxDeg:           num(50, 0, 90, 1, 'rig cloth', 'hanging hair may swing this far off the head, degrees'),
 
   // ── flow (UI) — the screens round a fight: title, select, ring walk, cards, replay, ladder, gym (src/ui/flow.ts, docs/OVERHAUL_UI.md) ──
-  difficulty:              num(1, 0, 2, 1, 'flow', 'the opponent\'s difficulty picked on the opponent screen: 0 easy, 1 medium, 2 hard. Stored here until the AI\'s own difficulty data lands; main.ts hands it to the AI when a fight starts'),
   flowTitleOrbitDegPerSec: num(4, 0, 30, 0.5, 'flow', 'title / ladder / gym / results screens: how fast the wide shot circles the ring, degrees per second'),
   flowTitleDist:           num(9.5, 4, 16, 0.1, 'flow', 'wide menu shot: lens distance from the ring centre, m'),
   flowTitleElevationDeg:   num(15, 2, 50, 0.5, 'flow', 'wide menu shot: elevation, degrees'),
   flowTurntableDegPerSec:  num(22, 0, 90, 1, 'flow', 'fighter select: how fast the lens circles the fighter (the turntable), degrees per second'),
   flowTurntableDist:       num(2.75, 1.5, 5, 0.05, 'flow', 'fighter select: lens distance from the fighter, m (it has to stay inside the ropes, about 2.9 m, or they cut across him)'),
   flowTurntableElevationDeg: num(5, 0, 30, 0.5, 'flow', 'fighter select: lens elevation, degrees'),
-  flowTurntableLookY:      num(0.9, 0.4, 1.6, 0.01, 'flow', 'fighter select: look-at height, m (lower = the fighter sits higher in the frame)'),
+  flowTurntableLookY:      num(0.84, 0.4, 1.6, 0.01, 'flow', 'fighter select: look-at height, m (lower = the fighter sits higher in the frame)'),
   flowTurntableOffset:     num(0.52, 0, 1.2, 0.01, 'flow', 'fighter select on a wide screen: the look point is this far to the fighter\'s screen-right, m, so he stands left of centre and the stats panel has the right'),
   flowTurntableFov:        num(46, 25, 70, 0.5, 'flow', 'fighter select: vertical field of view, degrees (46 at 2.75 m shows 2.3 m of height: the tallest fighter, uncropped)'),
   flowTurntablePortraitFov: num(70, 30, 80, 0.5, 'flow', 'fighter select on a tall, narrow screen (a phone held upright): field of view — wider, because the stats sheet covers the bottom of the screen and he has to fit above it'),
@@ -1055,7 +1054,8 @@ export const SCHEMA = {
   flowReplayElevationDeg:  num(3, 0, 30, 0.5, 'flow', 'knockdown replay: lens elevation, degrees (lower than the live camera)'),
   flowKickGlancing:        num(0.25, 0, 1, 0.05, 'flow', 'camera kick (punch-in and shake) on a GLANCING land, as a fraction of a clean one — almost none'),
   flowKickFlush:           num(1.5, 1, 3, 0.05, 'flow', 'camera kick on a FLUSH land, as a multiple of a clean one'),
-  flowDrillRestartSeconds: num(2.5, 0.5, 10, 0.5, 'flow', 'gym: seconds a finished drill shows its result before it starts again'),
+  flowDrillRestartSeconds: num(4, 0.5, 10, 0.5, 'flow', 'gym: seconds a finished drill shows its result (Done / Time / Over) before it starts again. N goes to the next drill at any time'),
+  flowShowScores:          bool(false, 'flow', 'between rounds: show the judges\' running cards on the corner card (off = the scores stay hidden until the results)'),
   // ── rig reads (RIG, src/rig/reads.ts) — the sim's fight state drawn on the body (overhaul phase 2). None of it moves a hit box: the sim already has; this is what the legs, hips, spine, shoulders and head do about it ──
   rigStanceChestYawDeg:    num(20, 0, 45, 1, 'rig reads', 'THE BLADE, back without moving a sim joint: the ribcage turns this far toward the lead side while the shoulder bones (and the deltoids and chest corners that ride them) stay on the sim\'s joints; the hips blade by rigStanceHipYawDeg. Measured limit: past ~25° the chest corner shears visibly away from the shoulder it is skinned to (0.23 m × sin 25° = 10 cm)'),
   rigPostureTiltDeg:       num(8, 0, 25, 0.5, 'rig reads', 'inside posture (FighterState.posture): the chest rolls forward this far and the shoulders come up — "shoulders rolling inside"'),
