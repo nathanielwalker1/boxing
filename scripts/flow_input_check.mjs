@@ -14,9 +14,12 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
-import { bootReady, until, frames } from './waits.js';
+import { bootReady, until as untilFor, frames } from './waits.js';
 import { check, done } from './check.js';
 
+// Every state wait gets three minutes: headless software GL under a parallel suite draws about a frame a second, and
+// the frame clamp makes that a quarter of a second of sim, so a wait bounded in tens of seconds is a flake.
+const until = (page, fn, arg = undefined, opts = {}) => untilFor(page, fn, arg, { ...opts, timeout: 180000 });
 const browser = await chromium.launch();
 const logs = [];
 const hook = page => {
@@ -34,7 +37,7 @@ console.log('\n=== Mouse ===');
 {
   const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
   hook(page);
-  await page.goto(`${DEV_URL}/?menu=1`, { waitUntil: 'networkidle', timeout: 15_000 });
+  await page.goto(`${DEV_URL}/?menu=1`, { waitUntil: 'networkidle', timeout: 60_000 });
   await bootReady(page);
   await setup(page);
   await page.locator('#flow .title .btn', { hasText: 'Fight' }).click();
@@ -72,7 +75,7 @@ console.log('\n=== Touch ===');
   const ctx = await browser.newContext({ viewport: { width: 900, height: 480 }, hasTouch: true });
   const page = await ctx.newPage();
   hook(page);
-  await page.goto(`${DEV_URL}/?menu=1&touch=1`, { waitUntil: 'networkidle', timeout: 15_000 });
+  await page.goto(`${DEV_URL}/?menu=1&touch=1`, { waitUntil: 'networkidle', timeout: 60_000 });
   await bootReady(page);
   await setup(page);
   check('the touch controls are hidden behind a menu', await page.evaluate(() => getComputedStyle(document.getElementById('touch-ui')).display === 'none'));
@@ -100,7 +103,7 @@ console.log('\n=== Touch ===');
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt });
   // A jab is over inside two headless frames, so it may never be SEEN in flight: the stamina it cost is the proof.
   let threw = true;
-  try { await page.waitForFunction(s0 => window.__input.current().jab && (window.__sim.state().fighters[0].punch.type === 'jab' || window.__sim.state().fighters[0].stamina < s0 - 0.01), stam, { timeout: 8000, polling: 'raf' }); } catch { threw = false; }
+  try { await page.waitForFunction(s0 => window.__input.current().jab && (window.__sim.state().fighters[0].punch.type === 'jab' || window.__sim.state().fighters[0].stamina < s0 - 0.01), stam, { timeout: 180000, polling: 'raf' }); } catch { threw = false; }
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await frames(page, 1);
   check('a tap on JAB throws a jab (the flow does not swallow the fight\'s touches)', threw);
@@ -135,7 +138,7 @@ console.log('\n=== Gamepad ===');
     window.__pad = { buttons: Array(17).fill(false), axes: [0, 0, 0, 0] };
     navigator.getGamepads = () => [{ connected: true, id: 'stub pad', index: 0, mapping: 'standard', timestamp: 0, axes: window.__pad.axes, buttons: window.__pad.buttons.map(p => ({ pressed: p, touched: p, value: p ? 1 : 0 })) }];
   });
-  await page.goto(`${DEV_URL}/?menu=1`, { waitUntil: 'networkidle', timeout: 15_000 });
+  await page.goto(`${DEV_URL}/?menu=1`, { waitUntil: 'networkidle', timeout: 60_000 });
   await bootReady(page);
   await setup(page);
   const hold = (i, down) => page.evaluate(([i, d]) => { window.__pad.buttons[i] = d; }, [i, down]);
@@ -166,7 +169,7 @@ console.log('\n=== Gamepad ===');
   await hold(A, false); await frames(page, 2);
   await hold(A, true);
   let threw = true;
-  try { await page.waitForFunction(() => window.__sim.state().fighters[0].punch.type === 'uppercut', undefined, { timeout: 8000, polling: 'raf' }); } catch { threw = false; }
+  try { await page.waitForFunction(() => window.__sim.state().fighters[0].punch.type === 'uppercut', undefined, { timeout: 180000, polling: 'raf' }); } catch { threw = false; }
   await hold(A, false);
   check('…let go and pressed again, it is', threw);
   await press(START);

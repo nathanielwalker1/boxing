@@ -141,6 +141,7 @@ export class FightFlow {
   private drills: Drill[];
   private drill: DrillRun | null = null;
   private keptRounds: [number, number] | null = null;
+  private keptTune: Record<string, unknown> | null = null;
 
   private method: Method | null = null;
   private last: SimState | null = null;
@@ -210,6 +211,8 @@ export class FightFlow {
 
   /** True whenever the sim must wait: every screen but the fight, the pause, the corner card. */
   get holdsSim(): boolean { return this.screen !== 'fight' || this.paused || this.card; }
+  /** The pause menu is up (the audio goes quiet). */
+  get isPaused(): boolean { return this.paused; }
   /** The HUD belongs to the fight alone (the cards carry their own numbers). */
   get showHud(): boolean { return this.screen === 'fight' && !this.card; }
   /** A knockdown may be replayed (a real fight, not a drill, nothing else up). */
@@ -488,6 +491,12 @@ export class FightFlow {
     // A drill is one long round: the round clock must not end it.
     this.keptRounds ??= [this.cfg.roundCount, this.cfg.roundSeconds];
     this.cfg.roundCount = 1; this.cfg.roundSeconds = 180;
+    this.untune();
+    if (d.tune) {
+      const patch = d.tune(this.cfg) as Record<string, unknown>, live = this.cfg as unknown as Record<string, unknown>;
+      this.keptTune = {};
+      for (const k of Object.keys(patch)) { this.keptTune[k] = live[k]; live[k] = patch[k]; }
+    }
     const opp = this.roster.find(f => f.id !== this.player.id)!;
     this.opp = this.opp.id !== this.player.id ? this.opp : opp;
     const run: DrillRun = { def: d, tick: 0, acc: {}, t0: -1, done: '', doneT: 0, last: { progress: 0, stat: '' }, shown: '' };
@@ -535,8 +544,17 @@ export class FightFlow {
     this.startDrill(this.drills[(i + by + this.drills.length) % this.drills.length]!);
   }
 
+  /** Put back whatever config the last drill ran under. */
+  private untune(): void {
+    if (!this.keptTune) return;
+    const live = this.cfg as unknown as Record<string, unknown>;
+    for (const k of Object.keys(this.keptTune)) live[k] = this.keptTune[k];
+    this.keptTune = null;
+  }
+
   private endDrill(): void {
     this.drill = null;
+    this.untune();
     if (this.keptRounds) { [this.cfg.roundCount, this.cfg.roundSeconds] = this.keptRounds; this.keptRounds = null; }
   }
 

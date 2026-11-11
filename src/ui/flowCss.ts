@@ -40,7 +40,7 @@ body.flow-menu #touch-ui { display: none; }
 #flow .titlebox .foot { margin-top: 18px; font-size: 10px; letter-spacing: 0.26em; text-transform: uppercase; color: #fff9; }
 
 /* fighter sheet (select, opponent, ladder), and the results and corner sheets that share its place */
-#flow .info, #flow .corner { position: absolute; right: 24px; top: 46px; bottom: 96px; width: min(388px, 41vw); overflow: hidden; display: flex; flex-direction: column; }
+#flow .info, #flow .corner { position: absolute; right: 24px; top: 46px; bottom: 96px; width: min(420px, 43vw); overflow: hidden; display: flex; flex-direction: column; }
 #flow .info .scroll, #flow .corner .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 20px 10px; }
 #flow .info .foot { padding: 0 20px 14px; }
 #flow .info .foot .btns { margin-top: 10px; }
@@ -48,8 +48,9 @@ body.flow-menu #touch-ui { display: none; }
 #flow .fnick { font-size: 11px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; color: color-mix(in srgb, var(--c) 60%, #fff); margin-top: 5px; }
 #flow .fmeta { font-size: 12px; color: #fffc; margin-top: 6px; line-height: 1.4; }
 #flow .sizes, #flow .ratings { display: grid; gap: 4px 8px; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: #fffb; align-items: center; }
-#flow .sizes { margin-top: 10px; grid-template-columns: 66px 1fr 58px; }
-#flow .ratings { margin-top: 9px; padding-top: 9px; border-top: 1px solid #fff2; grid-template-columns: 66px 1fr 58px; }
+/* sizes and ratings side by side, so the style lines stay above the fold */
+#flow .sr { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; margin-top: 10px; align-items: start; }
+#flow .sizes, #flow .ratings { grid-template-columns: 50px 1fr 48px; letter-spacing: 0.1em; }
 #flow .sizes .bar, #flow .ratings .bar, #flow .cond .bar { height: 7px; background: #0009; border: 1px solid #fff3; }
 #flow .sizes .bar { height: 5px; }
 #flow .sizes .fill { height: 100%; background: #f4f1e8; }
@@ -173,7 +174,7 @@ body.flow-menu #touch-ui { display: none; }
 #flow .drill.on { display: grid; }
 #flow .drill .t { font-size: 13px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; display: flex; align-items: baseline; gap: 8px; }
 #flow .drill .t i { font-style: normal; font-size: 10px; letter-spacing: 0.12em; color: var(--gold); white-space: nowrap; }
-#flow .drill .clk { margin-left: auto; font-size: 12px; letter-spacing: 0.04em; color: #f3dc8f; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#flow .drill .clk { margin-left: auto; font-size: 12px; letter-spacing: 0.04em; color: #f3dc8f; font-variant-numeric: tabular-nums; white-space: nowrap; text-transform: none; }
 #flow .drill .g { font-size: 11.5px; line-height: 1.35; color: #fffd; margin-top: 3px; }
 #flow .drill table.dc { width: 100%; border-collapse: collapse; font-size: 10.5px; }
 #flow .drill .dc th { font-size: 7.5px; letter-spacing: 0.22em; text-transform: uppercase; color: #fff8; font-weight: 700; text-align: left; padding: 1px 5px; }
@@ -218,9 +219,7 @@ body.flow-menu #touch-ui { display: none; }
 /* a short desktop window */
 @media (max-height: 660px) and (min-width: 641px) {
   #flow .info .scroll, #flow .corner .scroll { padding: 10px 16px 8px; } #flow .info .foot { padding: 0 16px 10px; }
-  /* sizes and ratings side by side, so the style lines stay above the fold */
-  #flow .sr { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; margin-top: 7px; align-items: start; }
-  #flow .sizes, #flow .ratings { margin-top: 0; padding-top: 0; border-top: 0; gap: 2px 6px; grid-template-columns: 48px 1fr 46px; letter-spacing: 0.1em; font-size: 8.5px; }
+  #flow .sr { margin-top: 7px; } #flow .sizes, #flow .ratings { gap: 2px 6px; font-size: 8.5px; }
   #flow .sizes i, #flow .ratings i { font-size: 10.5px; }
   #flow .fnick { display: inline; margin-right: 8px; } #flow .fmeta { display: inline; font-size: 11px; }
   #flow .info { bottom: 84px; }
@@ -259,7 +258,7 @@ body.flow-menu #touch-ui { display: none; }
   #flow .plate { padding: 0 5px 4px; } #flow .plate .ps { display: none; } #flow .plate .pn { font-size: 10px; } #flow .plate .sw { margin-bottom: 4px; }
   #flow .hint { display: none; }
   #flow .fname { font-size: 19px; } #flow .fnick { font-size: 9px; margin-top: 3px; } #flow .fmeta { font-size: 11px; margin-top: 3px; }
-  #flow .sizes, #flow .ratings { gap: 1px 8px; grid-template-columns: 58px 1fr 52px; } #flow .sizes i, #flow .ratings i { font-size: 10.5px; }
+  #flow .sizes, #flow .ratings { gap: 1px 6px; grid-template-columns: 44px 1fr 44px; font-size: 8px; } #flow .sizes i, #flow .ratings i { font-size: 10px; }
   #flow .info .btn { padding: 6px 12px; font-size: 11px; }
   #flow .wordmark { width: 200px; } #flow .menu { margin-top: 12px; gap: 5px; } #flow .menu .btn { padding: 7px 16px; font-size: 12px; } #flow .titlebox .foot { display: none; }
   #flow .ladhead b { font-size: 16px; } #flow .ladhead .rec { font-size: 10px; }

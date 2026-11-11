@@ -171,7 +171,11 @@ export class Director {
   corners(dt: number): Scene {
     this.t += dt;
     if (!this.corner) { const s = this.settled({ x: -2.05, z: -2.05 }, { x: 2.05, z: 2.05 }); this.corner = [s.fighters[0], s.fighters[1]]; }
-    return { fighters: { prev: this.corner, next: this.corner, alpha: 1 }, shot: this.wideShot(this.portrait ? 0 : 2.3, 8.6), refSim: null };
+    // Square on to the diagonal the two corners are on (a slow sway, not the full orbit), so neither man leaves the frame.
+    const shot = this.wideShot(this.portrait ? 0 : 1.9, 9.2);
+    const az = Math.PI * 0.75 + Math.sin(this.t * 0.25) * 0.14;
+    const right = this.portrait ? 0 : 1.9;
+    return { fighters: { prev: this.corner, next: this.corner, alpha: 1 }, shot: { ...shot, key: 'corners', azimuth: az, focus: { x: Math.sin(az) * right, z: -Math.cos(az) * right } }, refSim: null };
   }
 
   /**

@@ -1065,7 +1065,7 @@ export const SCHEMA = {
   flowTurntableDegPerSec:  num(22, 0, 90, 1, 'flow', 'fighter select: how fast the lens circles the fighter (the turntable), degrees per second'),
   flowTurntableDist:       num(2.75, 1.5, 5, 0.05, 'flow', 'fighter select: lens distance from the fighter, m (it has to stay inside the ropes, about 2.9 m, or they cut across him)'),
   flowTurntableElevationDeg: num(5, 0, 30, 0.5, 'flow', 'fighter select: lens elevation, degrees'),
-  flowTurntableLookY:      num(0.84, 0.4, 1.6, 0.01, 'flow', 'fighter select: look-at height, m (lower = the fighter sits higher in the frame)'),
+  flowTurntableLookY:      num(0.8, 0.4, 1.6, 0.01, 'flow', 'fighter select: look-at height, m (lower = the fighter sits higher in the frame)'),
   flowTurntableOffset:     num(0.52, 0, 1.2, 0.01, 'flow', 'fighter select on a wide screen: the look point is this far to the fighter\'s screen-right, m, so he stands left of centre and the stats panel has the right'),
   flowTurntableFov:        num(46, 25, 70, 0.5, 'flow', 'fighter select: vertical field of view, degrees (46 at 2.75 m shows 2.3 m of height: the tallest fighter, uncropped)'),
   flowTurntablePortraitFov: num(70, 30, 80, 0.5, 'flow', 'fighter select on a tall, narrow screen (a phone held upright): field of view — wider, because the stats sheet covers the bottom of the screen and he has to fit above it'),

@@ -16,16 +16,19 @@
  */
 import { chromium } from 'playwright';
 import { DEV_URL } from './devUrl.js';
-import { bootReady, until, frames } from './waits.js';
+import { bootReady, until as untilFor, frames } from './waits.js';
 import { check, done } from './check.js';
 import { installDrillBots } from './lib/drill_bots.js';
 
+// Every state wait gets three minutes: headless software GL under a parallel suite draws about a frame a second, and
+// the frame clamp makes that a quarter of a second of sim, so a wait bounded in tens of seconds is a flake.
+const until = (page, fn, arg = undefined, opts = {}) => untilFor(page, fn, arg, { ...opts, timeout: 180000 });
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
 const logs = [];
 page.on('console', m => logs.push({ type: m.type(), text: m.text() }));
 page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
-await page.goto(`${DEV_URL}/?menu=1`, { waitUntil: 'networkidle', timeout: 15_000 });
+await page.goto(`${DEV_URL}/?menu=1`, { waitUntil: 'networkidle', timeout: 60_000 });
 await bootReady(page);
 await installDrillBots(page);
 await page.evaluate(() => { window.__cfg.flowDrillRestartSeconds = 1; });
@@ -69,11 +72,11 @@ for (const d of DRILLS) {
   const panel = await page.evaluate(() => { const p = document.querySelector('#flow .drill'); return { on: p.classList.contains('on'), title: p.querySelector('.t').textContent, goal: p.querySelector('.g').textContent, head: [...p.querySelectorAll('.dc th')].map(t => t.textContent).join('|'), rows: p.querySelectorAll('.dc tr').length - 1, cells: [...p.querySelectorAll('.dc tr:nth-child(2) td')].map(t => t.textContent), clk: p.querySelector('.clk').textContent, ref: window.__ref() }; });
   check(`the panel: "${panel.title}", the goal, ${panel.rows} controls for keys / pad / touch (${panel.cells.join(' — ')})${panel.clk ? `, clock ${panel.clk}` : ''}`, panel.on && panel.goal.length > 20 && panel.head === '|Keys|Pad|Touch' && panel.rows >= 3 && panel.cells.every(c => c.length > 0) && (d.id === 'free-sparring' ? panel.clk === '' : /^\d+ s$/.test(panel.clk)), JSON.stringify(panel));
   let saw = true;
-  try { await page.waitForFunction(d.see, undefined, { timeout: 40000, polling: 'raf' }); } catch { saw = false; }
+  try { await page.waitForFunction(d.see, undefined, { timeout: 180000, polling: 'raf' }); } catch { saw = false; }
   check(`the partner ${d.partner}`, saw);
   const want = d.id === 'survive' ? 0.3 : 0.15;
   let moved = true;
-  try { await page.waitForFunction(w => window.__flow.state().drillProgress >= w || window.__flow.state().drillDone === 'Done', want, { timeout: 60000, polling: 'raf' }); } catch { moved = false; }
+  try { await page.waitForFunction(w => window.__flow.state().drillProgress >= w || window.__flow.state().drillDone === 'Done', want, { timeout: 180000, polling: 'raf' }); } catch { moved = false; }
   const end = await st();
   check(`the stat line moves for a player who does it: "${end.drillStat}" (progress ${end.drillProgress.toFixed(2)}${end.drillDone ? `, ${end.drillDone}` : ''})`, moved && end.drill === d.id && end.drillStat.length > 3, JSON.stringify(end));
 }

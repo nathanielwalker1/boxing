@@ -31,6 +31,8 @@ export interface Drill {
   /** The partner's input for a tick counted from the drill's start; null = let the normal AI drive him. */
   opponent: ((s: SimState, tick: number) => FrameInput) | null;
   setup: ((s: SimState) => void) | null;
+  /** Config the drill runs under (put back when it ends): the free-sparring partner is a bag that does not fall over. */
+  tune?: (cfg: Config) => Partial<Config>;
   /** `events` = this frame's; `acc` = the drill run's own memory. */
   metric: ((s: SimState, events: readonly SimEvent[], acc: Record<string, unknown>) => DrillMetric) | null;
 }
@@ -123,6 +125,9 @@ export const FREE_SPARRING: Drill = {
   controls: CONTROLS['free-sparring']!,
   seconds: 0,
   placement: { dist: 1.3 },
+  // A partner who never hits back loses his whole bar to six clean punches and spends the drill being counted over:
+  // here a punch takes a fifth of the health it would in a fight, so he is still standing after thirty.
+  tune: cfg => ({ healthDamagePerImpulse: cfg.healthDamagePerImpulse * 0.2 }),
   opponent: () => cloneInput(NULL_INPUT),
   setup: null,
   metric: (_s, events, acc) => {

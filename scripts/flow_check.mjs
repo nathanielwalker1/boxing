@@ -18,19 +18,22 @@ import { mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { DEV_URL } from './devUrl.js';
-import { bootReady, until, frames } from './waits.js';
+import { bootReady, until as untilFor, frames } from './waits.js';
 import { greyscaleCopy } from './greyscale.js';
 import { check, done } from './check.js';
 
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), 'output');
 mkdirSync(OUT, { recursive: true });
 
+// Every state wait gets three minutes: headless software GL under a parallel suite draws about a frame a second, and
+// the frame clamp makes that a quarter of a second of sim, so a wait bounded in tens of seconds is a flake.
+const until = (page, fn, arg = undefined, opts = {}) => untilFor(page, fn, arg, { ...opts, timeout: 180000 });
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
 const logs = [];
 page.on('console', m => logs.push({ type: m.type(), text: m.text() }));
 page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
-await page.goto(`${DEV_URL}/?menu=1`, { waitUntil: 'networkidle', timeout: 15_000 });
+await page.goto(`${DEV_URL}/?menu=1`, { waitUntil: 'networkidle', timeout: 60_000 });
 await bootReady(page);
 await page.evaluate(() => {
   const c = window.__cfg;

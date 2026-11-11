@@ -158,8 +158,7 @@ const flow = wantsFlow ? new FightFlow(document.body, ROSTER, cfg, bus, {
   skipRest: () => { skipRest = true; },
   skipReplay: () => endReplay(),
   crowd: (level, cheer) => { stage.setExcitement(level); if (cheer) stage.react('decision', 0.7); },
-  // SHOW is adding a pause call to the audio class; until it lands this is a no-op.
-  audioPaused: on => (audio as unknown as { setPaused?: (on: boolean) => void }).setPaused?.(on),
+  audioPaused: on => audio.setPaused(on),
 }, wantsTouch(params)) : null;
 
 // Inputs: side 0 is the player (InputManager → liveInput[0] each frame), side 1
@@ -480,6 +479,9 @@ function loop(nowMs: number): void {
   hud.visible = !paused && !replay && (flow === null || flow.showHud);
   hud.update(next, dt);
   if (flow) { flow.replaying = replay !== null; flow.replayDue = replayDue; flow.update(next, dt, frameEvents); }
+  // The audio's own clock and state (the crowd bed, the corner's voice): once a frame, quiet while the pause is up.
+  // (Without the flow there is no pause menu: the audio keeps whatever a test set through window.__audio.setPaused.)
+  audio.update(next, sdt, flow ? flow.isPaused : window.__audio?.paused() ?? false);
   const offLive = staged !== null || replay !== null;   // the live fight is not what is on screen
   read.update(next, offLive);
   stage.wobble = offLive ? 0 : hurtLevel(next.fighters[0]) * cfg.readHurtWobble;   // you are rocked: the lens drifts more

@@ -54,6 +54,9 @@ if (!only || only === 'desktop') {
     const c = window.__cfg;
     window.__flow.rounds(3, 12);
     c.resultsDelaySeconds = 0.5; c.flowCornerSeconds = 600; c.flowWalkSeconds = 600; c.flowStareSeconds = 600;
+    // A headless frame is up to a second: at the real 22°/s the turntable is behind him before the capture. Slowed, the
+    // captures show what a player sees in the first second — the man from the front.
+    c.flowTurntableDegPerSec = 2;
   });
   await clearLadder(page);
   await frames(page, 30);   // the title spar: let them close on each other
@@ -182,6 +185,7 @@ if (!only || only === 'phone') {
   for (const [name, viewport] of [['phone', { width: 390, height: 844 }], ['phoneland', { width: 844, height: 390 }]]) {
     const p = await open(viewport, '&touch=1', true, true);
     await installDrillBots(p);
+    await p.evaluate(() => { window.__cfg.flowTurntableDegPerSec = 2; });
     await frames(p, 16);
     await shot(p, `${name}_title`);
     await key(p, 'Enter'); await on(p, 'select');
