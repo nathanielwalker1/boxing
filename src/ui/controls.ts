@@ -39,15 +39,17 @@ const THROWS: readonly (readonly [string, string])[] = [
 const row = (cells: readonly string[], tag = 'td'): string => `<tr>${cells.map((c, i) => `<${tag}${i === 0 ? ' class="k"' : ''}>${c}</${tag}>`).join('')}</tr>`;
 
 export function controlsHtml(): string {
-  return '<div class="ctl">' +
+  // Two columns on a wide screen so all three tables are on screen at once; one column on a phone.
+  return '<div class="ctl"><div class="col">' +
     '<h3>The basics</h3>' +
     `<table class="ctl-basics">${row(['', 'Keyboard', 'Gamepad', 'Touch'], 'th')}${BASICS.map(r => row(r)).join('')}</table>` +
     '<p class="note">A <b>flick</b> is a quick tap of the stick or a direction key: push and let go straight away. Holding it walks. ' +
-    'Directions are as you see them on screen: toward him, away from him, or to either side. ' +
+    'He is always to your right: toward him is right, away is left, to the side is up or down. ' +
     'Jab and cross always use the same hand. For a hook or an uppercut, hold the stick to one side as you press to pick the hand.</p>' +
-    '<h3>Moves</h3>' +
-    `<table class="ctl-moves">${MOVES.map(r => row(r)).join('')}</table>` +
     '<h3>What each button throws</h3>' +
     `<table class="ctl-throws">${THROWS.map(r => row(r)).join('')}</table>` +
-    '</div>';
+    '</div><div class="col">' +
+    '<h3>Moves</h3>' +
+    `<table class="ctl-moves">${MOVES.map(r => row(r)).join('')}</table>` +
+    '</div></div>';
 }

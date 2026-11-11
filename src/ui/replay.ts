@@ -22,14 +22,18 @@ export class ReplayBuffer {
   clear(): void { this.frames = []; }
 
   /** `before` ticks up to the most recent knockdown and `after` ticks past it; null when there is none in memory. */
-  clipAround(before: number, after: number): { frames: ReplayFrame[]; at: number } | null {
+  /** The last `n` frames (the live fight's most recent ticks). */
+  tail(n: number): ReplayFrame[] { return this.frames.slice(-n); }
+
+  clipAround(before: number, after: number): { frames: ReplayFrame[]; at: number; pre: ReplayFrame[] } | null {
     let k = -1;
     for (let i = this.frames.length - 1; i >= 0; i--) {
       if (this.frames[i]!.events.some(e => e.type === 'knockdown')) { k = i; break; }
     }
     if (k < 0) return null;
     const from = Math.max(0, k - before), to = Math.min(this.frames.length - 1, k + after);
-    return { frames: this.frames.slice(from, to + 1), at: k - from };
+    // `pre`: up to 24 frames before the clip, for the rig to settle on (main.ts preroll).
+    return { frames: this.frames.slice(from, to + 1), at: k - from, pre: this.frames.slice(Math.max(0, from - 24), from) };
   }
 }
 
