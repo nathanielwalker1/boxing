@@ -73,7 +73,7 @@ import {
 import { canStartPunch } from '../sim';
 import { defaultStyle, type ComboStep, type StyleParams } from './style';
 
-export { defaultStyle, styleFor, styleParams, withDifficulty, DIFFICULTY, STYLE_IDS, type StyleParams, type ComboStep, type Difficulty } from './style';
+export { defaultStyle, styleFor, styleParams, withDifficulty, withReach, DIFFICULTY, STYLE_IDS, type StyleParams, type ComboStep, type Difficulty } from './style';
 export { DRILLS, type Drill } from './drills';
 
 export type AiMode = 'press' | 'probe' | 'circle' | 'hold' | 'reset';
@@ -175,6 +175,10 @@ export interface AiState {
   resting: boolean;
   /** Seconds before it may throw another stiff jab at a man walking in. */
   interceptCd: number;
+  /** Seconds since the opponent last STARTED a punch (phase 3: a combination is punches less than COVER_QUIET apart). */
+  oppQuiet: number;
+  /** Covering up through his combination at close range: seconds since it decided to (the guard is up once that passes its reaction time); -1 = not covering. */
+  coverT: number;
   /** Behind the guard: the last push at or over the flick threshold, held through the flick window so it is never a pivot or a shove by accident. */
   holdX: number; holdY: number;
   /** How many times it has used each tool. Read by tests and the bot table. */
@@ -222,7 +226,7 @@ export function createAi(side: Side, seed: number, cfg: Config, style: StylePara
     wasHurt: false,
     hurtPlan: 'none',
     hits: 0, shellT: 0,
-    wasInside: false, insideHold: false, oppRate: 0, queue: [], queueT: 0, armedOver: false, armedTold: false, armedBack: false, lastStun: 0, oppResolved: false, pushFollow: 0, resting: false, interceptCd: 0, holdX: 0, holdY: 0,
+    wasInside: false, insideHold: false, oppRate: 0, queue: [], queueT: 0, armedOver: false, armedTold: false, armedBack: false, lastStun: 0, oppResolved: false, pushFollow: 0, resting: false, interceptCd: 0, oppQuiet: 9, coverT: -1, holdX: 0, holdY: 0,
     used: { body: 0, slip: 0, roll: 0, pivot: 0, push: 0, burst: 0, feint: 0, clinch: 0, cutOff: 0 },
   };
 }
@@ -381,7 +385,10 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   a.lastProgress = me.punch.type !== null && !me.punch.resolved ? me.punch.progress : -1;
   // Rocked (sim/stun.ts) reads as stumbling both ways: it throws nothing while
   // rocked and covers; a rocked opponent is pressed for the finish.
-  const meStumbling = Math.hypot(me.stagger.x, me.stagger.z) > st.stumbleSpeed || me.hurt > 0;
+  // (Phase 3, with the tools: only a shot that really moved it — OWN_STUMBLE m/s, more than a clean cross gives —
+  // stops its hands. MEASURED: at the style's stumbleSpeed (0.6–2.5) every jab that touched it held its fire, so
+  // under a combination it could not punch at all: 16 punches started in a 28 s fight, 55 against.)
+  const meStumbling = Math.hypot(me.stagger.x, me.stagger.z) > (tools ? Math.max(st.stumbleSpeed, OWN_STUMBLE) : st.stumbleSpeed) || me.hurt > 0;
   const oppStumbling = Math.hypot(opp.stagger.x, opp.stagger.z) > st.stumbleSpeed || opp.hurt > 0;
   if (me.hurt > 0 && a.hurtPlan !== 'swing') a.blockTimer = Math.max(a.blockTimer, st.coverTime);
   // A rush (phase 2): how many punches a second the opponent has been MISSING with. (Starts alone would not do:
@@ -499,6 +506,22 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     a.pushFollow = st.pushThen === 'leave' ? 2 : 1;
     a.used.push += 1;
   } else if (tools && stunned && a.macro === null && !nowHurt && !wild && rngChance(a.rngT, st.blockCounter)) fireBack();
+  // Covering a combination (phase 3). Inside punches are quicker than its reaction — it cannot block them one at a
+  // time — so what it reads is the COMBINATION: the first one lands, the guard comes up a reaction later and stays up
+  // while he keeps throwing (punches less than COVER_QUIET apart), and when he stops it is its turn: it fires back
+  // into his recovery. Rolled once per combination at insideBlock. (Measured before: the inside-fighter bot emptied
+  // every style's health bar three times in about thirty seconds; the AI's guard was a coin flipped once on the way in.)
+  a.oppQuiet = oppStarted ? 0 : Math.min(9, a.oppQuiet + dt);
+  const close = dist < cfg.rangeInside + COVER_MARGIN;
+  if (tools && cfg.aiCoverOn && oppStarted && close && a.coverT < 0 && !nowHurt && rngChance(a.rngT, st.insideBlock * sure)) a.coverT = 0;
+  if (a.coverT >= 0) {
+    a.coverT += dt;
+    if (a.oppQuiet > COVER_QUIET || !close || nowHurt) {
+      const done = a.oppQuiet > COVER_QUIET && close && !nowHurt;
+      a.coverT = -1;
+      if (done && tools && a.macro === null && !punching && !wild && !spent && rngChance(a.rngT, st.blockCounter)) fireBack();
+    }
+  }
   // The shove is done: use the beat.
   if (a.pushFollow !== 0 && a.macro === null) {
     if (a.pushFollow === 1 && !wild) fireBack();
@@ -520,9 +543,19 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   a.oppExposed = oppExposed;
   if (a.counterReact > 0) {
     a.counterReact = Math.max(0, a.counterReact - dt);
-    if (a.counterReact === 0 && opp.vuln > 0 && !opp.down && a.blockTimer === 0 && a.mode !== 'reset') {
+    // (Phase 3, with the tools: the opening is taken from behind the guard and from a step-out too — the hands come
+    // down and it stops leaving. MEASURED: the counter style, which blocks 85% of what it reads and resets half the
+    // time, threw away nearly every opening it had decided to take; it lost all 18 fights to the legitimate bots.)
+    // (Only once his punch has been and gone: dropping the guard to counter a punch still on its way is how to be hit by it.)
+    const gone = opp.punch.type === null || opp.punch.resolved;
+    if (a.counterReact === 0 && opp.vuln > 0 && !opp.down && ((tools && gone) || (a.blockTimer === 0 && a.mode !== 'reset'))) {
+      if (tools && gone) { a.blockTimer = 0; a.shellT = 0; a.coverT = -1; if (a.mode === 'reset') { a.mode = 'probe'; a.modeTimer = st.modeMin; a.resetPending = false; } }
       a.armed = opp.vuln >= st.counterVuln ? 'cross' : 'jab';
       a.armedBody = false; a.armedOver = false; a.armedShown = true; a.armedTold = true; a.queue = [];   // a counter is thrown, never shown
+      // (Phase 3: what he left out there was a JAB — it is back before a cross arrives, and his next one stuffs it
+      // (measured: 21 of the counter style's 50 punches against the jabber). The answer to a jab is the jab, with the
+      // cross behind it.)
+      if (tools && opp.punch.type === 'jab') { a.armed = 'jab'; a.queue = [{ p: 'cross' }]; a.queueT = QUEUE_LIFE; }
       a.attackTimer = 0;
       a.counterCount += 1;
     }
@@ -610,7 +643,10 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
       // with its head instead — a roll under a head hook, a slip away from
       // the punching hand. Only while that punch is still coming.
       const p = opp.punch;
-      if (tools && a.macro === null && p.type !== null && !p.resolved && !nowHurt && !me.slip.active) {
+      // (Phase 3: only if there is TIME — the punch's tell less its own reaction leaves the slip its lead. Measured:
+      // the counter style "slipped" nine jabs a fight and dodged one; a jab is 0.11 s and it had already spent 0.18
+      // seeing it. What it cannot slip it blocks.)
+      if (tools && a.macro === null && p.type !== null && !p.resolved && !nowHurt && !me.slip.active && p.tell - st.reaction >= SLIP_LEAD - 1e-9) {
         const hand = handLateralSign(p.hand, opp.stance);   // + = the hand is on the opponent's right, which is MY left
         const r = rngFloat(a.rngT);
         const headHook = p.type === 'hook' && p.variant !== 'bodyHook';
@@ -628,9 +664,12 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // Shelled up (picked off at range): the guard stays up while it walks in, and comes down to throw once it is there.
   // Phase 2: the same behind the guard at inside range (if it decided to), and against a rush — where it also holds
   // its fire while his punch is still coming, and throws only into what he leaves.
-  const holdFire = wild && oppPunching && !opp.punch.resolved && dist <= st.engageStraight + 0.2;
+  const covering = a.coverT >= st.reaction;   // (phase 3) through his combination: up, and it stays up until he stops
+  const holdFire = (wild && oppPunching && !opp.punch.resolved && dist <= st.engageStraight + 0.2) || covering;
   // (Only where he can reach: a guard held up out of range is wind spent on nothing.)
-  const guardUp = (a.shellT > 0 && dist <= st.engageStraight + SHELL_RANGE) || (inside && a.insideHold) || (wild && dist <= st.engageStraight + 0.2);
+  // (Phase 3: and not the shell at INSIDE range unless it is covering a combination or chose to hold there — a guard
+  // kept up "until it has something to throw" with a man on its chest was a third of its time there.)
+  const guardUp = (a.shellT > 0 && dist <= st.engageStraight + SHELL_RANGE && !inside) || (inside && a.insideHold) || (wild && dist <= st.engageStraight + 0.2) || covering;
   const shelled = tools && guardUp && a.hurtPlan !== 'swing' && !punching && (holdFire || !(a.armed !== null && dist <= engageOf(a.armed, st) && dist >= nearDist(a.armed, cfg)));
   if (shelled) input.block = true;
 
@@ -784,7 +823,29 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // sim's combo window. The reset roll waits for the burst to end — the
   // step-out comes after the exchange, not after every punch.
   let pressed = false;
-  if (a.armed !== null && a.attackTimer === 0 && mode !== 'reset' && a.macro === null) {
+  // (Phase 3: stepping out is not a licence to be hit. MEASURED: the outboxer, in reset three-quarters of the time
+  // with a man on his chest, stood armed and silent for seconds at a stretch — 12 punches started in a 27 s fight,
+  // 51 against. While resetting it still throws if he is on top of it (it could not get away: fight), and a style
+  // that fights off the back foot jabs going away.)
+  // …and a straight armed for a man who is now chest to chest is the wrong punch: it waited there, armed, for as long
+  // as he stayed (measured: 2 s at 0.55 m). Smothered, it changes to the hook or the uppercut.
+  // The same for any armed punch whose band he is not in while he IS at close range (an uppercut armed for a man
+  // 2 cm too far: 12% of its time there): it takes the punch that fits where he is.
+  if (tools && a.armed !== null && a.attackTimer === 0 && a.queue.length === 0 && dist < cfg.rangeInside + RESET_FIGHT) {
+    const fits = (t: PunchType): boolean => dist <= engageOf(t, st) && dist >= nearDist(t, cfg);
+    if (!fits(a.armed)) {
+      const alt: PunchType | null = fits('hook') ? 'hook' : fits('uppercut') ? 'uppercut' : fits('jab') ? 'jab' : null;
+      if (alt !== null) {
+        a.armed = alt;
+        a.armedX = rngChance(a.rngT, 0.5) ? -1 : 1;
+        a.armedBody = false; a.armedOver = false; a.armedBack = false;
+      }
+    }
+  }
+  const crowdedOut = tools && mode === 'reset' && dist < cfg.rangeInside + RESET_FIGHT;
+  const jabOut = tools && mode === 'reset' && a.armed === 'jab' && st.backFoot > 0;
+  if (jabOut && !crowdedOut) a.armedBack = true;
+  if (a.armed !== null && a.attackTimer === 0 && (mode !== 'reset' || crowdedOut || jabOut) && a.macro === null) {
     const t = a.armed;
     const inBand = dist <= engageOf(t, st) && dist >= nearDist(t, cfg);
     if (inBand && canThrow && !input.block) {
@@ -806,6 +867,9 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
         a.used.feint += 1;
         a.throwCount += 1;   // a shown punch is a commit too (it fires a punchStart)
         a.lastThrowDist = dist;
+      } else if (bodyReady && st.hesitate > 0 && a.queue.length === 0 && a.burst === 0 && rngChance(a.rngT, st.hesitate)) {
+        // Difficulty (phase 3): set, in range — and it does not pull the trigger. It waits a beat, still armed.
+        a.attackTimer = HESITATE_T;
       } else if (bodyReady) {
         a.armedShown = true;
         input[t] = true;   // one tick high = the rising edge the sim fires on
@@ -882,6 +946,16 @@ const WILD_WINDOW = 1.5, WILD_VULN = 0.3;
 const WILD_GASSED = 0.3;
 /** The far edge of "in his jab range" for the approach slip, m. Shape. */
 const APPROACH_FAR = 1.2;
+/** Seconds a hesitation (StyleParams.hesitate) costs. Shape. */
+const HESITATE_T = 0.45;
+/** Stagger speed, m/s, above which the AI's own hands are stopped (a clean cross starts ~3, a hook ~5). Shape. */
+const OWN_STUMBLE = 4.5;
+/** While stepping out it still fights if he is within rangeInside + this, m. Shape. */
+const RESET_FIGHT = 0.1;
+/** A combination is punches started less than this many seconds apart; and how far outside rangeInside it still covers one, m. Shape. */
+const COVER_QUIET = 0.3, COVER_MARGIN = 0.12;
+/** Seconds a slip or roll needs between the decision and the punch arriving (the flick is 3 ticks, then the head has to travel). Shape. */
+const SLIP_LEAD = 0.05;
 /** A man closing faster than this (m/s) is walking in; the stiff jab is thrown this far (m) before he reaches its range. Shape. */
 const INTERCEPT_SPEED = 0.8, INTERCEPT_LEAD = 0.12;
 /** Its own stamina: below TOOL_STAMINA no optional tools; below REST_BELOW it rests until REST_UNTIL; the guard is only held up within SHELL_RANGE of its engage distance. Shape. */

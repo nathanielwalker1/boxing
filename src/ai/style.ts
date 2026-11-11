@@ -13,6 +13,7 @@
  * Plain serialisable data: no functions, no references.
  */
 import type { AiStyle, Config, FighterSpec, GuardShape, PunchType } from '../core';
+import { bodyDims } from '../core';
 
 export interface StyleParams {
   // ── Range: where it wants to be ──
@@ -116,6 +117,8 @@ export interface StyleParams {
   tiredTempo: number; tiredClinchRate: number;
   /** Odds a defensive decision (block, slip, cover, inside guard) simply is not made — difficulty. */
   mistake: number;
+  /** Odds that, set and in range, it does not pull the trigger this time and waits a beat instead — difficulty (phase 3). */
+  hesitate: number;
 
   /** The guard its fighter holds (core/styles.ts) — informational here; the sim reads the fighter's own. */
   guard: GuardShape;
@@ -173,7 +176,7 @@ export function defaultStyle(cfg: Config): StyleParams {
     tell: 'none', tellRate: 0,
     hurtSwing: 0,
     tiredTempo: 1.3, tiredClinchRate: 0,
-    mistake: 0,
+    mistake: 0, hesitate: 0,
     guard: 'high',
   };
 }
@@ -216,7 +219,9 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     blockChance: 0.4, slipShare: 0.4, rollShare: 0.1, counterChance: 0.6,
     giveGroundChance: 0.85, giveGround: 0.4, chaseDelay: 0.8,
     cutOff: 0, leadPursuit: 0, ringUse: 'circleAway', pushOffRate: 2.5, ropePivotRate: 3,
-    insideGuard: 0.5, insideBlock: 0.6, crowdClinch: 0.85, hurtClinch: 0.35, hurtSwing: 0, shellTime: 0.6,
+    // (Phase 3: hurt, he holds on — hurtClinch 0.9, was 0.35. On a chin of 52 he was rocked and finished standing:
+    // 20 of his 23 knockdowns against the inside-fighter bot were the finish.)
+    insideGuard: 0.5, insideBlock: 0.6, crowdClinch: 0.85, hurtClinch: 0.9, hurtSwing: 0, shellTime: 0.6,
     insideTempo: 0.8, blockCounter: 0.25, backFoot: 0.8, crowdPush: 0.85, pushThen: 'leave', insideClinch: 0.8, intercept: 1, interceptGap: 0.3,
     tiredTempo: 1.5, tiredClinchRate: 0.6, guard: 'long',
   },
@@ -224,17 +229,20 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
   // (a whiff, a slipped punch) with the cross and the hook behind it; feints to draw a lead. Beaten by not giving it one.
   counter: {
     standoff: 0.86, probeDist: 1.0,
-    pressWeight: 1, probeWeight: 4, circleWeight: 2, holdWeight: 3, holdMax: 1.2,
-    jabWeight: 3, crossWeight: 3, hookWeight: 2, uppercutWeight: 1, bodyRate: 0.1,
-    attackDelayMin: 1.2, attackDelayMax: 2.4, comboChance: 0.5, comboMax: 2,
-    combos: [[X, LH], [J, X], [LH, X]], comboSignature: 0.8,
-    resetChance: 0.5, hitResetChance: 0.5, burstChance: 0.3, feintChance: 0.3,
+    pressWeight: 2.5, probeWeight: 4, circleWeight: 2, holdWeight: 1.5, holdMax: 1.2,
+    // (Phase 3: he still waits, but not so long that he loses every round on work-rate — the clock was 1.2–2.4 s and
+    // he lost to all three legitimate bots on points, out-landed two to one. The jab is his score between counters.)
+    jabWeight: 6, crossWeight: 3, hookWeight: 2, uppercutWeight: 1, bodyRate: 0.1,
+    attackDelayMin: 0.4, attackDelayMax: 0.95, comboChance: 0.6, comboMax: 2,
+    combos: [[X, LH], [J, X], [LH, X], [J, J]], comboSignature: 0.8,
+    resetChance: 0.3, hitResetChance: 0.3, burstChance: 0.3, feintChance: 0.3,
     blockChance: 0.85, slipShare: 0.6, rollShare: 0.5, counterChance: 1, counterVuln: 0.4,
     giveGroundChance: 0.3, chaseDelay: 0.6,
     cutOff: 0.2, leadPursuit: 0.1, ringUse: 'centre', pushOffRate: 1.2,
-    insideGuard: 0.9, insideBlock: 0.85, crowdClinch: 0.5, hurtClinch: 0.3, hurtSwing: 0, shellTime: 1.2,
-    insideTempo: 2.2, blockCounter: 0.9, backFoot: 0.5, crowdPush: 0.6, pushThen: 'work', approachSlip: 0.7, insideClinch: 0.4, intercept: 0.7, stumbleSpeed: 0.9,
+    insideGuard: 0.9, insideBlock: 0.85, crowdClinch: 0.5, hurtClinch: 0.8, hurtSwing: 0, shellTime: 1.2,
+    insideTempo: 2.2, blockCounter: 0.9, backFoot: 0.5, crowdPush: 0.6, pushThen: 'work', approachSlip: 0.7, insideClinch: 0.4, intercept: 1, interceptGap: 0.3, stumbleSpeed: 0.9,
     wildRate: 0.8, tiredTempo: 1.2, guard: 'shell',
+    reaction: 0.13,   // the one style that reads a cross in time to slip it (tell 0.20 s; a slip needs 0.06)
   },
   // SWARMER — peek-a-boo, head on your chest. Comes in under the jab bobbing, lives inside, throws short hooks and
   // uppercuts in bunches, half of them to the body. Beaten by the jab and the feet, and by the uppercut as he comes.
@@ -255,22 +263,25 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
   // SLUGGER — hands low, feet planted, one punch. Slow, throws heavy singles and the overhand, dips before the big
   // one (the tell), swings back when hurt. Beaten by making him miss and never standing in front of him.
   slugger: {
-    standoff: 0.8, probeDist: 0.98, speed: 0.75,
-    pressWeight: 4, probeWeight: 2, circleWeight: 0.5, holdWeight: 3,
+    // (Phase 3: he comes forward and throws from the edge of his own reach — engageStraight 1.0, was the default
+    // 0.9 — through whatever touches him (interruptPoise). Standing off at 0.9 behind a 1.9 s clock he started 21
+    // punches in a three-round fight against a jabber and lost every one of them on points.)
+    standoff: 0.8, probeDist: 0.98, engageStraight: 0.95, speed: 0.9,
+    pressWeight: 6, probeWeight: 2, circleWeight: 0.5, holdWeight: 1,
     jabWeight: 1.5, crossWeight: 4, hookWeight: 4, uppercutWeight: 2.5, bodyRate: 0.15,
-    attackDelayMin: 0.9, attackDelayMax: 1.9, comboChance: 0.35, comboMax: 2,
+    attackDelayMin: 0.75, attackDelayMax: 1.5, comboChance: 0.35, comboMax: 2,
     combos: [[X, LH], [LH, X], [J, X]], comboSignature: 0.7,
     resetChance: 0.15, hitResetChance: 0.1, burstChance: 0, feintChance: 0.02,
     blockChance: 0.25, slipShare: 0.1, rollShare: 0.1, counterChance: 0.7,
     giveGroundChance: 0.1, chaseDelay: 0.3,
-    cutOff: 0.4, leadPursuit: 0.2, ringUse: 'centre', pushOffRate: 0.3,
+    cutOff: 0.8, leadPursuit: 0.45, ringUse: 'cutOff', pushOffRate: 0.3,
     insideGuard: 0.35, insideBlock: 0.4, crowdClinch: 0.3, hurtClinch: 0.15, hurtSwing: 0.75, shellTime: 0.5,
-    insideTempo: 1.5, blockCounter: 0.5, backFoot: 0.1, insideClinch: 0.3, intercept: 0.6, interceptWith: 'cross', stumbleSpeed: 2.5,
+    insideTempo: 2, blockCounter: 0.7, backFoot: 0.1, insideClinch: 0.3, intercept: 0.6, interceptGap: 0.7, interceptWith: 'cross', stumbleSpeed: 2.5,
     overhandRate: 0.4, tell: 'dip', tellRate: 0.7, tiredTempo: 1.8, guard: 'low',
   },
 };
 
-/** How hard the AI is, as data: scales on a style. Medium is the style as written. */
+/** How hard the AI is, as data: scales on a style. A scale of 1 is the style as written. */
 export interface Difficulty {
   id: 'easy' | 'medium' | 'hard';
   /** × its reaction time. */
@@ -285,11 +296,18 @@ export interface Difficulty {
   combo: number;
   /** Odds a defensive decision is simply not made. */
   mistake: number;
+  /** × the answers it gives without waiting for its clock: the stiff jab at a man walking in, the reply off the guard, the shove under fire (capped at 1). */
+  offence: number;
+  /** Odds that, set and in range, it does not throw and waits a beat instead. */
+  hesitate: number;
 }
 export const DIFFICULTY: readonly Difficulty[] = [
-  { id: 'easy', reaction: 1.4, defence: 0.6, counter: 0.5, tempo: 1.4, combo: 0.6, mistake: 0.25 },
-  { id: 'medium', reaction: 1, defence: 1, counter: 1, tempo: 1, combo: 1, mistake: 0 },
-  { id: 'hard', reaction: 0.8, defence: 1.25, counter: 1.3, tempo: 0.8, combo: 1.2, mistake: 0 },
+  // (Phase 3, measured on the roster bodies. The first three scales — reaction, defence, tempo — barely moved the
+  // matrix: easy 57%, medium 57%, hard 54% for the legitimate bots. What decides a fight is how often the AI throws
+  // when it could, so that is what difficulty now turns: hesitate, and the answers it gives off its clock.)
+  { id: 'easy', reaction: 1.5, defence: 0.5, counter: 0.4, tempo: 1.8, combo: 0.5, mistake: 0.35, offence: 0.35, hesitate: 0.65 },
+  { id: 'medium', reaction: 1.15, defence: 0.85, counter: 0.8, tempo: 1.25, combo: 0.9, mistake: 0.12, offence: 0.8, hesitate: 0.2 },
+  { id: 'hard', reaction: 0.85, defence: 1.15, counter: 1.2, tempo: 0.8, combo: 1.15, mistake: 0, offence: 1.3, hesitate: 0 },
 ];
 
 /** A style with a difficulty applied. */
@@ -303,7 +321,8 @@ export function withDifficulty(st: StyleParams, d: Difficulty): StyleParams {
     counterChance: cap(st.counterChance * d.counter),
     attackDelayMin: st.attackDelayMin * d.tempo, attackDelayMax: st.attackDelayMax * d.tempo,
     comboChance: cap(st.comboChance * d.combo),
-    mistake: d.mistake,
+    intercept: cap(st.intercept * d.offence), blockCounter: cap(st.blockCounter * d.offence), crowdPush: cap(st.crowdPush * d.offence),
+    mistake: d.mistake, hesitate: d.hesitate,
   };
 }
 
@@ -317,8 +336,36 @@ export function styleParams(id: AiStyle, cfg: Config, difficulty: number = cfg.a
  * The AI style for a fighter: his spec's style at the configured (or given)
  * difficulty. The host calls `createAi(side, seed, cfg, styleFor(spec, cfg))`.
  */
-export function styleFor(spec: Pick<FighterSpec, 'style'>, cfg: Config, difficulty: number = cfg.aiDifficulty): StyleParams {
-  return styleParams(spec.style, cfg, difficulty);
+export function styleFor(spec: Pick<FighterSpec, 'style'> & Partial<FighterSpec>, cfg: Config, difficulty: number = cfg.aiDifficulty): StyleParams {
+  const st = styleParams(spec.style, cfg, difficulty);
+  return spec.heightM !== undefined && spec.reachM !== undefined && spec.massKg !== undefined ? withReach(st, spec as FighterSpec, cfg) : st;
+}
+
+/**
+ * A style on a body (phase 3): the distances in a StyleParams are written for
+ * the reference arm (aiReachRefArm — blue's, the body the AI always had). On
+ * another body every range it holds or commits from is scaled by how far its
+ * punches actually reach: measured over the roster, a jab's longest landing
+ * distance moves aiReachPerArm × the arm-length difference (the 1.63 m man's
+ * jab lands to 0.86 m, the 1.98 m man's to 1.20). Without it the short man
+ * throws from where he cannot reach and the tall man stands inside his own jab.
+ */
+const SHORT_HOOK = 0.92;   // the least a hook's or uppercut's range shrinks to on a short arm (shape: see below)
+export function withReach(st: StyleParams, spec: FighterSpec, cfg: Config): StyleParams {
+  const b = bodyDims(spec, cfg);
+  // (× aiReachEager: the written distances sit well inside the reference arm's real reach — 0.9 m against a jab that
+  // lands to 1.13 — and measured over the matrix the AI does better the earlier it throws at a man coming in.)
+  const q = Math.max(0.6, Math.min(1.4, (1 + cfg.aiReachPerArm * (b.upperArm + b.forearm - cfg.aiReachRefArm)) * cfg.aiReachEager));
+  return {
+    ...st,
+    // (Where it STANDS only grows with the arm: measured, a shorter man made to stand closer — 0.72 → 0.65 m, inside
+    // rangeInside — lost every fight to the inside-fighter bot; he steps in to throw instead.)
+    standoff: st.standoff * Math.max(1, q), probeDist: st.probeDist * q, resetDist: st.resetDist * q,
+    // (Hooks and uppercuts are thrown at bodies that cannot come closer than chest to chest, so their ranges shrink
+    // far less than the arm does: measured, the 1.63 m man's hook lands to 0.75 m and his uppercut to 0.55, against
+    // 0.84 / 0.65 on the reference arm. Scaled by the arm alone he never came close enough to throw either.)
+    engageStraight: st.engageStraight * q, engageHook: st.engageHook * Math.max(q, SHORT_HOOK), engageUppercut: st.engageUppercut * Math.max(q, SHORT_HOOK),
+  };
 }
 
 export const STYLE_IDS: readonly AiStyle[] = ['pressure', 'outboxer', 'counter', 'swarmer', 'slugger'];
