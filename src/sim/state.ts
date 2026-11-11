@@ -37,7 +37,7 @@
  *   moveHist[30..33] the body pose carried into the chain: torso twist, lean.fwd, lean.lat, crouch at the chained start
  *   moveHist[34] what opened the punish window: 0 none, 1 a SLIP (the only source that makes a landing a COUNTER), 2 a perfect block
  */
-import type { FighterState, FrameInput, GloveState, ReactionState, SimState, Spring1, Spring3, Vec3 } from '../core';
+import type { FighterState, FrameInput, GloveState, Hand, PunchState, ReactionState, SimState, SlipState, Spring1, Spring3, Vec3 } from '../core';
 import { rngClone } from '../core';
 
 const HIST_PREV_MASK = 0;
@@ -122,10 +122,10 @@ export function regenDelay(f: FighterState): number { return f.moveHist[HIST_REG
 export function setRegenDelay(f: FighterState, t: number): void { f.moveHist[HIST_REGEN_DELAY] = t; }
 
 /** The flick-vs-hold detector's memory of the current stick push (slip.ts). */
-export interface PushState { t: number; dir: -1 | 0 | 1 | 2; hold: boolean }
+export interface PushState { t: number; dir: -1 | 0 | 1 | 2 | 3; hold: boolean }   // 3 = forward (overhaul: the push-off and the forward burst read it)
 export function pushState(f: FighterState): PushState {
   const d = f.moveHist[HIST_PUSH_DIR] ?? 0;
-  return { t: f.moveHist[HIST_PUSH_T] ?? 0, dir: d === 2 ? 2 : d < 0 ? -1 : d > 0 ? 1 : 0, hold: (f.moveHist[HIST_PUSH_HOLD] ?? 0) !== 0 };
+  return { t: f.moveHist[HIST_PUSH_T] ?? 0, dir: d === 3 ? 3 : d === 2 ? 2 : d < 0 ? -1 : d > 0 ? 1 : 0, hold: (f.moveHist[HIST_PUSH_HOLD] ?? 0) !== 0 };
 }
 export function setPushState(f: FighterState, p: PushState): void {
   f.moveHist[HIST_PUSH_T] = p.t; f.moveHist[HIST_PUSH_DIR] = p.dir; f.moveHist[HIST_PUSH_HOLD] = p.hold ? 1 : 0;
@@ -151,6 +151,15 @@ export function healthCap(f: FighterState): number { const v = f.moveHist[HIST_H
 export function setHealthCap(f: FighterState, c: number): void { f.moveHist[HIST_HEALTH_CAP] = c; }
 export function healthRegenDelay(f: FighterState): number { return f.moveHist[HIST_HEALTH_DELAY] ?? 0; }
 export function setHealthRegenDelay(f: FighterState, t: number): void { f.moveHist[HIST_HEALTH_DELAY] = t; }
+
+/** No punch in flight (every punch field at rest). */
+export function idlePunch(hand: Hand): PunchState {
+  return { type: null, hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null, variant: 'jab', tell: 0, timeMult: 1, powerMult: 1, moveScale: 1, loaded: false, feint: false };
+}
+/** The head at home. */
+export function idleSlip(): SlipState {
+  return { active: false, dir: 0, t: 0, offset: 0, kind: 'slip', from: 0, chain: 0, dip: 0 };
+}
 
 const v3c = (a: Vec3): Vec3 => ({ x: a.x, y: a.y, z: a.z });
 const s3c = (s: Spring3): Spring3 => ({ x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz });
@@ -188,6 +197,19 @@ export function cloneFighter(f: FighterState): FighterState {
     knockdowns: f.knockdowns,
     hurt: f.hurt,
     hurtMax: f.hurtMax,
+    level: f.level, riseT: f.riseT, range: f.range, posture: f.posture,
+    stillT: f.stillT, flat: f.flat, ropes: f.ropes, cornered: f.cornered, angle: f.angle, turned: f.turned,
+    hop: { x: f.hop.x, z: f.hop.z }, burstT: f.burstT, burstCd: f.burstCd,
+    pivot: { ...f.pivot },
+    tap: { ...f.tap },
+    guardHp: f.guardHp, guardBroken: f.guardBroken, blockStun: f.blockStun, guardDroop: f.guardDroop,
+    fatigue: f.fatigue, punchSlow: f.punchSlow, staminaCap: f.staminaCap, wear: f.wear, guardRest: f.guardRest,
+    damage: { ...f.damage },
+    hurtKind: f.hurtKind, buckle: f.buckle, liverT: f.liverT, liverMag: f.liverMag,
+    clinch: { ...f.clinch },
+    pushCd: f.pushCd,
+    getUp: { ...f.getUp },
+    loaded: f.loaded, loadedT: f.loadedT, combo: f.combo, comboT: f.comboT,
     headBox: { ...f.headBox },
     bodyBox: { a: v3c(f.bodyBox.a), b: v3c(f.bodyBox.b), r: f.bodyBox.r },
     arms: [{ shoulder: v3c(f.arms[0].shoulder), elbow: v3c(f.arms[0].elbow) }, { shoulder: v3c(f.arms[1].shoulder), elbow: v3c(f.arms[1].elbow) }],

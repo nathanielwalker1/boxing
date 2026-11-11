@@ -12,7 +12,8 @@ import type { Config, FighterState, PunchType, Vec3 } from '../core';
 import { clamp, frameOf, localToWorld, stepSpring1, stepSpring3 } from '../core';
 import { PUNCHES } from './punches';
 import { reactionSnap, setReactionSnap } from './state';
-import { slipBack, slipLateral, slipShape } from './slip';
+import { slipBack, slipHeadDip, slipLateral, slipShape } from './slip';
+import { stanceDrop } from './footing';
 
 /**
  * Kick the defender's springs. `dir` is the unit impulse direction, `mag` in
@@ -104,7 +105,8 @@ export function computeBoxes(f: FighterState, cfg: Config): void {
   // The body sits down through a punch's dip, a hit (the legs give, `sink`)
   // and a lateral slip (slipCrouch — the whole body goes under the punch,
   // not just the head; 2026-09-19). The hips carry it, so the knees bend.
-  const c = f.crouch + r.sink.x + (f.slip.dir === -1 || f.slip.dir === 1 ? cfg.slipCrouch * slipShape(f, cfg) : 0);
+  // Overhaul: the held level, the inside posture and the buckle are in stanceDrop — real height.
+  const c = stanceDrop(f, cfg) + r.sink.x + (f.slip.dir === -1 || f.slip.dir === 1 ? cfg.slipCrouch * slipShape(f, cfg) : 0);
   // The weight transfer moves the BODY, not just the drawing (2026-09-16):
   // head and shoulders go forward by lean.fwd × punchLeanShift (back through
   // the load), the hips by half. So a punch reaches further and the head is
@@ -115,7 +117,7 @@ export function computeBoxes(f: FighterState, cfg: Config): void {
   // takes the head straight back. Both bend at the waist: shoulders by
   // slipShoulderFrac of the head's move, hips not at all.
   const back = slipBack(f);
-  const dip = f.slip.dir !== 0 && f.slip.dir !== 2 ? cfg.slipDip * slipShape(f, cfg) : 0;
+  const dip = slipHeadDip(f, cfg);   // a slip's dip, or the roll's U
   const head = localToWorld(f.pos, fr, shift - back, b.headY - c - dip, slipLat);
   f.headBox.x = head.x + r.torso.x + r.head.x;
   f.headBox.y = head.y + r.torso.y + r.head.y;

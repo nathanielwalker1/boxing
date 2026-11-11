@@ -43,9 +43,14 @@ console.log('\n=== 1. Stamina economy ===');
 {
   const { s } = run(fresh(cfg, FAR), 1, () => [inp({ jab: true }), NONE]);
   check('throwing costs staminaPunchCost on the start tick', near(s.fighters[0].stamina, 1 - cfg.staminaPunchCost, 1e-9), `${s.fighters[0].stamina}`);
-  const { s: mid } = run(s, 6);   // still in the jab (~14 ticks)
-  const { s: s2 } = run(mid, 40);
-  check('…and regen does not run while the punch is in flight, only after', mid.fighters[0].punch.type !== null && near(mid.fighters[0].stamina, s.fighters[0].stamina, 1e-12) && s2.fighters[0].stamina > s.fighters[0].stamina, `${mid.fighters[0].stamina.toFixed(3)} in flight, ${s2.fighters[0].stamina.toFixed(3)} after`);
+  const { s: mid } = run(s, 4);   // still in the jab's flight (it resolves on tick 7 of ~14)
+  const { s: missedAt } = run(mid, 4);
+  const { s: s2 } = run(missedAt, 40);
+  check('…and regen does not run while the punch is in flight, only after', mid.fighters[0].punch.type !== null && near(mid.fighters[0].stamina, s.fighters[0].stamina, 1e-12) && s2.fighters[0].stamina > missedAt.fighters[0].stamina, `${mid.fighters[0].stamina.toFixed(3)} in flight, ${s2.fighters[0].stamina.toFixed(3)} after`);
+  // Overhaul 2026-11-11 (missing costs more than landing): the miss itself takes staminaWhiffCost more and wears the stamina ceiling.
+  check('a MISS costs staminaWhiffCost on top and wears the stamina ceiling by whiffCapLoss', near(missedAt.fighters[0].stamina, 1 - cfg.staminaPunchCost - cfg.staminaWhiffCost, 1e-9) && near(missedAt.fighters[0].wear, cfg.whiffCapLoss, 1e-12) && near(s2.fighters[0].staminaCap, 1 - cfg.whiffCapLoss, 1e-9), `stamina ${missedAt.fighters[0].stamina.toFixed(3)}, cap ${s2.fighters[0].staminaCap.toFixed(4)}`);
+  const landed = run(fresh(), 9, i => [inp({ jab: i === 0 }), NONE]);
+  check('a clean LAND gives staminaLandRefund back', first(landed.evs, 'punchLand') && near(landed.s.fighters[0].stamina, 1 - cfg.staminaPunchCost + cfg.staminaLandRefund, 1e-9), `${landed.s.fighters[0].stamina.toFixed(4)}`);
 }
 {
   const { s } = run(fresh(cfg, FAR), 60, () => [inp({ block: true }), NONE]);
@@ -92,7 +97,12 @@ console.log('\n=== 2. Getting hit ===');
   const b0 = fresh();
   const blocked = run(b0, 40, i => [inp({ jab: i === 0 }), inp({ block: true })]);
   const hb = first(blocked.evs, 'hurt'), db = blocked.s.fighters[1];
-  check('a blocked hit costs less health — blockReduction already cut the impulse', hb && 1 - db.health < 1 - d.health && near(1 - db.health, v3len(hb.impulse) * cfg.healthDamagePerImpulse, 1e-9), `${(1 - db.health).toFixed(4)} vs ${(1 - d.health).toFixed(4)}`);
+  // Overhaul 2026-11-11 (chip is for heavy shots): a blocked JAB takes no health at all; a blocked CROSS takes the cut impulse's worth.
+  check('a blocked jab costs no health (a light shot on the guard)', hb && db.health === 1, `${(1 - db.health).toFixed(4)}`);
+  const cleanX = run(fresh(), 40, i => [inp({ cross: i === 0 }), NONE]).s.fighters[1];
+  const blockedX = run(fresh(), 40, i => [inp({ cross: i === 0 }), inp({ block: true })]);
+  const hx = first(blockedX.evs, 'hurt'), dx = blockedX.s.fighters[1];
+  check('a blocked cross costs less health — blockReduction already cut the impulse', hx && 1 - dx.health > 0 && 1 - dx.health < 1 - cleanX.health && near(1 - dx.health, v3len(hx.impulse) * cfg.healthDamagePerImpulse, 1e-9), `${(1 - dx.health).toFixed(4)} vs ${(1 - cleanX.health).toFixed(4)}`);
   const guardDrain = cfg.staminaBlockDrain * (blocked.s.time - b0.time);   // game time: hit-stop slows the clock
   check('…and less stamina (chip × staminaBlockedHitMult, plus the guard\'s own drain)', near(1 - db.stamina, v3len(hb.impulse) * cfg.staminaHitCost * cfg.staminaBlockedHitMult + guardDrain, 1e-6), `${(1 - db.stamina).toFixed(4)}`);
 

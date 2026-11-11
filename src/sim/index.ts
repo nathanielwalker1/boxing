@@ -14,7 +14,7 @@
  *   → rest timer → clock / hit-stop.
  */
 import {
-  NULL_INPUT, SIM_DT, restFighterState, seedRng,
+  NULL_INPUT, SIM_DT, restFighterState, seedRng, v2dist,
   type Config, type FighterSpec, type FrameInput, type PunchType, type Side, type SimEvent, type SimState,
 } from '../core';
 import { cloneState, initialMoveHist } from './state';
@@ -24,14 +24,20 @@ import { computeBoxes, stepReaction } from './reaction';
 import { integrateGloves, settleContacts, settleGloves, stepGloves } from './gloves';
 import { stepArms } from './arms';
 import { stepCount, stepStamina } from './resources';
-import { stepSlip } from './slip';
+import { stepSlip, type FlickRequest } from './slip';
 import { stepVulnerability } from './vulnerability';
-import { stepStun } from './stun';
+import { stepLiver, stepStun } from './stun';
 import { cornerOf, endRound, startRound, stepBetween } from './round';
+import { stepFooting } from './footing';
+import { stepClinch } from './clinch';
 
 export { healthCap, PUNISH_SLIP, punishSource } from './state';
 export { canStartPunch } from './combat';
-export { stunThreshold, hurtLevel } from './stun';
+export { stunThreshold, bodyThreshold, hurtLevel } from './stun';
+export { VARIANTS, VARIANT_NAMES, pickVariant } from './variants';
+export { stanceDrop, rangeBand, bodyWear, angleExposure } from './footing';
+export { punchReach, probe as gradeProbe } from './grade';
+export { getUpPhaseAt } from './resources';
 
 const SIDES: [Side, Side] = [0, 1];
 
@@ -73,9 +79,24 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
 
   // Slip before actions: the block reads this tick's window, so it comes up
   // on the very tick the window closes; the flick reads the held block level.
-  for (const side of SIDES) stepSlip(s.fighters[side], side, ins[side], cfg, dt, events);
+  // Overhaul: a flick may also be a pivot, a burst (both started in slip.ts /
+  // footing.ts) or a push-off, which needs the other fighter — it is raised
+  // as a request and resolved for the pair in stepClinch, with the tie-up.
+  const reqs: [FlickRequest, FlickRequest] = [{ push: false }, { push: false }];
+  const nEv = events.length;
+  for (const side of SIDES) stepSlip(s.fighters[side], side, ins[side], cfg, dt, events, reqs[side]);
+  // Pivoted on: an opponent in range is slow to turn for a beat (his feet have to reset).
+  for (let i = nEv; i < events.length; i++) {
+    const e = events[i]!;
+    if (e.type !== 'pivot') continue;
+    const o = s.fighters[e.side === 0 ? 1 : 0];
+    if (v2dist(s.fighters[e.side].pos, o.pos) <= cfg.pivotRange) o.turned = Math.max(o.turned, cfg.pivotTurnLag);
+  }
   for (const side of SIDES) stepActions(s.fighters[side], side, ins[side], cfg, dt, events);
+  if (fighting) stepClinch(s, ins, reqs, cfg, dt, events);
   for (const side of SIDES) stepStamina(s.fighters[side], cfg, dt);
+  // Footing: level, range and posture, flat-footed, ropes, the angle, fatigue — derived before anything moves.
+  for (const side of SIDES) stepFooting(s.fighters[side], s.fighters[side === 0 ? 1 : 0], ins[side], cfg, dt);
   for (const side of SIDES) stepLocomotion(s.fighters[side], ins[side], cfg, dt);
   resolveSeparation(s.fighters[0], s.fighters[1], cfg);
   stepFacing(s.fighters[0], s.fighters[1], cfg, dt);
@@ -89,9 +110,11 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     // Exposure is read off this tick's punch progress, so the hit test below
     // sees the same number a readout would show for this tick. The hurt
     // state ticks first so a cleared one no longer holds the exposure.
-    stepStun(f, dt);
+    stepStun(f, dt, cfg);
     stepVulnerability(f, cfg, dt);
   }
+  // The liver fuse: a clean liver shot buckles him a beat later (or puts him down).
+  if (fighting) for (const side of SIDES) stepLiver(s, side, cfg, dt, events);
   for (const side of SIDES) { stepReaction(s.fighters[side], cfg, dt); computeBoxes(s.fighters[side], cfg); }
   // Glove targets, then the springs integrated with the contacts (head,
   // body, arms, gloves) resolved inside each sub-step; the arm joints the

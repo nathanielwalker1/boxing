@@ -54,7 +54,8 @@ for (const [name, move] of [['forward', { x: 0, y: 1 }], ['back', { x: 0, y: -1 
   let tiredTop = 0, tiredEarly = 0, freshEarly = 0;
   { let s = fresh(); for (let i = 0; i < 6; i++) { s = sim.step(s, [inp({ move: { x: 0, y: 1 } }), NONE], cfg).state; } freshEarly = v2len(s.fighters[0].vel); }
   // (noRegen so the bar stays empty for the whole walk.)
-  { let s = gassed(); for (let i = 0; i < 60; i++) { s = sim.step(s, [inp({ move: { x: 0, y: 1 } }), NONE], noRegen).state; tiredTop = Math.max(tiredTop, v2len(s.fighters[0].vel)); if (i === 5) tiredEarly = v2len(s.fighters[0].vel); } }
+  // (Overhaul 2026-11-11: a gassed fighter is also flat-footed — a slower push-off — so top speed takes ~2 s to reach, not 1.)
+  { let s = gassed(); for (let i = 0; i < 150; i++) { s = sim.step(s, [inp({ move: { x: 0, y: 1 } }), NONE], noRegen).state; tiredTop = Math.max(tiredTop, v2len(s.fighters[0].vel)); if (i === 5) tiredEarly = v2len(s.fighters[0].vel); } }
   check('at zero stamina top speed is moveSpeed × moveTiredScale', near(tiredTop, cfg.moveSpeed * cfg.moveTiredScale, 0.03), `${tiredTop.toFixed(3)} vs ${(cfg.moveSpeed * cfg.moveTiredScale).toFixed(3)}`);
   check('…and the push-off is slower too', tiredEarly < freshEarly * cfg.moveTiredScale * 1.15, `${tiredEarly.toFixed(3)} vs fresh ${freshEarly.toFixed(3)} after 6 ticks`);
   check('strafe right moves along the fighter\'s right (+z when facing +x)', s.fighters[0].pos.z > 0.5, `${s.fighters[0].pos.z.toFixed(3)}`);

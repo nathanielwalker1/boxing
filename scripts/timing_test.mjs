@@ -87,7 +87,8 @@ for (const t of TYPES) {
   const peakLeanMoving = dir => { let st = fresh(); for (let i = 0; i < 12; i++) st = sim.step(st, [inp({ move: { x: 0, y: dir } }), NONE], cfg).state; let pk = 0; for (let i = 0; i < 40; i++) { st = sim.step(st, [inp({ cross: i === 0, move: { x: 0, y: dir } }), NONE], cfg).state; pk = Math.max(pk, st.fighters[0].lean.fwd); } return pk; };
   const fwdLean = peakLeanMoving(1), backLean = peakLeanMoving(-1);
   check('a cross thrown advancing leans further than a standing one (the lunge)', fwdLean > peakLean * 1.15, `${fwdLean.toFixed(3)} vs ${peakLean.toFixed(3)}`);
-  check('…and one thrown backing off leans less (the flicker)', backLean < peakLean * 0.85, `${backLean.toFixed(3)} vs ${peakLean.toFixed(3)}`);
+  // (Overhaul 2026-11-11: a cross plants the feet (crossMove), so the backward speed it leans against bleeds off through the wind-up: 0.9, was 0.85.)
+  check('…and one thrown backing off leans less (the flicker)', backLean < peakLean * 0.9, `${backLean.toFixed(3)} vs ${peakLean.toFixed(3)}`);
   check('torso twist peaks at the cross\'s turn', near(peakTwist, PUNCHES.cross.turn, 0.1), `${peakTwist.toFixed(3)}`);
   check('lean, sway, twist and crouch are back to zero after the punch', s.fighters[0].lean.fwd === 0 && s.fighters[0].lean.lat === 0 && s.fighters[0].torsoTwist === 0 && s.fighters[0].crouch === 0);
   let h = fresh(), peakHook = 0, hookSway = 0;

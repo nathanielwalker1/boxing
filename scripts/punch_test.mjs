@@ -169,9 +169,12 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
   // forward — one tick, so this is the lunge and not a walk — closes to range and lands.
   const noStep = { ...cfg, punchStepIn: 0 };
   const stepIn = i => [inp({ jab: i === 0, move: { x: 0, y: i === 0 ? 1 : 0 } }), NONE];
-  const stood = outcome(run(fresh(1.15), 40, stepIn, noStep).evs);
-  const lunged = outcome(run(fresh(1.15), 40, stepIn).evs);
-  check('a one-tick stick push at the press does not reach 1.15 m without the step-in', stood?.type === 'punchWhiff', stood?.type);
+  // (Overhaul 2026-11-11: from 1.10 m, not 1.15 — the lunge from 1.15 arrives on the very end of the arm, which is now
+  // graded GLANCING; from 1.10 it lands clean. The standing jab whiffs from either.)
+  const stood = outcome(run(fresh(1.10), 40, stepIn, noStep).evs);
+  const lunged = outcome(run(fresh(1.10), 40, stepIn).evs);
+  check('…and it is thrown as the STEP JAB variant', lunged?.variant === 'stepJab', lunged?.variant);
+  check('a one-tick stick push at the press does not reach 1.10 m without the step-in', stood?.type === 'punchWhiff', stood?.type);
   check('with the step-in the same jab lunges into range and lands', lunged?.type === 'punchLand', lunged?.type);
   check('…harder than a standing jab (the lunge is momentum)', lunged?.power > standing?.power * 1.05, `${lunged?.power?.toFixed(3)} vs ${standing?.power?.toFixed(3)}`);
   // Context (2026-09-16): hit while backing off = rolling with it — less impulse, but a longer stumble.
@@ -218,8 +221,15 @@ function reachOf(type, moveX = 0) {
   const hookMid = outcome(run(fresh(0.7), 40, tapWith('hook', -1)).evs);
   const hookClose = outcome(run(fresh(CLOSE), 40, tapWith('hook', -1)).evs);
   check('hook inside smotherDist → punchLand (hooks work at close range)', hookClose?.type === 'punchLand', hookClose?.type);
-  check('…at FULL power: no close-range ramp on a hook', near(hookClose?.power, hookMid?.power, 0.02), `${hookClose?.power?.toFixed(3)} vs ${hookMid?.power?.toFixed(3)} at 0.7 m`);
-  const upClose = outcome(run(fresh(CLOSE), 40, tapWith('uppercut', 1)).evs);
+  // Overhaul 2026-11-11: inside range the hook button throws the SHOVEL HOOK (compact, shovelHookPower of a hook) and the
+  // uppercut button the INSIDE UPPERCUT. Still no close-range ramp: the only loss is the variant's own weight.
+  check('…as the shovel hook, at its own full power: no close-range ramp on a hook', hookClose?.variant === 'shovelHook' && near(hookClose?.power, hookMid?.power * cfg.shovelHookPower, 0.02), `${hookClose?.variant} ${hookClose?.power?.toFixed(3)} vs ${hookMid?.power?.toFixed(3)} at 0.7 m`);
+  const baseOnly = { ...cfg, variantsOn: false };
+  const hookCloseBase = outcome(run(fresh(CLOSE), 40, tapWith('hook', -1), baseOnly).evs);
+  check('…and with variants off the base hook lands at FULL power at close range', near(hookCloseBase?.power, hookMid?.power, 0.02), `${hookCloseBase?.power?.toFixed(3)}`);
+  const upCloseVariant = outcome(run(fresh(CLOSE), 40, tapWith('uppercut', 1)).evs);
+  check('an uppercut at close range is the inside uppercut', upCloseVariant?.variant === 'insideUppercut', upCloseVariant?.variant);
+  const upClose = outcome(run(fresh(CLOSE), 40, tapWith('uppercut', 1), baseOnly).evs);   // the base punch, for the ordering below
   check('uppercut inside smotherDist → punchLand (locked spec)', upClose?.type === 'punchLand', upClose?.type);
   check('…on the head, with the rear hand', upClose?.part === 'head' && upClose?.hand === 'rear', `${upClose?.part} ${upClose?.hand}`);
   const hookAtMid = outcome(run(fresh(0.75), 40, tapWith('hook', -1)).evs);

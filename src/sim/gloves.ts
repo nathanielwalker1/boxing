@@ -15,6 +15,8 @@ import { slipBack, slipLateral } from './slip';
 import { setTargetCut, setTouchedBlock } from './state';
 import { stepArms } from './arms';
 import { hurtLevel } from './stun';
+import { VARIANTS } from './variants';
+import { stanceDrop } from './footing';
 
 const HANDS: [Hand, Hand] = ['lead', 'rear'];
 /**
@@ -42,14 +44,16 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config): { pose: LocalPos
       // contactSolid 0, where it is all that stops the fist floating inside.
       const rt = (p.progress * ph.total - ph.cock - ph.extend) / ph.recover;
       const contact = cfg.contactSolid <= 0 && p.contact && p.phase === 'recover' && rt < ph.hold ? p.contact : null;
-      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg, f.torsoTwist), kMul, contact, guard: false };
+      return { pose: punchLocal(f.body, f.stance, def, hand, p.progress * ph.total, ph, cfg, f.torsoTwist, VARIANTS[p.variant]), kMul, contact, guard: false };
     }
   }
   if (f.block) return { pose: blockLocal(f.body, hand, f.stance), kMul: 1, contact: null, guard: true };
   const g = guardLocal(f.body, hand, f.stance);
   // Rocked: the resting guard sags by stunGuardDrop × how rocked (sim/stun.ts) — the chin is open.
-  const sag = f.hurt > 0 ? cfg.stunGuardDrop * hurtLevel(f) : 0;
-  return { pose: sag > 0 ? { fwd: g.fwd, up: g.up - sag, lat: g.lat } : g, kMul: 1, contact: null, guard: true };
+  // Overhaul: it also hangs by guardDroop (fatigue, body wear, winded) and, through a guard break, is knocked down and apart.
+  const broken = f.guardBroken > 0 ? cfg.guardBreakDrop : 0;
+  const sag = (f.hurt > 0 && f.hurtKind !== 'body' ? cfg.stunGuardDrop * hurtLevel(f) : 0) + f.guardDroop + broken;
+  return { pose: sag > 0 ? { fwd: g.fwd, up: g.up - sag, lat: g.lat + Math.sign(g.lat) * broken * 0.5 } : g, kMul: 1, contact: null, guard: true };
 }
 
 /** Is the glove-centre point `p` inside `other`'s head, body or upper arms (the solid parts), inflated by the glove less its give? */
@@ -135,7 +139,7 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     // …and forward with the weight transfer (the shoulders move; computeBoxes
     // moves the body by the same shift), back with a pull.
     const fwd = pose.fwd + f.lean.fwd * cfg.punchLeanShift - (guard ? slipBack(f) * cfg.slipShoulderFrac : 0);
-    let t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, fwd, pose.up + bob - f.crouch, lat);
+    let t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, fwd, pose.up + bob - stanceDrop(f, cfg), lat);
     // The gloves ride the torso's reaction offset, so they travel with the body.
     if (!contact) { t.x += f.reaction.torso.x; t.y += f.reaction.torso.y; t.z += f.reaction.torso.z; }
     const g = f.gloves[i]!;
