@@ -46,12 +46,13 @@ export interface InputOptions {
   root?: HTMLElement;
 }
 
-type Flag = 'jab' | 'cross' | 'hook' | 'uppercut' | 'block';
-const FLAGS: readonly Flag[] = ['jab', 'cross', 'hook', 'uppercut', 'block'];
+type Flag = 'jab' | 'cross' | 'hook' | 'uppercut' | 'block' | 'level';
+const FLAGS: readonly Flag[] = ['jab', 'cross', 'hook', 'uppercut', 'block', 'level'];
 
-/** Keyboard map by KeyboardEvent.code (layout-independent physical keys). */
+/** Keyboard map by KeyboardEvent.code (layout-independent physical keys). Shift = the level modifier (overhaul: the one new input). */
 const KEY_FLAGS: Readonly<Record<string, Flag>> = {
   KeyJ: 'jab', KeyK: 'cross', KeyL: 'hook', Semicolon: 'uppercut', Space: 'block',
+  ShiftLeft: 'level', ShiftRight: 'level',
 };
 const KEY_MOVE: Readonly<Record<string, readonly [number, number]>> = {
   KeyW: [0, -1], ArrowUp: [0, -1],
@@ -63,7 +64,7 @@ const KEY_MOVE: Readonly<Record<string, readonly [number, number]>> = {
 /** Standard-mapping gamepad buttons (w3c "standard"): 0 A, 1 B, 2 X, 3 Y, 4–7 shoulders/triggers, 12–15 d-pad. */
 const PAD_FLAGS: readonly (readonly [number, Flag])[] = [
   [3, 'jab'], [1, 'cross'], [2, 'hook'], [0, 'uppercut'],
-  [4, 'block'], [5, 'block'], [6, 'block'], [7, 'block'],
+  [4, 'block'], [5, 'block'], [7, 'block'], [6, 'level'],   // left trigger = level; the other three shoulders block
 ];
 const PAD_DPAD: readonly (readonly [number, number, number])[] = [
   [12, 0, -1], [13, 0, 1], [14, -1, 0], [15, 1, 0],
@@ -124,7 +125,7 @@ export class InputManager {
   /** The merged FrameInput for this frame (fresh object). */
   current(): FrameInput {
     this.layoutTouch();
-    const out: FrameInput = { move: { x: 0, y: 0 }, jab: false, cross: false, hook: false, uppercut: false, block: false };
+    const out: FrameInput = { move: { x: 0, y: 0 }, jab: false, cross: false, hook: false, uppercut: false, block: false, level: false };
 
     // Screen-space stick: +x right, +y down (DOM convention). Each source adds.
     let sx = 0, sy = 0;
@@ -231,7 +232,7 @@ export class InputManager {
     knob.id = 'touch-joy-knob';
     ui.append(zone, base, knob);
 
-    const labels: Record<Flag, string> = { jab: 'JAB', cross: 'CRS', hook: 'HOK', uppercut: 'UPP', block: 'BLOCK' };
+    const labels: Record<Flag, string> = { jab: 'JAB', cross: 'CRS', hook: 'HOK', uppercut: 'UPP', block: 'BLOCK', level: 'LOW' };
     for (const f of FLAGS) {
       const b = document.createElement('div');
       b.className = `touch-btn ${f}`;
@@ -323,6 +324,7 @@ export class InputManager {
     const cy = bcy - c.touchBlockH / 2 - gap - sep - R;
     const at: Record<Flag, [number, number]> = {
       jab: [cx, cy - sep], cross: [cx + sep, cy], hook: [cx - sep, cy], uppercut: [cx, cy + sep], block: [cx, bcy],
+      level: [cx - sep, cy + sep],   // the free corner below the hook: a thumb roll from hook / uppercut
     };
     for (const [f, el] of this.buttons) {
       const [x, y] = at[f];

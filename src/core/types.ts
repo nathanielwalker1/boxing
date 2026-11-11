@@ -28,15 +28,17 @@ export interface FrameInput {
   move: { x: number; y: number };
   jab: boolean; cross: boolean; hook: boolean; uppercut: boolean;
   block: boolean;
+  /** The level modifier (overhaul 2026-11-11, the ONE new input): held = drop the level (knees bend, head comes down); punches thrown while it is held go to the body or come up from underneath. A level, like block. */
+  level: boolean;
 }
 
 export const NULL_INPUT: Readonly<FrameInput> = Object.freeze({
   move: Object.freeze({ x: 0, y: 0 }),
-  jab: false, cross: false, hook: false, uppercut: false, block: false,
+  jab: false, cross: false, hook: false, uppercut: false, block: false, level: false,
 });
 
 export function cloneInput(i: Readonly<FrameInput>): FrameInput {
-  return { move: { x: i.move.x, y: i.move.y }, jab: i.jab, cross: i.cross, hook: i.hook, uppercut: i.uppercut, block: i.block };
+  return { move: { x: i.move.x, y: i.move.y }, jab: i.jab, cross: i.cross, hook: i.hook, uppercut: i.uppercut, block: i.block, level: i.level ?? false };
 }
 
 // ── Fighter definition (CONTRACT §5) ──────────────────────────────────────────

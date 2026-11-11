@@ -459,3 +459,11 @@ Append here, dated, when a rule is added or changed. Never edit history above si
   window at `readWindowSlowMo`). The sim's clock, hit-stop and determinism are untouched;
   tests never see it. The hurt read (red edge + blur) is a DOM layer in `ui/read.ts`, not
   the post pass, so it costs nothing when clear.
+- 2026-11-11 — **Overhaul run** (`docs/OVERHAUL.md`; Nate's brief). For this run:
+  `src/core` is unfrozen; §6's toy-figure art direction is retired for a stylised
+  athletic human; desktop budgets in §7 may rise behind a quality tier; §0's "no
+  mechanics redesign" is lifted — the locked mechanics may be extended, not replaced.
+- 2026-11-11 — **`FrameInput.level`**: the one new input, a held level modifier (drop
+  the level; punches thrown under it go to the body or come up from underneath).
+  Shift / left trigger / the LOW touch button. `window.__look(id, kind, yawDeg)` and
+  `window.__roster()` test hooks (lookbook).
