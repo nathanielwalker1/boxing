@@ -67,6 +67,26 @@ function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number,
   g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y); g.closePath();
 }
 
+/** Relative luminance of a '#rrggbb' colour, 0..1 (display values; good enough to pick the brighter of two inks). */
+function luma(hex: string): number {
+  const n = parseInt(hex.slice(1), 16);
+  return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+}
+
+/**
+ * One panel of an LED board (the arena's ribbon and barrier boards): the
+ * sponsor's mark and name lit on black, in whichever of its two colours is
+ * the brighter — an LED wall glows its content, it does not flood-fill.
+ */
+export function paintLedPanel(g: CanvasRenderingContext2D, s: Sponsor, x: number, y: number, w: number, h: number): void {
+  const [ink, back] = luma(s.primary) >= luma(s.secondary) ? [s.primary, s.secondary] : [s.secondary, s.primary];
+  g.fillStyle = '#040405'; g.fillRect(x, y, w, h);
+  g.globalAlpha = 0.28; g.fillStyle = back; g.fillRect(x, y, w, h); g.globalAlpha = 1;
+  const r = h * 0.34;
+  drawMark(g, s, x + r * 1.5, y + h / 2, r, ink, '#060607');
+  fitText(g, s.name, x + (w + r * 2.2) / 2, y + h * 0.52, w - r * 3.6, h * 0.5, ink);
+}
+
 /**
  * Paint `sponsor` into `slot`. Transparent-background slots (matCenter,
  * matCorners) are meant for alpha decals; the rest are opaque panels.

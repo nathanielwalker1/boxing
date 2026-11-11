@@ -12,7 +12,7 @@ import { readFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { DEV_URL } from './devUrl.js';
-import { bootReady, frames, until } from './waits.js';
+import { frames, until } from './waits.js';
 import { greyscaleCopy } from './greyscale.js';
 
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), 'output');
@@ -32,7 +32,9 @@ page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
 // ?ai=0: the luminance rects are frame fractions and the camera follows the
 // fighters, so the scene has to hold still — the AI would walk the framing.
 await page.goto(`${DEV_URL}/?ai=0`, { waitUntil: 'networkidle', timeout: 15_000 });
-await bootReady(page, { frames: 10 });
+// Not bootReady's 15 s: this check boots at 2× on software GL beside three others, and ten frames of the arena
+// (shader compiles included) can take longer than that on a busy machine. The wait is still on frames, not time.
+await until(page, () => !!(window.__tick && window.__tick.ready && window.__tick.frames >= 10 && window.__cfg), undefined, { label: 'app booted and ticking', timeout: 90000 });
 await page.evaluate(() => { window.__cfg.debugHitboxes = false; window.__cfg.debugFps = false; });
 
 /** Mean linear luminance of `rects` (frame fractions) in a PNG, decoded in-page. */
@@ -74,14 +76,35 @@ for (const [label, dist, fov] of [['close0', 6.5, 42], ['close1', 4.2, 34]]) {
   check(mat > 0.01, `${label}: mat region is lit (Y ${mat.toFixed(4)} > 0.01) — the sample landed on the canvas`);
 }
 
-await page.evaluate(() => { window.__cfg.debugFps = true; });
-// The overlay publishes a sample once a 60-frame window has landed; wait for
-// the sample itself, however long a loaded headless run takes to render it.
-await until(page, () => !!window.__fps, undefined, { label: 'an fps sample', timeout: 90000 });
-const fps = await page.evaluate(() => window.__fps);
-console.log(`budget: ${fps ? `${fps.calls} calls, ${fps.tris} tris` : 'no fps sample'}`);
+// The last frame's counters straight from the stage: the fps overlay only publishes after a 60-frame window, and
+// sixty frames of this check at 2× on a CPU rasteriser starved the checks running beside it (2026-11-11).
+await frames(page, 2);
+const fps = await page.evaluate(() => { const i = window.__show.info(); return { calls: i.calls, tris: i.triangles }; });
+console.log(`budget: ${fps.calls} calls, ${fps.tris} tris`);
 check(!!fps && fps.calls <= MAX_CALLS, `draw calls ≤ ${MAX_CALLS} (${fps?.calls})`);
 check(!!fps && fps.tris <= MAX_TRIS, `triangles ≤ ${MAX_TRIS} (${fps?.tris})`);
+
+// The high tier (desktop). Headless is software GL, which the app runs on the low tier, so everything above was
+// the low tier against the original §7 budget. Force the high tier for its own, raised budget (CONTRACT §13,
+// 2026-11-11) and the same value rule. Post is left off here: on a CPU rasteriser at 2× it is over a second a
+// frame, and it adds a fixed dozen full-screen passes and no triangles.
+const tier = await page.evaluate(() => window.__show.tier());
+check(tier === 1, `software GL runs the low tier (tier ${tier})`);
+const HI_CALLS = 400, HI_TRIS = 300_000;
+await page.evaluate(() => { const c = window.__cfg; c.qualityTier = 2; c.postEnabled = false; c.debugFps = false; window.__fps = undefined; });
+await frames(page, 4);
+{
+  const shot = `${OUT}/arena_high.png`;
+  await page.screenshot({ path: shot });
+  await greyscaleCopy(page, shot);
+  const [mat, band] = await regionLuminance(shot, [MAT_RECT, BAND_RECT]);
+  check(band <= mat, `high tier: bowl band behind the far ropes not brighter than the mat (${band.toFixed(4)} ≤ ${mat.toFixed(4)})`);
+}
+const hi = await page.evaluate(() => { const i = window.__show.info(); return { calls: i.calls, tris: i.triangles, ...window.__show.crowd() }; });
+await page.evaluate(() => { window.__cfg.qualityTier = 0; });   // hand the CPU back before the console check
+console.log(`high tier budget (post off): ${hi.calls} calls, ${hi.tris} tris, ${hi.people} people`);
+check(hi.calls <= HI_CALLS, `high tier draw calls ≤ ${HI_CALLS} (${hi.calls})`);
+check(hi.tris <= HI_TRIS, `high tier triangles ≤ ${HI_TRIS} (${hi.tris})`);
 
 const benign = t => /GPU stall due to ReadPixels/.test(t);
 const bad = logs.filter(m => (m.type === 'error' || m.type === 'pageerror' || m.type === 'warning') && !benign(m.text));

@@ -14,9 +14,30 @@ import { buildRing, ringKey } from './ring';
 import { Arena, arenaKey } from './arena';
 import { PostPass } from './post';
 import { disposeTree } from './util';
+import { mood, type ReactionKind } from './mood';
+import { additiveGain } from './atmos';
+import { qualityTier, noteRenderer, type Tier } from './tier';
 
 /** A framing the host asks for instead of the two-fighter default: the knockdown count, looking at the downed fighter. */
 export interface CameraShot { focus: Vec2 }
+
+declare global {
+  interface Window {
+    /** The show, for scripts (arena_look, audio_check): the crowd's mood, a reaction by hand, the tier in force, the scoreboard. */
+    __show?: {
+      excitement: () => number;
+      react: (kind: ReactionKind, strength?: number, pos?: { x: number; z: number }) => void;
+      setExcitement: (v: number | null) => void;
+      tier: () => Tier;
+      post: () => boolean;
+      /** Seats built and people seated (the crowd's instance count). */
+      crowd: () => { seats: number; people: number };
+      /** Draw calls and triangles of the last rendered frame (no 60-frame fps window to wait for). */
+      info: () => { calls: number; triangles: number };
+      setBoardText: (lines: readonly string[] | null) => void;
+    };
+  }
+}
 
 export class Stage {
   readonly renderer: THREE.WebGLRenderer;
@@ -30,12 +51,19 @@ export class Stage {
   private key: THREE.SpotLight;
   private fill: THREE.HemisphereLight;
   private rim: THREE.DirectionalLight;
+  private backA: THREE.DirectionalLight;   // warm, from the truss corner over the red corner
+  private backB: THREE.DirectionalLight;   // cool, from the truss corner over the blue corner
+  private koT = 1e6;                       // seconds since the last knockdown / KO (the post pass's aberration envelope)
   private hitboxes = new THREE.Group();
   private hitboxMat = new THREE.MeshBasicMaterial({ color: 0x33ff88, wireframe: true });
   private look = new THREE.Vector3(0, 1, 0);
   private lookTarget = new THREE.Vector3(0, 1, 0);
   private post: PostPass | null = null;
   private aniso: number;
+  private software: boolean;   // WebGL is a CPU rasteriser (headless): post runs without MSAA
+  private govSum = 0; private govN = 0;   // the post governor's frame-time window
+  private govDrop = 0;                    // pixel ratio the governor has taken off postPixelRatio
+  private govNoMsaa = false;              // ...and its last resort
 
   // camera state (smoothed dolly/FOV + impact punch-in)
   private dist = -1;
@@ -82,6 +110,7 @@ export class Stage {
     this.renderer.info.autoReset = false;
     container.appendChild(this.renderer.domElement);
     this.aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    this.software = noteRenderer(this.renderer.getContext());
 
     this.fog = new THREE.Fog(new THREE.Color(cfg.fogColor), cfg.fogNear, cfg.fogFar);
     this.scene.fog = this.fog;
@@ -89,7 +118,7 @@ export class Stage {
 
     this.key = new THREE.SpotLight(0xffffff, cfg.keyIntensity, 0, 1, 0.5, 1);
     this.key.castShadow = true;
-    this.key.shadow.mapSize.set(cfg.shadowMapSize, cfg.shadowMapSize);
+    this.key.shadow.mapSize.setScalar(this.shadowSize);
     this.key.shadow.bias = -0.0005;
     this.key.shadow.camera.near = 1;
     this.key.shadow.camera.far = 20;
@@ -102,12 +131,49 @@ export class Stage {
     this.rim = new THREE.DirectionalLight(0xdfe8ff, cfg.rimIntensity);
     this.scene.add(this.rim, this.rim.target);
 
-    this.arena = new Arena(cfg);
+    // The rig's two coloured back lights: fixed in the room on the truss
+    // corners over the red and blue corners, so the edge light on a fighter
+    // changes as the pair circles (the camera-riding rim above does not).
+    this.backA = new THREE.DirectionalLight(0xffffff, cfg.backIntensity);
+    this.backB = new THREE.DirectionalLight(0xffffff, cfg.backIntensity);
+    this.scene.add(this.backA, this.backA.target, this.backB, this.backB.target);
+
+    this.arena = new Arena(cfg, this.aniso);
     this.arenaKey = arenaKey(cfg);
     this.scene.add(this.arena.group, this.ring, this.hitboxes);
     this.rebuildRing();
     this.resize();
+
+    // The crowd's mood → the stands (ripple, flashes). The crowd audio listens to the same object.
+    mood.on(r => this.arena.react(r, this.cfg));
+    window.__show = {
+      excitement: () => mood.value,
+      react: (kind, strength = 1, pos) => this.react(kind, strength, pos),
+      setExcitement: v => this.setExcitement(v),
+      tier: () => this.tier,
+      post: () => this.postOn,
+      crowd: () => this.arena.stats,
+      info: () => this.info,
+      setBoardText: lines => this.setBoardText(lines),
+    };
   }
+
+  // ── The show (overhaul 2026-11-11) ──────────────────────────────────────────
+
+  /** The quality tier in force (render/tier.ts). */
+  get tier(): Tier { return qualityTier(this.cfg); }
+  /** Post runs when the master toggle is on AND the tier is high. */
+  private get postOn(): boolean { return this.cfg.postEnabled && this.tier === 2; }
+  private get shadowSize(): number { return this.tier === 2 ? this.cfg.shadowMapSize : Math.min(this.cfg.shadowMapSize, this.cfg.lowShadowMapSize); }
+
+  /** A crowd reaction by hand — the host's ring walk, an intro, a test. Sim events reach the crowd through `handleEvents` already. */
+  react(kind: ReactionKind, strength = 1, worldPos?: { x: number; z: number }): void { mood.react(kind, strength, worldPos ?? null); }
+  /** Pin the crowd's excitement (0..1), or null to hand it back to the fight. */
+  setExcitement(v: number | null): void { mood.force(v); }
+  /** The crowd's excitement right now, 0..1. */
+  get excitement(): number { return mood.value; }
+  /** Text for the hanging scoreboard (round, clock…), or null for the sponsor card. */
+  setBoardText(lines: readonly string[] | null): void { this.arena.setBoardText(lines); }
 
   private get size(): [number, number] {
     const el = this.renderer.domElement.parentElement;
@@ -170,7 +236,9 @@ export class Stage {
    *  of the tracked dolly distance. */
   handleEvents(events: readonly SimEvent[]): void {
     const c = this.cfg;
+    mood.handle(events, c);   // the crowd: excitement + reactions (stands, flashes, crowd audio)
     for (const e of events) {
+      if (e.type === 'knockdown' || e.type === 'ko' || e.type === 'tko') this.koT = 0;
       if (e.type === 'punchLand') {
         const mag = Math.hypot(e.impulse.x, e.impulse.y, e.impulse.z);
         this.pushPunchIn(Math.min(c.camPunchInMax, mag * c.camPunchIn), c.camPunchRecover);
@@ -226,16 +294,29 @@ export class Stage {
     this.fog.far = c.fogFar;
 
     this.key.intensity = c.keyIntensity;
+    this.key.color.set(c.keyColor);
     this.key.position.set(0, c.keyHeight, 0);
     this.key.angle = c.keyAngleDeg * Math.PI / 180;
     this.key.shadow.radius = c.shadowRadius;
-    if (this.key.shadow.mapSize.x !== c.shadowMapSize) {
-      this.key.shadow.mapSize.set(c.shadowMapSize, c.shadowMapSize);
+    const shadowSize = this.shadowSize;
+    if (this.key.shadow.mapSize.x !== shadowSize) {
+      this.key.shadow.mapSize.setScalar(shadowSize);
       this.key.shadow.map?.dispose();
       this.key.shadow.map = null;
     }
     this.fill.intensity = c.fillIntensity;
+    this.fill.color.set(c.fillSkyColor);
+    this.fill.groundColor.set(c.fillGroundColor);
     this.rim.intensity = c.rimIntensity;
+    this.rim.color.set(c.rimColor);
+    const back = c.backIntensity > 0;   // both tiers: they light the fighters, and a tier must not change how a fighter reads
+    const S = c.trussSize / 2;
+    this.backA.visible = this.backB.visible = back;
+    this.backA.intensity = this.backB.intensity = c.backIntensity;
+    this.backA.color.set(c.backColorA); this.backA.position.set(S, c.trussHeight, S);
+    this.backB.color.set(c.backColorB); this.backB.position.set(-S, c.trussHeight, -S);
+    mood.update(dt, c);
+    this.koT += dt;
 
     // Follow camera (2026-09-17, Fight Night Champion): the orbit angle rides
     // the player→opponent line, camBehindDeg round from side-on toward the
@@ -309,15 +390,34 @@ export class Stage {
     this.rim.position.set(-Math.cos(az) * 6, 3.5, -Math.sin(az) * 6);
     this.rim.target.position.copy(this.look);
 
-    this.arena.update(c, t, this.camera);
+    // Post is paid per pixel: while it runs, the frame is drawn at no more than postPixelRatio (MSAA covers the
+    // difference). The governor: if frames stay over postBudgetMs with post on, post gives ground — resolution a
+    // quarter-step at a time down to 1, then MSAA. It only ever steps down (no hunting); a tier change resets it.
+    if (this.postOn && c.postBudgetMs > 0 && dt > 0 && dt < 0.1) {
+      this.govSum += dt; this.govN++;
+      if (this.govN >= 120) {
+        if (this.govSum / this.govN > c.postBudgetMs / 1000) {
+          if (c.postPixelRatio - this.govDrop > 1) this.govDrop += 0.25; else this.govNoMsaa = true;
+        }
+        this.govSum = 0; this.govN = 0;
+      }
+    }
+    const wantPr = Math.min(devicePixelRatio, this.postOn ? Math.max(1, c.postPixelRatio - this.govDrop) : 2);
+    if (Math.abs(this.renderer.getPixelRatio() - wantPr) > 1e-3) { this.renderer.setPixelRatio(wantPr); this.resize(); }
+    additiveGain.value = this.postOn ? 1 : c.noPostAdditive;
+    const pr = this.renderer.getPixelRatio();
+    this.arena.update(c, dt, this.camera, this.fog, this.size[1] * pr, mood.value);
 
-    if (c.postEnabled) {
+    if (this.postOn) {
+      const samples = this.software || this.govNoMsaa ? 0 : c.postMsaa;
+      if (this.post && this.post.samples !== samples) { this.post.dispose(); this.post = null; }
       if (!this.post) {
         const [w, h] = this.size;
-        const pr = this.renderer.getPixelRatio();
-        this.post = new PostPass(this.renderer, this.scene, this.camera, w * pr, h * pr);
+        this.post = new PostPass(this.renderer, this.scene, this.camera, w * pr, h * pr, c, samples);
       }
-      this.post.render(c);
+      // Chromatic aberration is the KO's alone: it snaps on with the knockdown and clears over postKoSeconds.
+      const ko = Math.max(0, 1 - this.koT / Math.max(0.05, c.postKoSeconds));
+      this.post.render(c, t, ko * ko);
     } else {
       this.renderer.render(this.scene, this.camera);
     }
