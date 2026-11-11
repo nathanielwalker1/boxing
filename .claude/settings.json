@@ -34,6 +34,28 @@
       "Bash(git stash:*)",
       "Bash(git checkout:*)",
       "Bash(git restore:*)",
+      "Bash(git commit:*)",
+      "Bash(git merge:*)",
+      "Bash(git worktree:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git cherry-pick:*)",
+
+      "Bash(ln -s:*)",
+      "Bash(cat:*)",
+      "Bash(node_modules/.bin/vite:*)",
+      "Bash(node_modules/.bin/tsc:*)",
+      "Bash(TEST_NO_REUSE=1 npm:*)",
+      "Bash(TEST_NO_REUSE=1 node:*)",
+      "Bash(PORT=5190 node:*)",
+      "Bash(PORT=5191 node:*)",
+      "Bash(PORT=5192 node:*)",
+      "Bash(PORT=5193 node:*)",
+      "Bash(PORT=5194 node:*)",
+      "Bash(PORT=5191 npm:*)",
+      "Bash(PORT=5192 npm:*)",
+      "Bash(PORT=5193 npm:*)",
+      "Bash(PORT=5194 npm:*)",
 
       "Bash(lsof:*)",
       "Bash(ps:*)",
@@ -46,9 +68,6 @@
       "Bash(rm -rf:*)",
       "Bash(git push:*)",
       "Bash(sed -i:*)"
-    ],
-    "ask": [
-      "Bash(git commit:*)"
     ]
   },
   "hooks": {
