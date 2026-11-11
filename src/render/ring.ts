@@ -17,7 +17,8 @@ import { makeCanvas, canvasTexture, segmentMatrix, seededRng } from './util';
 
 export const RING_KEYS = ['ropeCount', 'ropeTopY', 'ropeSag', 'postR', 'matColor', 'matLineColor', 'apronColor',
   'ropeColorA', 'ropeColorB', 'ropeColorC', 'padColorRed', 'padColorBlue', 'padColorNeutral',
-  'matGrain', 'matTrimW', 'apronStripeColor', 'apronStripeY', 'sponsorDecalAlpha', 'sponsorDecalTone'] as const;
+  'matGrain', 'matTrimW', 'apronStripeColor', 'apronStripeY', 'sponsorDecalAlpha', 'sponsorDecalTone',
+  'ringScuffs', 'ringApronTone', 'ringCushionW', 'ringCoverLen', 'ringStools'] as const;
 
 export function ringKey(c: Config): string { return RING_KEYS.map(k => String(c[k])).join('|'); }
 
@@ -64,8 +65,44 @@ function paintMat(c: Config, aniso: number): THREE.CanvasTexture {
     g.globalAlpha = 1;
   }
 
-  // Trim square just inside the ropes.
+  // Wear (ring dressing, 2026-11-11): boot scuffs — short dark arcs, thickest where the fighting happens — a few
+  // pale resin smears, and old stains. All of it darkens or barely lifts: the canvas stays the darkest large surface.
+  if (c.ringScuffs > 0) {
+    const rs = seededRng(29);
+    const mid = size / 2, reach = RING_HALF * pxPerM;
+    g.lineCap = 'round';
+    for (let i = 0; i < 260 * c.ringScuffs; i++) {
+      const a = rs() * Math.PI * 2, d = Math.pow(rs(), 0.8) * reach * 0.95;
+      const x = mid + Math.cos(a) * d, y = mid + Math.sin(a) * d;
+      const len = (0.08 + rs() * 0.3) * pxPerM, dir = rs() * Math.PI * 2, bend = (rs() - 0.5) * 0.9;
+      g.strokeStyle = rs() < 0.8 ? `rgba(0,0,0,${(0.05 + rs() * 0.1).toFixed(3)})` : `rgba(255,255,255,${(0.02 + rs() * 0.03).toFixed(3)})`;
+      g.lineWidth = 1 + rs() * 3.5;
+      g.beginPath();
+      g.moveTo(x, y);
+      g.quadraticCurveTo(x + Math.cos(dir + bend) * len * 0.5, y + Math.sin(dir + bend) * len * 0.5, x + Math.cos(dir) * len, y + Math.sin(dir) * len);
+      g.stroke();
+    }
+    for (let i = 0; i < 9 * c.ringScuffs; i++) {
+      const x = mid + (rs() - 0.5) * reach * 1.7, y = mid + (rs() - 0.5) * reach * 1.7, r = (0.08 + rs() * 0.22) * pxPerM;
+      const grad = g.createRadialGradient(x, y, r * 0.2, x, y, r);
+      grad.addColorStop(0, 'rgba(20,8,4,0.10)'); grad.addColorStop(0.8, 'rgba(20,8,4,0.06)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grad; g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    g.lineCap = 'butt';
+  }
+
+  // The canvas outside the ropes takes the apron colour (a real ring's apron edge), darker than the fighting surface.
   const inset = (OUTER - RING_HALF) * pxPerM;
+  if (c.ringApronTone > 0) {
+    g.save();
+    g.beginPath(); g.rect(0, 0, size, size); g.rect(inset, inset, size - 2 * inset, size - 2 * inset);
+    g.clip('evenodd');
+    g.globalAlpha = c.ringApronTone; g.fillStyle = c.apronColor; g.fillRect(0, 0, size, size);
+    g.globalAlpha = 0.35 * c.ringApronTone; g.fillStyle = '#000000'; g.fillRect(0, 0, size, size);
+    g.restore();
+  }
+
+  // Trim square just inside the ropes.
   g.strokeStyle = c.matLineColor; g.lineWidth = Math.max(1, c.matTrimW * pxPerM);
   g.strokeRect(inset, inset, size - 2 * inset, size - 2 * inset);
   return canvasTexture(cv, aniso);
@@ -164,26 +201,45 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
     { sx: 1, sz: 1, col: c.padColorRed }, { sx: -1, sz: -1, col: c.padColorBlue },
     { sx: 1, sz: -1, col: c.padColorNeutral }, { sx: -1, sz: 1, col: c.padColorNeutral },
   ];
-  const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(c.postR, c.postR, postH, 12), metal, 4);
+  // Post detail (ring dressing, 2026-11-11): a satin steel post on a base plate, under a dark rubber cap — the
+  // bare polished top caught the key and was the brightest thing in frame from the corner seats.
+  const postMetal = new THREE.MeshStandardMaterial({ color: 0x8e9098, roughness: 0.55, metalness: 0.6 });
+  const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(c.postR, c.postR, postH, 12), postMetal, 4);
   posts.castShadow = true;
   const tmp = new THREE.Matrix4();
   corners.forEach((k, i) => { posts.setMatrixAt(i, tmp.makeTranslation(k.sx * pOff, postH / 2, k.sz * pOff)); });
   ring.add(posts);
+  {
+    const cap = new THREE.CylinderGeometry(c.postR * 1.25, c.postR * 1.35, 0.07, 12).translate(0, postH + 0.03, 0);
+    const base = new THREE.CylinderGeometry(c.postR * 2.2, c.postR * 2.4, 0.03, 12).translate(0, 0.015, 0);
+    const trim = new THREE.InstancedMesh(mergeGeometries([cap, base]), new THREE.MeshStandardMaterial({ color: 0x15151a, roughness: 0.9 }), 4);
+    corners.forEach((k, i) => { trim.setMatrixAt(i, tmp.makeTranslation(k.sx * pOff, 0, k.sz * pOff)); });
+    trim.castShadow = true;
+    ring.add(trim);
+  }
 
-  // Turnbuckle pads: one per rope per post, tinted by corner, sponsor mark from the postPads slot.
+  // Corner cushions: one tall pad per corner, inside the post, facing the ring centre, in the corner's colour with
+  // the sponsor's mark top and bottom (the postPads slot is painted on white so the instance colour tints it).
   const padTex = paintSlot(s3, 'postPads', aniso);
-  const padS = c.postR * 4.4;
-  const pads = new THREE.InstancedMesh(new THREE.BoxGeometry(padS, 0.17, padS), new THREE.MeshStandardMaterial({ map: padTex, roughness: 0.85 }), 4 * c.ropeCount);
+  const yBotRope = c.ropeTopY / c.ropeCount;
+  const cushionH = c.ropeTopY - yBotRope + 0.24;
+  const cushionGeo = new THREE.BoxGeometry(c.ringCushionW, cushionH, 0.11);
+  {
+    // Two marks up the cushion's face: repeat the texture vertically on the ±z faces only.
+    const uv = cushionGeo.attributes['uv']!;
+    for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * Math.max(1, Math.round(cushionH / c.ringCushionW / 1.5)));
+  }
+  padTex.wrapT = THREE.RepeatWrapping;
+  const pads = new THREE.InstancedMesh(cushionGeo, new THREE.MeshStandardMaterial({ map: padTex, roughness: 0.8 }), 4);
   pads.castShadow = true;
   {
-    let i = 0;
-    const col = new THREE.Color();
-    for (const k of corners) for (let r = 0; r < c.ropeCount; r++) {
-      const y = c.ropeTopY * (r + 1) / c.ropeCount;
-      pads.setMatrixAt(i, tmp.makeTranslation(k.sx * pOff, y, k.sz * pOff));
+    const col = new THREE.Color(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
+    const inPost = pOff - (c.postR + 0.075) / Math.SQRT2;
+    corners.forEach((k, i) => {
+      q.setFromAxisAngle(UP, Math.atan2(-k.sx, -k.sz));     // local +z looks at the ring centre
+      pads.setMatrixAt(i, tmp.compose(new THREE.Vector3(k.sx * inPost, yBotRope - 0.12 + cushionH / 2, k.sz * inPost), q, one));
       pads.setColorAt(i, col.set(k.col));
-      i++;
-    }
+    });
   }
   ring.add(pads);
 
@@ -191,7 +247,11 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
   const ropeCols = [c.ropeColorA, c.ropeColorB, c.ropeColorC, c.ropeColorA];
   const h = RING_HALF + c.postR;
   const ropeGeos: THREE.BufferGeometry[] = [];
-  const fittings = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 8), metal, 8 * c.ropeCount);
+  // Turnbuckle covers: a padded sleeve over each rope end, in the colour of the corner it runs into.
+  const fittings = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 8), new THREE.MeshStandardMaterial({ roughness: 0.85 }), 8 * c.ropeCount);
+  fittings.castShadow = true;
+  const coverCol = new THREE.Color();
+  const cornerCol = (p: THREE.Vector3): string => corners.find(k => Math.sign(p.x) === k.sx && Math.sign(p.z) === k.sz)?.col ?? c.padColorNeutral;
   const spacers = new THREE.InstancedMesh(new THREE.BoxGeometry(0.035, 1, 0.035), new THREE.MeshStandardMaterial({ color: 0xe8e8ee, roughness: 0.8 }), 8);
   let fi = 0;
   const ends: [THREE.Vector3, THREE.Vector3][] = [
@@ -207,8 +267,10 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
       const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
       ropeGeos.push(withColor(new THREE.TubeGeometry(curve, 14, ROPE_R, 6, false), col));
       const dir = b.clone().sub(a).normalize();
-      fittings.setMatrixAt(fi++, segmentMatrix(a.clone().addScaledVector(dir, 0.02), a.clone().addScaledVector(dir, 0.16), 0.036));
-      fittings.setMatrixAt(fi++, segmentMatrix(b.clone().addScaledVector(dir, -0.02), b.clone().addScaledVector(dir, -0.16), 0.036));
+      fittings.setColorAt(fi, coverCol.set(cornerCol(a)));
+      fittings.setMatrixAt(fi++, segmentMatrix(a.clone().addScaledVector(dir, 0.02), a.clone().addScaledVector(dir, 0.02 + c.ringCoverLen), 0.042));
+      fittings.setColorAt(fi, coverCol.set(cornerCol(b)));
+      fittings.setMatrixAt(fi++, segmentMatrix(b.clone().addScaledVector(dir, -0.02), b.clone().addScaledVector(dir, -0.02 - c.ringCoverLen), 0.042));
     }
   }
   const ropeMesh = new THREE.Mesh(mergeGeometries(ropeGeos), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 }));
@@ -226,13 +288,15 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
   ring.add(spacers);
 
   // Steps at the far neutral corner (+x, −z), descending outward along the diagonal.
-  {
-    const yaw = Math.atan2(1, -1);
+  // …and, with ringStools, at the red and blue corners too, where the corner teams work.
+  const stepGeos: THREE.BufferGeometry[] = [], railGeos: THREE.BufferGeometry[] = [];
+  const stepCorners: [number, number][] = c.ringStools ? [[1, -1], [1, 1], [-1, -1]] : [[1, -1]];
+  for (const [sx, sz] of stepCorners) {
+    const yaw = Math.atan2(sx, sz);
     const q = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
     const dir = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
     const perp = new THREE.Vector3(dir.z, 0, -dir.x);
-    const corner = new THREE.Vector3(OUTER, 0, -OUTER);
-    const stepGeos: THREE.BufferGeometry[] = [], railGeos: THREE.BufferGeometry[] = [];
+    const corner = new THREE.Vector3(sx * OUTER, 0, sz * OUTER);
     const nSteps = 4, sh = PLATFORM_H / (nSteps + 1), depth = 0.34, width = 1.0;
     const tops: THREE.Vector3[] = [];
     for (let i = 0; i < nSteps; i++) {
@@ -249,10 +313,33 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
       const r0 = p0.clone().setY(p0.y + 0.9), r1 = p1.clone().setY(p1.y + 0.9);
       railGeos.push(new THREE.CylinderGeometry(0.02, 0.02, 1, 8).applyMatrix4(segmentMatrix(r0, r1, 1)));
     }
+  }
+  {
     const steps = new THREE.Mesh(mergeGeometries(stepGeos), new THREE.MeshStandardMaterial({ color: 0x24242a, roughness: 0.9 }));
     steps.castShadow = true; steps.receiveShadow = true;
     const rails = new THREE.Mesh(mergeGeometries(railGeos), metal);
     ring.add(steps, rails);
+  }
+
+  // Corner kit (ring dressing): a stool, a bucket and a bottle on the apron outside the ropes at the red and blue
+  // corners — where a cornerman leaves them between rounds. One merged, vertex-coloured mesh.
+  if (c.ringStools) {
+    const kit: THREE.BufferGeometry[] = [];
+    const tint = (g: THREE.BufferGeometry, hex: number | string): THREE.BufferGeometry => { const n = g.index ? g.toNonIndexed() : g; n.deleteAttribute('uv'); return withColor(n, new THREE.Color(hex)); };
+    for (const [sgn, col] of [[1, c.padColorRed], [-1, c.padColorBlue]] as [number, string][]) {
+      // Along the +x / −x side of the corner, clear of the steps on the diagonal.
+      const sx = sgn * (OUTER - 0.3), sz = sgn * (RING_HALF - 0.75);
+      kit.push(tint(new THREE.CylinderGeometry(0.16, 0.16, 0.05, 14).translate(sx, 0.43, sz), col));                 // stool seat
+      kit.push(tint(new THREE.CylinderGeometry(0.03, 0.03, 0.4, 8).translate(sx, 0.21, sz), 0x9a9aa2));              // stool column
+      kit.push(tint(new THREE.CylinderGeometry(0.15, 0.15, 0.02, 14).translate(sx, 0.01, sz), 0x4a4a52));            // stool foot
+      kit.push(tint(new THREE.CylinderGeometry(0.15, 0.12, 0.27, 14, 1, true).translate(sx, 0.135, sz - sgn * 0.45), 0xb9bcc4));   // bucket
+      kit.push(tint(new THREE.CylinderGeometry(0.12, 0.12, 0.01, 14).translate(sx, 0.02, sz - sgn * 0.45), 0x30323a));              // …its bottom
+      kit.push(tint(new THREE.CylinderGeometry(0.035, 0.035, 0.2, 8).translate(sx - sgn * 0.02, 0.1, sz + sgn * 0.3), 0xdfe8f2));  // bottle
+      kit.push(tint(new THREE.BoxGeometry(0.3, 0.02, 0.42).translate(sx + sgn * 0.02, 0.012, sz - sgn * 0.95), 0xe8e8ea));         // towel
+    }
+    const kitMesh = new THREE.Mesh(mergeGeometries(kit), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, side: THREE.DoubleSide }));
+    kitMesh.castShadow = true; kitMesh.receiveShadow = true;
+    ring.add(kitMesh);
   }
 
   return ring;

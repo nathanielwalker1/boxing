@@ -15,14 +15,57 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Config } from '../core';
 
+/**
+ * Additive light is authored in LINEAR values, which is what the post pass's
+ * HDR target wants. Without post the frame buffer is display-encoded, where
+ * the three.js colour-space chunk would turn a 0.04 add into 0.22 on top of
+ * whatever is there — a lavender wash over the whole room (seen 2026-11-11).
+ * So additive materials skip the encode and take this one shared gain
+ * instead: 1 into the HDR target, `noPostAdditive` straight to the screen.
+ */
+export const additiveGain = { value: 1 };
+
+/** Make a ShaderMaterial's parameters additive in the sense above: shared `uAdd` gain in place of the colour-space encode. */
+export function additive(p: THREE.ShaderMaterialParameters): THREE.ShaderMaterialParameters {
+  return {
+    ...p,
+    uniforms: { ...p.uniforms, uAdd: additiveGain },
+    fragmentShader: 'uniform float uAdd;\n' + (p.fragmentShader ?? '').replace('#include <colorspace_fragment>', 'gl_FragColor.rgb *= uAdd;'),
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  };
+}
+
+/**
+ * Drifting-haze noise: two fetches of one small tiling texture on crossed
+ * planes, instead of procedural 3D value noise (eight sin-hashes a pixel —
+ * that was most of a frame on a CPU rasteriser, and not free on a phone).
+ */
+let noiseTex: THREE.DataTexture | null = null;
+function noiseTexture(): THREE.DataTexture {
+  if (noiseTex) return noiseTex;
+  const n = 64, data = new Uint8Array(n * n * 4);
+  // Smooth value noise, tiling: a coarse random lattice, bilinearly upsampled with wrap.
+  const lat = 8, g = new Float32Array(lat * lat);
+  let s = 12345;
+  const rnd = (): number => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  for (let i = 0; i < g.length; i++) g[i] = rnd();
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const fx = x / n * lat, fy = y / n * lat, x0 = Math.floor(fx), y0 = Math.floor(fy);
+    const ux = fx - x0, uy = fy - y0, sx = ux * ux * (3 - 2 * ux), sy = uy * uy * (3 - 2 * uy);
+    const at = (i: number, j: number): number => g[(j % lat) * lat + (i % lat)]!;
+    const v = (at(x0, y0) * (1 - sx) + at(x0 + 1, y0) * sx) * (1 - sy) + (at(x0, y0 + 1) * (1 - sx) + at(x0 + 1, y0 + 1) * sx) * sy;
+    data.fill(Math.round(v * 255), (y * n + x) * 4, (y * n + x) * 4 + 4);
+  }
+  noiseTex = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+  noiseTex.wrapS = noiseTex.wrapT = THREE.RepeatWrapping;
+  noiseTex.magFilter = noiseTex.minFilter = THREE.LinearFilter;
+  noiseTex.needsUpdate = true;
+  return noiseTex;
+}
 const NOISE = /* glsl */`
-  float hash3(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+  uniform sampler2D uNoiseTex;
   float vnoise(vec3 p) {
-    vec3 i = floor(p), f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    float a = mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x), mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y);
-    float b = mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x), mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y);
-    return mix(a, b, f.z);
+    return 0.5 * (texture2D(uNoiseTex, p.xz * 0.125 + p.y * 0.031).r + texture2D(uNoiseTex, p.xy * 0.125 + vec2(0.37, 0.11) - p.z * 0.043).r);
   }`;
 
 // ── Beams ────────────────────────────────────────────────────────────────────
@@ -49,8 +92,8 @@ export class Beams {
       g.applyMatrix4(m.compose(s.from.clone().lerp(s.to, 0.5), q, one));
       cones.push(g);
     }
-    this.mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 }, uNoise: { value: 0.4 }, uLevel: { value: 1 } },
+    this.mat = new THREE.ShaderMaterial(additive({
+      uniforms: { uTime: { value: 0 }, uNoise: { value: 0.4 }, uLevel: { value: 1 }, uNoiseTex: { value: noiseTexture() } },
       vertexShader: /* glsl */`
         attribute vec3 aColor;
         varying vec3 vCol, vN, vV, vW;
@@ -76,8 +119,8 @@ export class Beams {
           gl_FragColor = vec4(vCol * a * uLevel, 1.0);
           #include <colorspace_fragment>
         }`,
-      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-    });
+      side: THREE.DoubleSide,
+    }));
     this.mesh = new THREE.Mesh(cones.length ? mergeGeometries(cones) : new THREE.BufferGeometry(), this.mat);
     this.mesh.renderOrder = 10;
     this.mesh.frustumCulled = false;
@@ -101,8 +144,8 @@ export class Haze {
   constructor(radius: number, yBottom: number, yTop: number) {
     const h = yTop - yBottom;
     const geo = new THREE.CylinderGeometry(radius, radius, h, 48, 1, true).translate(0, yBottom + h / 2, 0);
-    this.mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 }, uDensity: { value: 0.05 }, uScroll: { value: 0.01 }, uColor: { value: new THREE.Color() } },
+    this.mat = new THREE.ShaderMaterial(additive({
+      uniforms: { uTime: { value: 0 }, uDensity: { value: 0.05 }, uScroll: { value: 0.01 }, uColor: { value: new THREE.Color() }, uNoiseTex: { value: noiseTexture() } },
       vertexShader: /* glsl */`
         varying vec3 vW; varying float vH, vDist;
         void main() {
@@ -124,8 +167,8 @@ export class Haze {
           gl_FragColor = vec4(uColor * a, 1.0);
           #include <colorspace_fragment>
         }`,
-      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide,
-    });
+      side: THREE.BackSide,
+    }));
     this.mesh = new THREE.Mesh(geo, this.mat);
     this.mesh.renderOrder = 9;
   }
@@ -155,7 +198,7 @@ export class Motes {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
-    this.mat = new THREE.ShaderMaterial({
+    this.mat = new THREE.ShaderMaterial(additive({
       uniforms: { uTime: { value: 0 }, uOpacity: { value: 0.2 }, uPx: { value: 800 }, uColor: { value: new THREE.Color() }, uYMin: { value: yMin }, uYSpan: { value: yMax - yMin } },
       vertexShader: /* glsl */`
         uniform float uTime, uPx, uYMin, uYSpan;
@@ -182,8 +225,7 @@ export class Motes {
           gl_FragColor = vec4(uColor * uOpacity * vA * smoothstep(1.0, 0.2, d), 1.0);
           #include <colorspace_fragment>
         }`,
-      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-    });
+    }));
     this.points = new THREE.Points(geo, this.mat);
     this.points.frustumCulled = false;
     this.points.renderOrder = 11;
@@ -219,7 +261,7 @@ export class Practicals {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('aColor', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('aMeta', new THREE.BufferAttribute(meta, 2));
-    this.mat = new THREE.ShaderMaterial({
+    this.mat = new THREE.ShaderMaterial(additive({
       uniforms: { uTime: { value: 0 }, uLevel: { value: 1 }, uPx: { value: 800 }, uFogNear: { value: 10 }, uFogFar: { value: 50 } },
       vertexShader: /* glsl */`
         uniform float uTime, uPx, uLevel, uFogNear, uFogFar;
@@ -243,8 +285,7 @@ export class Practicals {
           gl_FragColor = vec4(vCol * smoothstep(1.0, 0.25, d), 1.0);
           #include <colorspace_fragment>
         }`,
-      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-    });
+    }));
     this.points = new THREE.Points(geo, this.mat);
     this.points.frustumCulled = false;
     this.points.renderOrder = 8;

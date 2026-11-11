@@ -20,6 +20,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Config } from '../core';
+import { additive } from './atmos';
 
 /** Where a person sits. `zone`: 0 ringside floor, 1 lower bowl, 2 upper deck. */
 export interface Seat {
@@ -318,11 +319,10 @@ export class CrowdFlashes {
     this.pos.setUsage(THREE.DynamicDrawUsage); this.start.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('position', this.pos);
     geo.setAttribute('aStart', this.start);
-    this.mat = new THREE.ShaderMaterial({
+    this.mat = new THREE.ShaderMaterial(additive({
       vertexShader: FLASH_VERT, fragmentShader: FLASH_FRAG,
       uniforms: { uTime: { value: 0 }, uSize: { value: 0.4 }, uPx: { value: 800 } },
-      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-    });
+    }));
     this.points = new THREE.Points(geo, this.mat);
     this.points.frustumCulled = false;
     this.points.renderOrder = 12;

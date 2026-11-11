@@ -15,6 +15,7 @@ import { Arena, arenaKey } from './arena';
 import { PostPass } from './post';
 import { disposeTree } from './util';
 import { mood, type ReactionKind } from './mood';
+import { additiveGain } from './atmos';
 import { qualityTier, noteRenderer, type Tier } from './tier';
 
 /** A framing the host asks for instead of the two-fighter default: the knockdown count, looking at the downed fighter. */
@@ -400,6 +401,7 @@ export class Stage {
     }
     const wantPr = Math.min(devicePixelRatio, this.postOn ? Math.max(1, c.postPixelRatio - this.govDrop) : 2);
     if (Math.abs(this.renderer.getPixelRatio() - wantPr) > 1e-3) { this.renderer.setPixelRatio(wantPr); this.resize(); }
+    additiveGain.value = this.postOn ? 1 : c.noPostAdditive;
     const pr = this.renderer.getPixelRatio();
     this.arena.update(c, dt, this.camera, this.fog, this.size[1] * pr, mood.value);
 
