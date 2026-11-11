@@ -58,6 +58,16 @@ export class FootPlanter {
     Object.assign(this.out, this.planted);
   }
 
+  /** Start a quick step to `target` now, whatever the threshold says (a step jab's lead foot). No-op mid-step. */
+  stepNow(target: FootPose, cfg: Config): void {
+    if (!this.inited || this.t < 1) return;
+    this.from = { ...this.planted };
+    this.to = { ...target, y: 0 };
+    this.t = 0;
+    this.dur = cfg.rigStepDur * 0.6;
+    this.lift = cfg.rigStepLift * 0.7;
+  }
+
   /**
    * `desired` is where the foot wants to be with the velocity lead already
    * applied; `rest` is the bare stance spot. The leader reaches for `desired`,

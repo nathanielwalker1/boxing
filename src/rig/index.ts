@@ -20,11 +20,14 @@
  */
 import * as THREE from 'three';
 import {
-  ROSTER, addToRoster, generateFighter, angleDelta, closestOnSegment, frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, v3dist, worldToLocal,
+  ROSTER, SIM_DT, addToRoster, generateFighter, angleDelta, closestOnSegment, frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, v3dist, worldToLocal,
   type Config, type FighterSpec, type FighterState, type FighterView, type Frame, type PunchType, type Side, type SimEvent, type Vec2, type Vec3,
 } from '../core';
 import { BONE, MORPHS, buildRigMesh, rigGeomKey, type RigMesh } from './mesh';
 import { armBones, legBones } from './skeleton';
+import { Reads, stanceParams } from './reads';
+import { Spray } from './spray';
+import { installRigReplay, type ReplayFeed } from './replay';
 import { createRigMaterial, outlineMaterial, setGlow, updateMaterials, type RigMaterial } from './materials';
 import { solveTwoBone, type TwoBone } from './ik';
 import { chase1, chase3 } from './springs';
@@ -65,6 +68,16 @@ export interface RigProbe {
   setBodyState?: (body: BodyState) => void;
   /** Lookbook only: hang the arms so the face and chest are clear (the drawn arms leave the sim's joints while it is on). */
   portrait?: (on: boolean) => void;
+  /**
+   * Filmstrips / lookbook only: fields laid over the sim state this view is given, so a read that scripted
+   * input cannot reach quickly (a spent fighter, a cut face, a clinch) can be looked at. null clears it. Never set in play.
+   */
+  override?: (o: Partial<FighterState> | null) => void;
+  /** Sweat droplets in the air right now (tests). */
+  sprayCount?: () => number;
+  /** Filmstrips (rig/replay.ts): one sim tick with its events at the fixed step; and hold the pose after. */
+  feed?: (prev: FighterState, next: FighterState, events: readonly SimEvent[]) => void;
+  freeze?: (on: boolean) => void;
   head(): Vec3;
   gloves(): [Vec3, Vec3];
   /** Main-pass draw calls, shadow-pass draw calls, and triangles for this fighter. */
@@ -131,6 +144,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const hingeLeg = [new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 1)] as const;
   let cuts: Partial<Record<CutPlace, number>> = {};
   let portrait = false;
+  let stateOverride: Partial<FighterState> | null = null;
+  let frozen = false;
+  const CUT_PLACES: readonly CutPlace[] = ['browL', 'browR', 'cheekL', 'cheekR', 'nose', 'lip'];
+  const mergedCuts: Record<CutPlace, number> = { browL: 0, browR: 0, cheekL: 0, cheekR: 0, nose: 0, lip: 0 };
+  let damageKey = '';
   let glowAmt = 0;   // the read: 0..1 from the UI, drawn as a warm rim (readGlowStrength × this)
   let rig: RigMesh | null = null;
   let geomKey = '';
@@ -176,6 +194,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const squashTorso = new Squash();
   const squashGlove = [new Squash(), new Squash()] as const;
   let tIdle = side * 1.7;   // phase offset so the two fighters never breathe in sync
+  let breathPh = side * 1.7, beatPh = 0;
 
   // ── Scratch ──
   const pos: Vec2 = { x: 0, z: 0 };
@@ -282,7 +301,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     rig = buildRigMesh(spec, state.body, cfg, latSign, mat.material, hull);
     mat.material.map = rig.atlas.texture;
     mat.uniforms.uDamage.value = rig.atlas.damage;
-    rig.atlas.setDamage(cuts, [faceTarget.swellL, faceTarget.swellR]);
+    damageKey = '';
     root.add(rig.group);
     geomKey = rigGeomKey(spec, state.body, cfg);
   };
@@ -323,7 +342,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   // ── Events → squash ──
   const onEvents = (events: readonly SimEvent[], body: FighterState['body']): void => {
     for (const e of events) {
-      if (e.type === 'punchLand' && e.target === side) { fireBodySquash(e.part, e.impulse); lastHit = { punch: e.punch, impulse: e.impulse }; }
+      if (e.type === 'punchLand' && e.target === side) { lastHit = { punch: e.punch, impulse: e.impulse }; }   // the squash is graded: reads.hits, in apply
       else if (e.type === 'knockdown' && e.side === side) {
         fallType = lastHit?.punch ?? 'cross';
         if (lastHit) dirToLocal(lastHit.impulse.x, 0, lastHit.impulse.z, fallDir); else fallDir.set(-1, 0, 0);
@@ -331,6 +350,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
         if (fallDir.lengthSq() < 1e-8) fallDir.set(-1, 0, 0);
         // An uppercut sends you back whatever the fist was doing; a straight is already back.
         if (fallType === 'uppercut') fallDir.x = Math.min(fallDir.x, -0.7);
+        // A body shot folds him: he goes down FORWARD, onto a knee and his hands, whatever line the punch had.
+        if (e.cause === 'body') fallDir.set(1, 0, fallDir.z * 0.3);
         fallDir.normalize();
         fallAxis.crossVectors(UP, fallDir).normalize();   // tipping UP toward fallDir
         lastDownT = 0;
@@ -343,19 +364,23 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     }
     void body;
   };
-  const fireBodySquash = (part: 'head' | 'body', impulse: Vec3): void => {
+  const fireBodySquash = (part: 'head' | 'body', impulse: Vec3, amount = 1, dur = 1): void => {
     dirToLocal(impulse.x, impulse.y, impulse.z, v);
     if (v.lengthSq() < 1e-10) v.set(-1, 0, 0);
     const target = part === 'head' ? squashHead : squashTorso;
     const q = part === 'head' ? bone(BONE.head).quaternion : qChest;
     qInv.copy(q).invert();
     v.applyQuaternion(qInv);
-    target.fire(v, cfg.rigSquashAmount, cfg.rigSquashDur);
+    target.fire(v, Math.min(0.5, cfg.rigSquashAmount * amount), cfg.rigSquashDur * dur);
   };
+  const reads = new Reads(side);
+  const spray = new Spray(parent);
+  const readLocal = (x: number, y: number, z: number): readonly [number, number, number] => [x * frame.fwd.x + z * frame.fwd.z, y, x * frame.right.x + z * frame.right.z];
 
   // ── Per frame ──
   function apply(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]): void {
-    dt = dt > MAX_DT ? MAX_DT : dt < 0 ? 0 : dt;
+    if (stateOverride) { prev = { ...prev, ...stateOverride }; next = { ...next, ...stateOverride }; }
+    dt = frozen ? 0 : dt > MAX_DT ? MAX_DT : dt < 0 ? 0 : dt;
     const c = cfg;
     const body = next.body;
     if (!rig || rigGeomKey(spec, body, c) !== geomKey) rebuild(next);
@@ -397,6 +422,16 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const hipYawS = chase1(hipYaw, twist * c.rigPunchHipFollow * drive, c.rigHipK, c.rigHipZeta, dt);
 
     onEvents(events, body);
+    // The reads: the sim's fight state as pose channels, a face and a skin (reads.ts). A landed punch is graded:
+    // glancing brushes, flush squashes more and longer and throws sweat off the head.
+    const punchIdx = next.punch.hand === 'lead' ? 0 : 1;
+    reads.step(prev, next, alpha, dt, events, c, readLocal, latSign[punchIdx]!, leadSign);
+    for (const h of reads.hits) {
+      fireBodySquash(h.part, h.dir, h.squash, h.squashDur);
+      if (h.spray > 0) spray.burst(h.spray, h.at, h.dir, c.rigSpraySpeed);
+    }
+    spray.update(dt);
+    const st = stanceParams(next, c);
 
     // 3. Idle life: slow breath + drift, and on top the boxer's rhythm — knees
     //    pumping on a beat, weight shifting foot to foot every other beat, the
@@ -404,20 +439,23 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     //    still); the rhythm eases out through a punch or a block so the
     //    authored motion is not fighting a bounce.
     tIdle += dt;
-    const breath = Math.sin(tIdle * c.rigBreathHz * Math.PI * 2);
+    breathPh += dt * c.rigBreathHz * reads.breathRate * Math.PI * 2;   // tired = faster and deeper: the chest heaves
+    const breath = Math.sin(breathPh) * reads.breathAmp;
     const sway = Math.sin(tIdle * c.rigSwayHz * Math.PI * 2 + side * 2.1);
     const bob = Math.sin(tIdle * c.rigSwayHz * Math.PI * 4 + 0.7) * c.rigBobAmp;
     const busy = next.punch.type !== null || next.block || next.down;
     // ROCKED (sim/stun.ts): 1 at the shot, fading as it clears. Non-hitbox only:
     // the hips drop (knees give), the weight shift grows and slows to a wobble,
     // the chest rolls with it — the legs reading as gone.
-    const hurt = next.hurt > 0 && next.hurtMax > 0 ? Math.min(1, next.hurt / next.hurtMax) : 0;
+    // Only a HEAD hurt wobbles (hurtKind): a winded fighter folds instead (reads.ts) — he used to draw the rocked wobble too.
+    const hurt = (next.hurt > 0 && next.hurtMax > 0 ? Math.min(1, next.hurt / next.hurtMax) : 0) * reads.wobble;
     const wob = hurt > 0 ? Math.sin(tIdle * c.rigHurtHz * Math.PI * 2) * hurt : 0;
-    // …and it dies down as the fighter tires (stamina → rigRhythmTired).
+    // …and it dies down as the fighter tires (stamina → rigRhythmTired) and goes flat-footed (stanceParams: 1 − flat).
     const freshness = lerp(c.rigRhythmTired, 1, Math.max(0, Math.min(1, next.stamina)));
     const rhythm = chase1(rhythmGate, (busy ? 1 - c.rigRhythmFade : 1) * freshness, c.rigSpineK, c.rigSpineZeta, dt);
-    const beat = tIdle * c.rigRhythmHz * (1 - 0.06 * side) * Math.PI * 2 + side * 1.3;
-    const rDip = c.rigRhythmBob * (0.5 - 0.5 * Math.cos(beat)) * rhythm;        // hips drop on the beat, feet planted → knees
+    beatPh += dt * st.bounceHz * (1 - 0.06 * side) * Math.PI * 2;
+    const beat = beatPh + side * 1.3;
+    const rDip = st.bounceAmp * (0.5 - 0.5 * Math.cos(beat)) * rhythm;        // hips drop on the beat, feet planted → knees
     const rLat = c.rigRhythmSway * Math.sin(beat / 2) * rhythm;                  // weight foot to foot, every other beat
     const rFwd = c.rigRhythmFwd * Math.sin(beat / 2 + 1.1) * rhythm;             // and a little rock front / back
     const rHeadY = -c.rigRhythmBob * (0.5 - 0.5 * Math.cos(beat - 0.5)) * c.rigRhythmHead * rhythm;   // head follows, a little late
@@ -469,7 +507,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
 
     // Hips.
     H.copy(hipL).add(hipSway as unknown as THREE.Vector3Like);
-    qHips.setFromAxisAngle(YAXIS, leadSign * c.rigStanceHipYawDeg * DEG + hipYawS);
+    // Reads (non-hitbox): the hips sit back on the ropes, sag to a knee when winded, drop on a landing, drive up into a rising punch.
+    H.x += reads.hipFwd; H.y -= reads.hipDrop; H.z += reads.hipLat;
+    qHips.setFromAxisAngle(YAXIS, leadSign * st.hipYawDeg * DEG + hipYawS + reads.hipYaw);
 
     // Chest: on the capsule top + sim torso reaction + spine spring, yawed by the
     // shoulder line, pitched by lean and the sim's tilt (positive = leaning back).
@@ -494,9 +534,15 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     for (let i = 0; i < 2; i++) lerpLocal(prev.arms[i]!.shoulder, next.arms[i]!.shoulder, alpha, shoulderJ[i]!);
     const iR = latSign[0] > 0 ? 0 : 1;
     const yawSh = Math.atan2(shoulderJ[iR]!.x - shoulderJ[1 - iR]!.x, shoulderJ[iR]!.z - shoulderJ[1 - iR]!.z);
-    qTmp.setFromAxisAngle(YAXIS, yawSh + spin);   // the shoulders whip round with a hook's spin
+    // THE BLADE (phase 2): the ribcage turns toward the lead side (stanceParams.chestYawDeg) on top of the shoulder
+    // line. The shoulder BONES stay on the sim's joints and carry the deltoids and the corners of the chest, so
+    // no hit geometry moves; the turn fades as the punch's own twist takes over (a cross squares the chest itself).
+    const blade = leadSign * st.chestYawDeg * DEG * (1 - Math.min(1, Math.abs(twist) / 0.5));
+    qTmp.setFromAxisAngle(YAXIS, yawSh + spin + blade + reads.chestYaw);   // the shoulders whip round with a hook's spin
     qChest.multiply(qTmp);
-    qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg + mvFwd * c.rigMoveLeanDeg) * DEG);
+    qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg + mvFwd * c.rigMoveLeanDeg) * DEG - reads.chestPitch);
+    qChest.multiply(qTmp);
+    qTmp.setFromAxisAngle(XAXIS, reads.chestRoll);
     qChest.multiply(qTmp);
     // Roll about the forward axis: the rhythm's roll over the loaded foot,
     // walking (roll into the travel) and the punch's lateral weight transfer
@@ -519,17 +565,25 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const tf = Math.max(0, t - tl);
       const liftY = tl > 0 && t < tl ? c.rigFallLift * Math.sin(Math.PI * t / tl) : 0;
       // Legs give way: the hips fall under rigFallGravity to the canvas and slide along the fall line.
-      const hipFloor = body.bodyR * 1.05;
+      // How he goes down depends on why (knockdown.cause): a body shot folds him forward onto a knee and his
+      // hands (hips stay off the canvas); a flash knockdown sits him down hard; the rest lay him out.
+      const cause = reads.fallCause;
+      const up = reads.up;   // the get-up: 0 lying … 1 on his feet (reads.ts, from getUp.phase)
+      const hipFloor = cause === 'body' ? body.shin * 0.92 : body.bodyR * 1.05;
       const hipDropMax = Math.max(0.01, H.y - hipFloor);
-      const hipDrop = Math.min(hipDropMax, 0.5 * c.rigFallGravity * tf * tf);
-      Hf.copy(H).addScaledVector(fallDir, (hipDrop / hipDropMax) * c.rigFallSlide);
+      const fallG = cause === 'flash' ? c.rigFallGravity * 2.2 : c.rigFallGravity;
+      // Getting up, the hips come off the canvas to kneeling height before the torso is upright.
+      const hipDrop = Math.min(hipDropMax, 0.5 * fallG * tf * tf) * (1 - 0.62 * Math.min(1, up * 1.25));
+      Hf.copy(H).addScaledVector(fallDir, (hipDrop / hipDropMax) * c.rigFallSlide * (cause === 'flash' ? 0.5 : 1));
       Hf.y = H.y - hipDrop + liftY;
       // Torso tips about the hips along the fall line, accelerating, until it lies; a damped bounce on landing.
-      const thetaMax = 88 * DEG;
+      const thetaMax = (cause === 'flash' ? 42 : cause === 'body' ? 66 : 88) * DEG;
       const tLand = Math.sqrt(2 * thetaMax / c.rigFallTip);
       let theta = Math.min(thetaMax, 0.5 * c.rigFallTip * tf * tf);
       if (tf > tLand) { const tb = tf - tLand; theta = thetaMax - c.rigFallBounce * Math.exp(-5 * tb) * Math.max(0, Math.sin(18 * tb)); }
       if (t < tl) theta = 0.2 * Math.sin(Math.PI * t / tl);   // the arch during the lift
+      // The struggle: he comes up off the canvas by `up`, unsteadily, and a slump drops him back.
+      theta = theta * (1 - up) + reads.struggle * 0.05 * Math.min(1, up * 6);
       qFall.setFromAxisAngle(fallAxis, theta);
       if (isHook) {   // the body turns with the punch as it goes down sideways
         qTmp.setFromAxisAngle(YAXIS, c.rigFallHookSpin * DEG * Math.min(1, tf / 0.6) * (fallDir.z < 0 ? -1 : 1));
@@ -549,11 +603,35 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       v.set(0, body.headY - body.shoulderY, 0).applyQuaternion(qHead);
       headF.copy(Sf).add(v);
       headF.y = Math.max(headF.y, body.headR);
-      // Arms flop: from the fallen shoulders, forward-down and out, onto the canvas.
+      // Arms flop: from the fallen shoulders, forward-down and out, onto the canvas. Getting up (and folded by a
+      // body shot) the hands go DOWN to the canvas under the shoulders and push.
+      // (Body cause: only as far as he has folded — at push = 1 from the first tick the gloves were pinned to the canvas
+      //  under a man still standing, and the arm could not reach them: a glove and cuff stood on the floor by themselves.)
+      const push = cause === 'body' ? smoothstep(theta / (45 * DEG)) * (1 - smoothstep((up - 0.6) / 0.3)) : Math.min(1, up * 3) * (1 - smoothstep((up - 0.6) / 0.3));
+      const armReach = (body.upperArm + body.forearm) * 0.98;
       for (let i = 0; i < 2; i++) {
         v.set(0.22, -0.2, latSign[i]! * (body.shoulderW / 2 + 0.12)).applyQuaternion(qChestF);
         gloveF[i]!.copy(Sf).add(v);
+        // Laid out, the arms lie ON the canvas out from the shoulders, a little toward the hips — the chest-frame
+        // flop pointed them at the ceiling once he was on his back (seen in the first knockdown strip).
+        const lie = smoothstep(theta / (70 * DEG));
+        if (lie > 0) {
+          v.set(0, 0, latSign[i]!).applyQuaternion(qChestF); v.y = 0;
+          if (v.lengthSq() < 1e-6) v.set(0, 0, latSign[i]!); else v.normalize();
+          v2.copy(Sf).addScaledVector(v, body.shoulderW / 2 + body.upperArm * 0.75).addScaledVector(fallDir, -0.22);
+          v2.y = body.gloveR;
+          gloveF[i]!.lerp(v2, lie);
+        }
+        if (push > 0) {
+          v2.set(Sf.x + fallDir.x * 0.12, body.gloveR, Sf.z + fallDir.z * 0.12 + latSign[i]! * (body.shoulderW / 2 + 0.05));
+          gloveF[i]!.lerp(v2, push);
+        }
         gloveF[i]!.y = Math.max(gloveF[i]!.y, body.gloveR);
+        // Never further from its own shoulder than the arm is long: the hand comes to the shoulder's reach, not the arm to the hand.
+        v.set(0, 0, latSign[i]! * body.shoulderW / 2).applyQuaternion(qChestF).add(Sf);
+        v2.subVectors(gloveF[i]!, v);
+        const gd = v2.length();
+        if (gd > armReach) gloveF[i]!.copy(v).addScaledVector(v2, armReach / gd);
       }
       H.lerp(Hf, fallK);
       S.lerp(Sf, fallK);
@@ -584,7 +662,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // Shoulder joints and neck base ride on the chest. On a punch the punching
     // shoulder reaches forward out of the chest (the scapula), the other
     // pulls back — keyed on the forward weight, so it peaks with the fist.
-    const shrug = blk * c.rigBlockShrug;
+    const shrug = blk * c.rigBlockShrug + reads.shrug;   // + the reads: hunched inside, slumped when the guard droops or breaks
     const leanN = Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean);
     // The chest-frame shoulder is kept only for the knockdown flop (the sim's
     // shoulders, drawn below, do not fall with the chest).
@@ -602,6 +680,13 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     void yawS;
     // Chin tucks behind the gloves in the block, and behind the shoulder on a punch.
     qTmp.setFromAxisAngle(ZAXIS, tilt * 0.5 - (blk * c.rigBlockChinTuckDeg + leanN * c.rigPunchChinTuckDeg) * DEG);
+    bHead.quaternion.multiply(qTmp);
+    // Reads: a flush shot whips the head on along the punch and it comes back; it rocks with a blocked one; it hangs when winded; it goes to the side in a clinch.
+    qTmp.setFromAxisAngle(YAXIS, reads.headYaw);
+    bHead.quaternion.multiply(qTmp);
+    qTmp.setFromAxisAngle(ZAXIS, reads.headPitch);
+    bHead.quaternion.multiply(qTmp);
+    qTmp.setFromAxisAngle(XAXIS, reads.headRoll);
     bHead.quaternion.multiply(qTmp);
     scl.set(1, 1, 1);
     squashHead.step(dt);
@@ -656,6 +741,21 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
         elbowJ[i]!.set(sh.x - 0.02, sh.y - body.upperArm * 0.98, sh.z + latSign[i]! * 0.07);
         gl.set(elbowJ[i]!.x + body.forearm * 0.3, elbowJ[i]!.y - body.forearm * 0.95, elbowJ[i]!.z + latSign[i]! * 0.03);
       }
+      // Reads on the drawn arm root (a few cm, non-hitbox): the shoulders hunch or slump, and a feint twitches the punching one.
+      sh.y += shrug;
+      if ((next.punch.hand === 'lead') === (i === 0)) sh.x += reads.feintReach;
+      // Clinch and push-off: the sim leaves the gloves at the guard (nobody can punch in a clinch; a shove has no
+      // fist), so the DRAWN arms leave the sim's joints for these two — wrapped round the other man, or both
+      // forearms driving out from the chest.
+      const tie = Math.max(reads.clinch, reads.push);
+      if (tie > 1e-3 && fallK < 0.5) {
+        if (reads.push >= reads.clinch) v2.set(S.x + 0.2 + 0.34 * reads.push, S.y - 0.1, S.z + latSign[i]! * 0.11);
+        else v2.set(S.x + 0.44, S.y + (i === 0 ? 0.04 : -0.16), S.z - latSign[i]! * 0.1);   // lead arm over the shoulder, rear arm under: a tie-up, crossed to the far side
+        gl.lerp(v2, tie);
+        pole.set(0, -0.6, latSign[i]!);
+        solveTwoBone(sh, gl, body.upperArm, body.forearm, pole, c.rigArmStretchMax, ik);
+        elbowJ[i]!.lerp(ik.mid, tie);
+      }
       elbowCleared[i] = false;
       let stretch = 1;
       if (fallK > 1e-3) {
@@ -696,8 +796,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const moving = vSpd > 1e-3;
     for (const i of leader === 0 ? [0, 1] : [1, 0]) {
       const s = latSign[i]!;
-      const restFwd = i === 0 ? c.rigStanceFwd : -c.rigStanceBack;
-      const restLat = s * c.rigStanceLat;
+      // Stance from stanceParams (one place: a style table can drive it). A step jab's lead foot steps with the punch.
+      const restFwd = i === 0 ? st.fwd + reads.leadStep : -st.back;
+      const restLat = s * st.lat;
       const footYawLocal = leadSign * (i === 0 ? c.rigLeadFootYawDeg : c.rigRearFootYawDeg) * DEG;
       const w = localToWorld(pos, frame, restFwd + hipSway.x, 0, restLat);
       footRest.x = w.x; footRest.z = w.z; footRest.y = 0; footRest.rotY = -yaw + footYawLocal;
@@ -709,7 +810,18 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       footDesired.rotY = footRest.rotY;
       stepStyle.role = i === leader ? 'lead' : 'trail';
       stepStyle.lateral = lateralTravel;
-      feet[i]!.update(footDesired, footRest, stepStyle, dt, c, feet[1 - i]!);
+      if (i === 0 && next.pivot.dir !== 0) {
+        // The pivot: the body swings round the planted lead foot — it stays on the sim's pivot point, turning with him.
+        footDesired.x = next.pivot.cx; footDesired.z = next.pivot.cz;
+        feet[0].snap(footDesired);
+      } else if (reads.airborne > 0) {
+        // The burst: both feet leave the canvas and travel with him; they land where the hop ends.
+        feet[i]!.snap(footDesired);
+        feet[i]!.out.y = reads.footLift * (i === leader ? 1 : 0.7);
+      } else if (i === 0 && reads.leadStep > 0.02 && !feet[0].stepping) {
+        const fd = Math.hypot(footDesired.x - feet[0].out.x, footDesired.z - feet[0].out.z);
+        if (fd > 0.05) { stepStyle.role = 'lead'; stepStyle.lateral = false; feet[0].stepNow(footDesired, c); } else feet[i]!.update(footDesired, footRest, stepStyle, dt, c, feet[1 - i]!);
+      } else feet[i]!.update(footDesired, footRest, stepStyle, dt, c, feet[1 - i]!);
     }
     for (let i = 0; i < 2; i++) {
       const s = latSign[i]!;
@@ -734,7 +846,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       // Keyed on the forward weight, not the twist: through the load the
       // weight is back and the heel stays down; it comes up with the drive.
       const liftW = i === 1 ? 1 : hookFoot;
-      const lift = c.rigPunchHeelLift * Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean) * liftW;
+      // + the reads: on the balls of the feet while he bounces (the rear heel stays off the canvas; flat-footed = down),
+      //   and both heels up through a hop or a rising punch.
+      const lift = Math.max(c.rigPunchHeelLift * Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean) * liftW, (i === 1 ? reads.heelRear * rhythm : 0), reads.heelBoth) * (1 - fallK);
       ankle.y += body.bootH + lift;
 
       hipJ[i]!.set(0, 0, s * d.hipJ).applyQuaternion(qHips).add(H);
@@ -797,18 +911,25 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     updateMaterials(c);
     setGlow(mat!, c.readEnabled ? glowAmt * c.readGlowStrength : 0, c.readGlowColor);
     r.outline.visible = c.outlines;
-    // Face and body state: eased toward what the host last set.
+    // Face and body state: what the fight has done to him (reads.ts, from FighterState and the events), or what
+    // a host set through setFace / setBodyState if that is more — eased so nothing pops.
     const kF = 1 - Math.exp(-dt * 14);
     const infl = r.body.morphTargetInfluences;
     for (let k = 0; k < MORPHS.length; k++) {
       const name = MORPHS[k]!;
-      faceNow[name] += (faceTarget[name] - faceNow[name]) * kF;
+      faceNow[name] += (Math.max(faceTarget[name], reads[name]) - faceNow[name]) * kF;
       if (infl) infl[k] = faceNow[name];
     }
     const u = mat!.uniforms;
-    u.uSweat.value += (bodyTarget.sweat - u.uSweat.value) * kF;
-    u.uRedden.value.x += (bodyTarget.reddenHead - u.uRedden.value.x) * kF;
-    u.uRedden.value.y += (bodyTarget.reddenBody - u.uRedden.value.y) * kF;
+    u.uSweat.value += (Math.max(bodyTarget.sweat, reads.sweat) - u.uSweat.value) * kF;
+    u.uRedden.value.x += (Math.max(bodyTarget.reddenHead, reads.reddenHead) - u.uRedden.value.x) * kF;
+    u.uRedden.value.y += (Math.max(bodyTarget.reddenBody, reads.reddenBody) - u.uRedden.value.y) * kF;
+    // Cuts and swelling are painted into the damage layer; repaint only when one has moved a step.
+    let key = '';
+    for (const p of CUT_PLACES) { const sev = Math.max(cuts[p] ?? 0, reads.cuts[p]); mergedCuts[p] = sev; key += Math.round(sev * 12) + ','; }
+    const swL = Math.max(faceTarget.swellL, reads.swellL), swR = Math.max(faceTarget.swellR, reads.swellR);
+    key += Math.round(swL * 12) + ',' + Math.round(swR * 12);
+    if (key !== damageKey) { damageKey = key; r.atlas.setDamage(mergedCuts, [swL, swR]); }
 
     sprungInit = true;
     root.updateMatrixWorld(true);
@@ -820,7 +941,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     faceTarget.mouthOpen = clamp1(f.mouthOpen, faceTarget.mouthOpen);
     if (f.swell) { faceTarget.swellL = clamp1(f.swell[0], faceTarget.swellL); faceTarget.swellR = clamp1(f.swell[1], faceTarget.swellR); }
     if (f.cuts) cuts = { ...cuts, ...f.cuts };
-    if (rig && (f.cuts || f.swell)) rig.atlas.setDamage(cuts, [faceTarget.swellL, faceTarget.swellR]);
+    damageKey = '';   // repainted on the next frame
   };
   const setBodyState = (b: BodyState): void => {
     bodyTarget.sweat = clamp1(b.sweat, bodyTarget.sweat);
@@ -829,6 +950,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   probe.setFace = setFace;
   probe.setBodyState = setBodyState;
   probe.portrait = (on: boolean): void => { portrait = on; };
+  probe.override = (o): void => { stateOverride = o; };
+  probe.feed = (p, n, ev): void => apply(p, n, 1, SIM_DT, ev);
+  probe.freeze = (on): void => { frozen = on; };
+  if (probing) installRigReplay(cfg, () => (window.__rig ?? {}) as Partial<Record<Side, ReplayFeed>>);
+  probe.sprayCount = (): number => spray.active;
 
   return {
     side,
@@ -839,6 +965,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     dispose(): void {
       if (rig) { rig.dispose(); rig = null; }
       if (mat) { mat.dispose(); mat = null; }
+      spray.dispose();
       debug.dispose();
       root.removeFromParent();
       if (probing && window.__rig) delete window.__rig[side];

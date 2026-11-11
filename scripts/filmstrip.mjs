@@ -37,6 +37,24 @@ export const SCENARIOS = {
   body_hook: { dist: 0.7, s0: hold(at({ 12: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], from: 0, to: 92, step: 4 },
   // Chest to chest: shovel hook, inside uppercut, then down for a body hook; the dummy hooks back.
   inside: { dist: 0.55, s0: hold(at({ 2: { hook: true, move: { x: -1, y: 0 } }, 14: { uppercut: true, move: { x: 1, y: 0 } }, 30: { hook: true, move: { x: -1, y: 0 } } }), 'level', 26, 44), s1: at({ 20: { hook: true, move: { x: -1, y: 0 } } }), from: 0, to: 69, step: 3 },
+  // ── RIG phase 2: the reads (scenario `cfg` = config for this strip only; `over` = fields laid over a side's
+  //    state in the VIEW only, RigProbe.override, for states scripted input cannot reach in a second) ──
+  // One cross that floors him (damage turned up for the strip), the fall, the struggle on the canvas, the rise.
+  knockdown: { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: { healthDamagePerImpulse: 0.006, camLookY: 0.75, camDistMin: 3.3 }, from: 10, to: 240, step: 10 },
+  // The liver shot that drops him when the buckle comes: he folds forward onto a knee and his hands.
+  body_knockdown: { dist: 0.7, s0: hold(at({ 12: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], cfg: { liverDropFrac: 0.3, camLookY: 0.75, camDistMin: 3.3 }, from: 56, to: 286, step: 10 },
+  // Block + level held in range: the tie-up, until the referee breaks it.
+  clinch: { dist: 0.6, s0: hold(hold([], 'block', 0, 100), 'level', 0, 100), s1: [], from: 0, to: 115, step: 5 },
+  // The dummy hooks; the player holds level and flicks: the roll's U under it, then up.
+  roll: { dist: 0.75, s0: hold(at(flick(1, 8)), 'level', 0, 30), s1: at({ 0: { hook: true, move: { x: -1, y: 0 } } }), from: 0, to: 46, step: 2 },
+  // Block + a lateral flick: the pivot off the planted lead foot.
+  pivot: { dist: 0.8, s0: hold(at(flick(1, 4)), 'block', 0, 12), s1: [], from: 0, to: 46, step: 2 },
+  // A forward flick, then forward again: the burst — push-off, hop, landing.
+  burst: { dist: 1.7, s0: at({ 2: { move: { x: 0, y: 1 } }, 3: { move: { x: 0, y: 1 } }, 7: { move: { x: 0, y: 1 } }, 8: { move: { x: 0, y: 1 } }, 9: { move: { x: 0, y: 1 } } }), s1: [], from: 0, to: 46, step: 2 },
+  // Block + a forward flick: the push-off.
+  push: { dist: 0.6, s0: hold(at({ 4: { move: { x: 0, y: 1 } }, 5: { move: { x: 0, y: 1 } } }), 'block', 0, 12), s1: [], from: 0, to: 46, step: 2 },
+  // The everyday exchange with side 0 drawn spent and marked up (fatigue, flat feet, damage ledgers) against a fresh man.
+  tired: { dist: 0.85, s0: at({ 2: { jab: true }, 10: { cross: true } }), s1: at({ 22: { jab: true } }), over: [{ fatigue: 1, flat: 1, stamina: 0.05, staminaCap: 0.45, wear: 0.4, damage: { head: 0.7, body: 0.5, liver: 0.25 } }, null], from: 0, to: 69, step: 3 },
 };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -69,13 +87,24 @@ for (const name of run) {
   const sc = SCENARIOS[name];
   if (!sc) { console.error(`no scenario '${name}' (have: ${Object.keys(SCENARIOS).join(', ')})`); process.exit(2); }
   const files = [], ticks = [];
+  // The scenario's own config, for this strip only.
+  const restore = await page.evaluate(over => { const was = {}; for (const k in over) { was[k] = window.__cfg[k]; window.__cfg[k] = over[k]; } return was; }, sc.cfg ?? {});
   for (let t = sc.from; t <= sc.to; t += sc.step) {
-    await page.evaluate(([dist, s0, s1, t]) => window.__replay(dist, s0.map(x => x ?? {}), t, s1.map(x => x ?? {})), [sc.dist, Array.from(sc.s0, x => x ?? null), Array.from(sc.s1, x => x ?? null), t]);
+    // window.__rigReplay (src/rig/replay.ts) runs the same deterministic sim and ALSO feeds every tick's events
+    // through the two views, so what the rig draws from events and springs (graded squash, head whip, sweat,
+    // the fall, the get-up) is in the frame; then it calls __replay for the host's pose and camera.
+    await page.evaluate(([dist, s0, s1, t, over]) => (window.__rigReplay ?? window.__replay)(dist, s0.map(x => x ?? {}), t, s1.map(x => x ?? {}), over), [sc.dist, Array.from(sc.s0, x => x ?? null), Array.from(sc.s1, x => x ?? null), t, sc.over ?? []]);
     await frames(page, 3);
     const f = `${FRAMES}/${name}_t${String(t).padStart(3, '0')}.png`;
-    await page.screenshot({ path: f });
+    // A capture occasionally stalls on the first frame of a scenario on software GL (seen three times, cause not
+    // found — see docs/OVERHAUL_RIG.md); one longer retry, and the stall is reported rather than hidden.
+    await page.screenshot({ path: f }).catch(async e => {
+      console.error(`  ${name} t=${t}: capture stalled (${String(e.message).split('\n')[0]}); retrying once`);
+      await page.screenshot({ path: f, timeout: 120_000 });
+    });
     files.push(f); ticks.push(t);
   }
+  await page.evaluate(was => { Object.assign(window.__cfg, was); for (const s of [0, 1]) { window.__rig?.[s]?.override?.(null); window.__rig?.[s]?.freeze?.(false); } }, restore);
   const sheet = await page.evaluate(async ({ imgs, ticks, w, h, cols }) => {
     const rows = Math.ceil(imgs.length / cols);
     const canvas = document.createElement('canvas');
