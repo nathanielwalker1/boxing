@@ -154,7 +154,7 @@ const rockedState = () => { const s0 = fresh(soft); s0.fighters[1].health = LOW;
 
 // ── 5. The flash ────────────────────────────────────────────────────────────
 {
-  const huge = { ...soft, crossImpulseMult: 3.5 };
+  const huge = { ...soft, crossImpulseMult: 6 };   // (phase 3: stunFlashFrac 1.85 → 3.2; × 3.5 was 1003 N·s against a bar now at 1441)
   const { s, evs } = cross(fresh(huge), huge);
   const kd = of(evs, 'knockdown')[0], land = of(evs, 'punchLand')[0];
   const Tf = sim.stunThreshold({ ...fresh(huge).fighters[1] }, huge);
