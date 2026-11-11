@@ -57,9 +57,8 @@ export function buildRigMesh(
   spec: FighterSpec, body: BodyDims, cfg: Config, latSign: readonly [number, number],
   material: THREE.Material, outlineMat: THREE.Material,
 ): RigMesh {
-  const t0 = performance.now();
   const d = rigDims(spec, body, cfg);
-  const low = cfg.rigQuality < 0.5;
+  const low = cfg.rigQuality < 0.5 || !!spec.outfit;   // the referee is background: always the low tier
   const g = new Geo();
   const bind = bindPose(body, d, latSign);
   const c: Ctx = { g, spec, body, d, cfg, m: morphOf(spec), lat: latSign, low, bind, rect: atlasRect };
@@ -75,7 +74,6 @@ export function buildRigMesh(
   for (let i = 0; i < 2; i++) { buildGlove(c, i); buildBoot(c, i); }
   if (spec.outfit) buildBowTie(c, torso);
 
-  const tGeo = performance.now();
   const geometry = g.build(MORPHS);
   const span = armSpan(c);
   const atlas = paintAtlas(spec, cfg, low, {
@@ -85,9 +83,6 @@ export function buildRigMesh(
     elbowV: (body.upperArm - span.s0) / (span.s1 - span.s0), deltV: (body.upperArm * 0.44 - span.s0) / (span.s1 - span.s0),
     pecU: 0.07, def: muscleDef(c),
   });
-  // Build cost, for the boot-time probe (scripts/_debug.mjs boot): [mesh ms, paint ms] per build.
-  const w = window as unknown as { __rigTiming?: number[][] };
-  (w.__rigTiming ??= []).push([Math.round(tGeo - t0), Math.round(performance.now() - tGeo)]);
 
   const group = new THREE.Group();
   const bones: THREE.Bone[] = [];

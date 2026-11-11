@@ -167,7 +167,7 @@ export function torsoShape(c: Ctx): TorsoShape {
 
 export function buildTorso(c: Ctx, shape: TorsoShape): void {
   const ys = rowParams(shape.keys, shape.counts, c.low);
-  const cols = c.low ? 20 : 40;
+  const cols = c.low ? 20 : 36;
   const outfit = !!c.spec.outfit;
   addGrid(c.g, {
     rows: ys.length, cols, wrap: true,
@@ -252,7 +252,7 @@ export function buildArm(c: Ctx, i: number): void {
     { s: L1 + L2 * 0.18, ss: L2 * 0.22, phi: 0.9, sphi: 1.0, amp: 0.1 * def },             // brachioradialis
     { s: L1 + L2 * 0.2, ss: L2 * 0.24, phi: -1.3, sphi: 1.0, amp: 0.08 * def },            // flexors
   ];
-  const cols = c.low ? 10 : 18;
+  const cols = c.low ? 10 : 16;
   const row = [0, 0, 0, 0];
   const wj = R1 * cfg.rigJointBlend;
   addGrid(c.g, {
@@ -326,7 +326,7 @@ export function buildLeg(c: Ctx, i: number): void {
     { s: L3 + L4 * 0.3, ss: L4 * 0.24, phi: -2.55, sphi: 0.8, amp: 0.22 * def },           // calf, inner head
     { s: L3 + L4 * 0.5, ss: L4 * 0.4, phi: 0, sphi: 0.5, amp: -0.05 },                     // shin edge
   ];
-  const cols = c.low ? 10 : 18;
+  const cols = c.low ? 10 : 16;
   const row = [0, 0, 0, 0];
   const wj = R3 * cfg.rigJointBlend * 0.85;
   const outfit = !!c.spec.outfit;

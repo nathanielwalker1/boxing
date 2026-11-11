@@ -143,7 +143,7 @@ export function headShape(c: Ctx): HeadShape {
     out.set(x * R, yy * R + (lift && y > 0.9 ? lift : 0), z * R);
   };
   return {
-    R, rowsY: ROWS_Y, cols: c.low ? 28 : 52,
+    R, rowsY: ROWS_Y, cols: c.low ? 28 : 44,
     theta: thetaOf, uOf: uOfTheta,
     vOf: y => (1 - y) / 2,
     point,

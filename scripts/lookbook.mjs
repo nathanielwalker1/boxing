@@ -62,7 +62,9 @@ const logs = [];
 page.on('console', m => { if ((m.type() === 'error' || m.type() === 'warning') && !/GPU stall due to ReadPixels/.test(m.text())) logs.push(m.text()); });
 page.on('pageerror', e => logs.push(e.message));
 await page.goto(`${DEV_URL}/?ai=0`, { waitUntil: 'networkidle', timeout: 20_000 });
-await bootReady(page);
+// Not a test: waits longer than waits.bootReady's 15 s, which software GL on a loaded machine can exceed.
+await page.waitForFunction(() => !!(window.__tick && window.__tick.ready && window.__tick.frames >= 5 && window.__cfg), null, { timeout: 120_000 });
+void bootReady;
 await page.evaluate(() => {
   const c = window.__cfg;
   c.debugHitboxes = false; c.debugFps = false; c.refEnabled = false;

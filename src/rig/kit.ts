@@ -52,7 +52,7 @@ export function buildGlove(c: Ctx, i: number): void {
   ];
   const keys = st.map(s => -s[0]!), vals = st.map(s => s.slice(1));        // ascending down the glove
   const ts = rowParams(keys, [2, 3, 3, 3, 2, 2], c.low);
-  const cols = c.low ? 10 : 18;
+  const cols = c.low ? 10 : 16;
   const row = [0, 0, 0];
   const vCuff = 0.3;
   addGrid(c.g, {
@@ -117,7 +117,7 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
   const bottom = hy - R * 0.6;
   const keys = [top, top - bandH, hy + sp * 0.05, hy - R * 0.3, bottom];
   const ys = rowParams(keys.map(k => -k), [outfit ? 1 : 3, 4, 3, 2], c.low).map(k => -k);
-  const cols = c.low ? 20 : 40;
+  const cols = c.low ? 20 : 36;
   const skirt = cut === 'skirt' && !outfit;
   const vBand = 0.26;
   // Body: the torso's own surface, pushed out — a thick waistband, then cloth that hangs off the hips.
@@ -144,7 +144,7 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
 
   const leg = legStations(c);
   const row = [0, 0, 0, 0];
-  const len = d.trunkLen;
+  let len = d.trunkLen;
   if (skirt) {
     // One flared skirt of panels round both legs; each half follows its own leg's hem bone.
     const rows = c.low ? 5 : 8;
@@ -154,26 +154,29 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
         const t = r / (rows - 1);
         const th = (0.5 - j / cols) * TAU;
         torso.point(hy + sp * 0.2, th, out, 0.03);
-        const flare = 1 + t * (0.42 + 0.06 * Math.cos(th * 9));   // pleated panels
-        out.x *= flare * (1 + 0.25 * t); out.z *= flare;
+        // Pleated, and flared most fore and aft: in the stance one thigh is well forward of the hips and the other well back.
+        const flare = 1 + t * (0.5 + 0.06 * Math.cos(th * 9));
+        out.x *= flare * (1 + 0.4 * t); out.z *= flare;
         out.y = hy + sp * 0.2 - t * (len + sp * 0.2);
       },
       weights: (p) => {
         const t = smooth01((hy - p.y) / len);
         const side = p.z * c.lat[0]! > 0 ? 0 : 1;
-        return [[BONE.hips, 1 - 0.65 * t], [legBones(side).hem, 0.65 * t]];
+        // Mostly the hips': a half that went all the way with its leg stood out like a wing. The legs wear short panels under it.
+        return [[BONE.hips, 1 - 0.3 * t], [legBones(side).hem, 0.3 * t]];
       },
       rect: c.rect('trunkLegL'), kind: KIND.cloth,
       uv: (r, j) => [j / cols, r / (rows - 1)],
       ao: cfg.rigAoStrength * 0.4,
     });
-    return;
+    // Short leg panels under the skirt, in the same cloth: a thigh that lifts shows trunks at its root, not skin.
+    len *= 0.62;
   }
   for (let i = 0; i < 2; i++) {
     const bones = legBones(i);
     const J = c.bind[bones.thigh]!;
     const mirror = c.lat[i]! < 0;
-    const lc = c.low ? 12 : 20;
+    const lc = c.low ? 12 : 16;
     const s0 = -d.thighR * 0.7;
     const sKeys = [s0, len * 0.25, len * 0.7, len];
     const ss = rowParams(sKeys, [2, 3, 3], c.low);

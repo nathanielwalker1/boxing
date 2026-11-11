@@ -98,7 +98,7 @@ export function generateFighter(seed: number): FighterSpec {
     swarmer: stamina * 0.7 + speed * 0.5 - (heightM - 1.7) * 120,
     outboxer: defense * 0.5 + speed * 0.4 + (ape - 1.02) * 500 + (heightM - 1.78) * 80,
     counter: defense * 1.0 + speed * 0.3 - power * 0.3,
-    pressure: stamina * 0.6 + chin * 0.5 + power * 0.2,
+    pressure: stamina * 0.45 + chin * 0.4 + power * 0.15 - 4,
   };
   let style: AiStyle = 'pressure', best = -Infinity;
   for (const k of ['pressure', 'counter', 'outboxer', 'swarmer', 'slugger'] as const) {
