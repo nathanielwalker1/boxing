@@ -13,7 +13,7 @@
  */
 import type { Config, FighterState, FrameInput, Vec2 } from '../core';
 import { RING_HALF, clamp, frameOf, lerp, sqrt, turnToward, v2angle, v2dist, v2len, v2sub } from '../core';
-import { moveScales, stepHop, stepPivot } from './footing';
+import { hurtMods, moveScales, stepHop, stepPivot } from './footing';
 
 /** Half-size of the walkable square. */
 export const bound = (cfg: Config): number => RING_HALF - cfg.ringInset;
@@ -29,7 +29,7 @@ export function stepLocomotion(f: FighterState, input: Readonly<FrameInput>, cfg
   const massScale = cfg.moveMassRef / f.body.massKg;
   // The legs go first (2026-09-16): at zero stamina top speed and the push-off
   // are moveTiredScale of fresh, linearly in between. Both fighters.
-  const tired = lerp(cfg.moveTiredScale, 1, clamp(f.stamina, 0, 1)) * (f.hurt > 0 && f.hurtKind !== 'body' ? cfg.stunMoveScale : 1);   // rocked: the legs go (sim/stun.ts)
+  const tired = lerp(cfg.moveTiredScale, 1, clamp(f.stamina, 0, 1)) * (f.hurt > 0 && f.hurtKind !== 'body' ? cfg.stunMoveScale : 1) * hurtMods(f, cfg).move;   // rocked: the legs go (sim/stun.ts); by how much depends on the kind of hurt (polish phase)
   const ms = moveScales(f, cfg);
   const accelRate = cfg.moveAccel * massScale * tired * ms.accel;
   const frictionRate = cfg.moveFriction * massScale;

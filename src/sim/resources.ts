@@ -23,9 +23,9 @@
  *     at the knockdown; the struggle is laid out between the fall and that
  *     moment, and whether the first try fails is rolled on the seeded rng.
  */
-import type { BodyPart, Config, FighterState, GetUpPhase, Side, SimEvent, SimState } from '../core';
+import type { BodyPart, Config, FallStyle, FighterState, GetUpPhase, KnockdownKind, Side, SimEvent, SimState } from '../core';
 import { clamp, lerp, rngChance, rngRange } from '../core';
-import { getUpAt, healthCap, healthRegenDelay, idlePunch, idleSlip, regenDelay, setGetUpAt, setHealthCap, setHealthRegenDelay, setRegenDelay } from './state';
+import { getUpAt, healthCap, healthRegenDelay, idlePunch, idleSlip, regenDelay, setGetUpAt, setGetUpCount, setHealthCap, setHeldKnock, setHealthRegenDelay, setRegenDelay } from './state';
 import { clearPunish } from './vulnerability';
 import { rated } from './ratings';
 
@@ -44,8 +44,16 @@ export function stepStamina(f: FighterState, cfg: Config, dt: number): void {
   setHealthRegenDelay(f, hDelay);
   if (f.down) return;
   // (The stamina rating: the guard costs less to hold and wind comes back faster.)
-  if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * dt);
-  else if (f.punch.type === null && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + cfg.staminaRegen * rated(f, 'stamina', cfg.ratingStaminaRegen, cfg) * dt);
+  const regen = cfg.staminaRegen * rated(f, 'stamina', cfg.ratingStaminaRegen, cfg) * dt;
+  if (cfg.staminaPolishOn) {
+    // Polish phase, item 6: the guard is nearly free to hold and wind comes back behind it (slower); it comes back, slower
+    // still, while a punch that touched something is on its way home. A miss, or being hit, is still a held breath.
+    if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * cfg.staminaGuardHold * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * dt);
+    const p = f.punch;
+    const rate = f.block ? cfg.staminaGuardRegen : p.type === null ? 1 : p.phase === 'recover' && p.contact !== null && !p.feint ? cfg.staminaPunchRegen : 0;
+    if (rate > 0 && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + regen * rate);
+  } else if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * dt);
+  else if (f.punch.type === null && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + regen);
   if (hDelay === 0 && f.health < healthCap(f)) f.health = Math.min(healthCap(f), f.health + cfg.healthRegen * dt);
 }
 
@@ -58,10 +66,13 @@ export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean
   const d = s.fighters[target];
   if (d.down) return;
   const body = part === 'body' && cfg.bodyDamageOn;
-  d.stamina = Math.max(0, d.stamina - mag * cfg.staminaHitCost * (blocked ? cfg.staminaBlockedHitMult : 1) * (body ? cfg.staminaBodyHitMult : 1));
+  // (Polish phase, item 6: on the GUARD a light shot costs next to nothing and does not pause the wind; a heavy one costs the arms something.)
+  const polish = cfg.staminaPolishOn && blocked;
+  const onGuard = !polish ? 1 : noHealth ? cfg.staminaBlockedLight : cfg.staminaBlockedHeavy;
+  d.stamina = Math.max(0, d.stamina - mag * cfg.staminaHitCost * (blocked ? cfg.staminaBlockedHitMult : 1) * (body ? cfg.staminaBodyHitMult : 1) * onGuard);
   // (Phase 2: a light shot — a jab — pauses the wind for only a fraction of that. At the full pause a man jabbing
   // twice a second held the other's stamina at zero for the whole fight.)
-  setRegenDelay(d, Math.max(regenDelay(d), cfg.staminaRegenDelay * (light ? cfg.staminaRegenDelayLight : 1)));
+  setRegenDelay(d, Math.max(regenDelay(d), cfg.staminaRegenDelay * (light ? cfg.staminaRegenDelayLight : 1) * (!polish ? 1 : noHealth ? 0 : cfg.staminaBlockedDelay)));
   if (noHealth) return;
   const full = mag * cfg.healthDamagePerImpulse;
   // The ledger is in head-shot health fractions for both, so the two are comparable; a blocked shot's chip counts.
@@ -81,8 +92,14 @@ export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean
 }
 
 /** Down: the bar emptied ('health'), a shot finished a rocked fighter ('finish'), one shot was enough ('flash'), or the body gave ('body') — sim/stun.ts. */
-export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent[], cause: 'health' | 'finish' | 'flash' | 'body'): void {
+export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent[], cause: 'health' | 'finish' | 'flash' | 'body', opt: { kind?: KnockdownKind; fall?: FallStyle; over?: number } = {}): void {
   const d = s.fighters[side];
+  // The kind (polish phase): OUT and a knee are decided by the caller; otherwise a one-shot knockdown of a man with
+  // health left is a FLASH (caught, up early) and everything else is HEAVY (hurt, up late or not at all).
+  const variety = cfg.hurtVarietyOn;
+  const kind: KnockdownKind = opt.kind ?? (cause === 'flash' && d.health >= cfg.knockdownFlashHealth ? 'flash' : 'heavy');
+  const fall: FallStyle = kind === 'out' ? (opt.fall ?? 'crumple') : 'none';
+  d.downKind = kind; d.fall = fall; d.hurtStyle = 'none'; d.hurtDelay = 0; d.kneeT = 0;
   d.down = true;
   d.hurt = 0; d.hurtMax = 0; d.hurtKind = 'none';   // the canvas ends the hurt state; the count is its own thing
   d.downT = 0;
@@ -97,10 +114,17 @@ export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent
   d.hop = { x: 0, z: 0 }; d.burstT = 0; d.pivot = { t: 0, dir: 0, left: 0, cx: 0, cz: 0 };
   d.level = 0; d.riseT = 0; d.posture = 0; d.buckle = 0; d.liverT = 0; d.liverMag = 0;
   d.blockStun = 0; d.guardBroken = 0; d.loaded = 0; d.loadedT = 0; d.combo = 0; d.comboT = 0;
+  d.hitT = 0; d.hitSev = 0; setHeldKnock(d, 0, 0);   // (polish phase: nothing held or pending survives the canvas)
   for (const f of s.fighters) { f.clinch.active = false; f.clinch.reach = 0; f.clinch.t = 0; f.clinch.by = -1; }
   clearPunish(d);   // the knockdown supersedes any punish window
-  events.push({ type: 'knockdown', side, count: d.knockdowns, cause });
-  if (d.knockdowns >= cfg.knockdownsForTko) {
+  events.push(opt.over === undefined ? { type: 'knockdown', side, count: d.knockdowns, cause, kind, fall } : { type: 'knockdown', side, count: d.knockdowns, cause, kind, fall, over: opt.over });
+  if (variety && kind === 'out') {
+    // OUT before he lands (polish phase): no count. The referee waves it off.
+    events.push({ type: 'ko', winner: side === 0 ? 1 : 0, waved: true });
+    s.round.phase = 'over';
+    d.getUp = { phase: 'down', t: 0, tries: 0, owed: false };
+    setGetUpAt(d, -1);
+  } else if (d.knockdowns >= cfg.knockdownsForTko) {
     events.push({ type: 'tko', winner: side === 0 ? 1 : 0 });
     s.round.phase = 'over';
     d.getUp = { phase: 'down', t: 0, tries: 0, owed: false };
@@ -111,15 +135,22 @@ export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent
     // 10 or more = they do not beat the count. Rolled now so the count is
     // deterministic and the rig can be told how long the fall lasts.
     const chin = clamp(d.ratings.chin / 100, 0, 1);
-    const count = lerp(cfg.getUpCountWorst, cfg.getUpCountBest, chin)
+    const rolled = lerp(cfg.getUpCountWorst, cfg.getUpCountBest, chin)
       + cfg.getUpCountPerKnockdown * (d.knockdowns - 1)
       + rngRange(s.rng, -cfg.getUpJitter, cfg.getUpJitter);
+    // (Polish phase: by the kind. A flash knockdown: up early. A heavy one: late. A knee by choice: he uses the count.)
+    const count = !variety ? rolled
+      : kind === 'knee' ? clamp(cfg.takeKneeCount + (rolled - Math.floor(rolled) - 0.5), cfg.knockdownFlashMin, 9.4)
+      : kind === 'flash' ? Math.max(cfg.knockdownFlashMin, rolled - cfg.knockdownFlashEarly)
+      : rolled + cfg.knockdownHeavyLate;
+    setGetUpCount(d, count);
     setGetUpAt(d, count >= 10 ? -1 : Math.max(0, count) * cfg.countTickSeconds);
     // The struggle (overhaul): does the first try fail? A fighter who will
     // not beat the count always slumps; otherwise the odds grow with the
     // knockdowns this round and shrink with the chin. One roll, made now.
     const beaten = count >= 10;
-    const slump = cfg.getUpOn && (beaten || rngChance(s.rng, clamp(cfg.getUpSlumpChance * (d.knockdowns - chin), 0, 1)));
+    const rolledSlump = cfg.getUpOn && (beaten || rngChance(s.rng, clamp(cfg.getUpSlumpChance * (d.knockdowns - chin), 0, 1)));
+    const slump = rolledSlump && !(variety && (kind === 'knee' || kind === 'flash'));   // a man who chose it, or was only caught, does not fail to get up
     d.getUp = { phase: 'down', t: 0, tries: 0, owed: slump };
     s.round.phase = 'count';
     s.round.count = 0;
@@ -201,7 +232,7 @@ export function stepCount(s: SimState, cfg: Config, dt: number, events: SimEvent
       setHealthCap(f, Math.max(healthCap(f), f.health));
       // The count is a breather (phase 3): he gets up with some wind. Without it a man floored with an empty tank got
       // up with an empty tank — no guard, no punches — and was floored again (measured: 3 knockdowns in 26 s, stamina 0.01 at each get-up).
-      f.stamina = Math.max(f.stamina, Math.min(f.staminaCap, cfg.knockdownStaminaRestore));
+      f.stamina = Math.max(f.stamina, Math.min(f.staminaCap, cfg.hurtVarietyOn && f.downKind === 'knee' ? cfg.takeKneeStamina : cfg.knockdownStaminaRestore));
       events.push({ type: 'getUp', side });
       s.round.phase = 'fighting';
       s.round.phaseT = 0;

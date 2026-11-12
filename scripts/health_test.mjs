@@ -18,7 +18,9 @@ const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT, v3len } = core;
 // ratingsOn / stylesOn off (overhaul phase 2): this file pins the reference fighters' numbers and margins as they were before
 // ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
 // (staminaRegenDelayLight 1: these ported assertions hit with the jab and pin the full regen pause; phase 2 shortens it for a jab — see the last section.)
-const cfg = { ...({ ...createConfig(), ratingsOn: false, stylesOn: false }), jabHealthFloor: 0, staminaRegenDelayLight: 1 };
+// (Polish phase, item 6: staminaPolishOn off — this file pins the ORIGINAL stamina formulas key by key (staminaPunchCost, staminaBlockDrain, …);
+// the polish rules scale them by weight and make the guard nearly free. stamina_test pins those.)
+const cfg = { ...({ ...createConfig(), ratingsOn: false, stylesOn: false }), jabHealthFloor: 0, staminaRegenDelayLight: 1, staminaPolishOn: false };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();

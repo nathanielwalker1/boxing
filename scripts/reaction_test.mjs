@@ -126,7 +126,9 @@ function throwAndWatch(type, n = 120, dist = MID, moveX = 0) {
   const { snaps, landTick, land } = throwAndWatch('jab');
   const l = snaps[landTick], n1 = snaps[landTick + 1], prev = snaps[landTick - 1];
   check('hitStop is set on the land tick', l.hitStop > 0 && l.hitStop <= cfg.hitStopMax, `${l.hitStop}`);
-  check('hitStop = min(hitStopMax, hitStopBase × power)', near(l.hitStop, Math.min(cfg.hitStopMax, cfg.hitStopBase * land.power), 1e-12), `${l.hitStop} vs power ${land.power}`);
+  // (Polish phase, deliberate: a clean jab's freeze is hitStopJabScale of the power-scaled one.)
+  const jabScale = land.punch === 'jab' && cfg.hitStopBudgetOn ? cfg.hitStopJabScale : 1;
+  check('hitStop = min(hitStopMax, hitStopBase × power) (× hitStopJabScale for a jab)', near(l.hitStop, Math.min(cfg.hitStopMax, cfg.hitStopBase * land.power) * jabScale, 1e-12), `${l.hitStop} vs power ${land.power}`);
   check('the land tick itself ran at full rate', near(l.time - prev.time, SIM_DT, 1e-12));
   check('the next tick advances time by hitStopScale × SIM_DT', near(n1.time - l.time, SIM_DT * cfg.hitStopScale, 1e-12), `${(n1.time - l.time).toFixed(6)}`);
   check('the round clock slows by the same factor', near(l.clock - n1.clock, SIM_DT * cfg.hitStopScale, 1e-12));

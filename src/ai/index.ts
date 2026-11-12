@@ -154,7 +154,7 @@ export interface AiState {
   stickX: number; stickY: number; stickT: number;
   /** It was hurt last tick (the survive plan is rolled on the rising edge) and the plan: tie up, or cover and move. */
   wasHurt: boolean;
-  hurtPlan: 'none' | 'clinch' | 'cover' | 'swing';
+  hurtPlan: 'none' | 'clinch' | 'cover' | 'swing' | 'knee';
   /** Shots taken lately (decays one a second): two = it is taking a combination. Seconds left of walking in behind the guard after being picked off at range. */
   hits: number; shellT: number;
   /** Phase 2. The opponent was inside range last tick, and whether it decided (as he got there) to keep its guard up in there. */
@@ -434,6 +434,9 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   if (nowHurt && !a.wasHurt) {
     a.hurtPlan = tools && rngChance(a.rngT, st.hurtClinch) ? 'clinch' : tools && rngChance(a.rngT, st.hurtSwing) ? 'swing' : 'cover';
     if (a.hurtPlan === 'swing') a.blockTimer = 0;
+    // Taking a knee (polish phase): rocked, worn, nobody near enough to tie up, and not yet down this round — sometimes
+    // it uses the count. (The extra roll is only made when all of that holds, so no other fight's dice move.)
+    if (tools && cfg.takeKneeOn && cfg.hurtVarietyOn && me.hurtKind === 'head' && me.health < cfg.aiKneeHealth && me.knockdowns === 0 && a.hurtPlan !== 'swing' && rngChance(a.rngT, cfg.aiKneeChance)) a.hurtPlan = 'knee';
   }
   if (!nowHurt) a.hurtPlan = 'none';
   a.wasHurt = nowHurt;
@@ -1023,6 +1026,8 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   trackStick(a, input, dt, cfg, pressed, true);
   // Never the clinch by accident: level and block together are a macro's.
   if (input.block) input.level = false;
+  // …except the knee: block + level held, standing still, until the sim puts it down (in clinch range the same hold ties up).
+  if (a.hurtPlan === 'knee' && me.hurt > 0 && !me.down && me.punch.type === null) { input.block = true; input.level = true; input.move.x = 0; input.move.y = 0; input.jab = false; input.cross = false; input.hook = false; input.uppercut = false; }
 
   return { ai: a, input };
 }

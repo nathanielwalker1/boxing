@@ -34,6 +34,8 @@ export interface Drill {
   opponent?: Partial<FighterSpec>;
   /** Mutate the freshly placed state (start hurt, start tired). */
   setup?(state: SimState, cfg: Config): void;
+  /** Config the drill runs under (polish phase): a partner who does not fall over, a quick count so nobody stands through a dead ten. The host merges it over the live config and puts it back afterwards. */
+  tune?(cfg: Config): Partial<Config>;
   /** Side 1's input this tick. Pure. */
   policy(state: SimState, tick: number, seed: number, cfg: Config): FrameInput;
   /** Progress 0..1 and a stat line, from every event since the drill began and the state now. Pure. */
@@ -123,19 +125,31 @@ export const DRILLS: readonly Drill[] = [
     seconds: 40,
     placement: centre(1.4),
     opponent: { style: 'outboxer' },
-    policy(state, tick, seed) {
+    policy(state, tick, seed, cfg) {
       const me = state.fighters[1];
-      // Away and round, changing direction every few seconds; along the ropes when he reaches them.
-      const dir = hash01(seed, Math.floor(tick / T(2.5))) < 0.5 ? -1 : 1;
-      return inp({ move: { x: dir * 0.8, y: me.ropes > 0.6 ? 0 : -0.6 } });
+      // Away and round, changing direction every few seconds. (Polish phase: he used to back straight into the ropes
+      // and stay there — walking at him ended the drill in four seconds. Now, inside a metre and a bit of the ropes,
+      // he goes ALONG them toward the open side of the ring, at full speed, and only backs up when there is room.)
+      const half = RING_HALF - cfg.ringInset;
+      const edge = Math.min(half - Math.abs(me.pos.x), half - Math.abs(me.pos.z));
+      let dir = hash01(seed, Math.floor(tick / T(2.5))) < 0.5 ? -1 : 1;
+      if (edge < CUT_OFF_ROOM) {
+        // His right, in the world (he faces the player): the side whose step takes him nearer the middle is the open one.
+        const rx = -Math.sin(me.yaw), rz = Math.cos(me.yaw);
+        dir = me.pos.x * rx + me.pos.z * rz > 0 ? -1 : 1;
+        return inp({ move: { x: dir, y: edge < 0.35 ? 0.15 : -0.2 } });
+      }
+      return inp({ move: { x: dir * 0.8, y: -0.6 } });
     },
     metric(events, state, cfg) {
       const opp = state.fighters[1];
       const half = RING_HALF - cfg.ringInset;
       const edge = Math.min(half - Math.abs(opp.pos.x), half - Math.abs(opp.pos.z));
+      // (Polish phase: it is not done by standing near him once. The work is punches landed on him WHILE he is on the
+      // ropes — each land is placed by where it landed.)
+      const onRopes = landsBy(events, 0, e => Math.min(half - Math.abs(e.at.x), half - Math.abs(e.at.z)) < CUT_OFF_ROPES);
       const trapped = opp.ropes > 0.5 && dist(state) < 1.1;
-      // Progress is how trapped he is NOW (the host latches the best): on the ropes with you in front of him = 1.
-      return { progress: trapped ? 1 : clamp01(1 - edge / 2) * 0.7, stat: `${edge.toFixed(1)} m from the ropes${trapped ? ' · trapped' : ''} · ${landsBy(events, 0)} landed` };
+      return { progress: clamp01(onRopes / 5), stat: `${onRopes} landed with his back on the ropes · ${edge.toFixed(1)} m from them now${trapped ? ' · trapped' : ''}` };
     },
   },
   {
@@ -229,12 +243,168 @@ export const DRILLS: readonly Drill[] = [
       return inp({ move: { x: 0, y: d > 0.72 ? 0.85 : 0 } });
     },
     metric(events, state) {
-      const downs = events.reduce((n, e) => n + (e.type === 'knockdown' && e.side === 0 ? 1 : 0), 0);
-      const t = state.time;
-      return { progress: downs > 0 ? 0 : clamp01(t / 12), stat: `${t.toFixed(1)} s survived${downs ? ' · went down' : ''} · ${landsBy(events, 1)} taken` };
+      // (Polish phase: a knee taken by choice is not "went down" — it is one of the ways through. And standing there
+      // taking it is not surviving: every clean shot taken costs progress.)
+      const downs = events.reduce((n, e) => n + (e.type === 'knockdown' && e.side === 0 && e.kind !== 'knee' ? 1 : 0), 0);
+      const knees = events.reduce((n, e) => n + (e.type === 'knockdown' && e.side === 0 && e.kind === 'knee' ? 1 : 0), 0);
+      const t = state.time, taken = landsBy(events, 1, e => e.grade !== 'glancing');
+      return { progress: downs > 0 ? 0 : clamp01(t / 12) * (1 - clamp01(taken / 12)), stat: `${t.toFixed(1)} s survived${downs ? ' · went down' : ''}${knees ? ' · took a knee' : ''} · ${taken} taken clean` };
     },
+    // The count after a knee (or a knockdown) is quick here: the drill is the twelve seconds, not the ten.
+    tune: cfg => ({ countTickSeconds: cfg.countTickSeconds * DRILL_COUNT }),
+  },
+
+  // ── Polish phase (2026-11-11): one drill per fix, so each can be judged in a couple of minutes ──────────────
+  {
+    id: 'combinations',
+    title: 'Combinations',
+    goal: 'He stands in front of you and comes back when you move him: throw the 1-2-3 and the 1-2-body-hook and finish them.',
+    seconds: 45,
+    placement: centre(0.8),
+    opponent: { style: 'pressure' },
+    policy: partnerInFront,
+    metric: comboMetric,
+    tune: durablePartner,
+  },
+  {
+    id: 'combinations-ropes',
+    title: 'Combinations on the ropes',
+    goal: 'The same man with his back on the ropes and nowhere to go: put the combination together and end it with the big one.',
+    seconds: 45,
+    placement(cfg) { const c = RING_HALF - cfg.ringInset; return { player: { x: c - 0.85, z: 0 }, opponent: { x: c - 0.05, z: 0 } }; },
+    opponent: { style: 'pressure' },
+    policy: () => inp(),
+    metric: comboMetric,
+    tune: durablePartner,
+  },
+  {
+    id: 'trading',
+    title: 'Trading',
+    goal: 'He hits you on a steady beat — jab, cross, jab, hook: throw back through it. Your punches still come out; they are slower, shorter and weaker for a moment.',
+    seconds: 45,
+    placement: centre(0.8),
+    opponent: { style: 'pressure' },
+    policy(state, tick) {
+      const d = dist(state), me = state.fighters[1];
+      const n = T(TRADE_BEAT), k = Math.floor(tick / n);
+      // On the beat, whatever is going on (that is the point): jab, cross, jab, hook.
+      if (tick % n === 0 && tick > 0 && d < 1.0 && me.punch.type === null) return inp({ [TRADE_SEQ[k % TRADE_SEQ.length]!]: true });
+      return inp({ move: { x: 0, y: d > 0.84 ? 0.6 : d < 0.68 ? -0.4 : 0 } });
+    },
+    metric(events) {
+      let thrown = 0, landed = 0, stuffed = 0, biggest = 0;
+      for (const e of events) {
+        if (e.type === 'punchStart' && e.side === 0 && (e.nerf ?? 0) > 0) { thrown++; biggest = Math.max(biggest, e.nerf ?? 0); }
+        else if (e.type === 'punchLand' && e.side === 0 && (e.nerf ?? 0) > 0) landed++;
+        else if (e.type === 'punchStuffed' && e.side === 0) stuffed++;
+      }
+      return { progress: clamp01(landed / 8), stat: `${thrown} thrown while being hit · ${landed} of them landed · ${stuffed} stuffed · ${landsBy(events, 1)} taken` };
+    },
+    tune: cfg => ({ healthDamagePerImpulse: cfg.healthDamagePerImpulse * 0.25, stunBase: cfg.stunBase * 3, bodyHurtBase: cfg.bodyHurtBase * 3 }),
+  },
+  {
+    id: 'stamina-pace',
+    title: 'A round at pace',
+    goal: 'One minute, a partner who blocks some and takes some and never hits back: work at your own pace and watch what the tank does.',
+    seconds: 60,
+    placement: centre(0.8),
+    opponent: { style: 'pressure' },
+    policy(state, tick) {
+      const d = dist(state);
+      // Guard up for two seconds in every four; he holds the range.
+      return inp({ block: Math.floor(tick / T(2)) % 2 === 1, move: { x: 0, y: d > 0.86 ? 0.6 : d < 0.66 ? -0.4 : 0 } });
+    },
+    metric(events, state) {
+      const p = state.fighters[0];
+      let thrown = 0, missed = 0;
+      for (const e of events) { if (e.type === 'punchStart' && e.side === 0) thrown++; else if (e.type === 'punchWhiff' && e.side === 0) missed++; }
+      return { progress: clamp01(thrown / 40), stat: `${thrown} thrown · ${missed} missed · tank ${Math.round(p.stamina * 100)}% of a ${Math.round(p.staminaCap * 100)}% ceiling${p.fatigue > 0 ? ' · tired' : ''}` };
+    },
+    tune: durablePartner,
+  },
+  {
+    id: 'stamina-guard',
+    title: 'Behind the guard',
+    goal: 'Hold your guard: fifteen seconds of jabs on it, then hooks and crosses. Light shots cost next to nothing; heavy ones cost the arms.',
+    seconds: 35,
+    placement: centre(0.78),
+    opponent: { style: 'pressure' },
+    policy(state, tick) {
+      const d = dist(state), me = state.fighters[1];
+      const heavy = tick >= T(GUARD_LIGHT_SECONDS);
+      const n = T(heavy ? 0.85 : 0.5), k = Math.floor(tick / n);
+      if (tick % n === 0 && tick > 0 && d < 1.0 && me.punch.type === null) return inp(heavy ? (k % 2 ? { hook: true, move: { x: k % 4 === 1 ? -1 : 1, y: 0 } } : { cross: true }) : { jab: true });
+      return inp({ move: { x: 0, y: d > 0.82 ? 0.6 : d < 0.66 ? -0.4 : 0 } });
+    },
+    metric(events, state) {
+      const p = state.fighters[0];
+      let light = 0, heavy = 0;
+      for (const e of events) if ((e.type === 'punchBlock' || e.type === 'perfectBlock') && e.side === 1) { if (e.punch === 'jab') light++; else heavy++; }
+      return { progress: clamp01((light + heavy) / 30), stat: `${light} jabs and ${heavy} heavy shots on the guard · tank ${Math.round(p.stamina * 100)}% · guard ${Math.round(p.guardHp * 100)}% · ${landsBy(events, 1)} got through` };
+    },
+    tune: cfg => ({ healthDamagePerImpulse: cfg.healthDamagePerImpulse * 0.25 }),
+  },
+  {
+    id: 'hurt',
+    title: 'Hurting him',
+    goal: 'A worn man at the end of a hard fight who can still be hurt every way there is: rock him, fold him with the body shot, put him down.',
+    seconds: 60,
+    placement: centre(0.85),
+    opponent: { style: 'pressure' },
+    setup(state) {
+      const o = state.fighters[1];
+      o.health = 0.6; o.stamina = 0.55; o.damage.body = 0.7; o.damage.head = 0.5;
+    },
+    policy(state, tick, seed) {
+      const d = dist(state), me = state.fighters[1];
+      const k = beat(tick, seed, 2.2);
+      // He holds his ground behind a lazy jab — nothing that will hurt you — and stands still while he is being hit.
+      const busy = me.hitT > 0 || me.hurt > 0 || state.fighters[0].punch.type !== null;
+      if (k >= 0 && d < 0.98 && me.punch.type === null && !busy) return inp({ jab: true });
+      return inp({ move: { x: 0, y: !busy && d > 0.9 ? 0.5 : 0 } });
+    },
+    metric(events) {
+      const seen = new Set<string>();
+      let rocked = 0, winded = 0, downs = 0;
+      for (const e of events) {
+        if (e.type === 'hurtStyle' && e.side === 1) { seen.add(e.style); if (e.kind === 'head') rocked++; else winded++; }
+        else if (e.type === 'knockdown' && e.side === 1) { downs++; seen.add(`down:${e.kind ?? 'heavy'}`); }
+      }
+      const kinds = [...seen].sort().join(', ');
+      return { progress: clamp01(seen.size / 5), stat: `rocked ${rocked} · winded ${winded} · floored ${downs}${kinds ? ` · seen: ${kinds}` : ''}` };
+    },
+    // He gets up every time, quickly: the drill is the ways of being hurt, not the wait.
+    tune: cfg => ({ countTickSeconds: cfg.countTickSeconds * DRILL_COUNT, knockdownsForTko: 99, getUpCountWorst: 6, stunOutFrac: 99, stunOutFinishFrac: 99 }),
   },
 ];
+
+/** How far from the ropes the cut-off partner starts running along them instead of backing up, and how near a land must be to count as "on the ropes", m. Shape. */
+const CUT_OFF_ROOM = 1.15, CUT_OFF_ROPES = 0.95;
+/** A drill's count runs this many times faster than a fight's (nobody stands through a dead ten). Shape. */
+const DRILL_COUNT = 0.3;
+/** Trading: seconds between the partner's punches, and what he throws. Shape. */
+const TRADE_BEAT = 0.9;
+const TRADE_SEQ: readonly PunchType[] = ['jab', 'cross', 'jab', 'hook'];
+/** Behind the guard: seconds of light shots before the heavy ones. Shape. */
+const GUARD_LIGHT_SECONDS = 15;
+
+/** A partner who stands in front of the player with his hands at rest and walks back into range when he has been moved. */
+function partnerInFront(state: SimState): FrameInput {
+  const d = dist(state), me = state.fighters[1];
+  // He stands still while he is being worked on (walking onto the third punch smothers it) and comes back once it is over.
+  const busy = me.hitT > 0 || state.fighters[0].punch.type !== null;
+  return inp({ move: { x: 0, y: !busy && d > 0.9 ? 0.7 : !busy && d < 0.64 ? -0.4 : 0 } });
+}
+/** Combinations: finishers landed, and the longest clean combination. */
+function comboMetric(events: readonly SimEvent[]): { progress: number; stat: string } {
+  let finishers = 0, best = 0, threes = 0;
+  for (const e of events) if (e.type === 'punchLand' && e.side === 0) { best = Math.max(best, e.combo); if (e.finisher) finishers++; if (e.combo === 3) threes++; }
+  return { progress: clamp01(finishers / 5), stat: `${finishers} combinations finished · ${threes} reached a third clean punch · longest ${best}` };
+}
+/** A partner for working on: a punch takes a fifth of its health, he cannot be rocked or dropped by ordinary shots, and a count (if it comes to that) is quick. */
+function durablePartner(cfg: Config): Partial<Config> {
+  return { healthDamagePerImpulse: cfg.healthDamagePerImpulse * 0.2, stunBase: cfg.stunBase * 3, bodyHurtBase: cfg.bodyHurtBase * 3, liverMinImpulse: cfg.liverMinImpulse * 3, countTickSeconds: cfg.countTickSeconds * DRILL_COUNT };
+}
 
 /** A fresh state for a drill: the pair placed and facing each other, the opponent's spec overridden, the drill's setup applied. */
 export function drillState(drill: Drill, specs: [FighterSpec, FighterSpec], cfg: Config, seed: number): SimState {

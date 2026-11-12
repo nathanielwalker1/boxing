@@ -154,8 +154,32 @@ export function setHealthRegenDelay(f: FighterState, t: number): void { f.moveHi
 
 /** No punch in flight (every punch field at rest). */
 export function idlePunch(hand: Hand): PunchState {
-  return { type: null, hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null, variant: 'jab', tell: 0, timeMult: 1, powerMult: 1, moveScale: 1, loaded: false, aim: 0, feint: false };
+  return { type: null, hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null, variant: 'jab', tell: 0, timeMult: 1, powerMult: 1, moveScale: 1, loaded: false, aim: 0, feint: false, nerf: 0 };
 }
+
+// ── Polish phase scratch (sim-private; a missing slot reads as its rest value, so older states stay valid) ──
+const HIST_CARRY_REF = 35;    // how nerfed the punch in flight was at the press (0..1): its reach is shortened by this
+const HIST_HELD_KNOCK = 36;   // +0 x, +1 z: knockback (m/s on the stagger channel) held back while a combination runs on this fighter
+const HIST_STUN_AGE = 38;     // seconds the current block stun has been running (the punch lock is only its first hitLockMax)
+const HIST_NECK = 39;         // multiplier on the neck clamp for the reaction in progress (a flush shot lets the head travel further)
+const HIST_REACT_VARY = 40;   // −1..1: the seeded variation of the reaction in progress
+const HIST_GETUP_COUNT = 41;  // the count he was rolled to rise on (for the knockdown's kind)
+const HIST_HURT_AFTER = 42;   // seconds left of the raised stun bar after a hurt state ended
+export function hurtAfter(f: FighterState): number { return f.moveHist[HIST_HURT_AFTER] ?? 0; }
+export function setHurtAfter(f: FighterState, t: number): void { f.moveHist[HIST_HURT_AFTER] = t; }
+export function getUpCount(f: FighterState): number { return f.moveHist[HIST_GETUP_COUNT] ?? 0; }
+export function setGetUpCount(f: FighterState, n: number): void { f.moveHist[HIST_GETUP_COUNT] = n; }
+/** How nerfed the punch in flight was AT THE PRESS (its reach is shortened by this; a hit taken in flight does not shorten an arm already on its way). */
+export function reachNerf(f: FighterState): number { return f.moveHist[HIST_CARRY_REF] ?? 0; }
+export function setReachNerf(f: FighterState, n: number): void { f.moveHist[HIST_CARRY_REF] = n; }
+export function heldKnock(f: FighterState): { x: number; z: number } { return { x: f.moveHist[HIST_HELD_KNOCK] ?? 0, z: f.moveHist[HIST_HELD_KNOCK + 1] ?? 0 }; }
+export function setHeldKnock(f: FighterState, x: number, z: number): void { f.moveHist[HIST_HELD_KNOCK] = x; f.moveHist[HIST_HELD_KNOCK + 1] = z; }
+export function stunAge(f: FighterState): number { return f.moveHist[HIST_STUN_AGE] ?? 0; }
+export function setStunAge(f: FighterState, t: number): void { f.moveHist[HIST_STUN_AGE] = t; }
+export function neckMult(f: FighterState): number { return f.moveHist[HIST_NECK] || 1; }
+export function setNeckMult(f: FighterState, m: number): void { f.moveHist[HIST_NECK] = m; }
+export function reactVary(f: FighterState): number { return f.moveHist[HIST_REACT_VARY] ?? 0; }
+export function setReactVary(f: FighterState, v: number): void { f.moveHist[HIST_REACT_VARY] = v; }
 /** The head at home. */
 export function idleSlip(): SlipState {
   return { active: false, dir: 0, t: 0, offset: 0, kind: 'slip', from: 0, chain: 0, dip: 0 };
@@ -211,6 +235,7 @@ export function cloneFighter(f: FighterState): FighterState {
     pushCd: f.pushCd,
     getUp: { ...f.getUp },
     loaded: f.loaded, loadedT: f.loadedT, combo: f.combo, comboT: f.comboT,
+    hitT: f.hitT ?? 0, hitSev: f.hitSev ?? 0, hurtStyle: f.hurtStyle ?? 'none', hurtDelay: f.hurtDelay ?? 0, downKind: f.downKind ?? 'flash', fall: f.fall ?? 'none', kneeT: f.kneeT ?? 0,
     headBox: { ...f.headBox },
     bodyBox: { a: v3c(f.bodyBox.a), b: v3c(f.bodyBox.b), r: f.bodyBox.r },
     arms: [{ shoulder: v3c(f.arms[0].shoulder), elbow: v3c(f.arms[0].elbow) }, { shoulder: v3c(f.arms[1].shoulder), elbow: v3c(f.arms[1].elbow) }],
@@ -224,6 +249,7 @@ export function cloneState(s: SimState): SimState {
     tick: s.tick,
     time: s.time,
     hitStop: s.hitStop,
+    stopUsed: s.stopUsed ?? 0,
     rng: rngClone(s.rng),
     round: {
       ...s.round,

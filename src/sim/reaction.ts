@@ -11,7 +11,7 @@
 import type { Config, FighterState, PunchType, Vec3 } from '../core';
 import { clamp, frameOf, localToWorld, stepSpring1, stepSpring3 } from '../core';
 import { PUNCHES } from './punches';
-import { reactionSnap, setReactionSnap } from './state';
+import { neckMult, reactionSnap, setNeckMult, setReactionSnap } from './state';
 import { slipBack, slipHeadDip, slipLateral, slipShape } from './slip';
 import { stanceDrop } from './footing';
 
@@ -21,10 +21,18 @@ import { stanceDrop } from './footing';
  * defender's frame, becomes a yaw whip of the head and shoulders — a hook
  * turns the head round, a straight barely does.
  */
-export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: number, cfg: Config): void {
+export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: number, cfg: Config, opt: { scale?: number; neck?: number; vary?: number; vary2?: number } = {}): void {
   const def = PUNCHES[type];
   if (!def) return;
-  const s = def.react(cfg);
+  // Polish phase: `scale` = the grade's own size on top of the impulse (glancing less, flush more); `neck` = how much
+  // further than the clamp the head may go for this hit; `vary` / `vary2` = the seeded variation (± a few %): one
+  // trades the head's snap back against its lift and whip, the other the shoulders' turn — so two identical punches
+  // do not move him identically.
+  const sc = opt.scale ?? 1, va = opt.vary ?? 0, vb = opt.vary2 ?? 0;
+  const s0 = def.react(cfg);
+  const s = { ...s0, back: s0.back * (1 + va), lift: s0.lift * (1 - va), spin: s0.spin * (1 - va), twist: s0.twist * (1 + vb), torso: s0.torso * (1 - vb * 0.5) };
+  setNeckMult(f, opt.neck ?? 1);
+  mag *= sc;
   const v = mag * cfg.reactionForceScale;
   const r = f.reaction;
   const fr = frameOf(f.yaw);
@@ -60,17 +68,17 @@ export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: 
   r.tilt.x += dv.tilt * pt;   // the turn of the shoulders is the torso's: the smaller share (a 26° instant whip swung the arms through the other's)
   r.spin.x += dv.spin * pt;
   r.sink.x += dv.sink * p;
-  clampReaction(r, cfg);
+  clampReaction(r, cfg, neckMult(f));
   setReactionSnap(f, s.snap);
 }
 
 /** About when the head's swing peaks after a kick, s — shape, for the impact-pose bookkeeping only. */
 const POSE_PEAK_T = 0.1;
 
-function clampReaction(r: FighterState['reaction'], cfg: Config): void {
+function clampReaction(r: FighterState['reaction'], cfg: Config, neck = 1): void {
   // The head offset rides on top of the torso offset (see computeBoxes), so
   // its clamp is the neck: how far the head may leave the shoulders.
-  const m = cfg.reactionMaxOffset, n = cfg.reactionMaxNeck;
+  const m = cfg.reactionMaxOffset, n = cfg.reactionMaxNeck * neck;
   r.head.x = clamp(r.head.x, -n, n); r.head.y = clamp(r.head.y, -n, n); r.head.z = clamp(r.head.z, -n, n);
   r.torso.x = clamp(r.torso.x, -m, m); r.torso.y = clamp(r.torso.y, -m, m); r.torso.z = clamp(r.torso.z, -m, m);
   r.tilt.x = clamp(r.tilt.x, -cfg.reactionMaxTilt, cfg.reactionMaxTilt);
@@ -86,7 +94,7 @@ export function stepReaction(f: FighterState, cfg: Config, dt: number): void {
   stepSpring1(r.tilt, 0, cfg.reactionTiltK * snap, cfg.reactionTiltC, dt);
   stepSpring1(r.spin, 0, cfg.reactionSpinK * snap, cfg.reactionSpinC, dt);
   stepSpring1(r.sink, 0, cfg.reactionSinkK, cfg.reactionSinkC, dt);
-  clampReaction(r, cfg);
+  clampReaction(r, cfg, neckMult(f));
 }
 
 /**

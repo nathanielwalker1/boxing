@@ -539,6 +539,40 @@ less than it did and a real counter as much: if exchanges feel weightless,
 should now come from hooks, uppercuts and counters on a worn or rocked man,
 not from the last jab on an empty bar.
 
+### Polish phase changes, sim side (2026-11-11; measured in Node, NOT felt)
+
+docs/POLISH_SIM.md has what was measured, the cause and the before / after
+for each. Every row has a toggle; off = the numbers above.
+
+| What | Was | Now | Toggle · first knob |
+| --- | --- | --- | --- |
+| The 3 of a 1-2-3 in open ring | whiffed from every distance (the 1 and 2 knock him 58 cm) | lands from 0.60–0.90 m: knockback held from the second clean land, the feet follow, let go on the finisher | `comboHoldOn` `comboStepOn` · `comboHoldKeep`, `comboStepMax` |
+| The last punch of a combination | one more punch | the finisher: × 1.2, 130 ms freeze, the neck travels 1.6× the clamp, flagged | `comboFinisherOn` · `comboFinisherPower` |
+| Frozen time in a busy exchange | 13% of ticks, 45% of the worst second | 10%, 37% | `hitStopBudgetOn` · `hitStopBudget`, `hitStopBigExtra` |
+| A clean jab's freeze | 48 ms | 24 ms | `hitStopJabScale` |
+| A touch on a wind-up | the punch is erased (first 70% of its flight) | only a FLUSH land in the wind-up stuffs it; otherwise it comes through nerfed | `hitNerfOn` · `interruptStuffEarly` |
+| A punch thrown just after being hit | full speed, or locked out | up to 50% longer wind-up, 14% shorter, 50% weaker, fading over 0.35 s | `hitNerfOn` · `hitWindow`, `hitNerf…` |
+| Block stun / jab stop holding the hands | 100–283 ms | at most 133 ms | `hitLockMax` |
+| Rocked: no punch for | 0.5 s (650 ms with the freeze) | 0.2 s (350 ms), then nerfed | `hurtPunchLockScale` |
+| Glancing vs flush, what the body does | scaled with impulse only; flush head pinned at 16 cm | glancing × 0.7 reaction, × 0.6 knockback; flush × 1.3, head to 22 cm | `gradeSpreadOn` |
+| Holding the guard | 8% of the tank a second, no wind back | 0.8%, wind back at 40% | `staminaPolishOn` · `staminaGuardHold`, `staminaGuardRegen` |
+| A punch's cost | 4% whatever it is | jab 1.6, cross 3.2, hook 3.7, uppercut 4.2; a miss by weight too | `staminaPolishOn` · `staminaThrowScale` |
+| The stun bar (fresh, chin 62) | 450 N·s | 405; stacked impulses over 420 count at 45% toward it | `hurtRatesOn` · `hurtStunBaseScale`, `stunSoftKeep` |
+| Flooring a rocked man | ≥ 1.3 × his bar | ≥ 2.1 × | `hurtFinishScale` |
+| Kinds of hurt | rocked, winded, down | rocked: legs / reach / cover; winded: fold / elbow / knee, sometimes late; down: flash / heavy / knee / out | `hurtVarietyOn` |
+| A one-punch finish | never (0 in 135 fights) | 2–4% of fights, waved off with no count | `stunOutFrac`, `stunOutFinishFrac` |
+
+What to look for first, in the gym (one drill each): **combinations** — the
+third punch should arrive and feel like the end of something; if he drifts
+out anyway, `comboHoldKeep` down or `comboStepMax` up; if being dragged
+forward feels like the game moving you, `comboStepMax` down. **trading** —
+you should be able to throw through his beat and feel the punch come out
+late and short; if it feels like nothing changed, `hitNerfSlow` up; if it
+feels like the old lock, `hitWindow` down. **stamina-guard** — the jabs
+should cost nothing and the hooks something. **hurt** — the different ways
+he goes should read as different in the body (they do not yet: the rig draws
+one rocked and one winded; the state is there).
+
 ## Open
 
 - Overhaul (2026-11-11): everything in "Overhaul feel specs" is sim-side and

@@ -22,7 +22,9 @@ const [core, sim] = await load('/src/core/index.ts', '/src/sim/index.ts');
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // ratingsOn / stylesOn off (overhaul phase 2): this file pins the reference fighters' numbers and margins as they were before
 // ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
-const base = ({ ...createConfig(), ratingsOn: false, stylesOn: false });
+// (Polish phase, item 3, deliberate: hurtRatesOn / hurtVarietyOn off — this file pins the ROCKED formula and its numbers as designed
+// (stunBase, stunFinishFrac, stunFlashFrac, the punch lock…). The polish phase scales them and adds kinds of hurt; hurt_test pins those.)
+const base = ({ ...createConfig(), ratingsOn: false, stylesOn: false, hurtRatesOn: false, hurtVarietyOn: false });
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
@@ -126,7 +128,16 @@ const rockedState = () => { const s0 = fresh(soft); s0.fighters[1].health = LOW;
   const r = of(evs, 'rocked')[0];
   const dummyStarts = of(evs, 'punchStart').filter(e => e.side === 1);
   const first = dummyStarts[0];
-  check(`rocked: no punch starts for stunPunchLock (${soft.stunPunchLock} s); the first comes ${first ? ((first.tick - r.tick) * SIM_DT).toFixed(2) : '-'} s after the rock`, r && first && first.tick - r.tick >= T(soft.stunPunchLock) - 1 && first.tick - r.tick <= T(soft.stunPunchLock) + 12);
+  // Polish phase (deliberate change): with hitNerfOn the lock is hurtPunchLockScale as long — the hands come back sooner, and what they throw is nerfed.
+  const lockS = soft.stunPunchLock * (soft.hitNerfOn ? soft.hurtPunchLockScale : 1);
+  check(`rocked: no punch starts for the punch lock (${lockS.toFixed(2)} s); the first comes ${first ? ((first.tick - r.tick) * SIM_DT).toFixed(2) : '-'} s after the rock`, r && first && first.tick - r.tick >= T(lockS) - 1 && first.tick - r.tick <= T(lockS) + 12);
+  check(`…and that first punch is thrown nerfed (punchStart.nerf ${first?.nerf?.toFixed(2)} ≥ hitNerfHurt ${soft.hitNerfHurt})`, first && first.nerf >= soft.hitNerfHurt - 1e-9);
+  {
+    const old = { ...soft, hitNerfOn: false };
+    const o = run(s0, 220, i => [inp({ cross: i === 0 }), inp({ cross: i >= 14 && i % 2 === 0 })], old);
+    const ro = of(o.evs, 'rocked')[0], fo = of(o.evs, 'punchStart').filter(e => e.side === 1)[0];
+    check(`hitNerfOn off: the full stunPunchLock (${old.stunPunchLock} s) and a punch at full strength`, ro && fo && fo.tick - ro.tick >= T(old.stunPunchLock) - 1 && !(fo.nerf > 0), `${fo?.tick - ro?.tick} ticks, nerf ${fo?.nerf}`);
+  }
   // Clears on time.
   const clearAt = trace.findIndex((h, i) => i > r.tick && h === 0);
   check(`the hurt state clears after ${r?.seconds.toFixed(2)} s (cleared at tick ${clearAt}, rocked at ${r?.tick})`, clearAt > 0 && Math.abs((clearAt - r.tick) * SIM_DT - r.seconds) < 0.2);

@@ -169,7 +169,9 @@ console.log('\n=== 7. The feint ===');
   let home = null, guard = null;
   run(fresh(noRegen, MID, 10), 20, i => [inp({ cross: i === 0, block: i >= 3 }), NONE], noRegen, (s, i) => { if (home === null && i > 0 && s.fighters[0].punch.type === null) home = i; if (guard === null && s.fighters[0].block) guard = i; });
   check(`…the fist is home ${home - 3} ticks later and the guard is up the tick after (tick ${guard})`, home - 3 <= 3 && guard === home + 1);
-  check('…and most of the stamina comes back (feintRefund)', near(1 - f.s.fighters[0].stamina, cfg.staminaPunchCost * (1 - cfg.feintRefund), 1e-9), `${(1 - f.s.fighters[0].stamina).toFixed(4)}`);
+  // (Polish phase, item 6, deliberate: a cross's throw cost is staminaPunchCost × staminaThrowScale with the polish stamina rules on.)
+  const throwCost = cfg.staminaPunchCost * (cfg.staminaPolishOn ? cfg.staminaThrowScale : 1);
+  check('…and most of the stamina comes back (feintRefund)', near(1 - f.s.fighters[0].stamina, throwCost * (1 - cfg.feintRefund), 1e-9), `${(1 - f.s.fighters[0].stamina).toFixed(4)}`);
   const lateTick = Math.ceil(cfg.feintCommit * cfg.crossCock / SIM_DT) + 2;
   const late = feint(lateTick);
   check(`block after the commit point (tick ${lateTick}) does not cancel: the cross lands`, !first(late.evs, 'feint') && late.evs.some(e => e.type === 'punchLand' && e.side === 0));

@@ -26,10 +26,11 @@ import { stepArms } from './arms';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip, type FlickRequest } from './slip';
 import { stepVulnerability } from './vulnerability';
-import { stepLiver, stepStun } from './stun';
+import { stepHurtDelay, stepKnee, stepLiver, stepStun } from './stun';
 import { cornerOf, endRound, startRound, stepBetween } from './round';
 import { stepFooting } from './footing';
 import { stepClinch } from './clinch';
+import { stepHitStopBudget, stepHold } from './flow';
 
 export { healthCap, PUNISH_SLIP, punishSource } from './state';
 export { canStartPunch } from './combat';
@@ -39,6 +40,7 @@ export { stanceDrop, rangeBand, bodyWear, angleExposure } from './footing';
 export { punchReach, probe as gradeProbe } from './grade';
 export { getUpPhaseAt } from './resources';
 export { scoreRound } from './round';
+export { hitNerf, hitZone, seededUnit } from './flow';
 
 const SIDES: [Side, Side] = [0, 1];
 
@@ -116,6 +118,8 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   }
   // The liver fuse: a clean liver shot buckles him a beat later (or puts him down).
   if (fighting) for (const side of SIDES) stepLiver(s, side, cfg, dt, events);
+  // Polish phase (item 3): a body hurt that lands a beat late; a hurt fighter taking a knee by choice.
+  if (fighting) for (const side of SIDES) { stepHurtDelay(s, side, cfg, dt, events); if (s.round.phase === 'fighting') stepKnee(s, side, ins[side], cfg, dt, events); }
   for (const side of SIDES) { stepReaction(s.fighters[side], cfg, dt); computeBoxes(s.fighters[side], cfg); }
   // Glove targets, then the springs integrated with the contacts (head,
   // body, arms, gloves) resolved inside each sub-step; the arm joints the
@@ -134,6 +138,10 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     settleContacts(s.fighters[0], s.fighters[1], cfg);
     for (const side of SIDES) stepArms(s.fighters[side], cfg, 0);
   }
+  // Polish phase (flow.ts): knockback held while a combination ran is let go once it is over; the hit-stop bucket refills.
+  stepHold(s.fighters[0], s.fighters[1], cfg);
+  stepHold(s.fighters[1], s.fighters[0], cfg);
+  stepHitStopBudget(s, cfg);
   stepCount(s, cfg, dt, events);
   stepBetween(s, cfg, dt, events);
 
