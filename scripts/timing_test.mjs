@@ -99,7 +99,7 @@ for (const t of TYPES) {
     peakHook = Math.max(peakHook, Math.abs(h.fighters[0].torsoTwist));
     if (Math.abs(h.fighters[0].lean.lat) > Math.abs(hookSway)) hookSway = h.fighters[0].lean.lat;
   }
-  check('a hook turns the torso to its own turn (full torque, like the cross)', near(peakHook, PUNCHES.hook.turn, 0.1), `${peakHook.toFixed(3)}`);
+  check('a hook turns the torso to its own turn (full torque, like the cross)', near(peakHook, cfg.hookV2 ? cfg.hookTurn : PUNCHES.hook.turn, 0.1), `${peakHook.toFixed(3)}`);   // polish: hookV2 authors the hook's shoulder turn in config (hookTurn); the table's 1.45 is the V2-off value
   // Coil: twist samples through the punch, measured against the sign at the resolve moment.
   const twistTrace = (type, moveX = 0) => {
     let s = fresh(); const cock = [], all = []; let peakSign = 0;
@@ -128,11 +128,11 @@ for (const t of TYPES) {
   // The body dip: sits down through the wind-up, drives up past rest at the
   // peak, settles. The boxes and the guard ride it.
   const trackDip = type => {
-    let s = fresh(), maxDown = 0, minAtPeak = 9, headAtRest = null, headAtDeepest = null, guardAtDeepest = null, guardAtRest = null;
+    let s = fresh(), maxDown = 0, minAtPeak = 9, headAtRest = fresh().fighters[0].headBox.y,   // at rest BEFORE the press (polish: the V2 uppercut sits 7 mm in its first tick, which this used to call rest)
+       headAtDeepest = null, guardAtDeepest = null, guardAtRest = null;
     for (let i = 0; i < 40; i++) {
       s = sim.step(s, [inp({ [type]: i === 0, move: { x: i === 0 ? 1 : 0, y: 0 } }), NONE], cfg).state;
       const f = s.fighters[0];
-      if (i === 0) { headAtRest = f.headBox.y + 0; }
       if (f.crouch > maxDown) { maxDown = f.crouch; headAtDeepest = f.headBox.y; guardAtDeepest = f.gloves[0].target.y; }
       if (f.punch.type !== null && f.punch.resolved) minAtPeak = Math.min(minAtPeak, f.crouch);
     }
