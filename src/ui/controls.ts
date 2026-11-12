@@ -24,8 +24,9 @@ const MOVES: readonly (readonly [string, string, string])[] = [
   ['Roll under', 'Hold Low + flick to the side', 'Head down and across, under a hook. You come up ready to throw a rising hook or uppercut.'],
   ['Burst', 'Flick, then push the same way again', 'A quick hop forward, back or sideways.'],
   ['Pivot', 'Hold Block + flick to the side', 'Turn off your front foot. A man close to you is left facing the wrong way for a moment.'],
-  ['Push-off', 'Hold Block + flick toward him', 'Shove him back with both gloves. Breaks a clinch.'],
-  ['Clinch', 'Hold Block + Low, chest to chest', 'Tie him up. The referee breaks it.'],
+  ['Push-off', 'Hold Block + flick toward him', 'Shove him back with both gloves.'],
+  // (The clinch was taken out in the polish phase — clinchOn is off; its row comes back with it.)
+  ['Take a knee', 'Hold Block + Low while hurt', 'Go down on purpose to clear your head. It counts as a knockdown on the cards.'],
   ['Feint', 'Tap Block just after you start a punch', 'The punch is pulled back before it commits. Most of its stamina comes back.'],
 ];
 

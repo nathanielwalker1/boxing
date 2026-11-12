@@ -70,6 +70,112 @@ says so.
 - Not covered by the probe: the menu flow's own paths (replay cut, corner
   card). The rest between rounds is a black card by design (2026-10-15).
 
+### 2. Combinations and flow — sim side merged (`docs/POLISH_SIM.md`)
+
+- **Why the third punch failed:** knockback, nothing else. A clean jab moves
+  a standing man 18 cm and the cross another 40, so the hook of a 1-2-3 was
+  thrown at a man half a metre out of reach: it landed all three at 0 of 9
+  distances in open ring. No press was dropped, hit-stop ate no input, the
+  chain window was open, stamina was full (`scripts/combo_probe.mjs`).
+- **Fix, three parts, all needed:** `comboHoldOn` (from the second clean land
+  70% of the knockback is banked and let go when the combination ends),
+  `comboStepOn` (the attacker steps up to 0.20 m after the man he hit),
+  `comboFinisherOn` (the third-or-later clean power punch is flagged
+  `finisher`, hits × 1.2, takes the long freeze). After: 7 of 9 distances in
+  open ring, 9 of 9 on the ropes. A lone punch is unchanged.
+- **Laggy / robotic:** press-to-motion is 0 ms from rest; input was not the
+  lag. Hit-stop froze 13.1% of a busy exchange and 45% of its worst second;
+  with a budget (`hitStopBudgetOn`), a halved jab freeze and halved freezes
+  inside a combination: 10.4% and 37% — a smaller gain than wanted. A real
+  bug found: a chained punch that was feinted or stuffed snapped the torso
+  up to 90° in one tick; it now unwinds over ~150 ms (`carryFadeOn`).
+- **Punch stun:** a man hit clean with his hands at rest was never locked.
+  What Nate felt was the interrupt (any clean touch in the first 70% of a
+  wind-up erased the punch — the AI's jabs erased 31 of a human-paced
+  fighter's punches a fight), block stun (100–233 ms) and the jab stop
+  (283 ms). New rule (`hitNerfOn`): a land opens a 0.35 s window in which
+  the target's punches come out up to 50% slower in the wind-up, 14%
+  shorter, 50% weaker (`PunchState.nerf`); ordinary locks are capped at
+  0.13 s (`hitLockMax`); only a FLUSH land in the wind-up stuffs a punch.
+  `interrupt_test` was rewritten to the new rule on purpose.
+- **Landing:** `gradeSpreadOn` — a glancing jab moves the head 2.9 cm (was
+  3.9), a flush cross 22.5 cm (was pinned at 16 on the neck clamp); every
+  land carries a hit `zone` and a seeded `vary`. Sound / camera / crowd
+  tiers and the drawn reactions: phase B, below.
+
+### 6. Stamina — merged
+
+- **Cause:** the guard, not the price of punching. Holding it cost 8% of
+  the tank a second and stopped all regeneration. At 32 punches a minute
+  over 3 × 60 s with the guard up between bursts the average tank was 7.5%
+  and the fighter was gassed for 88% of the fight; with the hands down, 94%.
+- **Fix (`staminaPolishOn`):** the guard costs 0.8% a second and wind comes
+  back behind it at 40%; a jab on the guard costs 0.2%, a cross or hook
+  2–3%; throwing costs by weight (jab 1.6%, cross 3.2%, hook 3.7%, uppercut
+  4.2%) and a miss scales with it and pauses the wind.
+- **After:** the same guard-up pace averages 98% and is never tired; the
+  masher bot is still gassed 59% of the fight. Softer than wanted: a wild
+  but not non-stop puncher dips to 73% and is never "tired".
+
+### 3. Hurt — sim side merged; being retuned (phase B)
+
+- **Measured:** between AIs the game already hurt plenty (a knockdown in 63%
+  of fights). A fighter throwing at a person's pace (35 a minute) rocked the
+  AI 0.00 times a fight and floored it in 0% — the third punch never landed,
+  his punches were erased by jabs, and the stun bar sat above any standing
+  punch while the AI's stacked bonuses cleared it 2–4×.
+- **After (`hurtRatesOn`):** the human-paced fighter rocks the AI 3.1 times
+  a fight, hurts it in 100% of fights, floors it in 10%. AI v AI: a
+  knockdown in 55% of fights, three or more in 20%, a one-punch finish 2%.
+- **Variety (`hurtVarietyOn`)**, state only until the rig draws it: rocked
+  is legs / reach / cover; winded is fold / elbow / knee, 35% a beat late;
+  knockdowns are flash / heavy / knee / out; the instant KO is waved off
+  with no count; a hurt fighter holding Block + Low takes a knee.
+- **Off, being fixed in phase B:** ~19 rocking shots a fight between AIs
+  (hurt should be an event); legit bots floor the AI in 67% of fights (over
+  the 35–55% band); balance moved — the counter-puncher bot 30% → 8%, the
+  outboxer wins 79% across the legitimate plans.
+
+### 4. Punch animation — merged (`docs/POLISH_RIG.md`, strips in `docs/polish/`)
+
+- **Measured before** (`scripts/chain_probe.mjs`, peak-rate tick of each
+  channel): the chain ran BACKWARDS. Lead hook: shoulders fastest at tick
+  12, hips and foot at 15; the hips turned 100° against the shoulders' 83°,
+  both feet spun 129° on the canvas, the hips hopped 7 cm in the last three
+  ticks, and the fist rode across his own face before poking forward.
+  Uppercuts: a 7 cm sit that only bottomed on the last tick of the wind-up,
+  all of the rise inside the 4-tick extension, the elbow 15 cm ABOVE the
+  shoulder at the hit — "an arm lifted over a fence, legs straight". Cross:
+  shoulders before hips too. Jab: nothing below the shoulders.
+- **After** (`hookV2`, `uppercutV2`, `straightV2`; off = the old motion
+  exactly): foot and hips now peak before the shoulders before the fist on
+  every punch (lead hook 11 / 11 / 14 / 15–16, hit at 17). Hook: hips 41°
+  against shoulders 69°, the pushing foot pivots 54° and the other stays
+  planted. Uppercut: a 12 cm sit at the bottom by 42% of the flight, legs
+  driving from 58%, elbow 5 cm BELOW the shoulder at the hit. Timing
+  unchanged; the fist at the hit test within 0.1–3.6 cm of where it was.
+- **Still worse than wanted:** the hook is not round (a true round hook
+  lands on the resting guard glove and fails three pinned tests; its arc
+  height sits in a window 3 mm wide — fragile); the fist drops ~13 cm in the
+  hook's wind-up; the rear hook is a wide one; the cross still wings its
+  elbow early and its head stays on the centre line; jab and cross cannot
+  be told from before at strip size; the uppercut is not palm-in.
+
+### 7. The clinch — taken out
+
+- **Measured:** no entry (both stop where they stand), square on, drawn
+  heads 0.46 m apart and each looking 23° off the other's — face to face —
+  arms drawn through the other body, 1.4 s, ended by the referee's hop.
+- **The attempt (`clinchV2`):** a pull to 0.70 m, both turned 30° and
+  leaning in, the pair turning, hands on flank and shoulder. Each man now
+  looks 80° off the other, but filmed it reads as two people pressed past
+  each other in a doorway (`docs/polish/strip_clinch_v2_attempt.png`): the
+  sim's head rides rigidly over the shoulder line, so heads cannot pass
+  over a shoulder without the chests merging.
+- **Decision (Nate's instruction for this case):** `clinchOn` defaults to
+  false; nobody can enter one and the AI never tries. `clinchV2` stays in
+  the tree, off. The controls card lists taking a knee instead.
+
 ## The black screen (found by Nate on first play, fixed)
 
 The first time Nate opened the game the 3D scene was black behind the menus
