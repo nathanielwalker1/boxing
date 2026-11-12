@@ -21,6 +21,7 @@ import type { BodyDims, Config, FighterState, GuardShape, Hand, PunchType, Stanc
 import { GUARDS, handLateralSign, lerp, smoothstep } from '../core';
 import { whiffMult } from './state';
 import { shapePath, type VariantDef } from './variants';
+import { chainDip, chainHip, chainLoad, chainPush, chainShoulder, type ChainTiming } from './chain';
 
 /** `spin`: how much of the impulse (× the fist's sideways travel) becomes a yaw whip of the head and shoulders — the hook's signature (2026-09-16). */
 export interface ReactShape { back: number; lift: number; twist: number; torso: number; snap: number; spin: number }
@@ -30,6 +31,8 @@ export interface PunchPhases {
   cockEnd: number;   // progress at which the extension starts
   peakAt: number;    // progress at which the hit test runs
   hold: number;      // fraction of `recover` the fist stays at full extension before returning
+  /** Polish phase: the re-authored kinetic chain's timing for this punch (sim/chain.ts), or null / absent = the old curves (the family's V2 toggle is off). */
+  chain?: ChainTiming | null;
 }
 
 export interface PunchDef {
@@ -212,7 +215,18 @@ export function blockLocal(body: BodyDims, hand: Hand, stance: Stance, shape: Gu
  * point the fist passes THROUGH half-way, so the extend phase is a quadratic
  * curve instead of a line. `via: null` = straight.
  */
-export interface PunchPath { cocked: LocalPose; via: LocalPose | null; peak: LocalPose }
+export interface PunchPath {
+  cocked: LocalPose; via: LocalPose | null; peak: LocalPose;
+  /**
+   * Polish (hookV2): where the fist goes through the WIND-UP, in the fighter's frame — it does not ride the
+   * shoulders there. (`cocked` rides them: with the shoulders now starting late and turning 30° before the fist
+   * leaves, a wind-up pose locked to the torso meant a 45 cm wind-BACK behind the shoulder — measured.) `cocked`
+   * is then the same point in the torso frame at the end of the wind-up, where the extension's curve starts.
+   */
+  windF?: LocalPose;
+  /** The fraction of the extension in which the target reaches the peak (default cfg.chainArrive). A path that comes ACROSS needs longer for the glove spring to settle sideways than one that goes straight out. */
+  arrive?: number;
+}
 
 function mix(a: LocalPose, b: LocalPose, t: number): LocalPose {
   return { fwd: lerp(a.fwd, b.fwd, t), up: lerp(a.up, b.up, t), lat: lerp(a.lat, b.lat, t) };
@@ -269,6 +283,7 @@ function straightPath(body: BodyDims, hand: Hand, stance: Stance, cockBack: numb
  * centre-to-centre; `hookReachScale` (config) trades that elbow for range.
  */
 function hookPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath {
+  if (cfg.hookV2) return hookPathV2(body, hand, stance, cfg);
   const side = handLateralSign(hand, stance);
   const chin = body.headY - body.headR * 0.7;
   const def = PUNCHES.hook;
@@ -304,6 +319,7 @@ function hookPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): Punc
  * for range.
  */
 function uppercutPath(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath {
+  if (cfg.uppercutV2) return uppercutPathV2(body, hand, stance, cfg);
   const g = guardLocal(body, hand, stance);
   const side = handLateralSign(hand, stance);
   const torso = body.shoulderY - body.hipY;
@@ -334,7 +350,10 @@ export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: 
   // The fist leaves from and comes home to the fighter's own guard shape; the path between is authored once.
   const g = guardLocal(body, hand, stance, shape);
   // The variant bends the base path (overhaul): a body shot's peak is lower, an overhand loops, a compact punch is shorter.
-  const path0 = variant ? shapePath(def.path(body, hand, stance, cfg), variant, cfg, aim) : def.path(body, hand, stance, cfg);
+  const basePath = def.path(body, hand, stance, cfg);
+  const path0 = variant ? shapePath(basePath, variant, cfg, aim) : basePath;
+  // (shapePath builds a new path; the wind-up pose follows whatever it did to `cocked` — a body shot's is lower.)
+  const windF = basePath.windF ? { fwd: basePath.windF.fwd, up: basePath.windF.up + (path0.cocked.up - basePath.cocked.up), lat: basePath.windF.lat } : null;
   // `reach`: the guard's jab reach (the long guard's jab is longer, the peek-a-boo's shorter).
   const path = reach === 1 ? path0 : { ...path0, peak: { ...path0.peak, fwd: path0.peak.fwd * reach } };
   // Torso-frame paths are yawed by the CURRENT twist into the fighter frame
@@ -342,12 +361,12 @@ export function punchLocal(body: BodyDims, stance: Stance, def: PunchDef, hand: 
   const cocked = def.torsoFrame ? yawPose(path.cocked, twist) : path.cocked;
   const via = def.torsoFrame && path.via ? yawPose(path.via, twist) : path.via;
   const peak = def.torsoFrame ? yawPose(path.peak, twist) : path.peak;
-  if (elapsed < ph.cock) return mix(g, cocked, smoothstep(elapsed / ph.cock));
+  if (elapsed < ph.cock) return mix(g, windF ?? cocked, smoothstep(elapsed / ph.cock));
   if (elapsed < ph.cock + ph.extend) {
     // The target reaches the peak at chainArrive of the extend and waits
     // there, so the glove spring (which lags a fast target by a few cm) has
     // settled onto the peak by the resolve tick whatever the tick alignment.
-    const t = smoothstep(Math.min(1, (elapsed - ph.cock) / (ph.extend * Math.max(0.05, cfg.chainArrive))));
+    const t = smoothstep(Math.min(1, (elapsed - ph.cock) / (ph.extend * Math.max(0.05, basePath.arrive ?? cfg.chainArrive))));
     return via ? curve(cocked, via, peak, t) : mix(cocked, peak, t);
   }
   const rt = (elapsed - ph.cock - ph.extend) / ph.recover;
@@ -405,6 +424,8 @@ const CHAIN_LOAD_AT = 0.4;
  * comes across through the extension, holds with the fist, unwinds.
  */
 export function punchTwist(def: PunchDef, elapsed: number, ph: PunchPhases): number {
+  // Polish: the shoulders FOLLOW the hips (sim/chain.ts); the caller multiplies by def.turn, so the chain's own turn is folded in here.
+  if (ph.chain && !ph.chain.rigOnly) return chainShoulder(ph.chain.coil, elapsed, ph, ph.chain) * ph.chain.turn / def.turn;
   return loadThenDrive(def.coil, elapsed, ph);
 }
 
@@ -426,8 +447,110 @@ export function punchLean(def: PunchDef, elapsed: number, ph: PunchPhases, cfg: 
  */
 export function punchCrouch(def: PunchDef, elapsed: number, ph: PunchPhases, cfg: Config): number {
   const dip = def.dip * cfg.punchDipScale;
+  if (ph.chain && !ph.chain.rigOnly) return chainDip(dip, elapsed, ph, ph.chain);   // polish: sit in the load, the legs drive up THROUGH the punch (not inside the extension)
   if (elapsed < ph.cock) return dip * smoothstep(elapsed / ph.cock);
   if (elapsed < ph.cock + ph.extend) return lerp(dip, -0.4 * dip, smoothstep((elapsed - ph.cock) / ph.extend));
   const rt = (elapsed - ph.cock - ph.extend) / ph.recover;
   return lerp(-0.4 * dip, 0, smoothstep(rt));
+}
+
+// ── Polish phase (2026-11-11, item 4): the re-authored kinetic chain ─────────
+// One toggle per punch family (hookV2, uppercutV2, straightV2; config group
+// `punch pose`). On, the family's phase table carries a ChainTiming and the
+// twist / dip above read sim/chain.ts instead of the old curves; hooks and
+// uppercuts also get their V2 glove path. Off, nothing below is reached.
+// Everything is the old value AT THE HIT TEST except the hook's shoulder turn
+// (hookTurn), which changes where the shoulder is but not where the fist is.
+
+/** The chain timing of each punch type from config, or null while its family's toggle is off. */
+const CHAINS: Record<PunchType, (cfg: Config) => ChainTiming | null> = {
+  jab: cfg => (cfg.straightV2 ? { loadEnd: cfg.straightChainLoad, hipEnd: cfg.straightChainHipEnd, shoulderAt: cfg.straightChainLoad, sitEnd: cfg.straightChainLoad, riseAt: cfg.straightChainLoad, loadDip: PUNCHES.jab.dip * cfg.punchDipScale, turn: PUNCHES.jab.turn, coil: PUNCHES.jab.coil, rigOnly: true } : null),
+  cross: cfg => (cfg.straightV2 ? { loadEnd: cfg.straightChainLoad, hipEnd: cfg.straightChainHipEnd, shoulderAt: cfg.straightChainLoad, sitEnd: cfg.straightChainLoad, riseAt: cfg.straightChainLoad, loadDip: PUNCHES.cross.dip * cfg.punchDipScale, turn: PUNCHES.cross.turn, coil: PUNCHES.cross.coil, rigOnly: true } : null),
+  hook: cfg => (cfg.hookV2 ? { loadEnd: cfg.hookChainLoad, hipEnd: cfg.hookChainHipEnd, shoulderAt: cfg.hookChainShoulderAt, sitEnd: cfg.hookChainLoad, riseAt: cfg.hookChainRiseAt, loadDip: cfg.hookLoadDip * cfg.punchDipScale, turn: cfg.hookTurn, coil: cfg.hookCoil, rigOnly: false } : null),
+  uppercut: cfg => (cfg.uppercutV2 ? { loadEnd: cfg.uppercutChainSit, hipEnd: cfg.uppercutChainHipEnd, shoulderAt: cfg.uppercutChainShoulderAt, sitEnd: cfg.uppercutChainSit, riseAt: cfg.uppercutChainRiseAt, loadDip: cfg.uppercutLoadDip * cfg.punchDipScale, turn: PUNCHES.uppercut.turn, coil: PUNCHES.uppercut.coil, rigOnly: false } : null),
+};
+// The phase table carries the timing (the pose functions get `ph`, not always `cfg`). The table above is left as it was written.
+for (const type of Object.keys(CHAINS) as PunchType[]) {
+  const def = PUNCHES[type], base = def.phases;
+  def.phases = cfg => { const ph = base(cfg); ph.chain = CHAINS[type](cfg); return ph; };
+}
+
+/** The shoulder twist (rad, signed for `hand`) the V2 chain has reached `elapsed` seconds into the punch. */
+function chainTwistAt(tm: ChainTiming, hand: Hand, stance: Stance, elapsed: number, ph: PunchPhases): number {
+  return handLateralSign(hand, stance) * tm.turn * chainShoulder(tm.coil, elapsed, ph, tm);
+}
+
+/**
+ * Hook, V2. MEASURED on the old path (chain_probe, lead hook): the wind-up
+ * pose rode the shoulders round, so the fist crossed in front of the face to
+ * the FAR side (+21 cm) before the extension, and the extension then poked it
+ * forward and back out (21 → 6 cm) — at contact a left hook was travelling
+ * forward and to the left. Here the three poses are authored in the fighter's
+ * frame at the moments they occur and inverse-rotated by the twist the chain
+ * has reached at each: at the end of the wind-up the fist is still OUTSIDE the
+ * punching shoulder, elbow down, trailing the turn; through the extension it
+ * goes out wide and forward (`via`) and whips across to the same peak as
+ * before — so at contact it is travelling across the face. The fist leaves
+ * last and arrives last; the peak (reach, height, the 12% past the centre
+ * line) is the old one to the digit.
+ */
+function hookPathV2(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath {
+  const side = handLateralSign(hand, stance);
+  const chin = body.headY - body.headR * 0.7;
+  const ph = PUNCHES.hook.phases(cfg), tm = ph.chain!;
+  const cockedF = { fwd: body.upperArm * cfg.hookCockFwd, up: chin - body.headR * cfg.hookArcLow, lat: side * (body.shoulderW / 2 + body.upperArm * cfg.hookCockOut) };
+  const peakF = { fwd: (body.upperArm + body.forearm * 0.75) * cfg.hookReachScale, up: chin, lat: -side * body.shoulderW * 0.12 };
+  const viaF = { fwd: peakF.fwd * cfg.hookArcFwd, up: chin - body.headR * cfg.hookArcLow, lat: side * body.shoulderW * cfg.hookArcOut };
+  return {
+    cocked: yawPose(cockedF, -chainTwistAt(tm, hand, stance, ph.cock, ph)),
+    // (The curve's half-way point: the target runs the extension in chainArrive of it, on a smoothstep.)
+    via: yawPose(viaF, -chainTwistAt(tm, hand, stance, ph.cock + ph.extend * cfg.hookArrive * 0.5, ph)),
+    peak: yawPose(peakF, -handLateralSign(hand, stance) * tm.turn),
+    windF: cockedF,
+    arrive: cfg.hookArrive,
+  };
+}
+
+/** Uppercut, V2: the old three poses, each inverse-rotated by the twist the V2 chain has actually reached when the fist is there (the shoulders now start later), so the fist stays by the punching hip through the load and rises up the same line. */
+function uppercutPathV2(body: BodyDims, hand: Hand, stance: Stance, cfg: Config): PunchPath {
+  const g = guardLocal(body, hand, stance);
+  const side = handLateralSign(hand, stance);
+  const torso = body.shoulderY - body.hipY;
+  const ph = PUNCHES.uppercut.phases(cfg), tm = ph.chain!;
+  const cockedF = { fwd: body.upperArm * 0.6, up: body.shoulderY - torso * 0.3, lat: side * (body.shoulderW / 2 + body.gloveR * 0.3) };
+  // The scoop: half-way up the fist is well FORWARD and still low (the old waypoint sat 15 cm in front of the shoulder
+  // the turn had carried forward, and the arm folded to 18° as the fist went past it), then it rises to the old peak.
+  const viaF = { fwd: body.upperArm * cfg.uppercutScoopFwd, up: body.shoulderY - torso * cfg.uppercutScoopLow, lat: g.lat * 0.8 };
+  const peakF = { fwd: body.upperArm * 1.3 * cfg.uppercutReachScale, up: body.headY - body.headR * 0.2, lat: g.lat * 0.5 };
+  return {
+    // (The wind-up pose is authored at the coiled moment, as before: from there the turning shoulders carry the fist with the hip.)
+    cocked: yawPose(cockedF, tm.coil * side * tm.turn),
+    via: yawPose(viaF, -chainTwistAt(tm, hand, stance, ph.cock + ph.extend * cfg.chainArrive * 0.5, ph)),
+    peak: yawPose(peakF, -side * tm.turn),
+  };
+}
+
+/**
+ * What the RIG draws below the shoulders for a punch in flight (non-hitbox):
+ * `hipLead` — how far the hips are AHEAD of the sim's shoulder line, rad,
+ * signed like torsoTwist (0 from the hit test on: they hold and unwind
+ * together); `push` — the leg drive 0..1 (heel, foot pivot, knee);
+ * `load` — the weight on the punching-side foot 0..1; `sit` — how far into
+ * its load dip the body is, 0..1. `on` false = this punch is on the old curves.
+ */
+export interface ChainPose { on: boolean; hipLead: number; push: number; load: number; sit: number }
+const NO_CHAIN: ChainPose = { on: false, hipLead: 0, push: 0, load: 0, sit: 0 };
+export function chainPose(type: PunchType | null, hand: Hand, stance: Stance, progress: number, cfg: Config): ChainPose {
+  if (type === null) return NO_CHAIN;
+  const ph = PUNCHES[type].phases(cfg), tm = ph.chain;
+  if (!tm) return NO_CHAIN;
+  const elapsed = progress * ph.total;
+  const sign = (hand === 'lead' ? 1 : -1) * handLateralSign('lead', stance);
+  return {
+    on: true,
+    hipLead: sign * (tm.turn * chainHip(tm.coil, elapsed, ph, tm) - PUNCHES[type].turn * punchTwist(PUNCHES[type], elapsed, ph)),   // ahead of whatever the sim's shoulder line is doing
+    push: chainPush(elapsed, ph, tm),
+    load: chainLoad(elapsed, ph, tm),
+    sit: tm.loadDip > 1e-6 ? Math.max(0, chainDip(0, elapsed, ph, tm)) / tm.loadDip : 0,
+  };
 }

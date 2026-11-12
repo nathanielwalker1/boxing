@@ -34,6 +34,7 @@ import { chase1, chase3 } from './springs';
 import { Squash } from './squash';
 import { FootPlanter, stepRoles, type FootPose, type StepStyle } from './feet';
 import { SkeletonDebug } from './debug';
+import { chainPose } from '../sim/punches';   // pure pose curves (the V2 kinetic chain): what the hips, feet and knees do while the sim turns the shoulders
 
 /**
  * The face, set by the host (sim state → expression is wired by the
@@ -88,6 +89,12 @@ export interface RigProbe {
   feet(): [number, number];
   /** Shoulder / elbow / glove joints per arm (index 0 = lead) and whether the torso-clearance re-solve fired this frame (probes). */
   arms(): [{ shoulder: Vec3; elbow: Vec3; glove: Vec3; cleared: boolean }, { shoulder: Vec3; elbow: Vec3; glove: Vec3; cleared: boolean }];
+  /**
+   * The drawn lower body, for scripts/chain_probe.mjs (rig-local: +x forward, +z the fighter's right): the hips' turn on top of
+   * the stance (rad), their height and sideways shift (m); per foot (lead, rear) the pivot on the ball (rad), the heel's
+   * lift (m) and how far the knee sits INSIDE the hip–ankle line (m).
+   */
+  chain?: () => { hipYaw: number; hipY: number; hipLat: number; footYaw: [number, number]; heel: [number, number]; kneeIn: [number, number] };
 }
 
 declare global {
@@ -190,6 +197,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const Sf = new THREE.Vector3();
   const headF = new THREE.Vector3();
   const gloveF = [new THREE.Vector3(), new THREE.Vector3()] as const;
+  const chainOut = { hipYaw: 0, hipY: 0, hipLat: 0, footYaw: [0, 0], heel: [0, 0], kneeIn: [0, 0] };   // what was drawn last frame, for probe.chain()
   const hipYaw = spring1(0);     // hips follow a fraction of the sim's torso twist (stiffest link, so they lead)
   const feet = [new FootPlanter(), new FootPlanter()] as const;
   const squashHead = new Squash();
@@ -421,7 +429,18 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // foot follow the twist harder than on a straight (rigHookDrive).
     const hookAmt = chase1(hookDrive, next.punch.type === 'hook' ? 1 : 0, c.rigHipK, c.rigHipZeta, dt);
     const drive = 1 + hookAmt * (c.rigHookDrive - 1);
-    const hipYawS = chase1(hipYaw, twist * c.rigPunchHipFollow * drive, c.rigHipK, c.rigHipZeta, dt);
+    // V2 chain (polish, item 4): the hips LEAD the sim's shoulder line (they were following it through this spring, so the
+    // order was shoulders → hips → foot), turn less than the shoulders, and one foot pushes while the other stays planted.
+    const pt = next.punch.type;
+    const cp = chainPose(pt, next.punch.hand, spec.stance, pt !== null && prev.punch.type === pt ? lerp(prev.punch.progress, next.punch.progress, alpha) : next.punch.progress, c);
+    const pushFoot = next.punch.hand === 'lead' && pt !== 'jab' ? 0 : 1;   // the foot that drives this punch: the rear foot for a rear hand and for the jab, the lead foot for a lead hook / uppercut
+    let hipYawS: number;
+    if (cp.on) {
+      // The chain's hip curve is already eased; the hip spring's ~2.5 ticks of lag ate the lead (measured), so it is a short first-order follow here.
+      hipYaw.x += ((twist + cp.hipLead) * c.rigChainHipFollow - hipYaw.x) * (1 - Math.exp(-dt * c.rigChainHipRate));
+      hipYaw.v = 0;
+      hipYawS = hipYaw.x;
+    } else hipYawS = chase1(hipYaw, twist * c.rigPunchHipFollow * drive, c.rigHipK, c.rigHipZeta, dt);
 
     onEvents(events, body);
     // The reads: the sim's fight state as pose channels, a face and a skin (reads.ts). A landed punch is graded:
@@ -509,7 +528,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // (slipCrouch) so the knees bend for real.
     const slipLat = next.slip.dir === -1 || next.slip.dir === 1 ? headL.z - shoulderL.z : 0;
     const slipAmt = Math.min(1, Math.abs(slipLat) / Math.max(1e-3, c.slipHeadOffset));
-    chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift + surgeF + wob * c.rigHurtSway * 0.4, bob - rDip + stepUp - slipAmt * c.rigSlipDip - hurt * c.rigHurtSink, leanL * c.rigLeanLat + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7 + surgeL + slipLat * c.rigSlipHipShift + wob * c.rigHurtSway, c.rigHipK, c.rigHipZeta, dt);
+    chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift + surgeF + wob * c.rigHurtSway * 0.4, bob - rDip + stepUp - slipAmt * c.rigSlipDip - hurt * c.rigHurtSink, leanL * c.rigLeanLat + (pt === 'jab' ? 0 : latSign[next.punch.hand === 'lead' ? 0 : 1]! * cp.load * c.rigChainLoadShift) + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7 + surgeL + slipLat * c.rigSlipHipShift + wob * c.rigHurtSway, c.rigHipK, c.rigHipZeta, dt);
     chase3(spineBend, leanF * c.rigLeanChest + mvFwd * c.rigMoveLeanShift * 0.6 + weaveX * 0.6, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3 + mvLat * c.rigMoveLeanShift * 0.4 + weaveZ * 0.6, c.rigSpineK, c.rigSpineZeta, dt);
     // Circling: the head leads the travel.
     headL.z += mvLat * c.rigMoveHeadLead;
@@ -558,7 +577,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // walking (roll into the travel) and the punch's lateral weight transfer
     // (a hook rolls the shoulders across with the weight, an uppercut over the
     // punching hip).
-    qTmp.setFromAxisAngle(XAXIS, -rRoll + (mvLat * c.rigMoveLeanDeg * (lateralTravel ? 1.1 : 0.7) + leanL * c.rigLeanRollDeg + wob * c.rigHurtRollDeg) * DEG);   // circling rolls the torso harder into the travel; rocked, it rolls with the wobble
+    qTmp.setFromAxisAngle(XAXIS, -rRoll + (mvLat * c.rigMoveLeanDeg * (lateralTravel ? 1.1 : 0.7) + leanL * c.rigLeanRollDeg + (pt === 'uppercut' ? latSign[next.punch.hand === 'lead' ? 0 : 1]! * cp.sit * c.rigUppercutDropDeg : 0) + wob * c.rigHurtRollDeg) * DEG);   // circling rolls the torso harder into the travel; rocked, it rolls with the wobble
     qChest.multiply(qTmp);
 
     // ── Knockdown: rewrite hips, chest, head and gloves from the fall timeline ──
@@ -655,6 +674,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       qChest.slerp(qChestF, fallK);
     }
 
+    chainOut.hipYaw = hipYawS + reads.hipYaw; chainOut.hipY = H.y; chainOut.hipLat = H.z;
     const bHips = bone(BONE.hips);
     bHips.position.copy(H);
     bHips.quaternion.copy(qHips);
@@ -756,6 +776,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       }
       // Reads on the drawn arm root (a few cm, non-hitbox): the shoulders hunch or slump, and a feint twitches the punching one.
       sh.y += shrug + (i === 0 ? reads.shrugLead : 0);
+      // V2 chain, drawn only: the punching shoulder drops in an uppercut's sit; the lead shoulder comes up into the chin on a jab.
+      if (cp.on && (next.punch.hand === 'lead') === (i === 0)) sh.y += pt === 'uppercut' ? -cp.sit * c.rigUppercutShoulderDrop : pt === 'jab' ? cp.push * c.rigJabShrug : 0;
       if ((next.punch.hand === 'lead') === (i === 0)) sh.x += reads.feintReach;
       // Clinch and push-off: the sim leaves the gloves at the guard (nobody can punch in a clinch; a shove has no
       // fist), so the DRAWN arms leave the sim's joints for these two — wrapped round the other man, or both
@@ -822,7 +844,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     for (const i of leader === 0 ? [0, 1] : [1, 0]) {
       const s = latSign[i]!;
       // Stance from stanceParams (one place: a style table can drive it). A step jab's lead foot steps with the punch.
-      const restFwd = i === 0 ? st.fwd + reads.leadStep : -st.back;
+      const jabStep = cp.on && pt === 'jab' && next.punch.variant === 'jab' ? cp.push * c.rigJabStep : 0;   // V2: the jab steps off the lead foot
+      const restFwd = i === 0 ? st.fwd + reads.leadStep + jabStep : -st.back;
       const restLat = s * st.lat;
       const footYawLocal = leadSign * (i === 0 ? c.rigLeadFootYawDeg : c.rigRearFootYawDeg) * DEG;
       const w = localToWorld(pos, frame, restFwd + hipSway.x, 0, restLat);
@@ -850,7 +873,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
         // The burst: both feet leave the canvas and travel with him; they land where the hop ends.
         feet[i]!.snap(footDesired);
         feet[i]!.out.y = reads.footLift * (i === leader ? 1 : 0.7);
-      } else if (i === 0 && reads.leadStep > 0.02 && !feet[0].stepping) {
+      } else if (i === 0 && reads.leadStep + jabStep > 0.02 && !feet[0].stepping) {
         const fd = Math.hypot(footDesired.x - feet[0].out.x, footDesired.z - feet[0].out.z);
         if (fd > 0.05) { stepStyle.role = 'lead'; stepStyle.lateral = false; feet[0].stepNow(footDesired, c); } else feet[i]!.update(footDesired, footRest, stepStyle, dt, c, feet[1 - i]!);
       } else feet[i]!.update(footDesired, footRest, stepStyle, dt, c, feet[1 - i]!);
@@ -862,7 +885,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       // The foot under the punching hand of a hook pivots like the rear foot
       // on a cross (toe turns in, heel out); otherwise lead/rear as authored.
       const hookFoot = hookAmt * ((next.punch.hand === 'lead') === (i === 0) ? 1 : 0);
-      const pivot = i === 0 ? lerp(c.rigPunchLeadFootPivot, c.rigPunchFootPivot, hookFoot) : c.rigPunchFootPivot;
+      const pivot = cp.on ? (i === pushFoot ? c.rigPunchFootPivot * (pt === 'jab' ? c.rigChainJabHeel : 1) : c.rigChainOffFootPivot)
+        : i === 0 ? lerp(c.rigPunchLeadFootPivot, c.rigPunchFootPivot, hookFoot) : c.rigPunchFootPivot;
       const pivotYaw = hipYawS * pivot;
       const yawL = fp.rotY + yaw + pivotYaw;
       // The pivot is on the BALL of the foot, not the ankle: the heel swings
@@ -880,7 +904,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const liftW = i === 1 ? 1 : hookFoot;
       // + the reads: on the balls of the feet while he bounces (the rear heel stays off the canvas; flat-footed = down),
       //   and both heels up through a hop or a rising punch.
-      const lift = Math.max(c.rigPunchHeelLift * Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean) * liftW, (i === 1 ? reads.heelRear * rhythm : 0), reads.heelBoth) * (1 - fallK);
+      // V2 chain: the pushing foot's heel comes up WITH the hip drive (foot first), not with the forward lean (which peaks with the fist).
+      const punchLift = cp.on ? c.rigPunchHeelLift * cp.push * (i === pushFoot ? (pt === 'jab' ? c.rigChainJabHeel : 1) : 0) : c.rigPunchHeelLift * Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean) * liftW;
+      const lift = Math.max(punchLift, (i === 1 ? reads.heelRear * rhythm : 0), reads.heelBoth) * (1 - fallK);
       ankle.y += body.bootH + lift;
 
       hipJ[i]!.set(0, 0, s * d.hipJ).applyQuaternion(qHips).add(H);
@@ -901,7 +927,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       }
       // The knee on the slip's side turns in as the weight lands on it.
       const slipKnee = slipLat !== 0 && Math.sign(slipLat) === Math.sign(s) ? Math.min(1, Math.abs(slipLat) / Math.max(1e-3, c.slipHeadOffset)) * c.rigSlipKneeIn : 0;
-      pole.set(c.rigKneePoleFwd * Math.cos(yawL), 0, -c.rigKneePoleFwd * Math.sin(yawL)).addScaledVector(ZAXIS, s * (c.rigKneePoleOut - slipKnee));
+      pole.set(c.rigKneePoleFwd * Math.cos(yawL), 0, -c.rigKneePoleFwd * Math.sin(yawL)).addScaledVector(ZAXIS, s * (c.rigKneePoleOut - slipKnee - (cp.on && i === pushFoot ? cp.push * c.rigChainKneeIn : 0)));
       solveTwoBone(hipJ[i]!, ankle, body.thigh, body.shin, pole, 1, ik);
       const lb = legBones(i);
       placeChain(lb.thigh, lb.knee, lb.shin, hipJ[i]!, ik.mid, ankle, hingeLeg[i]!, -1, 1);
@@ -926,6 +952,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       bBoot.quaternion.setFromAxisAngle(YAXIS, yawL);
       if (lift > 0) bBoot.quaternion.multiply(qTmp.setFromAxisAngle(ZAXIS, -Math.asin(Math.min(1, lift / (d.footLen * 0.72)))));
       bBoot.scale.set(1, 1, 1);
+      chainOut.footYaw[i] = pivotYaw; chainOut.heel[i] = lift;
+      chainOut.kneeIn[i] = -s * (ik.mid.z - (hipJ[i]!.z + ankle.z) / 2);
       if (i === 0) { dbgPts[J.hp0]!.copy(hipJ[0]!); dbgPts[J.kn0]!.copy(ik.mid); dbgPts[J.an0]!.copy(ankle); }
       else { dbgPts[J.hp1]!.copy(hipJ[1]!); dbgPts[J.kn1]!.copy(ik.mid); dbgPts[J.an1]!.copy(ankle); }
     }
@@ -988,6 +1016,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   probe.freeze = (on): void => { frozen = on; };
   if (probing) installRigReplay(cfg, () => (window.__rig ?? {}) as Partial<Record<Side, ReplayFeed>>);
   probe.sprayCount = (): number => spray.active;
+  probe.chain = () => ({ hipYaw: chainOut.hipYaw, hipY: chainOut.hipY, hipLat: chainOut.hipLat, footYaw: [chainOut.footYaw[0]!, chainOut.footYaw[1]!], heel: [chainOut.heel[0]!, chainOut.heel[1]!], kneeIn: [chainOut.kneeIn[0]!, chainOut.kneeIn[1]!] });
   probe.footPos = () => [{ x: feet[0].out.x, y: feet[0].out.y, z: feet[0].out.z }, { x: feet[1].out.x, y: feet[1].out.y, z: feet[1].out.z }];
 
   return {
