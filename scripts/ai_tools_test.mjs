@@ -55,7 +55,9 @@ for (const bot of [jabAndMove, insideFighter, counterPuncher, turtle]) for (cons
   const used = {};
   for (const f of fights) for (const [key, v] of Object.entries(f.used)) used[key] = (used[key] ?? 0) + v;
   console.log(`     ${Object.entries(used).map(([key, v]) => `${key} ${v}`).join(' · ')}`);
-  for (const tool of ['body', 'pivot', 'push', 'burst', 'feint', 'clinch', 'cutOff']) check(`it used: ${tool}`, used[tool] > 0, `${used[tool]}`);
+  for (const tool of ['body', 'pivot', 'push', 'burst', 'feint', 'cutOff']) check(`it used: ${tool}`, used[tool] > 0, `${used[tool]}`);
+  // Polish phase (2026-11-11): the clinch is off by default (clinchOn false, docs/POLISH_RIG.md item 7) and every AI use of it is gated on that key.
+  check('it never ties up: the clinch is off by default', used.clinch === 0 && sum(fights, f => f.evs.clinch ?? 0) === 0, `${used.clinch}`);
   // (Phase 3: a slip is only chosen when there is time for it — the punch's tell less the AI's reaction. At the
   // default 0.2 s reaction nothing quicker than a hook qualifies, so the head movement is checked on the counter
   // style, which reads a cross in time; and it must actually make some of them miss.)

@@ -188,7 +188,10 @@ export class Reads {
     const droop = f.guardDroop;
     const broken = f.guardBroken > 0 ? 1 : 0;
     const stun = clamp01(f.blockStun / 0.25);
-    const clinch = chase1(this.sClinch, f.clinch.active ? 1 : 0, 90, 0.9, dt);
+    // clinchV2 (polish): the sim places the bodies, the heads and the hands for the tie-up, so the drawn head shift and the
+    // drawn arm wrap are OFF (clinch = 0 below); what is left for the drawing is a chest-pitch trim and a head roll (tied).
+    const tied = chase1(this.sClinch, f.clinch.active ? 1 : 0, 90, 0.9, dt);
+    const clinch = c.clinchV2 ? 0 : tied;
     this.clinch = clinch;
     if (this.pushT > 0) this.pushT = Math.max(0, this.pushT - dt);
     this.push = this.pushT > 0 ? Math.sin(Math.PI * (1 - this.pushT / c.rigPushTime)) : 0;
@@ -212,7 +215,7 @@ export class Reads {
 
     // Chest pitch (forward +).
     let pitch = post * c.rigPostureTiltDeg + lvl * c.rigLevelTiltDeg + dip * c.rigRollTiltDeg
-      + buckle * c.rigBuckleFoldDeg + clinch * c.rigClinchLeanDeg
+      + buckle * c.rigBuckleFoldDeg + clinch * c.rigClinchLeanDeg + (c.clinchV2 ? tied * c.rigClinchV2LeanDeg : 0)
       + Math.min(1, droop / 0.1) * 5 * c.rigGuardSlump
       - ropes * c.rigRopesLeanDeg - broken * 5;
     // Spent: the chest sags and the shoulders hang — the tells that survive at play distance (the face does not:
@@ -255,7 +258,7 @@ export class Reads {
     // The head: whip on a loose spring; rocks back with a blocked shot; hangs when winded.
     this.headYaw = chase1(this.kWhipYaw, 0, 90, 0.38, dt);
     this.headPitch = chase1(this.kWhipPitch, 0, 70, 0.4, dt) + this.kRock.x * 0.6 - buckle * 14 * DEG - fatigue * 6 * DEG + chase1(this.sShapeHead, shapeHead, 200, 0.8, dt);
-    this.headRoll = clinch * 16 * DEG * leadSign;
+    this.headRoll = clinch * 16 * DEG * leadSign + (c.clinchV2 ? tied * c.rigClinchV2HeadDeg * DEG * leadSign : 0);
     // Clinch: the head goes forward and to its own lead side — onto the other man's shoulder; his does the same, so they pass.
     this.headFwd = clinch * c.rigClinchHead; this.headLat = clinch * c.rigClinchHead * leadSign;
     // Covering up after a body shot: quick down, slow back.
