@@ -231,7 +231,7 @@ forward at shoulder height. A long uppercut still looks like a reach.
 **Body hook 0.7 m** (t=28): crouched, the torso bends into it, the glove is on
 the ribs — not in them — and the lead foot has turned. **Shovel hook 0.55 m**
 (t=16): compact, the fist comes up between the gloves onto the head, the head
-goes. **Scenario strips** (`flush_counter`, `inside`, re-filmed): the counter
+goes. **Scenario strips**: `flush_counter` re-filmed and read (`inside` was re-filmed and NOT read; the uppercut strips were shot at the 14 cm sit, before it was eased to 12; fps was not measured — nothing new is drawn, the cost is one `chainPose` call per fighter per frame): the counter
 hook lands at t=24–27, the head whips, sweat comes off, he staggers; nothing
 passes through an arm or a torso.
 **Jab, cross.** Hard to tell from before at strip size: the cross's rear heel
