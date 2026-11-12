@@ -132,7 +132,9 @@ export function stepFooting(f: FighterState, opp: FighterState, input: Readonly<
 
   // ── The guard meter recovers once it has been left alone.
   f.guardRest += dt;
-  if (f.guardBroken === 0 && f.guardRest >= cfg.guardRegenDelay && f.guardHp < 1) f.guardHp = Math.min(1, f.guardHp + cfg.guardRegen * dt);
+  // (Phase B, guardMeterOn: the meter comes back sooner and faster — it was too thin for a man who keeps his guard up against a busy opponent.)
+  const gm = cfg.guardMeterOn;
+  if (f.guardBroken === 0 && f.guardRest >= cfg.guardRegenDelay * (gm ? cfg.guardRegenDelayScale : 1) && f.guardHp < 1) f.guardHp = Math.min(1, f.guardHp + cfg.guardRegen * (gm ? cfg.guardRegenScale : 1) * dt);
 
   // ── Flat-footed.
   const speed = Math.hypot(f.vel.x + f.hop.x, f.vel.z + f.hop.z);

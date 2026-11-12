@@ -596,6 +596,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // MEASURED at one bonus for both: in an inside exchange both men are always mid-punch, every shot landed at up to
   // × 1.9, and the finish was 25 of the 33 knockdowns the 1.98 m man took in 8 fights.)
   mag *= 1 + targetVuln * (counter ? cfg.counterImpulseBonus : cfg.exposedImpulseBonus);
+  // What of that was "he was throwing": the trade bonus (phase B — the stun check discounts it; the flush × joins it below).
+  let tradeBonus = !counter && d.punch.type !== null && !(d.hurt > 0) && d.guardBroken === 0 ? 1 + targetVuln * cfg.exposedImpulseBonus : 1;
   // Overhaul: what the target's FEET were doing. Flat-footed he rides nothing; on the ropes there is nowhere for the head to go.
   if (cfg.flatFootedOn) mag *= 1 + cfg.flatImpulseBonus * d.flat;
   if (cfg.ropesOn) mag *= 1 + cfg.ropeImpulseBonus * d.ropes;
@@ -634,7 +636,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     grade = through && res.grade === 'flush' ? 'clean' : res.grade;
     // Glancing: the larger of this and the losses already taken, never both. Flush: on top.
     if (grade === 'glancing') mag *= Math.min(1, cfg.gradeGlancingPower / Math.max(1e-6, soft));
-    else if (grade === 'flush') mag *= cfg.gradeFlushPower;
+    else if (grade === 'flush') { mag *= cfg.gradeFlushPower; if (tradeBonus > 1) tradeBonus *= cfg.gradeFlushPower; }
     // The combination: each clean or flush land inside the window hits harder than the last.
     if (grade !== 'glancing') {
       a.combo = (a.comboT > 0 ? a.combo : 0) + 1;
@@ -675,7 +677,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // Stun and wear taken: the base × the blocker's guard shape × his defense rating.
     const gd = guardOf(d, cfg);
     if (cfg.blockStunOn) { stun = Math.min(cfg.blockStunMax, cfg.blockStunBase * rawPower * gd.stun * rated(d, 'defense', -cfg.ratingDefenseStun, cfg)); d.blockStun = Math.max(d.blockStun, stun); }
-    if (cfg.guardWearOn) { d.guardHp = Math.max(0, d.guardHp - cfg.guardWearPerImpulse * raw * gd.wear * rated(d, 'defense', -cfg.ratingDefenseGuard, cfg) * (rawPower < cfg.chipMinPower ? cfg.guardWearLight : 1)); d.guardRest = 0; }
+    if (cfg.guardWearOn) { d.guardHp = Math.max(0, d.guardHp - cfg.guardWearPerImpulse * (cfg.guardMeterOn ? cfg.guardWearScale : 1) * raw * gd.wear * rated(d, 'defense', -cfg.ratingDefenseGuard, cfg) * (rawPower < cfg.chipMinPower ? cfg.guardWearLight : 1)); d.guardRest = 0; }
     if (blocked && !light) chip = mag * cfg.healthDamagePerImpulse * (part === 'body' && cfg.bodyDamageOn ? cfg.bodyHealthScale : 1);
   }
 
@@ -758,13 +760,19 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // measured against the target's threshold — rock, finish or flash.
     if (!blocked && part === 'head' && def.rocks && !d.down) {
       const n = events.length;
-      applyStun(s, target, side, type, mag, cfg, events, counter);
+      // (Phase B: a man caught MID-PUNCH — not by a counter, not hurt, his guard not broken — is rocked by the shot
+      // itself, not by the trade bonus on it: stunTradeKeep of that bonus counts toward the stun. Damage keeps all of it.)
+      let stunMag = mag;
+      if (cfg.hurtRatesOn && !counter && tradeBonus > 1) stunMag = mag * (1 + (tradeBonus - 1) * cfg.stunTradeKeep) / tradeBonus;
+      // …and the punch that ENDS a clean combination counts for more toward it: hurt is what a finished combination earns.
+      if (cfg.hurtRatesOn && finisher) stunMag *= cfg.comboFinisherStun;
+      applyStun(s, target, side, type, stunMag, cfg, events, counter);
       if (events.length > n) addHitStop(s, cfg.stunHitStop, cfg, 1);   // a rock or a knockdown: a big moment
     }
     // The body (overhaul): a clean body shot can wind him; a liver shot lights the fuse.
     if (!blocked && part === 'body' && grade !== 'glancing' && !d.down) {
       if (liver) d.damage.liver += mag * cfg.healthDamagePerImpulse;
-      applyBodyHurt(s, target, side, mag, liver, cfg, events);
+      applyBodyHurt(s, target, side, mag * (cfg.hurtRatesOn && finisher ? cfg.comboFinisherStun : 1), liver, cfg, events);
     }
   }
 }
