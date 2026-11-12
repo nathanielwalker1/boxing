@@ -176,6 +176,114 @@ says so.
   false; nobody can enter one and the AI never tries. `clinchV2` stays in
   the tree, off. The controls card lists taking a knee instead.
 
+### Phase B (cut short: Nate asked to wrap up)
+
+- **Hurt as an event (SIM, merged; `docs/POLISH_SIM.md` "Phase B").** The
+  ~20 hurt states a fight were not re-rocks: 18 of 24 were a man hit while
+  punching, most clearing the bar by under 25%. Now a trade costs health but
+  does not rock (`stunTradeKeep` 0), the bar no longer collapses with health
+  (`hurtHealthFloor`), the bars are higher and a finished combination is how
+  a rock is earned (`comboFinisherStun`). 3 × 60 s, before → now:
+
+  | | AI v AI | legit bots v AI | a person's pace v AI |
+  | --- | --- | --- | --- |
+  | Hurt states a fight | 22.9 → 3.8 | 20.5 → 5.2 | 18.7 → 3.2 |
+  | Fights with a knockdown | 55% → 67% | 67% → 67% | 63% → 37% |
+  | Guard breaks a fight | 0.5 → 0.1 | 0.9 → 0.1 | 8.6 → 0.3 |
+
+  The person-paced fighter hurts the AI in 47% of fights (7% before the
+  polish phase, 100% at the end of phase A). The guard meter was too thin
+  (three hooks emptied it): `guardMeterOn`.
+- **Sound, camera, crowd (SHOW, merged; `docs/POLISH_SHOW.md`).** Measured
+  by rendering, never heard. Clean → flush hook 4 dB of the same sound → 7 dB
+  with a crack and a low tail; glancing is a scuff with no camera or crowd;
+  the finisher is the loudest land (it was quieter than a flush hook), the
+  biggest camera push (50 cm v 25) and a crowd pop, with 0.3 s of slow
+  motion; the combination rises under it. Slow motion was stretching the
+  hit-stop freeze (a counter's 130 ms played as ~375 ms of still picture, by
+  arithmetic) and now waits for the freeze to end (`showSlowAfterStop`).
+  Each knockdown kind has its own crowd reaction; the referee waves off an
+  instant KO. Toggles: config group `polish: show`.
+- **Drawn reactions (MOTION, merged; `docs/POLISH_RIG.md` "Phase B").**
+  Only head reactions by hit zone are done and filmed (`rigReactV2`: chin
+  back, jaw turns the head, temple tips it; nose and forehead are hard to
+  tell apart; the finisher cannot be told from flush on the strip). WRITTEN
+  BUT NEVER SEEN BY ANYONE, default off: body zones (`rigReactBodyZones`),
+  rocked / body-hurt sub-kinds (`rigHurtV2`), knockdown kinds and the
+  instant KO's fall (`rigDownV2`), the nerfed punch (`rigNerfV2`), the
+  combination's heels and follow step (`rigComboV2`).
+
+### 5. Stances and guards — NOT DONE
+
+Never started. The five guard shapes from the overhaul are unchanged; no
+drift, no per-fight variation, no new trade-offs.
+
+### 8. Audit — a list from the evidence gathered, not a full sweep
+
+The sweep of every style matchup was not run (wrap-up). Ranked by how much
+each hurts the game, with where the evidence is. "Fixed" = this phase.
+
+1. The third punch of a combination missed in open ring — FIXED (item 2).
+2. A whole frame went black every ~3 s — FIXED (item 1).
+3. The guard drained 8% of the tank a second — FIXED (item 6).
+4. Any clean touch erased a punch in its wind-up — FIXED (item 2).
+5. A person's pace could not hurt the AI at all — FIXED, partly: 47% of
+   fights now (phase B table).
+6. Kinetic chain ran backwards on hooks, uppercuts and the cross — FIXED
+   (item 4).
+7. The clinch read as face to face — REMOVED (item 7).
+8. Hurt and knockdown variety exists in the sim but is not drawn: every
+   rocked man still draws the one wobble, every knockdown the one fall
+   (`rigHurtV2`, `rigDownV2` off, unseen).
+9. Guards: all five held the same way every time (item 5, not done).
+10. Balance: the outboxer style wins 97% across the legitimate bot plans;
+    inside-fighter 25%, counter-puncher 15% (12 a cell, 3 × 60 s).
+    `ai_tools_test` "inside-fighter can win" passes only with `hurtRatesOn`
+    off — a recorded gap, not evidence.
+11. Knockdowns in 67% of AI and bot fights (aim 35–55%); now nearly all from
+    the health bar emptying — lever `knockdownMinImpulse` /
+    `healthDamagePerImpulse`.
+12. Inside, the two bodies overlap chest to chest for seconds at a time
+    (`fight_film.mjs inside-fighter swarmer 3 exchange`, ticks 40–96).
+13. The hook is not round: its arc is held low and narrow by three pinned
+    tests, in a window 3 mm wide (`hookArcLow`); the fist drops ~13 cm in
+    the wind-up.
+14. Hit-stop still freezes 10.4% of a busy exchange, 37% of its worst
+    second (was 13.1% / 45%).
+15. The nerfed punch is in the sim and the sound but not drawn (`rigNerfV2`
+    off, unseen).
+16. The finisher cannot be told from a flush shot in the drawn reaction.
+17. The cross's elbow wings early and its head stays on the centre line.
+18. Jab and cross look the same as before at strip size.
+19. Body-shot reactions by zone unverified (the strip framed the wrong man).
+20. A wild puncher who is not non-stop never becomes "tired" (dips to 73%).
+21. The finisher's sound is squashed ~5 dB by the limiter — heavy or
+    distorted, needs ears.
+22. The out-cold thud is on a timer, not on the body reaching the canvas.
+23. The count UI on a waved-off KO was not checked (`ui/hud.ts`, `flow.ts`).
+24. Flash knockdowns are rare (1–2 in 100 knockdowns).
+25. `postMsaa` could come back (it renders lit now) to take the rope
+    aliasing away; the black-flash probe never covered the menu flow.
+
+### What to feel-test, in order (polish phase)
+
+Gym drills first (title → Gym), a couple of minutes each:
+1. **Combinations**, then **Combinations on the ropes** — 1-2-3 and
+   1-2-hook-to-the-body. Does he stay in front of you? Is the last punch
+   the biggest? A/B: `comboHoldOn`, `comboStepOn`, `comboFinisherOn`,
+   `showFinisherOn`.
+2. **Trading** — can you still throw when hit, and does it feel weaker?
+   (`hitNerfOn`). It will not LOOK weaker yet.
+3. **A round at pace**, then **Behind the guard** — stamina
+   (`staminaPolishOn`).
+4. **Hurting him** — rocks and knockdowns (`hurtRatesOn`,
+   `hurtVarietyOn`). Then try `rigHurtV2` and `rigDownV2` ON: nobody has
+   seen them, they may be broken.
+5. Free sparring, close: hooks and uppercuts from both hands (`hookV2`,
+   `uppercutV2`, `straightV2` off = the old motion).
+6. One real fight with headphones: glancing / clean / flush by ear
+   (`showSoundTiersOn`), and whether anything flashes black.
+
 ## The black screen (found by Nate on first play, fixed)
 
 The first time Nate opened the game the 3D scene was black behind the menus

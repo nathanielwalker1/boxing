@@ -35,7 +35,9 @@ const shot = async (name) => { const p = `${OUT}/stun_${name}.png`; await page.s
 const read = () => page.evaluate(() => window.__read());
 
 // ── 1. The dummy is rocked ───────────────────────────────────────────────────
-await page.evaluate(() => { window.__sim.place(0.79); window.__sim.state().fighters[1].health = 0.05; window.__sim.script(0, [{ cross: true }]); });
+// (This check is about the READS of a rock, not how hard one is to earn: the polish phase raised the stun bar so a lone
+//  cross no longer rocks a worn man, so the whole check runs on the earlier rates.)
+await page.evaluate(() => { window.__cfg.hurtRatesOn = false; window.__sim.place(0.79); window.__sim.state().fighters[1].health = 0.05; window.__sim.script(0, [{ cross: true }]); });
 // Headless frames are long (up to the 0.25 s clamp each), so everything is read in ONE evaluate right after the wait.
 await until(page, () => window.__read().log.includes('rocked1'), undefined, { label: 'the dummy rocked', timeout: 8000 });
 const d1 = await page.evaluate(() => ({ hurt: window.__sim.state().fighters[1].hurt, ghost: document.querySelector('#hud .side.r .ghost').style.transform, fill: document.querySelector('#hud .side.r .fill').style.transform, wall: performance.now(), game: window.__tick.gameTime }));

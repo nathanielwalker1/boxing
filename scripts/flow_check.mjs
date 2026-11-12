@@ -181,7 +181,7 @@ await key('Escape'); await on('title');
 // ── 11. Controls ─────────────────────────────────────────────────────────────
 await key('ArrowDown', 3); await key('Enter'); await on('controls');
 const ctl = await page.evaluate(() => document.querySelector('#flow .controls').textContent);
-check('the controls card covers every move', ['Slip', 'Burst', 'Roll under', 'Pivot', 'Push-off', 'Clinch', 'Feint', 'Chained slip', 'overhand', 'Keyboard', 'Gamepad', 'Touch'].every(w => ctl.includes(w)));
+check('the controls card covers every move', ['Slip', 'Burst', 'Roll under', 'Pivot', 'Push-off', 'Take a knee', 'Feint', 'Chained slip', 'overhand', 'Keyboard', 'Gamepad', 'Touch'].every(w => ctl.includes(w)));
 await shot('controls');
 await key('Escape'); await on('title');
 
