@@ -129,7 +129,7 @@ flight (press → hit test):
   peak as before (`hookArcFwd`, `hookArcOut`, `hookArcLow`, `hookArrive`). The
   sit is 6 cm, done by 30% of the flight, and the legs straighten from 50% —
   not inside the last three ticks.
-- **Uppercut** (`uppercutV2`): sit 14 cm (was 9) and at the bottom by 42% of
+- **Uppercut** (`uppercutV2`): sit 12 cm (`uppercutLoadDip`; was 9; 14 put the rear knee nearly on the canvas in the pose grid) and at the bottom by 42% of
   the flight (was the last tick of the wind-up); the legs drive up from 58% to
   the hit test; the chest rolls 9° toward the punching side in the sit and the
   drawn shoulder drops 3 cm (`rigUppercutDropDeg`, `rigUppercutShoulderDrop`);
@@ -176,3 +176,214 @@ flight (press → hit test):
    nothing in the sim imports the rig.
 6. **Lateral weight in the sim (`lean.lat`) is unchanged** — it is set in
    `combat.ts` (not mine). The load onto the punching foot is drawn only.
+
+## 4. After — the chain in numbers
+
+`PORT=5193 node scripts/chain_probe.mjs` (same probe, toggles on).
+
+| Fastest tick of each link | foot / heel | hips | shoulders | fist | hit test |
+| --- | --- | --- | --- | --- | --- |
+| lead hook, before | 15 / 12 | 15 | **12** | 16 | 17 |
+| lead hook, after | **11 / 11** | **11** | 14 | 15–16 | 17 |
+| rear uppercut, before | 17 / 15 | 17 | 15 | 19 | 20 |
+| rear uppercut, after | 15 / 14 | 15 | 17 | 19 | 20 |
+| cross, before | 13 / 10 | 13 | 10 | 13 | 14 |
+| cross, after | 9 / 8 | 9 | 10 | 13 | 14 |
+| jab, before | — | 9 | 7 | 7 | 8 |
+| jab, after | — | 6 | 7 | 7 | 8 |
+
+| | before | after |
+| --- | --- | --- |
+| hook: hip turn / shoulder turn | 100° / 83° | 41° / 69° |
+| hook: pushing foot / other foot pivot | 129° / 129° | 54° / 8° |
+| hook: fist sideways through the punch | −20 → +21 (t=14, the far side) → +6 | stays on the punching side until the extension, then across to +6; 18 cm a tick at t=15 |
+| hook: hip height | 80 → 87 cm in 3 ticks | sits to 76 by t=6, up from t=9 at ≤ 1.9 cm a tick |
+| hook: fist at the hit test (fwd, up, across) | 65.9, 161.7, 6.2 cm | 65.9, 161.6, 6.3 cm |
+| uppercut: the sit (drawn hips) | 7 cm, bottom at t=16 | 12 cm, bottom at t=10 |
+| uppercut: fastest rise of the hips | 5.1 cm a tick (t=19) | 3.1 (t=17) |
+| uppercut: elbow above the shoulder at the hit | +15 cm rear, +10 lead | −5 rear, −4 lead |
+| uppercut: tightest fold of the arm | 18° | 33° |
+| head past the lead shoulder (lead hook) | −24 cm | −24 cm |
+
+## 5. After — the frames, honestly
+
+Strips: `docs/polish/strip_<punch>_<hand>_<range>_after.png`.
+
+**Lead hook 0.85 m.** t=14: he has turned about half as far as before — you
+see his back three-quarter, not flat — the lead foot is up on its ball with
+the heel out, the rear foot has not moved, the knees are bent, and the fist is
+low and out beside the lead hip, not by his head. t=18: the fist is on the
+head, the elbow level with it, hips visibly behind the shoulders, lead knee
+turned in. It reads as a hook thrown off the front foot. From the play camera
+(t=16) the punching arm is hidden behind his own body and what you see is his
+chest coming round and his rear glove — less of the chest than before, but the
+lead hook is still mostly read from the body, not the arm, at that camera.
+**Rear hook 0.85 m.** t=16–18: back three-quarter, rear heel up and turned,
+lead foot planted, the arm comes round with the elbow level. The arm is still
+long — it reads as a wide hook.
+**Lead uppercut 0.85 m.** t=12: a real sit — thighs angled, hips low, the fist
+down out of sight. t=18: coming up, the fist forward at chest height with the
+forearm rising, lead heel up. t=20: standing tall, legs straight, the fist at
+chin height with the elbow under it. This is the clearest improvement.
+**Rear uppercut 0.85 m.** t=20: the elbow is no longer above the shoulder, but
+at this range (it is a miss: the uppercut reaches 0.71 m) the arm still reaches
+forward at shoulder height. A long uppercut still looks like a reach.
+**Body hook 0.7 m** (t=28): crouched, the torso bends into it, the glove is on
+the ribs — not in them — and the lead foot has turned. **Shovel hook 0.55 m**
+(t=16): compact, the fist comes up between the gloves onto the head, the head
+goes. **Scenario strips** (`flush_counter`, `inside`, re-filmed): the counter
+hook lands at t=24–27, the head whips, sweat comes off, he staggers; nothing
+passes through an arm or a torso.
+**Jab, cross.** Hard to tell from before at strip size: the cross's rear heel
+is up earlier and the lead foot stays put; the jab's step and shoulder are a
+few centimetres and I cannot see them at the play camera.
+
+**Pose grid** (`scripts/pose_grid.mjs`, side-on, hitboxes on, low mesh; read at the 14 cm sit, before it was eased to 12). Hook, lead and rear, both sides: p=0.15–0.3 the knees bend; p=0.45 the body has started round and the punching glove is low and out wide at chest height (a visible wind-up — see "still wrong"); p=0.6 the fist is on the head, the glove sphere on the glove, the head sphere on the skull, the body capsule inside the torso; nothing passes through a torso. Uppercut: p=0.3–0.45 a deep sit with the fist by the hip — on the rear uppercut at p=0.45 the rear knee was nearly on the canvas, which is why the sit was eased; p=0.6 standing tall, fist at head height in front, elbow under it. Jab and cross sheets were written and not read.
+
+## Still wrong / worse than wanted
+
+- **The hook is not round.** The arc is 0.3 shoulder-widths wide and travels
+  low (decision 3). By eye a hook should come round level with the chin and
+  land on the side of the head. It cannot while a resting guard glove sits by
+  the cheek and the tests pin that the slip-counter hook goes past it.
+- **`hookArcLow` sits in a 3 mm window** (0.80–0.85 of a head radius). Any
+  change to guard heights, head radius or the aim tracking can push the counter
+  hook onto the glove or under a block. Whoever next touches guards should
+  re-run danger_test and styles_test and, better, decide which outcome is
+  wanted and widen it (see "pinned numbers").
+- **The hook's fist drops ~13 cm in the wind-up** (6 of it is the sit). It is a
+  tell, deliberately low to clear the glove; it may read as a dropped hand.
+- **A long uppercut still reaches.** The peak is pinned; an uppercut thrown
+  from 0.85 m finishes with the arm out in front. Only the range can fix it.
+- **The cross's elbow is 17.6 cm above the shoulder at t=9** (a wing in the
+  wind-up). Sim side; left alone because the cross's contacts are pinned.
+- **The head does not go off the centre line on a cross.** The head sphere is
+  placed in `reaction.ts` `computeBoxes` (not mine); a drawn-only offset would
+  break "hit geometry = drawn geometry". Wanted: a lateral head shift per unit
+  of a punch's sway, in the sim, toward the punching side's opposite.
+- **Lead-hand punches are hidden from the play camera** by the puncher's own
+  body. That is the camera, not the motion.
+- **Palm in on the uppercut** was not done (the glove still pronates with the
+  arm's extension).
+- The jab's step is drawn by moving the lead foot's rest point 7 cm; the foot
+  planter decides when to take it. Not measured, not visible in the strips.
+
+## Pinned numbers I think should move (for the orchestrator)
+
+1. **The guard glove at the cheek vs. the hook** (danger_test 4b, slipx_test
+   "lead hook off a slip", styles_test "hook from 12° off his line"). Today the
+   pinned outcome is "a hook passes the resting rear glove and lands flush".
+   A round hook lands ON that glove — a muffled land through the hand. If hooks
+   are to look like hooks, either the resting rear glove moves 3–4 cm forward
+   of the cheek, or those three tests accept the land-through. Then set
+   `hookArcOut` 0.55, `hookArcLow` 0.
+2. **`timing_test` "a hook turns the torso to its own turn"** — now compares
+   with `hookTurn` (edited). If `hookV2` stays, drop `PUNCHES.hook.turn` 1.45 →
+   1.2 and delete the toggle branch.
+3. **The cross inside smothering range** (punch_test "a land THROUGH the
+   hands", stun_test finish, heights_test cross→boiler): these flip on a 3 cm
+   change of fist height mid-extension. They are why the straights could not
+   get the sim-side dip and shoulder timing.
+
+---
+
+# Item 7 — the clinch
+
+Nate: "The clinch animation is awful, it's like they're making out."
+
+**Outcome: the clinch is taken out** (`clinchOn` false by default). A re-build
+was written, measured and filmed, does not look like two boxers tied up, and
+is left in the tree behind `clinchV2` (default off) as an experiment.
+
+## Before — measured (`node scripts/_debug.mjs clinch`, old clinch)
+
+- Entry: none. At the tick it takes, both men stop where they stand (0.60 m in
+  the probe) — no reach, no pull.
+- Bodies: square to each other, 0° off the line, no lean in the sim at all.
+- Heads (as drawn: the sim's sphere + the rig's 9 cm slide forward and to the
+  lead side): centres 0.46 m apart, surfaces 17 cm; each man is looking 23° off
+  the other's head — face to face. The drawn chest pitches 22° on top, which
+  closes it further on screen.
+- Arms: the sim leaves the gloves at the guard; the rig draws them round the
+  other man. `strip_clinch_before.png`, play camera t=60: blue's face a few
+  centimetres from red's, looking into it; red's right glove comes out of
+  blue's back.
+- Duration 1.40 s; ends with the referee's break, a hop to 1.20 m. No turn, no
+  footwork.
+
+## The attempt (`clinchV2`, `src/sim/clinch.ts`, `src/sim/gloves.ts` `clinchLocal`)
+
+The tie-up moved into the sim: over 0.3 s the pair are pulled to 0.70 m, both
+turn 30° the same way round (lead shoulder in) and lean 32 cm in
+(`lean.fwd` 1.8), the pair turn about their midpoint at 0.45 rad/s, the hands
+aim at the other man's flank (lead, under) and the back of his shoulder (rear,
+over), and the lean and hands release over 0.25 s after the break.
+
+Measured: heads 0.36 m apart at lean 1.5 (surfaces 7 cm), each man looking
+**80°** off the other's head — no longer face to face; yaw 30° off the line;
+glove depth in the other body 0–3.9 cm, worst 5.4 cm during the pull; break at
+1.40 s to 1.19 m; level_test's clinch section passed unchanged.
+
+Filmed (`docs/polish/strip_clinch_v2_attempt.png`, play camera and from above,
+t=30 and t=60): **it does not read as a clinch.** The two stand upright, turned
+side-on, pressed past each other like two people squeezing through a doorway,
+facing nearly opposite ways; the torsos merge by several centimetres; red's
+hands are still up in his own guard rather than on blue. It is not "making
+out" any more, and it is not boxing either.
+
+Why, and why I stopped:
+- In the sim the head rides rigidly above the middle of the shoulder line
+  (`computeBoxes`). To put a head over the other man's shoulder the whole
+  shoulder line has to go there, so the chests overlap: with the heads level
+  the shoulder centres are 33 cm apart and the torso capsules are 40 cm wide.
+  A real clinch needs the head to move off the shoulders (a neck), which is a
+  change to `reaction.ts` — not this workstream's file this phase.
+- The lean is along each man's own facing, so turned bodies shear past each
+  other instead of leaning INTO each other.
+- The glove targets are cut along the puncher's forward axis so a fist stops
+  on a face; that same rule keeps a hand from going round a body.
+
+## What was done instead
+
+- `clinchOn` defaults to **false**: block + level together ties nobody up, and
+  the AI never tries (every AI use is already gated on `cfg.clinchOn`;
+  `ai_tools_test` now asserts it uses the clinch 0 times).
+- `level_test` section 9 switches `clinchOn` on for itself and still pins the
+  mechanic; a new check pins the default.
+- `clinchV2` defaults to false, so switching `clinchOn` back on gives the old
+  clinch exactly.
+- Not mine, for the orchestrator: `src/ui/controls.ts` still says the push-off
+  "breaks a clinch"; the Survive drill's test bot (`scripts/lib/drill_bots.js`)
+  holds block + level to tie up (drills_test still passes — it now just
+  crouches behind the block); `clinchHurtRecover`, the crowd's clinch grumble
+  and the `clinchThud` sound are unreachable while it is off. A hurt AI's
+  `hurtPlan: 'clinch'` falls through to nothing — worth a look at what it does
+  instead (cover, presumably).
+
+## What a real clinch would need (if it comes back)
+
+1. `computeBoxes`: a head offset relative to the shoulder line while tied up —
+   forward ~12 cm and ~15 cm toward the head's outside — so the heads pass with
+   the chests touching, not merged.
+2. The lean taken along the LINE to the other man, not the facing.
+3. Hands placed by the sim on the other man's back with their own rule
+   (exempt from the forward-axis cut), elbows out.
+4. Then the entry, turn and release already in `clinchV2`.
+
+---
+
+# Drills wanted (for `src/ai/drills.ts` — not mine)
+
+**Punch animation, "Bag work".** Partner: stands still in the high guard at
+0.75 m, never punches, never moves; health does not drop. Two minutes. The
+card: "Throw each punch slowly, one at a time: lead hook (stick left + hook),
+rear hook, lead uppercut, rear uppercut, cross, jab. Then step to 0.55 m and
+do the hooks and uppercuts again." What to look at: does the foot turn before
+the shoulders; does he sit before the uppercut and come up through it; does
+the hook come round or poke; is the head behind the shoulder. With `?tune=1`
+flip `hookV2` / `uppercutV2` / `straightV2` and throw the same punch again.
+
+**Clinch.** Only if it comes back: partner walks in to 0.6 m and holds block +
+level every 4 s; the player does nothing for the first one (watch the entry,
+the heads, the hands, the turn, the break), pushes off the second.
+

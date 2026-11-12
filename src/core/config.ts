@@ -670,7 +670,7 @@ export const SCHEMA = {
   pushStun:         num(0.2, 0, 0.6, 0.01, 'level', 'the shoved fighter cannot start a punch for this long, s'),
   pushCooldown:     num(0.8, 0, 3, 0.05, 'level', 'seconds between push-offs'),
   pushStaminaCost:  num(0.03, 0, 0.2, 0.005, 'level', 'stamina per push-off'),
-  clinchOn:         bool(true, 'level', 'THE CLINCH: block + level held together inside clinchRange for clinchReach seconds = a tie-up. Nobody punches; a hurt fighter clears his head; the referee breaks it after clinchSeconds. The other man can push off out of it'),
+  clinchOn:         bool(false, 'level', 'OFF BY DEFAULT since the polish phase (2026-11-11, Nate: "the clinch animation is awful, it\'s like they\'re making out… or take it out"): nobody can enter a clinch and the AI never tries (every AI use is gated on this key). A re-build was attempted and filmed (clinchV2, docs/POLISH_RIG.md item 7) and does not read as two boxers tied up either — the sim\'s head rides rigidly over the shoulder line, so heads cannot pass over a shoulder without the chests merging. On = the clinch as it was. THE CLINCH: block + level held together inside clinchRange for clinchReach seconds = a tie-up. Nobody punches; a hurt fighter clears his head; the referee breaks it after clinchSeconds. The other man can push off out of it'),
   clinchRange:      num(0.75, 0.55, 1, 0.01, 'level', 'the grab reaches this far, centre to centre, m'),
   clinchReach:      num(0.2, 0.05, 0.6, 0.01, 'level', 'seconds both inputs must be held in range before the tie-up takes (a clean shot in that time breaks the attempt)'),
   clinchSeconds:    num(1.4, 0.5, 4, 0.1, 'level', 'how long the referee lets a clinch go'),
@@ -1179,7 +1179,7 @@ export const SCHEMA = {
   uppercutChainRiseAt:     num(0.58, 0.3, 0.9, 0.01, 'punch pose', 'uppercutV2: the legs start to drive up at this fraction and arrive at the hit test (old: all of it inside the extension, 5 cm a tick)'),
   uppercutChainHipEnd:     num(0.88, 0.5, 1, 0.01, 'punch pose', 'uppercutV2: the hips have come through by this fraction'),
   uppercutChainShoulderAt: num(0.55, 0.2, 0.9, 0.01, 'punch pose', 'uppercutV2: the shoulders start to follow at this fraction'),
-  uppercutLoadDip:         num(0.14, 0.05, 0.25, 0.005, 'punch pose', 'uppercutV2: how far the body sits down in the load, m (old: 9 cm, reached only at the last tick of the wind-up). The sim\'s head and body go down with it'),
+  uppercutLoadDip:         num(0.12, 0.05, 0.25, 0.005, 'punch pose', 'uppercutV2: how far the body sits down in the load, m (old: 9 cm, reached only at the last tick of the wind-up; at 0.14 the rear knee was nearly on the canvas in the pose grid). The sim\'s head and body go down with it'),
   uppercutScoopFwd:        num(1.15, 0.8, 1.4, 0.05, 'punch pose', 'uppercutV2: half-way up, the fist is this far forward of the fighter\'s centre, × upper arm (old 0.9)…'),
   uppercutScoopLow:        num(0.2, 0, 0.5, 0.05, 'punch pose', '…and this far below the shoulder line, × torso length (old 0.1): it scoops forward, then rises'),
   uppercutFlareMax:        num(0.15, 0, 1, 0.05, 'punch pose', 'uppercutV2: the punching elbow may flare out no further than this as the fist rises (1 = the old arm: elbow 15 cm ABOVE the shoulder at contact, a wing). Low = the elbow stays under the fist'),
@@ -1195,6 +1195,23 @@ export const SCHEMA = {
   rigUppercutShoulderDrop: num(0.03, 0, 0.06, 0.005, 'rig chain', 'V2 uppercut: the drawn punching shoulder drops this far with that roll, m (drawn only, like the shrug)'),
   rigJabStep:              num(0.07, 0, 0.15, 0.005, 'rig chain', 'V2 jab: the lead foot steps this far toward the opponent with the punch and comes back, m (drawn only; the step jab has its own, longer)'),
   rigJabShrug:             num(0.025, 0, 0.05, 0.005, 'rig chain', 'V2 jab: the lead shoulder rises this far into the chin as the arm goes out, m (drawn only)'),
+
+  // ── Polish phase, item 7: the clinch (sim/clinch.ts, sim/gloves.ts clinchLocal, rig/reads.ts). docs/POLISH_RIG.md ──
+  clinchV2:                bool(false, 'clinch', 'AN EXPERIMENT, NOT SHIPPABLE (needs clinchOn; see docs/POLISH_RIG.md item 7 for what the film showed). THE CLINCH re-built in the sim: the pair are pulled to clinchHoldDist, both turn a lead shoulder in and lean their weight in so each head goes PAST the other over his shoulder, the hands go to his flank (under) and the back of his shoulder (over) and stop on him, and the pair turn slowly. Off = the old one: square, nose to nose, the drawn arms through the other body ("like they\'re making out")'),
+  clinchHoldDist:          num(0.7, 0.55, 0.9, 0.01, 'clinch', 'clinchV2: centre-to-centre distance the tie-up holds, m. The FEET stay this far apart — the hips are back — while the heads and shoulders lean in'),
+  clinchEntry:             num(0.3, 0.05, 1, 0.01, 'clinch', 'clinchV2: seconds the reach-and-pull takes (distance, turn, lean and hands all ease in over it; no teleport)'),
+  clinchPullSpeed:         num(1.2, 0.2, 4, 0.1, 'clinch', 'clinchV2: the pair close to clinchHoldDist no faster than this, m/s between them'),
+  clinchLean:              num(1.8, 0, 2.5, 0.05, 'clinch', 'clinchV2: lean.fwd while tied up — × punchLeanShift (0.18) = how far head and shoulders go in (32 cm; the hips half). A cross peaks at 0.7. MEASURED at 1.5 the heads were beside each other but 24 cm short of level; at 1.8 they are 14 cm short, ear by ear'),
+  clinchBladeDeg:          num(30, 0, 50, 1, 'clinch', 'clinchV2: each man turns this far off the line between them, lead shoulder in, degrees. With the lean this is what carries each head past the other instead of into it'),
+  clinchTurnRate:          num(0.45, 0, 2, 0.05, 'clinch', 'clinchV2: the pair turn about their midpoint at this rate while tied up, rad/s (the feet have to keep working)'),
+  clinchRelease:           num(0.25, 0.05, 1, 0.01, 'clinch', 'clinchV2: seconds after the break in which the lean and the hands come back'),
+  clinchUnderAt:           num(0.5, 0.2, 0.9, 0.05, 'clinch', 'clinchV2: the underhook hand (lead) goes to his flank this far up his torso (0 = hip, 1 = shoulder)'),
+  clinchWrap:              num(0.08, -0.1, 0.25, 0.01, 'clinch', 'clinchV2: …and this far BEHIND his body\'s axis, m (round him, not on his ribs)'),
+  clinchHandClear:         num(0.01, 0, 0.1, 0.005, 'clinch', 'clinchV2: the hands aim this far outside his body\'s surface, m (the solid-body contact holds them on it)'),
+  clinchOverBack:          num(0.1, 0, 0.3, 0.01, 'clinch', 'clinchV2: the overhook hand (rear) goes this far behind his shoulder joint, m'),
+  clinchOverDrop:          num(0.03, -0.1, 0.2, 0.01, 'clinch', 'clinchV2: …and this far below it, m'),
+  rigClinchV2LeanDeg:      num(-10, -30, 30, 1, 'clinch', 'clinchV2: chest pitch ADDED while tied up, degrees. The sim\'s lean already bends the torso and pitches the chest (rigTorsoBend, rigLeanTiltDeg × clinchLean); this takes some of it back so he leans on the other man instead of folding'),
+  rigClinchV2HeadDeg:      num(14, -30, 30, 1, 'clinch', 'clinchV2: the head rolls this far away from the other man\'s, ear toward its own outside shoulder, degrees (drawn only)'),
 } satisfies Record<string, Entry>;
 
 export type Schema = typeof SCHEMA;

@@ -204,6 +204,10 @@ console.log('\n=== 8. The push-off ===');
 console.log('\n=== 9. The clinch ===');
 {
   const tie = inp({ block: true, level: true });
+  // Polish phase (2026-11-11): the clinch is OFF by default (clinchOn false — docs/POLISH_RIG.md item 7). The mechanic is
+  // still there behind the key, so it is still pinned here, switched on for this section only.
+  check('clinchOn is off by default: block + level held in range ties nobody up', cfg.clinchOn === false && of(run(fresh(cfg, 0.65, 10), 60, () => [tie, NONE]).evs, 'clinch').length === 0);
+  cfg.clinchOn = true;
   const c0 = fresh(cfg, 0.65, 10);
   const r = run(c0, T(cfg.clinchSeconds) + 60, i => [i < 30 ? tie : NONE, inp({ jab: i === 40, move: { x: 0, y: i >= 35 && i < 60 ? -1 : 0 } })]);
   const ev = first(r.evs, 'clinch');
@@ -236,6 +240,7 @@ console.log('\n=== 9. The clinch ===');
   check(`a hurt fighter clears his head faster in the clinch (${tied.toFixed(2)} s left vs ${loose.toFixed(2)} s covering up)`, tied < loose - 0.5);
   check('clinchOn off: nothing', of(run(fresh({ ...cfg, clinchOn: false }, 0.65, 10), 60, () => [tie, NONE], { ...cfg, clinchOn: false }).evs, 'clinch').length === 0);
   check('out of clinchRange: nothing', of(run(fresh(cfg, 1.0, 10), 60, () => [tie, NONE]).evs, 'clinch').length === 0);
+  cfg.clinchOn = false;
 }
 
 done();

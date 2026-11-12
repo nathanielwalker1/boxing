@@ -155,7 +155,7 @@ for (const [punch, hands] of [['hook', ['lead', 'rear']], ['uppercut', ['lead', 
 }
 // The clinch from the play camera and from a second angle (side-on and above, `cam`), and the variants item 4 asks for.
 SCENARIOS.pp_clinch = { dist: 0.6, s0: hold(hold([], 'block', 0, 100), 'level', 0, 100), s1: [], from: 0, to: 132, step: 6 };
-SCENARIOS.pc_clinch = { ...SCENARIOS.pp_clinch, cfg: { camDistMin: 1.7, camLookY: 1.35 } };
+SCENARIOS.pc_clinch = { ...SCENARIOS.pp_clinch, cfg: { camFollow: 0, camAzimuthDeg: 90, camElevationDeg: 40, camDistMin: 2.3, camLookY: 1.3 } };   // the second angle: side-on and above (heads and arms from over the top)
 POLISH.polish_clinch = ['pp_clinch', 'pc_clinch'];
 SCENARIOS.pp_shovel = { dist: 0.55, s0: at({ 2: { hook: true, move: { x: -1, y: 0 } } }), s1: [], from: 2, to: 32, step: 2, focus: 0, cfg: { camDistMin: 2.7, camLookY: 0.88 } };
 SCENARIOS.pp_bodyhook = { dist: 0.7, s0: hold(at({ 12: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], from: 12, to: 46, step: 2, focus: 0, cfg: { camDistMin: 2.7, camLookY: 0.88 } };

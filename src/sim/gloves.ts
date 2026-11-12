@@ -9,7 +9,8 @@
  * relaxes for the recovery and overshoots on the way back.
  */
 import type { Config, FighterState, GloveState, Hand, Side, Vec3 } from '../core';
-import { GUARDS, TAU, closestOnSegment, closestSegSeg, frameOf, localToWorld, sin, sqrt } from '../core';
+import { GUARDS, TAU, closestOnSegment, closestSegSeg, frameOf, handLateralSign, lerp, localToWorld, sin, sqrt, worldToLocal } from '../core';
+import { clinchAmount } from './clinch';
 import { PUNCHES, blockLocal, guardLocal, punchEnvelope, punchLocal, whiffPhases, type LocalPose } from './punches';
 import { slipBack, slipLateral } from './slip';
 import { setTargetCut, setTouchedBlock } from './state';
@@ -65,6 +66,13 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterSta
       return { pose, kMul, contact, guard: false };
     }
   }
+  // clinchV2: tied up, the hands go to the other man — the lead hand under his arm to his flank, the rear hand over his arm onto
+  // the back of his shoulder — blended in and out with the tie-up. They stop ON him (solid bodies), so nothing goes through.
+  const tie = cfg.clinchV2 ? clinchAmount(f, cfg) : 0;
+  if (tie > 0) {
+    const g0 = guardLocal(f.body, hand, f.stance, shape), c = clinchLocal(f, hand, cfg, other);
+    return { pose: { fwd: lerp(g0.fwd, c.fwd, tie), up: lerp(g0.up, c.up, tie), lat: lerp(g0.lat, c.lat, tie) }, kMul: 1, contact: null, guard: false };
+  }
   if (f.block) return { pose: blockLocal(f.body, hand, f.stance, shape), kMul: 1, contact: null, guard: true };
   const g = guardLocal(f.body, hand, f.stance, shape);
   // Rocked: the resting guard sags by stunGuardDrop × how rocked (sim/stun.ts) — the chin is open.
@@ -72,6 +80,37 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterSta
   const broken = f.guardBroken > 0 ? cfg.guardBreakDrop : 0;
   const sag = (f.hurt > 0 && f.hurtKind !== 'body' ? cfg.stunGuardDrop * hurtLevel(f) : 0) + f.guardDroop + broken;
   return { pose: sag > 0 ? { fwd: g.fwd, up: g.up - sag, lat: g.lat + Math.sign(g.lat) * broken * 0.5 } : g, kMul: 1, contact: null, guard: true };
+}
+
+/**
+ * clinchV2: where a hand goes in the tie-up, in the fighter's local frame. The side of the other man it is on is the
+ * side this hand's shoulder is on. LEAD hand = the underhook: his flank at clinchUnderAt of the way up his torso, a
+ * glove clear of his ribs and clinchWrap behind his axis. REAR hand = the overhook: over his arm onto the back of that
+ * shoulder. (Both orthodox, my rear hand and his lead hand are on the same side: one over, one under.) stepGloves adds
+ * the lean's shift and the stance drop to every target; they are taken off here so the hand goes to the POINT.
+ */
+function clinchLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterState): LocalPose {
+  const i = hand === 'lead' ? 0 : 1;
+  const ofr = frameOf(other.yaw), hb = other.bodyBox;
+  const my = f.arms[i]!.shoulder;
+  const side = (my.x - hb.b.x) * ofr.right.x + (my.z - hb.b.z) * ofr.right.z >= 0 ? 1 : -1;
+  const out = other.body.bodyR + f.body.gloveR + cfg.clinchHandClear;
+  let x: number, y: number, z: number;
+  if (hand === 'lead') {
+    const u = cfg.clinchUnderAt;
+    x = lerp(hb.a.x, hb.b.x, u) + ofr.right.x * side * out - ofr.fwd.x * cfg.clinchWrap;
+    y = lerp(hb.a.y, hb.b.y, u);
+    z = lerp(hb.a.z, hb.b.z, u) + ofr.right.z * side * out - ofr.fwd.z * cfg.clinchWrap;
+  } else {
+    const j = handLateralSign('lead', other.stance) === side ? 0 : 1;
+    const sh = other.arms[j]!.shoulder;
+    const axis = Math.max(0, out - other.body.shoulderW / 2);   // far enough out that the hand is clear of his chest
+    x = sh.x + ofr.right.x * side * axis - ofr.fwd.x * cfg.clinchOverBack;
+    y = sh.y - cfg.clinchOverDrop;
+    z = sh.z + ofr.right.z * side * axis - ofr.fwd.z * cfg.clinchOverBack;
+  }
+  const l = worldToLocal(f.pos, frameOf(f.yaw), { x, y, z });
+  return { fwd: l.forward - f.lean.fwd * cfg.punchLeanShift, up: l.up + stanceDrop(f, cfg), lat: l.lateral };
 }
 
 /** Is the glove-centre point `p` inside `other`'s head, body or upper arms (the solid parts), inflated by the glove less its give? */
