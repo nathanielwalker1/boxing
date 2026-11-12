@@ -409,8 +409,11 @@ function loop(nowMs: number): void {
   // The reads add their own: a counter or a rock gets a beat of slow motion,
   // and the player's open counter window slows the scene (ui/read.ts). The
   // slowest wins; none of it touches the sim's own clock.
-  const slow = Math.min(slowMo.t > 0 ? slowMo.scale : 1, read.timeScale);
-  slowMo.t = Math.max(0, slowMo.t - dt);
+  // (Polish phase: the slow motion waits for the sim's hit-stop to end. The freeze is counted in sim ticks, so slowing
+  // the ticks stretched it — a 130 ms freeze under 0.3× was ~375 ms of a still picture.)
+  const frozen = cfg.showSlowAfterStop && next.hitStop > 0;
+  const slow = Math.min(slowMo.t > 0 && !frozen ? slowMo.scale : 1, read.timeScale);
+  if (!frozen) slowMo.t = Math.max(0, slowMo.t - dt);
   const sdt = dt * slow;
 
   if (!held) {
@@ -433,9 +436,12 @@ function loop(nowMs: number): void {
   if (frameEvents.length) {
     bus.emit(frameEvents);
     stage.handleEvents(frameEvents);
+    // A counter, a rock, a combination's finisher: a beat of slow motion each. They never stack — the slowest wins.
+    const slowTo = (t: number, scale: number): void => { if (t > 0 && (slowMo.t <= 0 || scale <= slowMo.scale)) slowMo = { t, scale }; };
     for (const e of frameEvents) {
-      if (e.type === 'counter') slowMo = { t: cfg.readCounterSlowMoSeconds, scale: cfg.readCounterSlowMo };
-      else if (e.type === 'rocked') slowMo = { t: cfg.readRockedSlowMoSeconds, scale: cfg.readRockedSlowMo };
+      if (e.type === 'counter') slowTo(cfg.readCounterSlowMoSeconds, cfg.readCounterSlowMo);
+      else if (e.type === 'rocked') slowTo(cfg.readRockedSlowMoSeconds, cfg.readRockedSlowMo);
+      else if (e.type === 'punchLand' && e.finisher === true && cfg.showFinisherOn) slowTo(cfg.showFinisherSlowMoSeconds, cfg.showFinisherSlowMo);
     }
     if (frameEvents.some(e => e.type === 'knockdown')) {
       slowMo = { t: cfg.knockdownSlowMoSeconds, scale: cfg.knockdownSlowMo };

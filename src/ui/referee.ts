@@ -21,8 +21,15 @@ import {
 } from '../core';
 import { createFighterView } from '../rig';
 
-type Gesture = 'hang' | 'point';
+type Gesture = 'hang' | 'point' | 'wave';
 interface HandLocal { fwd: number; up: number; lat: number }
+
+declare global {
+  interface Window {
+    /** What the referee's hands are doing (checks): 'hang', 'point' (the winner's arm up) or 'wave' (waving a KO off), and both hands' heights, m. */
+    __refGesture?: () => { gesture: string; hands: [number, number]; lat: [number, number] } | null;
+  }
+}
 
 export class Referee {
   private view: FighterView | null = null;
@@ -32,10 +39,13 @@ export class Referee {
   private tWalk = 0;
   private winner: 0 | 1 | null = null;
   private method: 'ko' | 'tko' | 'decision' | null = null;
+  private waveT = -1;            // seconds since a KO was waved off (ko.waved), else -1
+  private gesture: Gesture = 'hang';
 
   constructor(private cfg: Config, private scene: THREE.Object3D) {
     this.state = restFighterState(REFEREE, cfg, { x: 0, z: -2.2 }, Math.PI / 2);
     this.hands = [this.hangPose('lead'), this.hangPose('rear')];
+    window.__refGesture = () => this.view ? { gesture: this.gesture, hands: [this.hands[0].up, this.hands[1].up], lat: [this.hands[0].lat, this.hands[1].lat] } : null;
   }
 
   /** The hands by the hips, a little out from the thighs. */
@@ -50,11 +60,16 @@ export class Referee {
     if (!this.view) this.view = createFighterView(1, REFEREE, this.cfg, this.scene, { key: 2, probe: false });
     const c = this.cfg, me = this.state, b = me.body;
     for (const e of events) {
-      if (e.type === 'ko' || e.type === 'tko') { this.method = e.type; this.winner = e.winner; }
+      if (e.type === 'ko' || e.type === 'tko') {
+        this.method = e.type; this.winner = e.winner;
+        // He was out before he landed: no count — the referee waves it off (polish phase).
+        if (e.type === 'ko' && e.waved === true && c.refWaveOffOn) this.waveT = 0;
+      }
       else if (e.type === 'decision') { this.method = 'decision'; this.winner = e.winner; }
-      else if (e.type === 'roundStart') { this.method = null; this.winner = null; }
+      else if (e.type === 'roundStart') { this.method = null; this.winner = null; this.waveT = -1; }
     }
-    if (s.tick === 0) { this.method = null; this.winner = null; }
+    if (s.tick === 0) { this.method = null; this.winner = null; this.waveT = -1; }
+    if (this.waveT >= 0) this.waveT += dt;
 
     // ── Where to stand, what to face, what to do with the hands ──
     const a = s.fighters[0].pos, f1 = s.fighters[1].pos;
@@ -76,6 +91,7 @@ export class Referee {
       if (dx * cam.x + dz * cam.z > 0) { dx = -dx; dz = -dz; }
       target = { x: p.x + dx * c.refCountDist, z: p.z + dz * c.refCountDist };
       face = p;
+      if (this.waveT >= 0 && this.waveT < c.refWaveSeconds) gesture = 'wave';   // on his way over, arms crossing over his head: it is over
     } else if (ph === 'over') {
       target = mid;
       face = { x: mid.x + cam.x, z: mid.z + cam.z };   // to the camera, the card in hand
@@ -143,12 +159,21 @@ export class Referee {
       const latW = (w.x - me.pos.x) * fr.right.x + (w.z - me.pos.z) * fr.right.z;
       const i: 0 | 1 = Math.sign(latW || 1) === handLateralSign('lead', REFEREE.stance) ? 0 : 1;
       want[i] = { fwd: 0.08, up: b.headY + 0.46, lat: handLateralSign(i === 0 ? 'lead' : 'rear', REFEREE.stance) * 0.1 };
+    } else if (gesture === 'wave') {
+      // Both arms up and crossing over the head, again and again: apart (each hand outside its own shoulder), then
+      // crossed (each past the centre line), the rear hand a little behind the lead so they pass rather than meet.
+      const ph = Math.cos(this.waveT * c.refWaveHz * 2 * Math.PI);
+      for (const i of [0, 1] as const) {
+        const sgn = handLateralSign(i === 0 ? 'lead' : 'rear', REFEREE.stance);
+        want[i] = { fwd: 0.2 - i * 0.07, up: b.headY + 0.24, lat: sgn * (0.08 + 0.27 * ph) };
+      }
     } else if (walking) {
       // A little arm swing with the stride.
       const sw = Math.sin(this.tWalk * 6) * 0.1;
       want[0].fwd += sw; want[1].fwd -= sw;
     }
-    const ka = 1 - Math.exp(-c.refArmLambda * dt);
+    this.gesture = gesture;
+    const ka = 1 - Math.exp(-c.refArmLambda * (gesture === 'wave' ? 2 : 1) * dt);   // the wave has to keep up with its own crossings
     for (const i of [0, 1] as const) {
       const h = this.hands[i], t = want[i];
       h.fwd += (t.fwd - h.fwd) * ka; h.up += (t.up - h.up) * ka; h.lat += (t.lat - h.lat) * ka;

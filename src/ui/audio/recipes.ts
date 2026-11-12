@@ -343,6 +343,128 @@ export const RECIPES: Record<string, Recipe> = {
     ],
   },
 
+  // ── Polish phase (2026-11-11): the tiers pushed apart (showSoundTiersOn). MEASURED before: a glancing jab / cross sat
+  //    3–4 dB RMS under a clean one with the same character (a tick against a snap); a glancing hook was 62% low end; a
+  //    flush hook was 2 dB over a clean one and the same sound. docs/POLISH_SHOW.md ──
+  // GLANCING: a miss that touched. Leather brushing past — a slow-ish attack (a "fff", not a tick), a band that sweeps
+  // (the glove is moving), nothing under 1 kHz.
+  scuffSharp: {
+    gain: 1.0,
+    layers: [
+      { type: 'noise', gain: 0.8, attack: 0.006, decay: 0.030, filter: { type: 'bandpass', freq: 3400, freqEnd: 6200, q: 1.4 } },
+      { type: 'noise', gain: 0.3, attack: 0.003, decay: 0.012, filter: { type: 'highpass', freq: 6500, q: 0.7 } },
+    ],
+  },
+  // A hook or uppercut that only caught him: an open slap, mid-band, no thud under it.
+  scuffHeavy: {
+    gain: 1.6,
+    layers: [
+      { type: 'noise', gain: 0.8, attack: 0.004, decay: 0.034, filter: { type: 'bandpass', freq: 1500, freqEnd: 2300, q: 1.1 } },
+      { type: 'noise', gain: 0.3, attack: 0.002, decay: 0.014, filter: { type: 'highpass', freq: 3600, q: 0.7 } },
+    ],
+  },
+  // A body shot that slid off: a pat on the trunks — duller than the slap, still nothing low.
+  scuffBody: {
+    gain: 2.2,
+    layers: [
+      { type: 'noise', gain: 0.8, attack: 0.006, decay: 0.040, filter: { type: 'bandpass', freq: 640, freqEnd: 900, q: 1.0 } },
+      { type: 'noise', gain: 0.2, attack: 0.004, decay: 0.020, filter: { type: 'bandpass', freq: 1700, q: 1.2 } },
+    ],
+  },
+  // FLUSH, head: the crack on top — bone under leather. Layered over every flush head shot (a flush hook had no top end at all).
+  flushCrack: {
+    gain: 0.55,
+    layers: [
+      { type: 'noise', gain: 1.0, attack: 0.001, decay: 0.028, filter: { type: 'bandpass', freq: 2500, q: 3.0 } },
+      { type: 'noise', gain: 0.5, attack: 0.001, decay: 0.016, filter: { type: 'highpass', freq: 5200, q: 0.7 } },
+      { type: 'tone', gain: 0.5, attack: 0.001, decay: 0.045, wave: 'triangle', freq: 860, freqEnd: 380 },
+    ],
+  },
+  // FLUSH: the long low tail — the weight of it carrying on after the contact.
+  flushTail: {
+    gain: 0.5,
+    layers: [
+      { type: 'tone', gain: 1.0, attack: 0.02, decay: 0.55, wave: 'sine', freq: 62, freqEnd: 30, sub: true },
+      { type: 'noise', gain: 0.35, attack: 0.03, decay: 0.5, filter: { type: 'lowpass', freq: 520, freqEnd: 180, q: 0.6 } },
+    ],
+  },
+  // FLUSH, body: no crack (the body family never has one) — a wet slap in the low mids and a deeper drop under the whump.
+  flushBodyWet: {
+    gain: 0.7,
+    layers: [
+      { type: 'noise', gain: 1.0, attack: 0.002, decay: 0.060, filter: { type: 'bandpass', freq: 470, q: 2.6 } },
+      { type: 'tone', gain: 0.9, attack: 0.006, decay: 0.5, wave: 'sine', freq: 74, freqEnd: 27, sub: true },
+      { type: 'noise', gain: 0.3, attack: 0.02, decay: 0.4, filter: { type: 'lowpass', freq: 260, q: 0.6 } },
+    ],
+  },
+  // THE FINISHER: the last punch of a clean combination — the heaviest single layer in the game. A boom that falls a
+  // long way, a hard knock, a crack, and a tail that outlasts everything else in the exchange.
+  impactFinisher: {
+    gain: 0.75,
+    layers: [
+      { type: 'tone', gain: 1.0, attack: 0.003, decay: 0.75, wave: 'sine', freq: 118, freqEnd: 25, sub: true },
+      { type: 'tone', gain: 0.6, attack: 0.002, decay: 0.16, wave: 'triangle', freq: 310, freqEnd: 90 },
+      { type: 'noise', gain: 0.7, attack: 0.002, decay: 0.3, filter: { type: 'lowpass', freq: 320, q: 0.7 } },
+      { type: 'noise', gain: 0.6, attack: 0.001, decay: 0.05, filter: { type: 'bandpass', freq: 2100, q: 2.0 } },
+      { type: 'noise', gain: 0.25, attack: 0.03, decay: 0.8, filter: { type: 'bandpass', freq: 480, freqEnd: 240, q: 0.5 } },
+    ],
+  },
+  // HIT ZONES (punchLand.zone): one small extra layer by where it found him. Chin / nose: a snap (teeth, cartilage).
+  zoneSnap: {
+    gain: 0.4,
+    layers: [
+      { type: 'noise', gain: 1.0, attack: 0.001, decay: 0.014, filter: { type: 'bandpass', freq: 3300, q: 4.5 } },
+      { type: 'tone', gain: 0.4, attack: 0.001, decay: 0.02, wave: 'square', freq: 1500, freqEnd: 900 },
+    ],
+  },
+  // Jaw / temple / forehead: a knock on bone — a short pitched tone (the caller pitches it: forehead high and hard, temple low and hollow).
+  zoneKnock: {
+    gain: 0.45,
+    layers: [
+      { type: 'tone', gain: 1.0, attack: 0.001, decay: 0.05, wave: 'triangle', freq: 560, freqEnd: 300 },
+      { type: 'noise', gain: 0.4, attack: 0.001, decay: 0.02, filter: { type: 'bandpass', freq: 1100, q: 2.5 } },
+    ],
+  },
+  // Ribs: a flat slap on the cage, brighter than any other body shot (still under 2 kHz).
+  zoneRib: {
+    gain: 0.6,
+    layers: [
+      { type: 'noise', gain: 1.0, attack: 0.002, decay: 0.035, filter: { type: 'bandpass', freq: 900, q: 2.2 } },
+      { type: 'tone', gain: 0.5, attack: 0.002, decay: 0.05, wave: 'triangle', freq: 240, freqEnd: 150 },
+    ],
+  },
+  // The seeded variation's extra layer (about a third of lands): the glove's leather giving — a small low-mid creak.
+  impactGrit: {
+    gain: 0.3,
+    layers: [
+      { type: 'noise', gain: 1.0, attack: 0.003, decay: 0.03, filter: { type: 'bandpass', freq: 780, q: 3.5 } },
+    ],
+  },
+  // KINDS OF HURT (hurtStyle). A late body fold: the breath going, a beat after the shot — a long falling wheeze.
+  breathGone: {
+    gain: 0.5,
+    layers: [
+      { type: 'noise', gain: 0.9, attack: 0.06, hold: 0.12, decay: 0.5, filter: { type: 'bandpass', freq: 1500, freqEnd: 520, q: 1.1 } },
+      { type: 'noise', gain: 0.3, attack: 0.04, decay: 0.3, filter: { type: 'highpass', freq: 3200, q: 0.6 } },
+      { type: 'tone', gain: 0.5, delay: 0.08, attack: 0.05, decay: 0.4, wave: 'sawtooth', freq: 118, freqEnd: 70, filter: { type: 'lowpass', freq: 480, freqEnd: 260, q: 1.2 } },
+    ],
+  },
+  // Rocked and reaching for balance: a sharp breath in through the teeth.
+  hurtBreath: {
+    gain: 0.45,
+    layers: [
+      { type: 'noise', gain: 0.9, attack: 0.07, decay: 0.09, filter: { type: 'bandpass', freq: 1700, freqEnd: 3400, q: 1.6 } },
+    ],
+  },
+  // Covering up: both gloves clamped on the head — two dull leather pats.
+  coverUp: {
+    gain: 0.8,
+    layers: [
+      { type: 'noise', gain: 0.9, attack: 0.004, decay: 0.045, filter: { type: 'bandpass', freq: 620, q: 1.4 } },
+      { type: 'noise', gain: 0.8, delay: 0.07, attack: 0.004, decay: 0.045, filter: { type: 'bandpass', freq: 540, q: 1.4 } },
+    ],
+  },
+
   // ── The crowd's voice (bus: crowd). Vowels are two formant bands over the walla loop; pitch glides do the talking. ──
   // A clean shot: a short low "oh" from the near side.
   crowdOh: {
@@ -450,6 +572,34 @@ export const RECIPES: Record<string, Recipe> = {
       { type: 'applause', gain: 1.0, attack: 0.4, hold: 3.2, decay: 2.6, filter: { type: 'bandpass', freq: 1900, q: 0.5 } },
       { type: 'walla', gain: 0.6, attack: 0.3, hold: 2.0, decay: 2.4, filter: { type: 'bandpass', freq: 720, freqEnd: 820, q: 0.8 } },
       { type: 'noise', gain: 0.2, attack: 0.3, hold: 1.5, decay: 2.2, filter: { type: 'bandpass', freq: 1100, q: 0.5 } },
+    ],
+  },
+  // ── Polish phase: the crowd for the tiers and the kinds ──
+  // A flush shot: the breath in, before the "ooh" (the bus is ducked under it for a beat).
+  crowdIntake: {
+    gain: 2.4, bus: 'crowd',
+    layers: [
+      { type: 'noise', gain: 0.8, attack: 0.11, decay: 0.07, filter: { type: 'bandpass', freq: 1000, freqEnd: 2300, q: 1.2 } },
+      { type: 'walla', gain: 0.3, attack: 0.1, decay: 0.06, filter: { type: 'bandpass', freq: 1200, freqEnd: 1800, q: 1.2 } },
+    ],
+  },
+  // A flash knockdown, after the shout: surprise turning to noise — short bursts of chatter falling away (the nearest synthesis gets to laughter).
+  crowdLaugh: {
+    gain: 3.6, bus: 'crowd',
+    layers: [
+      { type: 'walla', gain: 1.0, attack: 0.03, decay: 0.12, filter: { type: 'bandpass', freq: 1050, freqEnd: 900, q: 1.3 } },
+      { type: 'walla', gain: 0.85, delay: 0.16, attack: 0.03, decay: 0.12, filter: { type: 'bandpass', freq: 980, freqEnd: 840, q: 1.3 } },
+      { type: 'walla', gain: 0.7, delay: 0.32, attack: 0.03, decay: 0.13, filter: { type: 'bandpass', freq: 900, freqEnd: 760, q: 1.3 } },
+      { type: 'walla', gain: 0.5, delay: 0.5, attack: 0.03, decay: 0.16, filter: { type: 'bandpass', freq: 820, freqEnd: 680, q: 1.3 } },
+      { type: 'walla', gain: 0.5, attack: 0.2, hold: 0.4, decay: 0.9, filter: { type: 'highpass', freq: 1500, q: 0.6 } },
+    ],
+  },
+  // A man takes a knee: a murmur — low, slow, wide, no edge.
+  crowdMurmur: {
+    gain: 2.4, bus: 'crowd',
+    layers: [
+      { type: 'walla', gain: 1.0, attack: 0.5, hold: 0.9, decay: 1.6, filter: { type: 'bandpass', freq: 360, freqEnd: 330, q: 0.8 } },
+      { type: 'walla', gain: 0.4, attack: 0.6, hold: 0.7, decay: 1.4, filter: { type: 'bandpass', freq: 760, q: 0.9 } },
     ],
   },
 };

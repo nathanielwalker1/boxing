@@ -19,6 +19,19 @@ export interface VoiceOpts {
   sub: number;
   /** Stretch on every layer's hold + decay (1 = as authored): a short, dull variant < 1; a big one > 1. */
   length: number;
+  /** 0..1 (polish phase): where each noise layer starts in its buffer, instead of a random offset — an impact carrying the land's seeded variation is the same sound every time that land is replayed. Omitted = random. */
+  seed?: number | undefined;
+}
+
+/**
+ * A beat of ducked crowd (polish phase): the bus drops to `depth` of `base`
+ * at `when`, holds for `hold` seconds and comes back. Shared by the live
+ * shell and the offline renderer.
+ */
+export function duckBus(gain: AudioParam, base: number, when: number, depth: number, hold: number): void {
+  gain.cancelScheduledValues(when);
+  gain.setTargetAtTime(base * depth, when, 0.012);
+  gain.setTargetAtTime(base, when + hold, 0.07);
 }
 
 /**
@@ -61,7 +74,9 @@ export function playVoice(ctx: BaseAudioContext, out: AudioNode, recipe: Recipe,
   const nyq = ctx.sampleRate / 2 - 100;
   const clampF = (hz: number): number => Math.min(Math.max(20, hz), nyq);
   let last = o.when;
+  let li = 0;
   for (const layer of recipe.layers) {
+    li++;
     const t0 = o.when + (layer.delay ?? 0);
     const attack = layer.attack ?? 0.001, hold = (layer.hold ?? 0) * o.length, decay = (layer.decay ?? 0.1) * o.length;
     const end = t0 + attack + hold + decay;
@@ -83,7 +98,8 @@ export function playVoice(ctx: BaseAudioContext, out: AudioNode, recipe: Recipe,
       n.buffer = buffer;
       n.loop = true;
       n.playbackRate.value = o.pitch;
-      n.start(t0, Math.random() * Math.max(0.01, buffer.duration - 0.01));
+      const u = o.seed === undefined ? Math.random() : (o.seed + li * 0.381966) % 1;
+      n.start(t0, u * Math.max(0.01, buffer.duration - 0.01));
       src = n;
     }
     let node: AudioNode = src;
