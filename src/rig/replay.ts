@@ -30,7 +30,13 @@ declare global {
     __rigReplay?: (dist: number, script: readonly Partial<FrameInput>[], ticks: number, script1?: readonly Partial<FrameInput>[], opts?: readonly (Partial<FighterState> | null)[] | ReplayOpts) => void;
   }
 }
-export interface ReplayOpts { over?: readonly (Partial<FighterState> | null)[]; grade?: HitGrade | null }
+/**
+ * over = view-only state overlay per side. grade = re-label landed punches for the views. land (polish B) = any punchLand fields
+ * re-labelled for the views (zone, vary, finisher, combo…): one punch filmed as a jaw shot, a nose shot, at vary −1 and +1.
+ * init (polish B) = fields written into the SIM state of each side once the gloves have settled (a man who starts rocked, winded,
+ * worn) — the sim then runs with them, so what its hurt states do to the hands and the body is in the film.
+ */
+export interface ReplayOpts { over?: readonly (Partial<FighterState> | null)[]; grade?: HitGrade | null; land?: Record<string, unknown> | null; init?: readonly (Partial<FighterState> | null)[] }
 /** main.ts's own hooks, as this file needs them (declared there; optional here because a host need not have them). */
 interface HostHooks {
   __replay?: (dist: number, script: readonly Partial<FrameInput>[], ticks: number, script1?: readonly Partial<FrameInput>[]) => void;
@@ -46,18 +52,20 @@ export function installRigReplay(cfg: Config, feeds: () => Partial<Record<Side, 
     // (the sim's own grade stands), so the same punch can be filmed as a glancing, a clean and a flush one.
     const over = Array.isArray(opts) ? opts : (opts as ReplayOpts).over ?? [];
     const grade = Array.isArray(opts) ? null : (opts as ReplayOpts).grade ?? null;
+    const land = Array.isArray(opts) ? null : (opts as ReplayOpts).land ?? null;
+    const init = Array.isArray(opts) ? [] : (opts as ReplayOpts).init ?? [];
     const f = feeds();
     const host = window as unknown as HostHooks;
     const shown = host.__states?.() ?? [];
     const specs = [0, 1].map(i => ROSTER.find(r => r.id === shown[i]?.specId) ?? ROSTER[i]!);
-    const k = JSON.stringify([dist, script, script1, over, grade, specs.map(x => x.id)]);
+    const k = JSON.stringify([dist, script, script1, over, grade, land, init, specs.map(x => x.id)]);
     for (const side of [0, 1] as const) { f[side]?.freeze(false); f[side]?.override?.(over[side] ?? null); }
     const idle = cloneInput(NULL_INPUT);
     const tick = (inputs: [FrameInput, FrameInput]): void => {
       const r = step(s!, inputs, cfg);
       for (const side of [0, 1] as const) {
         const ev = r.events.filter(e => !('side' in e) || e.side === side || ('target' in e && e.target === side))
-          .map(e => (grade && e.type === 'punchLand' ? { ...e, grade } : e));
+          .map(e => (e.type === 'punchLand' && (grade || land) ? { ...e, ...(grade ? { grade } : {}), ...(land ?? {}) } as SimEvent : e));
         f[side]?.feed(s!.fighters[side], r.state.fighters[side], ev);
       }
       s = r.state;
@@ -67,6 +75,7 @@ export function installRigReplay(cfg: Config, feeds: () => Partial<Record<Side, 
       s = createState([specs[0]!, specs[1]!], cfg, 1);
       s.fighters[0].pos = { x: -dist / 2, z: 0 }; s.fighters[1].pos = { x: dist / 2, z: 0 };
       for (let i = 0; i < 30; i++) tick([idle, idle]);
+      for (const side of [0, 1] as const) if (init[side]) Object.assign(s.fighters[side], init[side]);
       key = k; at = 0;
     }
     for (; at < ticks; at++) {

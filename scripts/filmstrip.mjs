@@ -162,6 +162,59 @@ SCENARIOS.pp_bodyhook = { dist: 0.7, s0: hold(at({ 12: { hook: true, move: { x: 
 POLISH.polish_shovel_lead_055 = ['pp_shovel'];
 POLISH.polish_bodyhook_lead_070 = ['pp_bodyhook'];
 
+// ── POLISH phase B (docs/POLISH_RIG.md, items 3 and 2): how a man is hit, hurt, floored; the nerfed punch; the combination. ──
+// Scenario fields beyond the old ones: `land` re-labels punchLand for the VIEWS (zone, vary, finisher…), `init` writes fields into
+// the SIM state of a side after the settle (a man who starts rocked / winded / worn) — see rig/replay.ts.
+// Sheets below go to docs/polish/strip_<sheet>_<label>.png. Before = the five toggles off:
+//   PORT=5193 node scripts/filmstrip.mjs react_head before cfg:rigReactV2=false cfg:rigHurtV2=false cfg:rigDownV2=false cfg:rigNerfV2=false cfg:rigComboV2=false
+const CLOSE1 = { focus: 1, cfg: { camDistMin: 1.9, camLookY: 1.3 } }, BODY1 = { focus: 1, cfg: { camDistMin: 2.4, camLookY: 1.0 } }, FLOOR = { cfg: { camLookY: 0.75, camDistMin: 3.3 } };
+const crossAt = at({ 2: { cross: true } }), bodyHookAt = hold(at({ 12: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30);
+// One clean cross (it lands at t=14), re-labelled as each head zone.
+for (const z of ['chin', 'jaw', 'temple', 'nose', 'forehead']) SCENARIOS['rz_' + z] = { dist: 0.79, s0: crossAt, s1: [], grade: 'clean', land: { zone: z, vary: 0 }, from: 14, to: 29, step: 3, ...CLOSE1 };
+// One clean body hook (t=27), as each body zone.
+for (const z of ['solar', 'ribs', 'liver', 'belly']) SCENARIOS['rb_' + z] = { dist: 0.7, s0: bodyHookAt, s1: [], grade: 'clean', land: { zone: z, vary: 0, liver: z === 'liver' }, from: 27, to: 42, step: 3, ...BODY1 };
+// The same cross on the chin at each grade and as a finisher, FROM THE PLAY CAMERA: can they be told apart at that distance?
+for (const [n, land, grade] of [['glancing', {}, 'glancing'], ['clean', {}, 'clean'], ['flush', {}, 'flush'], ['finisher', { finisher: true, combo: 3 }, 'flush']]) SCENARIOS['rg_' + n] = { dist: 0.79, s0: crossAt, s1: [], grade, land: { zone: 'chin', vary: 0, ...land }, from: 14, to: 29, step: 3 };
+// The same flush cross three times, differing only in the seeded vary.
+for (const [n, v] of [['m1', -1], ['0', 0], ['p1', 1]]) SCENARIOS['rv_' + n] = { dist: 0.79, s0: crossAt, s1: [], grade: 'flush', land: { zone: 'chin', vary: v }, from: 14, to: 29, step: 3, ...CLOSE1 };
+// Rocked and winded by sub-kind: blue starts hurt in the SIM, so what the sim does to his hands and height is in the film.
+for (const st of ['legs', 'reach', 'cover']) SCENARIOS['h_' + st] = { dist: 1.3, s0: [], s1: [], init: [null, { hurt: 3, hurtMax: 3, hurtKind: 'head', hurtStyle: st }], from: 8, to: 48, step: 8, ...BODY1 };
+for (const st of ['fold', 'elbow', 'knee']) SCENARIOS['h_' + st] = { dist: 1.3, s0: [], s1: [], init: [null, { hurt: 3, hurtMax: 3, hurtKind: 'body', hurtStyle: st }], from: 8, to: 48, step: 8, ...BODY1 };
+// A body shot that shows a beat late: the hook lands at t=27 on a worked body, he stands, the fold comes at t=55.
+SCENARIOS.h_late = { dist: 0.7, s0: hold(at({ 12: { hook: true, move: { x: 1, y: 0 } } }), 'level', 0, 30), s1: [], init: [null, { damage: { head: 0, body: 0.6, liver: 0 } }], cfg: { bodyHurtLateChance: 1, ...BODY1.cfg }, focus: 1, from: 27, to: 67, step: 8 };
+// Knockdowns by kind — real ones, the sim's thresholds moved for the strip so one punch does it. The fall (every 10 ticks), then the get-up.
+const KD = { k_flash: { dist: 0.79, s0: crossAt, cfg: { stunBase: 96 }, t0: 14 }, k_heavy: { dist: 0.79, s0: crossAt, cfg: { healthDamagePerImpulse: 0.006 }, t0: 14 },
+  k_stiff: { dist: 0.79, s0: crossAt, cfg: { stunBase: 60 }, t0: 14 }, k_crumple: { dist: 0.6, s0: at({ 2: { uppercut: true, move: { x: 1, y: 0 } } }), cfg: { stunBase: 60 }, t0: 17 } };
+for (const [n, k] of Object.entries(KD)) {
+  SCENARIOS[n] = { dist: k.dist, s0: k.s0, s1: [], cfg: { ...k.cfg, ...FLOOR.cfg }, from: k.t0 + 2, to: k.t0 + 72, step: 10 };
+  SCENARIOS[n + '_up'] = { ...SCENARIOS[n], from: n === 'k_flash' ? 50 : 100, to: n === 'k_flash' ? 106 : 240, step: n === 'k_flash' ? 8 : 20 };
+}
+// Taking a knee by choice: blue is rocked and alone, holds block + level (kneeT ramps for 0.4 s), goes down at t=26, is up at t=234.
+const kneeIn = { dist: 1.4, s0: [], s1: hold(hold([], 'block', 2, 60), 'level', 2, 60), init: [null, { hurt: 2.5, hurtMax: 2.5, hurtKind: 'head', hurtStyle: 'legs' }], cfg: FLOOR.cfg, focus: 1 };
+SCENARIOS.k_knee = { ...kneeIn, from: 6, to: 76, step: 10 };
+SCENARIOS.k_knee_up = { ...kneeIn, from: 120, to: 260, step: 20 };
+// The nerfed punch: the same cross thrown clean, and thrown 3 ticks after a jab landed on him (nerf 0.70).
+SCENARIOS.n_full = { dist: 0.7, s0: at({ 8: { cross: true } }), s1: [], from: 8, to: 32, step: 4, focus: 0, cfg: { camDistMin: 2.7, camLookY: 0.88 } };
+SCENARIOS.n_nerf = { dist: 0.7, s0: at({ 8: { cross: true } }), s1: at({ 0: { jab: true } }), from: 8, to: 32, step: 4, focus: 0, cfg: { camDistMin: 2.7, camLookY: 0.88 } };
+// The combination: 1-2-3, the hook is the finisher (t=33). The pair from the play camera, then low on the feet.
+const c123 = { dist: 0.8, s0: at({ 2: { jab: true }, 10: { cross: true }, 22: { hook: true, move: { x: -1, y: 0 } } }), s1: [] };
+SCENARIOS.c_123 = { ...c123, from: 6, to: 48, step: 3 };
+SCENARIOS.c_123_feet = { ...c123, from: 6, to: 48, step: 3, cfg: { camDistMin: 2.6, camLookY: 0.55 } };
+POLISH.polish_combo = ['c_123', 'c_123_feet'];
+export const PB_SHEETS = {
+  react_head: ['rz_chin', 'rz_jaw', 'rz_temple', 'rz_nose', 'rz_forehead'],
+  react_body: ['rb_solar', 'rb_ribs', 'rb_liver', 'rb_belly'],
+  react_grade: ['rg_glancing', 'rg_clean', 'rg_flush', 'rg_finisher'],
+  react_vary: ['rv_m1', 'rv_0', 'rv_p1'],
+  react_block: ['block_cross', 'block_hook', 'guard_worn'],
+  hurt_rocked: ['h_legs', 'h_reach', 'h_cover'],
+  hurt_body: ['h_fold', 'h_elbow', 'h_knee', 'h_late'],
+  kd_fall: ['k_flash', 'k_heavy', 'k_knee', 'k_stiff', 'k_crumple'],
+  kd_up: ['k_flash_up', 'k_heavy_up', 'k_knee_up'],
+  nerf: ['n_full', 'n_nerf'],
+};
+Object.assign(SHEETS, PB_SHEETS);
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const label = args.find(a => /^(before|after|wip)$/.test(a)) ?? null;
@@ -206,7 +259,7 @@ async function shoot(name, sc) {
     // through the two views, so what the rig draws from events and springs (graded squash, head whip, sweat,
     // the fall, the get-up) is in the frame; then it calls __replay for the host's pose and camera.
     // `grade` re-labels landed punches for the views only, so one punch can be filmed at each grade.
-    await page.evaluate(([dist, s0, s1, t, over, grade]) => (window.__rigReplay ?? window.__replay)(dist, s0.map(x => x ?? {}), t, s1.map(x => x ?? {}), { over, grade }), [sc.dist, Array.from(sc.s0, x => x ?? null), Array.from(sc.s1, x => x ?? null), t, sc.over ?? [], sc.grade ?? null]);
+    await page.evaluate(([dist, s0, s1, t, over, grade, land, init]) => (window.__rigReplay ?? window.__replay)(dist, s0.map(x => x ?? {}), t, s1.map(x => x ?? {}), { over, grade, land, init }), [sc.dist, Array.from(sc.s0, x => x ?? null), Array.from(sc.s1, x => x ?? null), t, sc.over ?? [], sc.grade ?? null, sc.land ?? null, sc.init ?? []]);
     await frames(page, 3);
     const f = `${FRAMES}/${name}_t${String(t).padStart(3, '0')}.png`;
     // A capture occasionally stalls on the first frame of a scenario on software GL (seen three times, cause not
@@ -274,7 +327,8 @@ for (const name of run) {
       for (let t = sc.from; t <= sc.to; t += sc.step, i++) { files.push(`${FRAMES}/${rowName}_t${String(t).padStart(3, '0')}.png`); labels.push(i === 0 ? `${rowName}  t=${t}` : `t=${t}`); }
       for (; i < cols; i++) { files.push(files[files.length - 1]); labels.push(''); }
     }
-    const path = `${OUT}/${label ? `strip_${name}_${label}` : name}.png`;
+    if (PB_SHEETS[name]) mkdirSync(POLISH_OUT, { recursive: true });
+    const path = `${PB_SHEETS[name] && label ? POLISH_OUT : OUT}/${label ? `strip_${name}_${label}` : name}.png`;
     await assemble(files, labels, cols, path);
     console.log(`${name} → ${path} (${rowsOf.length} rows × ${cols})`);
     continue;

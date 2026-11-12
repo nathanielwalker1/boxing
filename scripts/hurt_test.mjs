@@ -116,7 +116,7 @@ console.log('\n=== 3. Knockdowns ===');
   check('…it is on the cards like any knockdown (knockdowns 1)', kn.s.fighters[0].knockdowns === 1);
   check('not hurt: the same hold does nothing', of(knee(cfg, { hurt: false, ticks: 90 }).evs, 'knockdown').length === 0);
   check('walking in while holding it: no knee (he is going to tie up)', of(knee(cfg, { walkIn: true, ticks: 30 }).evs, 'knockdown').length === 0);
-  const close = knee(cfg, { far: false, ticks: 90 });
+  const close = knee({ ...cfg, clinchOn: true }, { far: false, ticks: 90 });   // the clinch is off by default since the polish phase (clinchOn); this pins the hold's two meanings with it on
   check('with the other man in reach the hold is a clinch, not a knee', of(close.evs, 'knockdown').length === 0 && of(close.evs, 'clinch').length === 1);
   check('takeKneeOn off: nothing', of(knee({ ...cfg, takeKneeOn: false }, { ticks: 90 }).evs, 'knockdown').length === 0);
 }
