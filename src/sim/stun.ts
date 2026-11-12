@@ -60,18 +60,23 @@ export function stunThreshold(f: FighterState, cfg: Config): number {
   const chin = clamp(f.ratings.chin / 100, 0, 1);
   const health = clamp(f.health, 0, 1);
   const stamina = clamp(f.stamina, 0, 1);
+  // (Phase B: how far lost health lowers the bar. MEASURED: at stunHealthFloor 0.55 the bar of a man at half health —
+  // most of every fight — was 78% of fresh, under a plain hook: that, not the bonuses, was most of the rocks.)
+  const hf = cfg.hurtRatesOn ? Math.max(cfg.stunHealthFloor, cfg.hurtHealthFloor) : cfg.stunHealthFloor;
   // (Polish phase, the rates: the bar itself, and a raised bar for a while after a hurt state has ended.)
   const after = cfg.hurtRatesOn && cfg.hurtAfterSeconds > 0 ? 1 + (cfg.hurtAfterScale - 1) * clamp(hurtAfter(f) / cfg.hurtAfterSeconds, 0, 1) : 1;
   return cfg.stunBase * (cfg.hurtRatesOn ? cfg.hurtStunBaseScale : 1) * after
     * (cfg.stunChinFloor + cfg.stunChinSpan * chin)
-    * (cfg.stunHealthFloor + (1 - cfg.stunHealthFloor) * health)
+    * (hf + (1 - hf) * health)
     * (cfg.stunStaminaFloor + (1 - cfg.stunStaminaFloor) * stamina);
 }
 
 /** The impulse a clean body shot needs to wind `f` in its current state, N·s: lower the more the body has taken and the less wind is left. */
 export function bodyThreshold(f: FighterState, cfg: Config): number {
   const stamina = clamp(f.stamina, 0, 1);
-  return cfg.bodyHurtBase
+  // (Phase B, the rates: the body's bar is scaled, and raised for a while after any hurt state, like the head's.)
+  const after = cfg.hurtRatesOn && cfg.hurtAfterSeconds > 0 ? 1 + (cfg.hurtAfterScale - 1) * clamp(hurtAfter(f) / cfg.hurtAfterSeconds, 0, 1) : 1;
+  return cfg.bodyHurtBase * (cfg.hurtRatesOn ? cfg.hurtBodyBarScale : 1) * after
     * rated(f, 'chin', cfg.ratingChinBody, cfg)
     * lerp(1, cfg.bodyHurtWornFloor, bodyWear(f, cfg))
     * (cfg.stunStaminaFloor + (1 - cfg.stunStaminaFloor) * stamina);
@@ -146,7 +151,7 @@ function wind(s: SimState, target: Side, by: Side, seconds: number, liver: boole
 export function applyBodyHurt(s: SimState, target: Side, by: Side, mag: number, liver: boolean, cfg: Config, events: SimEvent[]): void {
   const d = s.fighters[target];
   if (d.down) return;
-  if (liver && cfg.liverOn && mag >= cfg.liverMinImpulse && d.liverT === 0) {
+  if (liver && cfg.liverOn && mag >= cfg.liverMinImpulse * (cfg.hurtRatesOn ? cfg.hurtBodyBarScale : 1) && d.liverT === 0) {
     // The fuse: nothing shows yet. He buckles liverDelay later.
     d.liverT = cfg.liverDelay; d.liverMag = mag;
     events.push({ type: 'liverShot', side: target, by, delay: cfg.liverDelay });
@@ -182,7 +187,7 @@ export function stepKnee(s: SimState, side: Side, input: { block: boolean; level
   // Not while walking in (that is a man going to tie up — MEASURED: the AI's walk-in clinch took 169 knees in 40 fights
   // before this), and not with the other man close enough to grab: the knee is for when there is nobody to hold on to.
   const asking = cfg.takeKneeOn && cfg.hurtVarietyOn && f.hurt > 0 && !f.down && input.block && input.level && input.move.y <= KNEE_STICK && !f.clinch.active && f.clinch.reach === 0 && f.punch.type === null
-    && (!cfg.clinchOn || dist > cfg.clinchRange + cfg.takeKneeClear);
+    && dist > cfg.clinchRange + cfg.takeKneeClear;   // (the "nobody in reach" rule holds whether or not the clinch is on: with it off, block + level up close is just a low guard, never a knee)
   if (!asking) { f.kneeT = 0; return; }
   f.kneeT += dt;
   if (f.kneeT >= cfg.takeKneeHold) knockDown(s, side, cfg, events, 'health', { kind: 'knee' });

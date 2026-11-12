@@ -28,7 +28,7 @@ export const STYLES = ['pressure', 'outboxer', 'counter', 'swarmer', 'slugger'];
 export const BODY = { pressure: ['monsoon', 'red'], outboxer: ['lighthouse', 'blue'], counter: ['alambre', 'grandad'], swarmer: ['boiler'], slugger: ['raffle'] };
 const KEYS = ['rocked', 'bodyHurt', 'liverShot', 'guardBreak', 'knockdown', 'finisher', 'stuffed', 'episodes'];
 
-export async function hurtTable({ n = 3, overrides = {}, all = false, quiet = false, humanOnly = false } = {}) {
+export async function hurtTable({ n = 3, overrides = {}, all = false, quiet = false, humanOnly = false, brief = false } = {}) {
   const k = await kit({ rated: true });
   const cfg = { ...k.cfg, roundSeconds: 60, roundCount: 3, aiDifficulty: 1, ...overrides };
   const spec = id => k.core.ROSTER.find(f => f.id === id);
@@ -36,14 +36,29 @@ export async function hurtTable({ n = 3, overrides = {}, all = false, quiet = fa
 
   function fight(specs, drivers, seed) {
     let s = k.sim.createState(specs, cfg, seed);
-    const st = { n: Object.fromEntries(KEYS.map(x => [x, 0])), kinds: {}, causes: {}, styles: {}, how: 'none', winner: null, onePunch: false, lastKd: null, kdBy: [0, 0], lands: [0, 0], thrown: [0, 0], onAi: { rocked: 0, bodyHurt: 0, knockdown: 0 }, overs: [] };
+    const st = { n: Object.fromEntries(KEYS.map(x => [x, 0])), kinds: {}, causes: {}, styles: {}, how: 'none', winner: null, onePunch: false, lastKd: null, kdBy: [0, 0], lands: [0, 0], thrown: [0, 0], onAi: { rocked: 0, bodyHurt: 0, knockdown: 0 }, overs: [], why: {} };
+    const lastHurtEnd = [];
     for (let i = 0; i < maxTicks && s.round.phase !== 'over'; i++) {
       const ins = [drivers[0](s), drivers[1](s)];
-      const wasHurt = [s.fighters[0].hurt > 0, s.fighters[1].hurt > 0];
+      const wasHurt = [s.fighters[0].hurt > 0, s.fighters[1].hurt > 0], wasHurtBefore = [wasHurt[0], wasHurt[1]], pre = s;
       const r = k.sim.step(s, ins, cfg); s = r.state;
       for (const e of r.events) {
         // An EPISODE: a man who was not hurt becomes hurt (a rocking shot on a man already rocked only extends it).
-        if ((e.type === 'rocked' || e.type === 'bodyHurt') && !wasHurt[e.side]) { st.n.episodes++; wasHurt[e.side] = true; }
+        if ((e.type === 'rocked' || e.type === 'bodyHurt') && !wasHurt[e.side]) {
+          st.n.episodes++; wasHurt[e.side] = true;
+          // WHY (phase B): what the man was doing when he was hurt, how long since his last hurt, how far over the bar.
+          const t = pre.fighters[e.side], land = r.events.find(x => x.type === 'punchLand' && x.target === e.side);
+          const since = (i - (lastHurtEnd[e.side] ?? -1e9)) / 60;
+          const w = st.why;
+          const bump = key => { w[key] = (w[key] ?? 0) + 1; };
+          bump(e.type === 'rocked' ? 'head' : 'body');
+          bump(t.punch.type !== null ? 'while he was punching' : t.block ? 'through his held guard' : t.guardBroken > 0 ? 'guard broken' : 'hands at rest');
+          bump(since < 3 ? 'within 3 s of his last hurt' : since < 8 ? '3–8 s after it' : 'first or > 8 s after');
+          if (land) { bump(`by a ${land.punch}`); if (land.finisher) bump('a finisher'); if (land.counter) bump('a counter'); if (land.grade === 'flush') bump('flush'); }
+          if (e.type === 'rocked') bump(e.impulse / e.threshold < 1.25 ? 'over the bar by < 25%' : e.impulse / e.threshold < 1.75 ? 'by 25–75%' : 'by > 75%');
+        }
+        if (wasHurtBefore[0] && !(s.fighters[0].hurt > 0)) lastHurtEnd[0] = i;
+        if (wasHurtBefore[1] && !(s.fighters[1].hurt > 0)) lastHurtEnd[1] = i;
         if ((e.type === 'rocked' || e.type === 'bodyHurt' || e.type === 'knockdown') && e.side === 1) st.onAi[e.type]++;
         if (e.type === 'punchStart') st.thrown[e.side]++;
         if (e.type === 'rocked') st.n.rocked++;
@@ -118,6 +133,11 @@ export async function hurtTable({ n = 3, overrides = {}, all = false, quiet = fa
     };
     if (quiet) continue;
     const p = x => `${Math.round(x * 100)}%`;
+    if (brief) {
+      const on = key => fights.reduce((t, f) => t + f.onAi[key], 0) / N;
+      console.log(`${name.padEnd(16)} ${String(N).padStart(3)} fights · hurt states ${s.per.episodes.toFixed(1)} a fight (rocking shots ${s.per.rocked.toFixed(1)}, winded ${s.per.bodyHurt.toFixed(1)}) · guard breaks ${s.per.guardBreak.toFixed(1)} · knockdowns ${s.per.knockdown.toFixed(2)}: in ${p(s.any.knockdown)} of fights, 3+ in ${p(s.kd3)} · stoppage ${p(s.stoppage)} · one-punch ${p(s.onePunch)} · someone hurt in ${p(s.hurtAny)} · side 0 hurts side 1 ${(on('rocked') + on('bodyHurt')).toFixed(1)} a fight, in ${p(share(f => f.onAi.rocked + f.onAi.bodyHurt + f.onAi.knockdown > 0))} of fights, wins ${p(share(f => f.winner === 0))}`);
+      continue;
+    }
     console.log(`\n${name} — ${N} fights, ${cfg.roundCount} × ${cfg.roundSeconds} s`);
     console.log(`  per fight:        HURT EPISODES ${s.per.episodes.toFixed(2)} (a man not hurt becomes hurt) · rocking shots ${s.per.rocked.toFixed(2)} · winded ${s.per.bodyHurt.toFixed(2)} · liver shots ${s.per.liverShot.toFixed(2)} · guard breaks ${s.per.guardBreak.toFixed(2)} · knockdowns ${s.per.knockdown.toFixed(2)} · finishers ${s.per.finisher.toFixed(2)} · stuffs ${s.per.stuffed.toFixed(2)}`);
     console.log(`  fights with ≥ 1:  rocked ${p(s.any.rocked)} · winded ${p(s.any.bodyHurt)} · liver ${p(s.any.liverShot)} · guard break ${p(s.any.guardBreak)} · KNOCKDOWN ${p(s.any.knockdown)} (3 or more: ${p(s.kd3)})`);
@@ -128,6 +148,8 @@ export async function hurtTable({ n = 3, overrides = {}, all = false, quiet = fa
     if (overs.length) console.log(`  head-shot knockdowns, × the stun threshold: median ${overs[Math.floor(overs.length / 2)].toFixed(1)} · 90th pct ${overs[Math.floor(overs.length * 0.9)].toFixed(1)} · max ${overs[overs.length - 1].toFixed(1)} (${overs.length})`);
     const onAi = key => fights.reduce((t, f) => t + f.onAi[key], 0) / N;
     console.log(`  side 0 → side 1: throws ${(fights.reduce((t, f) => t + f.thrown[0], 0) / N / 3).toFixed(0)} a minute, lands ${(fights.reduce((t, f) => t + f.lands[0], 0) / N).toFixed(0)} a fight · rocks him ${onAi('rocked').toFixed(2)} · winds him ${onAi('bodyHurt').toFixed(2)} · floors him ${onAi('knockdown').toFixed(2)} a fight · hurt him at least once in ${p(share(f => f.onAi.rocked + f.onAi.bodyHurt + f.onAi.knockdown > 0))} of fights, floored him in ${p(share(f => f.onAi.knockdown > 0))} · side 0 wins ${p(share(f => f.winner === 0))}`);
+    const why = {}; for (const f of fights) for (const [x, v] of Object.entries(f.why)) why[x] = (why[x] ?? 0) + v;
+    if (Object.keys(why).length) console.log(`  WHY (per fight): ${Object.entries(why).sort((a, b) => b[1] - a[1]).map(([x, v]) => `${x} ${(v / N).toFixed(1)}`).join(' · ')}`);
     if (Object.keys(s.styles).length) console.log(`  hurt sub-kinds: ${Object.entries(s.styles).map(([x, v]) => `${x} ${v}`).join(' · ')}`);
   }
   if (!quiet) console.log(`\nBots' win share: ${Object.entries(rows).map(([name, r]) => `${name} ${Math.round(100 * r.w / r.n)}%`).join(' · ')}`);
@@ -138,5 +160,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
   const overrides = {};
   for (const a of args) { const m = a.match(/^(\w+)=(.+)$/); if (m) overrides[m[1]] = m[2] === 'true' ? true : m[2] === 'false' ? false : Number(m[2]); }
-  await hurtTable({ n: Number(args.find(a => /^\d+$/.test(a)) ?? 3), overrides, all: args.includes('all'), humanOnly: args.includes('human') });   // `human` = only the human-pace group
+  await hurtTable({ n: Number(args.find(a => /^\d+$/.test(a)) ?? 3), overrides, all: args.includes('all'), humanOnly: args.includes('human'), brief: args.includes('brief') });   // `brief` = one line a group   // `human` = only the human-pace group
 }

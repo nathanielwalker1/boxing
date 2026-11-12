@@ -43,13 +43,20 @@ const DRILLS = [
   { id: 'slip-counter', dist: 0.85, partner: 'throws one heavy punch', see: () => ['cross', 'hook'].includes(window.__sim.state().fighters[1].punch.type) },
   { id: 'body-work', dist: 0.8, partner: 'holds his guard up', see: () => window.__sim.state().fighters[1].block },
   { id: 'survive', dist: 0.877, partner: 'comes to finish it', see: () => window.__sim.state().fighters[1].punch.type !== null },
+  // Polish phase: the drills for the fixes.
+  { id: 'combinations', dist: 0.8, partner: 'stands in front of you', see: () => window.__sim.state().fighters[1].punch.type === null },
+  { id: 'combinations-ropes', dist: 0.8, partner: 'stands on the ropes', see: () => window.__sim.state().fighters[1].punch.type === null },
+  { id: 'trading', dist: 0.8, partner: 'hits you on a beat', see: () => window.__sim.state().fighters[1].punch.type !== null },
+  { id: 'stamina-pace', dist: 0.8, partner: 'blocks some of it', see: () => window.__sim.state().fighters[1].block },
+  { id: 'stamina-guard', dist: 0.78, partner: 'jabs at your guard', see: () => window.__sim.state().fighters[1].punch.type === 'jab' },
+  { id: 'hurt', dist: 0.85, partner: 'pokes a lazy jab', see: () => window.__sim.state().fighters[1].punch.type === 'jab' || window.__sim.state().fighters[1].hurt > 0 || window.__sim.state().fighters[1].down },
   { id: 'free-sparring', dist: 1.3, partner: 'stands there', see: () => window.__sim.state().fighters[1].punch.type === null && Math.hypot(window.__sim.state().fighters[1].vel.x, window.__sim.state().fighters[1].vel.z) < 0.05 },
 ];
 
 await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
 await until(page, () => window.__flow.state().screen === 'gym', undefined, { label: 'the gym' });
 const list = await page.evaluate(() => [...document.querySelectorAll('#flow .ditem')].map(d => ({ t: d.querySelector('.t').firstChild.textContent, c: d.querySelector('.c').textContent, secs: d.querySelector('.t small')?.textContent ?? '' })));
-check(`the gym lists eight drills in order, each with its length and what it trains (${list.map(l => l.t).join(' · ')})`, list.length === 8 && list[0].t === 'Stick and move' && list[6].t === 'Surviving hurt' && list[7].t === 'Free sparring' && list.slice(0, 7).every(l => /\d+ s/.test(l.secs) && l.c.length > 8));
+check(`the gym lists fourteen drills in order, each with its length and what it trains (${list.map(l => l.t).join(' · ')})`, list.length === 14 && list[0].t === 'Stick and move' && list[6].t === 'Surviving hurt' && list[7].t === 'Combinations' && list[12].t === 'Hurting him' && list[13].t === 'Free sparring' && list.slice(0, 13).every(l => /\d+ s/.test(l.secs) && l.c.length > 8));
 
 for (const d of DRILLS) {
   console.log(`\n--- ${d.id}`);
@@ -95,7 +102,7 @@ const n1 = (await st()).drill;
 await page.keyboard.press('KeyP'); await frames(page, 1);
 await page.keyboard.press('KeyP'); await frames(page, 1);
 const n2 = (await st()).drill;
-check(`N goes to the next drill (${n1}), P back (${n2})`, n1 === 'free-sparring' && n2 === 'body-work');
+check(`N goes to the next drill (${n1}), P back (${n2})`, n1 === 'combinations' && n2 === 'body-work');
 // Nobody finishes this one (the player stands still while he circles): it ends on its clock.
 await page.evaluate(() => { window.__flow.drill('cut-off'); });
 await until(page, () => window.__flow.state().drillDone !== '', undefined, { label: 'the drill clock', timeout: 120000 });

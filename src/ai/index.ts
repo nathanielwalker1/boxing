@@ -433,6 +433,8 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   const nowHurt = me.hurt > 0;
   if (nowHurt && !a.wasHurt) {
     a.hurtPlan = tools && rngChance(a.rngT, st.hurtClinch) ? 'clinch' : tools && rngChance(a.rngT, st.hurtSwing) ? 'swing' : 'cover';
+    // (The clinch is off by default now: a man whose plan was to tie up covers and gives ground instead of walking in to nothing.)
+    if (a.hurtPlan === 'clinch' && !cfg.clinchOn) a.hurtPlan = 'cover';
     if (a.hurtPlan === 'swing') a.blockTimer = 0;
     // Taking a knee (polish phase): rocked, worn, nobody near enough to tie up, and not yet down this round — sometimes
     // it uses the count. (The extra roll is only made when all of that holds, so no other fight's dice move.)

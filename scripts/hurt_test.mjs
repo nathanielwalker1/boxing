@@ -19,7 +19,8 @@ const fresh = (c, dist, seed = 1) => k.fresh(c, dist, 30, 0, seed);
 const hookCfg = (c, mult) => ({ ...c, hookImpulseMult: mult });
 const T0 = sim.stunThreshold(fresh(cfg, 0.72).fighters[1], cfg);
 /** Side 0 throws one hook at side 1; `mult` sets its weight. */
-const hook = (c, mult, seed = 1, prep = null, ticks = 60, his = () => NONE) => { const cc = hookCfg(c, mult); const s = fresh(cc, 0.72, seed); if (prep) prep(s); return { ...run(s, ticks, i => [inp({ hook: i === 0 }), his(i)], cc), cc }; };
+// (`mult` is in units that put 1.5 ≈ the bar: it is scaled by the bar itself, so retuning hurtStunBaseScale does not move what a test means.)
+const hook = (c, mult, seed = 1, prep = null, ticks = 60, his = () => NONE) => { const cc = hookCfg(c, mult * T0 / 405); const s = fresh(cc, 0.72, seed); if (prep) prep(s); return { ...run(s, ticks, i => [inp({ hook: i === 0 }), his(i)], cc), cc }; };
 
 // ── 1. Rocked: three kinds ──────────────────────────────────────────────────
 console.log('\n=== 1. Rocked ===');
@@ -55,7 +56,7 @@ console.log('\n=== 1. Rocked ===');
 // ── 2. Winded: three kinds, sometimes late ──────────────────────────────────
 console.log('\n=== 2. Winded ===');
 {
-  const body = (c, seed, lead = false) => { const cc = { ...c, bodyHurtBase: 200, liverOn: false }; const s = fresh(cc, 0.7, seed); return { ...run(s, 110, i => [inp({ hook: i === 6, level: i <= 6, move: { x: i === 6 ? (lead ? -1 : 1) : 0, y: 0 } }), NONE], cc), cc }; };
+  const body = (c, seed, lead = false) => { const cc = { ...c, bodyHurtBase: 200 / c.hurtBodyBarScale, liverOn: false }; const s = fresh(cc, 0.7, seed); return { ...run(s, 110, i => [inp({ hook: i === 6, level: i <= 6, move: { x: i === 6 ? (lead ? -1 : 1) : 0, y: 0 } }), NONE], cc), cc }; };
   const seen = {}; let late = 0, atOnce = 0, lateGap = [];
   for (let seed = 1; seed <= 40; seed++) {
     const r = body(cfg, seed), land = of(r.evs, 'punchLand')[0], e = of(r.evs, 'hurtStyle')[0], bh = of(r.evs, 'bodyHurt')[0];
@@ -97,7 +98,7 @@ console.log('\n=== 3. Knockdowns ===');
     kd?.kind === 'out' && (kd.fall === 'stiff' || kd.fall === 'crumple') && ko?.waved === true && ko.tick === kd.tick && ko.winner === 0);
   check('…no count: no countTick, no getUp, the fight is over, and he is in state as out', of(out.evs, 'countTick').length === 0 && of(out.evs, 'getUp').length === 0 && out.s.round.phase === 'over' && out.s.fighters[1].down && out.s.fighters[1].downKind === 'out' && out.s.fighters[1].fall === kd.fall);
   check(`…his fall has time to play (downT ${out.s.fighters[1].downT.toFixed(2)} s and running)`, out.s.fighters[1].downT > 1);
-  const upper = (() => { const cc = { ...RAW, uppercutImpulseMult: 9 }; return run(fresh(cc, 0.66), 60, i => [inp({ uppercut: i === 0 }), NONE], cc); })();
+  const upper = (() => { const cc = { ...RAW, uppercutImpulseMult: 9 * T0 / 405 }; return run(fresh(cc, 0.66), 60, i => [inp({ uppercut: i === 0 }), NONE], cc); })();
   const kdu = of(upper.evs, 'knockdown')[0];
   check(`an uppercut that puts him out crumples him; a hook on an upright man drops him stiff (${kdu?.fall} / ${kd?.fall})`, kdu?.kind === 'out' && kdu.fall === 'crumple' && kd.fall === 'stiff');
   const noVar = hook({ ...RAW, hurtVarietyOn: false }, 8, 1, null, 200);
@@ -117,7 +118,10 @@ console.log('\n=== 3. Knockdowns ===');
   check('not hurt: the same hold does nothing', of(knee(cfg, { hurt: false, ticks: 90 }).evs, 'knockdown').length === 0);
   check('walking in while holding it: no knee (he is going to tie up)', of(knee(cfg, { walkIn: true, ticks: 30 }).evs, 'knockdown').length === 0);
   const close = knee(cfg, { far: false, ticks: 90 });
-  check('with the other man in reach the hold is a clinch, not a knee', of(close.evs, 'knockdown').length === 0 && of(close.evs, 'clinch').length === 1);
+  // (The clinch is off by default since the MOTION phase: up close the hold is just a low guard — never a knee. With the clinch on it ties up.)
+  check('with the other man in reach the hold is never a knee (clinch off: nothing happens)', of(close.evs, 'knockdown').length === 0 && (cfg.clinchOn || of(close.evs, 'clinch').length === 0));
+  const tie = knee({ ...cfg, clinchOn: true }, { far: false, ticks: 90 });
+  check('…and with clinchOn it is a clinch, not a knee', of(tie.evs, 'knockdown').length === 0 && of(tie.evs, 'clinch').length === 1);
   check('takeKneeOn off: nothing', of(knee({ ...cfg, takeKneeOn: false }, { ticks: 90 }).evs, 'knockdown').length === 0);
 }
 
@@ -127,11 +131,19 @@ console.log('\n=== 4. The rates ===');
   const old = { ...cfg, hurtRatesOn: false };
   const To = sim.stunThreshold(fresh(old, 0.72).fighters[1], old);
   check(`the bar: a fresh reference chin is rocked at ${T0.toFixed(0)} N·s (it was ${To.toFixed(0)}; × hurtStunBaseScale)`, Math.abs(T0 / To - cfg.hurtStunBaseScale) < 1e-9);
-  // A clean standing hook: not on a fresh man, but as soon as he has lost a tenth of his health.
-  const std = hook(cfg, cfg.hookImpulseMult, 1), worn = hook(cfg, cfg.hookImpulseMult, 1, s => { s.fighters[1].health = 0.85; }), wornOld = hook(old, cfg.hookImpulseMult, 1, s => { s.fighters[1].health = 0.85; });
-  check(`a clean standing hook (${k.mag(of(std.evs, 'punchLand')[0]).toFixed(0)} N·s) rocks a man at 85% health; with the old bar it did not`, of(worn.evs, 'rocked').length === 1 && of(wornOld.evs, 'rocked').length === 0);
+  // Phase B: lost health lowers the bar to hurtHealthFloor of fresh, no further.
+  const s00 = fresh(cfg, 0.72); s00.fighters[1].health = 0.001;
+  check(`a man with no health left has ${(sim.stunThreshold(s00.fighters[1], cfg) / T0).toFixed(2)} of his fresh bar (hurtHealthFloor ${cfg.hurtHealthFloor}; it was stunHealthFloor ${cfg.stunHealthFloor})`, Math.abs(sim.stunThreshold(s00.fighters[1], cfg) / T0 - cfg.hurtHealthFloor) < 0.01);
+  // Phase B: a man caught mid-punch is not rocked by the trade bonus — the same exchange rocks him with stunTradeKeep 1 and not with 0.
+  const trade = (c, mult) => { const cc = hookCfg({ ...c, stunSoftKeep: 1 }, mult * T0 / 405); const r = run(fresh(cc, 0.72), 50, i => [inp({ hook: i === 0 }), inp({ cross: i === 5 })], cc); const land = of(r.evs, 'punchLand').find(e => e.side === 0); return { rocked: of(r.evs, 'rocked').some(e => e.side === 1), land }; };
+  const sep = [1.1, 1.2, 1.3, 1.4].find(m => { const a = trade({ ...cfg, stunTradeKeep: 0 }, m), b = trade({ ...cfg, stunTradeKeep: 1 }, m); return a.land && b.land && !a.rocked && b.rocked; });
+  check(`a hook that catches him mid-cross: with the trade bonus counted it rocks him, without it (the default) it does not (found at × ${sep})`, sep !== undefined);
+  // Phase B: the finisher of a clean combination counts comboFinisherStun toward a stun.
+  const fin = c => { const cc = { ...c, stunSoftKeep: 1, hurtHealthFloor: 1, stunStaminaFloor: 1 }; const r = run(fresh(cc, 0.75), 80, i => [inp({ jab: i === 0, cross: i === 8, hook: i === 16, move: { x: i === 16 ? -1 : 0, y: 0 } }), NONE], cc); return { fin: of(r.evs, 'punchLand').some(e => e.finisher), rocked: of(r.evs, 'rocked').length > 0 }; };
+  const fsep = [0.5, 0.6, 0.7, 0.8, 0.9].find(sc => { const a = fin({ ...cfg, hurtStunBaseScale: cfg.hurtStunBaseScale * sc }), b = fin({ ...cfg, hurtStunBaseScale: cfg.hurtStunBaseScale * sc, comboFinisherStun: 1 }); return a.fin && b.fin && a.rocked && !b.rocked; });
+  check(`the finisher of a 1-2-3 rocks a man it would not rock as a plain punch (comboFinisherStun ${cfg.comboFinisherStun}; found with the bar at × ${fsep})`, fsep !== undefined);
   // Compression: a stacked impulse counts for less toward a stun (and not at all less toward damage).
-  const big = hook(cfg, 4.6, 1), bigRaw = hook(RAW, 4.6, 1);
+  const big = hook(cfg, 4.0, 1), bigRaw = hook(RAW, 4.0, 1);
   const rb = of(big.evs, 'rocked')[0], land = of(big.evs, 'punchLand')[0];
   const expect = cfg.stunSoftAt + (k.mag(land) - cfg.stunSoftAt) * cfg.stunSoftKeep;
   check(`a ${k.mag(land).toFixed(0)} N·s hook counts as ${rb?.impulse.toFixed(0)} toward the stun (stunSoftAt / stunSoftKeep): it rocks him; uncompressed it floored him`, rb && Math.abs(rb.impulse - expect) < 1e-6 && of(big.evs, 'knockdown').length === 0 && of(bigRaw.evs, 'knockdown').length === 1);
@@ -141,6 +153,13 @@ console.log('\n=== 4. The rates ===');
   const s1 = run(s0, 6, () => [NONE, NONE]).s, s2 = run(s1, T(cfg.hurtAfterSeconds) + 5, () => [NONE, NONE]).s;
   const Ta = sim.stunThreshold(s1.fighters[1], cfg), Tb = sim.stunThreshold(s2.fighters[1], cfg);
   check(`just after a hurt state ends his bar is ${(Ta / T0).toFixed(2)}× (hurtAfterScale ${cfg.hurtAfterScale}); ${cfg.hurtAfterSeconds} s later it is back (${(Tb / T0).toFixed(2)}×)`, Ta / T0 > cfg.hurtAfterScale - 0.15 && Math.abs(Tb / T0 - 1) < 0.02);
+}
+
+// ── 4b. The guard meter (phase B) ───────────────────────────────────────────
+{
+  const hooks = c => { let s = k.fresh(c, 0.78), n = 0; for (let i = 0; i < 900; i++) { const r = sim.step(s, [inp({ cross: i % 24 === 0, move: { x: 0, y: 0.5 } }), inp({ block: true })], c); s = r.state; if (r.events.some(e => e.type === 'punchBlock')) n++; if (r.events.some(e => e.type === 'guardBreak')) return n; } return Infinity; };
+  const now = hooks(cfg), was = hooks({ ...cfg, guardMeterOn: false });
+  check(`a cross every 0.4 s on a held guard breaks it after ${now} (it was ${was}); Infinity = not inside 15 s): the meter is thicker`, now > was && was < Infinity);
 }
 
 // ── 5. Determinism ──────────────────────────────────────────────────────────
