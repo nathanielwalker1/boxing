@@ -24,6 +24,9 @@ export function create(k, seed, cfg) {
       b.mem.wait = 90 + Math.floor(k.core.rngRange(b.rng, 0, 70));   // 1.5–2.7 s between combinations
       if (b.chance(0.2)) { b.combo([['jab'], ['cross']], 8); for (let i = 0; i < 3; i++) b.push({}); b.lowThen('hook', -1); }   // 1-2, body hook
       else b.combo(b.pick(COMBOS), 8);
+      // Hands off the guard until the last punch is out: block pressed in a wind-up is a FEINT (it cancelled every
+      // third punch of this bot's combinations before this line was here — worth knowing about a real thumb, too).
+      for (let i = 0; i < 18; i++) b.push({});
       return {};
     }
     // Between combinations: guard up, hold the range.

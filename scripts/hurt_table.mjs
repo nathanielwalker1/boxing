@@ -28,7 +28,7 @@ export const STYLES = ['pressure', 'outboxer', 'counter', 'swarmer', 'slugger'];
 export const BODY = { pressure: ['monsoon', 'red'], outboxer: ['lighthouse', 'blue'], counter: ['alambre', 'grandad'], swarmer: ['boiler'], slugger: ['raffle'] };
 const KEYS = ['rocked', 'bodyHurt', 'liverShot', 'guardBreak', 'knockdown', 'finisher', 'stuffed', 'episodes'];
 
-export async function hurtTable({ n = 3, overrides = {}, all = false, quiet = false } = {}) {
+export async function hurtTable({ n = 3, overrides = {}, all = false, quiet = false, humanOnly = false } = {}) {
   const k = await kit({ rated: true });
   const cfg = { ...k.cfg, roundSeconds: 60, roundCount: 3, aiDifficulty: 1, ...overrides };
   const spec = id => k.core.ROSTER.find(f => f.id === id);
@@ -75,7 +75,7 @@ export async function hurtTable({ n = 3, overrides = {}, all = false, quiet = fa
   const groups = { 'AI v AI': [], 'bot v AI': [] };
   const rows = {};
   for (let a = 0; a < STYLES.length; a++) for (let b = 0; b < STYLES.length; b++) {
-    if (a === b) continue;
+    if (a === b || humanOnly) continue;
     for (let seed = 1; seed <= n; seed++) {
       const ida = BODY[STYLES[a]][seed % BODY[STYLES[a]].length]; let idb = BODY[STYLES[b]][(seed >> 1) % BODY[STYLES[b]].length];
       const specs = [spec(ida), spec(idb)];
@@ -89,7 +89,7 @@ export async function hurtTable({ n = 3, overrides = {}, all = false, quiet = fa
     const specs = [spec(botId), spec(aiId)];
     (groups['human pace v AI'] ??= []).push(fight(specs, [botDriver(humanPace, seed), aiDriver(1, specs[1], seed)], seed));
   }
-  const bots = all ? [jabAndMove, insideFighter, counterPuncher, masher, turtle] : [jabAndMove, insideFighter, counterPuncher];
+  const bots = humanOnly ? [] : all ? [jabAndMove, insideFighter, counterPuncher, masher, turtle] : [jabAndMove, insideFighter, counterPuncher];
   for (const bot of bots) for (const style of STYLES) for (let seed = 1; seed <= n; seed++) {
     let botId = ['red', 'blue'][seed % 2]; const aiId = BODY[style][(seed >> 1) % BODY[style].length];
     if (botId === aiId) botId = ['red', 'blue'][(seed + 1) % 2];
@@ -138,5 +138,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
   const overrides = {};
   for (const a of args) { const m = a.match(/^(\w+)=(.+)$/); if (m) overrides[m[1]] = m[2] === 'true' ? true : m[2] === 'false' ? false : Number(m[2]); }
-  await hurtTable({ n: Number(args.find(a => /^\d+$/.test(a)) ?? 3), overrides, all: args.includes('all') });
+  await hurtTable({ n: Number(args.find(a => /^\d+$/.test(a)) ?? 3), overrides, all: args.includes('all'), humanOnly: args.includes('human') });   // `human` = only the human-pace group
 }

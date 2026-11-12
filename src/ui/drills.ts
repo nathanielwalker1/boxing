@@ -83,6 +83,35 @@ const CONTROLS: Record<string, readonly DrillControl[]> = {
     c('Tie him up (chest to chest)', 'Space + Shift', 'RB + LT', 'BLOCK + LOW'),
     c('Pivot out', 'Space + tap W or S', 'RB + flick up / down', 'BLOCK + flick up / down'),
     c('Shove him off', 'Space + tap D', 'RB + flick right', 'BLOCK + flick right'),
+    c('Take a knee (nobody in reach)', 'Hold Space + Shift', 'Hold RB + LT', 'Hold BLOCK + LOW'),
+  ],
+  // ── Polish phase (SIM): the drills registered for src/ai/drills.ts's new entries ──
+  'combinations': [
+    c('1-2-3', 'J, K, then A + L', 'Y, B, then stick left + X', 'JAB, CRS, then drag left + HOK'),
+    c('1-2, body hook', 'J, K, then Shift + A + L', 'Y, B, then LT + stick left + X', 'JAB, CRS, then LOW + drag left + HOK'),
+    c('Lead hand for the hook', 'Hold A as you press', 'Stick left as you press', 'Drag left as you press'),
+  ],
+  'combinations-ropes': [
+    c('1-2-3', 'J, K, then A + L', 'Y, B, then stick left + X', 'JAB, CRS, then drag left + HOK'),
+    c('1-2, body hook', 'J, K, then Shift + A + L', 'Y, B, then LT + stick left + X', 'JAB, CRS, then LOW + drag left + HOK'),
+  ],
+  'trading': [
+    c('Throw back as he hits you', 'J  K  L  ;', 'Y  B  X  A', 'JAB  CRS  HOK  UPP'),
+    BLOCK,
+  ],
+  'stamina-pace': [
+    c('Jab / cross / hook / uppercut', 'J  K  L  ;', 'Y  B  X  A', 'JAB  CRS  HOK  UPP'),
+    BLOCK,
+    MOVE,
+  ],
+  'stamina-guard': [
+    BLOCK,
+    MOVE,
+  ],
+  'hurt': [
+    c('Hook / uppercut (they rock him)', 'L  ;', 'X  A', 'HOK  UPP'),
+    c('Body hook, lead hand (the liver)', 'Shift + A + L', 'LT + stick left + X', 'LOW + drag left + HOK'),
+    c('Finish a combination', 'J, K, then A + L', 'Y, B, then stick left + X', 'JAB, CRS, then drag left + HOK'),
   ],
   'free-sparring': [
     MOVE,
@@ -105,6 +134,7 @@ export function simDrills(cfg: Config): Drill[] {
       controls: CONTROLS[d.id] ?? [MOVE],
       placement: { player: place.player, opponent: place.opponent },
       ...(d.opponent ? { opponentSpec: d.opponent } : {}),
+      ...(d.tune ? { tune: d.tune } : {}),   // (polish phase, SIM: a drill's own config — a durable partner, a quick count)
       opponent: (s: SimState, tick: number) => d.policy(s, tick, DRILL_SEED, cfg),
       setup: d.setup ? (s: SimState) => d.setup!(s, cfg) : null,
       // SIM's metric is a pure function of EVERY event since the start: the run keeps them.
