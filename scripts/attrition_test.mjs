@@ -12,7 +12,9 @@ import { kit } from './bots/kit.mjs';
 import { check, near, done } from './check.js';
 
 const k = await kit();
-const { cfg, sim, inp, NONE, T, fresh, run, of, first, mag } = k;
+// (Polish phase, item 6: staminaPolishOn off — the whiff / ceiling numbers here are the original, un-weighted ones; stamina_test pins the weighted ones.)
+const { sim, inp, NONE, T, fresh, run, of, first, mag } = k;
+const cfg = { ...k.cfg, staminaPolishOn: false };
 const MID = 0.79, LV = 10;
 const quiet = { ...cfg, staminaRegen: 0, healthRegen: 0, bodyHurtOn: false };
 const landOf = evs => evs.find(e => e.type === 'punchLand' && e.side === 0);
@@ -71,7 +73,7 @@ console.log('\n=== 3. Fatigue ===');
   const noWhiff = { ...cfg, whiffCostOn: false, staminaRegen: 0 };
   const miss = run(fresh(noWhiff, 2.0, 5), 20, i => [inp({ jab: i === 0 }), NONE], noWhiff).s.fighters[0];
   check('whiffCostOn off: a miss costs the punch and nothing else', near(miss.stamina, 1 - cfg.staminaPunchCost, 1e-9) && miss.wear === 0);
-  const many = run(fresh(cfg, 2.0, 5), 600, i => [inp({ jab: i % 30 === 0 }), NONE]).s.fighters[0];
+  const many = run(fresh(cfg, 2.0, 5), 600, i => [inp({ jab: i % 30 === 0 }), NONE], cfg).s.fighters[0];
   check(`twenty missed jabs wear the ceiling to ${many.staminaCap.toFixed(2)} — the round has an arc`, near(many.staminaCap, 1 - 20 * cfg.whiffCapLoss, 1e-6));
   // A jab never puts a man down by itself; a tired man's punches are arm punches.
   // (0.012 of the bar left, was 0.04: at healthDamagePerImpulse 0.0001 — phase 4 — a jab takes 0.0195.)

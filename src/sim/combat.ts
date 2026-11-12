@@ -13,7 +13,7 @@
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf } from './state';
+import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay } from './state';
 import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -23,7 +23,7 @@ import { VARIANTS, aimAtPress, pickVariant } from './variants';
 import { ESCAPE_AT, addHop, guardOf } from './footing';
 import { rated } from './ratings';
 import { gradeHit, punchReach } from './grade';
-import { addHitStop, applyKnock, followStep, hitNerf, hitZone, openHitWindow, seededUnit } from './flow';
+import { addHitStop, applyKnock, followStep, hitNerf, hitZone, openHitWindow, seededUnit, throwWeight, typeWeight } from './flow';
 
 const DEG = Math.PI / 180;
 /** The pose unwind (poseSettleRate is the twist's, rad/s): the lean and the crouch come home in proportion. Shape. */
@@ -95,7 +95,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // wind-up blends out of it instead of snapping to zero and reloading.
   // (Polish phase: also out of a pose still unwinding after a feint or a stuff — the hands are free, the body is not home yet.)
   setChainCarry(f, { on: chained || (cfg.carryFadeOn && (f.torsoTwist !== 0 || f.lean.fwd !== 0)), twist: f.torsoTwist, fwd: f.lean.fwd, lat: f.lean.lat, crouch: f.crouch });
-  f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg));
+  f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost * throwWeight(type, cfg) * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg));   // (polish phase: by the punch's weight)
   f.punch = {
     ...idlePunch(hand), type, phase: 'cock', variant,
     tell: (ph.cock * cock + ph.extend) * slow, timeMult: slow,
@@ -165,7 +165,7 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
     const ph = PUNCHES[p.type].phases(cfg);
     if (p.progress * ph.total <= cfg.feintCommit * ph.cock) {
       p.feint = true;
-      f.stamina = Math.min(1, f.stamina + cfg.staminaPunchCost * cfg.feintRefund);
+      f.stamina = Math.min(1, f.stamina + cfg.staminaPunchCost * throwWeight(p.type, cfg) * cfg.feintRefund);
       events.push({ type: 'feint', side, punch: p.type, variant: p.variant });
     }
   }
@@ -351,11 +351,14 @@ function interruptPunch(d: FighterState, target: Side, by: Side, cfg: Config, ev
 }
 
 /** A miss (or a punch stopped dead on the guard) ends the combination; a miss also costs wind and wears the stamina ceiling. */
-function missed(a: FighterState, cfg: Config, whiff: boolean): void {
+function missed(a: FighterState, cfg: Config, whiff: boolean, type: PunchType = 'cross'): void {
   a.combo = 0; a.comboT = 0;
   if (whiff && cfg.whiffCostOn) {
-    a.stamina = Math.max(0, a.stamina - cfg.staminaWhiffCost * rated(a, 'stamina', -cfg.ratingStaminaCost, cfg));
-    a.wear += cfg.whiffCapLoss;
+    // (Polish phase: by the punch's weight — a missed jab is a small thing, a missed hook is what gasses you.)
+    const w = cfg.staminaPolishOn && cfg.staminaWhiffByWeight ? typeWeight(type, cfg) : 1;
+    a.stamina = Math.max(0, a.stamina - cfg.staminaWhiffCost * w * rated(a, 'stamina', -cfg.ratingStaminaCost, cfg));
+    a.wear += cfg.whiffCapLoss * w;
+    if (cfg.staminaPolishOn) setRegenDelay(a, Math.max(regenDelay(a), cfg.staminaWhiffDelay * typeWeight(type, cfg)));   // a miss is a held breath
   }
 }
 
@@ -417,7 +420,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // comes home at the normal rate and pays no whiff cost. MEASURED without this: a hook that a jab caught in its wind-up
   // came out, fell short — the jab had moved its thrower back 26 cm — and held him 367 ms; the old stuff held him 133.)
   const knockedOff = cfg.hitNerfOn && brokenMult(a) < 1;
-  const whiff = (): void => { events.push({ type: 'punchWhiff', side, punch: type, variant }); setWhiffMult(a, knockedOff ? 1 : whiffRecoveryMult(def, cfg)); missed(a, cfg, !knockedOff); s.round.control[target] += 1; };
+  const whiff = (): void => { events.push({ type: 'punchWhiff', side, punch: type, variant }); setWhiffMult(a, knockedOff ? 1 : whiffRecoveryMult(def, cfg)); missed(a, cfg, !knockedOff, type); s.round.control[target] += 1; };
   if (dist > cfg.rangeMax) { whiff(); return; }
 
   const g = a.gloves[a.punch.hand === 'lead' ? 0 : 1];

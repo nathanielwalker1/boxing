@@ -1198,6 +1198,21 @@ export const SCHEMA = {
   gradeStumbleGlancing: num(0.6, 0, 1, 0.05, 'polish: flow', 'knockback of a GLANCING land, × its impulse-scaled size'),
   gradeStumbleFlush:  num(1.3, 1, 2, 0.05, 'polish: flow', 'knockback of a FLUSH land, × its impulse-scaled size'),
   reactionVary:       num(0.14, 0, 0.4, 0.01, 'polish: flow', 'SEEDED VARIATION: each land\'s reaction (how far back, how much lift, twist and spin) is scaled by up to ± this, from a number derived from the fight seed and the tick — the same punch never looks identical twice, and the same fight always replays the same. The number rides on punchLand (`vary`)'),
+
+  // ── polish: stamina (SIM, combat.ts + resources.ts) — polish phase 2026-11-11, item 6: "drains a bit too much, and blocking shouldn't drain it so bad". MEASURED (scripts/stamina_probe.mjs): wind only came back while a fighter was neither punching, nor holding the guard, nor just hit — at a human's bursts-and-rests it never dropped under 66%, but a man who keeps his guard up between punches (70% of the time) averaged 24% and was gassed 59% of the fight; holding the guard cost 8% a second and stopped all regeneration; every punch cost the same, a jab as much as an uppercut ──
+  staminaPolishOn:     bool(true, 'polish: stamina', 'the polish-phase stamina rules: the guard is nearly free to hold and wind comes back behind it, light shots on the guard cost next to nothing and heavy ones something, a punch costs by its weight, a miss costs by its weight too. Off = the costs as they were (every key below ignored)'),
+  staminaThrowScale:   num(0.8, 0.2, 1.5, 0.05, 'polish: stamina', 'every punch thrown costs staminaPunchCost × this × its own weight below (0.8 × 4% = 3.2% for a cross)'),
+  staminaJabWeight:    num(0.5, 0.1, 2, 0.05, 'polish: stamina', 'a jab\'s cost, as a fraction of a cross\'s: thrown 1.6%, landed 0.1% (the land refund), missed 4.1%'),
+  staminaHookWeight:   num(1.15, 0.1, 2, 0.05, 'polish: stamina', 'a hook\'s cost against a cross\'s'),
+  staminaUppercutWeight: num(1.3, 0.1, 2, 0.05, 'polish: stamina', 'an uppercut\'s cost against a cross\'s'),
+  staminaWhiffByWeight: bool(true, 'polish: stamina', 'the extra cost of a MISS (staminaWhiffCost) and the ceiling it wears (whiffCapLoss) scale with the punch\'s weight too: a missed jab is a small thing, a missed hook or uppercut is what gasses you'),
+  staminaWhiffDelay:   num(0.9, 0, 3, 0.05, 'polish: stamina', 'a MISS pauses the wind for this long, s × the punch\'s weight (a missed jab 0.45 s, a missed hook 1 s). MEASURED without it: a missed punch\'s 8–10% came back in a third of a second of standing still, so throwing 55 a minute and missing most of them never tired anyone'),
+  staminaGuardHold:    num(0.1, 0, 1, 0.01, 'polish: stamina', 'holding the guard up costs staminaBlockDrain × this (8% → 0.8% of the tank a second)'),
+  staminaGuardRegen:   num(0.4, 0, 1, 0.05, 'polish: stamina', 'wind comes back behind a held guard at this fraction of the open rate (it did not come back at all): the shell is a rest, a shorter one than standing off'),
+  staminaBlockedLight: num(0.25, 0, 1, 0.05, 'polish: stamina', 'a LIGHT shot (under chipMinPower: a jab) on the guard costs this fraction of what it did (0.6% → 0.15%) and does not pause the wind at all'),
+  staminaBlockedHeavy: num(2, 0.5, 5, 0.1, 'polish: stamina', 'a HEAVY shot on the guard costs this many times what it did (a cross 0.8% → 1.6%, a hook 1.2% → 2.4%): the arms pay for what they stop'),
+  staminaBlockedDelay: num(0.5, 0, 1, 0.05, 'polish: stamina', 'a heavy shot on the guard pauses the wind for this fraction of staminaRegenDelay (0.3 s)'),
+  staminaPunchRegen:   num(0.35, 0, 1, 0.05, 'polish: stamina', 'wind comes back during a punch\'s RECOVERY (once it has landed or been blocked — not a miss) at this fraction of the open rate: a man working behind a busy jab is not holding his breath for the whole round'),
 } satisfies Record<string, Entry>;
 
 export type Schema = typeof SCHEMA;

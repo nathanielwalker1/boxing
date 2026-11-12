@@ -17,7 +17,7 @@
  *
  * Everything here is pure, seeded and behind a config toggle.
  */
-import type { BodyPart, Config, FighterState, HitGrade, HitZone, SimState, Vec3 } from '../core';
+import type { BodyPart, Config, FighterState, HitGrade, HitZone, PunchType, SimState, Vec3 } from '../core';
 import { SIM_DT, clamp, frameOf } from '../core';
 import { heldKnock, punchBuffer, setHeldKnock } from './state';
 
@@ -125,6 +125,19 @@ export function hitNerf(f: FighterState, cfg: Config): number {
   if (!cfg.hitNerfOn) return 0;
   const hit = f.hitT > 0 && cfg.hitWindow > 0 ? f.hitSev * clamp(f.hitT / cfg.hitWindow, 0, 1) : 0;
   return clamp(Math.max(hit, f.hurt > 0 ? cfg.hitNerfHurt : 0), 0, 1);
+}
+
+// ── Stamina by weight (polish phase, item 6) ──────────────────────────────────
+
+/** What a punch of this type costs to throw, as a multiple of staminaPunchCost (1 with the polish rules off). */
+export function throwWeight(type: PunchType, cfg: Config): number {
+  if (!cfg.staminaPolishOn) return 1;
+  return cfg.staminaThrowScale * typeWeight(type, cfg);
+}
+/** The punch's own weight against a cross's. */
+export function typeWeight(type: PunchType, cfg: Config): number {
+  if (!cfg.staminaPolishOn) return 1;
+  return type === 'jab' ? cfg.staminaJabWeight : type === 'hook' ? cfg.staminaHookWeight : type === 'uppercut' ? cfg.staminaUppercutWeight : 1;
 }
 
 // ── The zone and the variation ────────────────────────────────────────────────

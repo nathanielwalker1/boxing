@@ -80,7 +80,7 @@ export function costs(c = cfg, quiet = false) {
  * of the rest; the partner throws `his` punches a minute back, of which the fighter blocks `guard` (holding the
  * guard for about half a second round each) and takes the rest; he walks the rest of the time.
  */
-export function pace({ ppm = 32, miss = 0.25, blocked = 0.3, his = 24, guard = 0.6, heavy = 0.4, c = cfg, label = '' } = {}, quiet = false) {
+export function pace({ ppm = 32, miss = 0.25, blocked = 0.3, his = 24, guard = 0.6, heavy = 0.4, holdGuard = false, c = cfg, label = '' } = {}, quiet = false) {
   const cc = { ...c, roundSeconds: 60, roundCount: 3, healthDamagePerImpulse: 0, stunBase: 0, bodyHurtOn: false, liverOn: false, guardWearOn: false };
   let s = k.sim.createState(k.specs, cc, 7);
   const stat = { ticks: 0, sum: 0, tired: 0, gassed: 0, min: 1, thrown: 0, taken: 0, blockedByMe: 0, rounds: [], blockTicks: 0, landed: 0, whiffed: 0 };
@@ -106,7 +106,8 @@ export function pace({ ppm = 32, miss = 0.25, blocked = 0.3, his = 24, guard = 0
       const far = queue.length && queue[0].far && t <= queue[queue.length - 1].at + 10;
       const want = far ? 1.45 : 0.78;
       const move = { x: 0, y: gap > want + 0.06 ? 1 : gap < want - 0.06 ? -1 : 0 };
-      const guarding = t <= guardUntil && !q;
+      // `holdGuard`: the way most people play — the guard is up whenever he is not about to punch.
+      const guarding = holdGuard ? !queue.some(x => x.at >= t && x.at - t < 14) : t <= guardUntil && !q;
       const mine = inp({ [q?.p ?? 'none']: true, move: q?.p === 'hook' ? { x: -1, y: move.y } : move, block: guarding });
       const r = k.sim.step(s, [mine, hisIn], cc); s = r.state;
       for (const e of r.events) {
@@ -135,7 +136,10 @@ export function paces(c = cfg) {
     easy: pace({ ppm: 25, his: 18, label: 'steady: 25 a minute, a quarter missed', c }),
     normal: pace({ ppm: 32, his: 24, label: 'normal: 32 a minute, a quarter missed', c }),
     busy: pace({ ppm: 40, his: 30, label: 'busy: 40 a minute, a quarter missed', c }),
+    guardNormal: pace({ ppm: 32, his: 24, holdGuard: true, label: 'normal, guard up between bursts', c }),
+    guardBusy: pace({ ppm: 60, his: 40, holdGuard: true, label: 'hard: 60 a minute, guard up between bursts', c }),
     wild: pace({ ppm: 40, his: 24, miss: 0.7, label: 'wild: 40 a minute, most of them missed', c }),
+    wildBusy: pace({ ppm: 70, his: 24, miss: 0.7, holdGuard: true, label: 'wild and busy: 70 a minute, most missed', c }),
     shell: pace({ ppm: 12, his: 40, guard: 1, heavy: 0.2, label: 'behind the guard: 40 a minute at him, light', c }),
     shellHeavy: pace({ ppm: 12, his: 40, guard: 1, heavy: 0.8, label: 'behind the guard: 40 a minute at him, heavy', c }),
   };
