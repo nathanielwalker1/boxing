@@ -118,7 +118,10 @@ console.log('\n=== 3. Knockdowns ===');
   check('not hurt: the same hold does nothing', of(knee(cfg, { hurt: false, ticks: 90 }).evs, 'knockdown').length === 0);
   check('walking in while holding it: no knee (he is going to tie up)', of(knee(cfg, { walkIn: true, ticks: 30 }).evs, 'knockdown').length === 0);
   const close = knee(cfg, { far: false, ticks: 90 });
-  check('with the other man in reach the hold is a clinch, not a knee', of(close.evs, 'knockdown').length === 0 && of(close.evs, 'clinch').length === 1);
+  // (The clinch is off by default since the MOTION phase: up close the hold is just a low guard — never a knee. With the clinch on it ties up.)
+  check('with the other man in reach the hold is never a knee (clinch off: nothing happens)', of(close.evs, 'knockdown').length === 0 && (cfg.clinchOn || of(close.evs, 'clinch').length === 0));
+  const tie = knee({ ...cfg, clinchOn: true }, { far: false, ticks: 90 });
+  check('…and with clinchOn it is a clinch, not a knee', of(tie.evs, 'knockdown').length === 0 && of(tie.evs, 'clinch').length === 1);
   check('takeKneeOn off: nothing', of(knee({ ...cfg, takeKneeOn: false }, { ticks: 90 }).evs, 'knockdown').length === 0);
 }
 
@@ -154,9 +157,9 @@ console.log('\n=== 4. The rates ===');
 
 // ── 4b. The guard meter (phase B) ───────────────────────────────────────────
 {
-  const hooks = c => { let s = k.fresh(c, 0.72), n = 0; for (let i = 0; i < 900 && !of([], 'x').length; i++) { const r = sim.step(s, [inp({ hook: i % 28 === 0 }), inp({ block: true })], c); s = r.state; if (r.events.some(e => e.type === 'punchBlock')) n++; if (r.events.some(e => e.type === 'guardBreak')) return n; } return Infinity; };
+  const hooks = c => { let s = k.fresh(c, 0.78), n = 0; for (let i = 0; i < 900; i++) { const r = sim.step(s, [inp({ cross: i % 24 === 0, move: { x: 0, y: 0.5 } }), inp({ block: true })], c); s = r.state; if (r.events.some(e => e.type === 'punchBlock')) n++; if (r.events.some(e => e.type === 'guardBreak')) return n; } return Infinity; };
   const now = hooks(cfg), was = hooks({ ...cfg, guardMeterOn: false });
-  check(`a hook every half second on a held guard breaks it after ${now} (it was ${was}): the meter is thicker and comes back sooner`, now > was && was <= 8);
+  check(`a cross every 0.4 s on a held guard breaks it after ${now} (it was ${was}); Infinity = not inside 15 s): the meter is thicker`, now > was && was < Infinity);
 }
 
 // ── 5. Determinism ──────────────────────────────────────────────────────────

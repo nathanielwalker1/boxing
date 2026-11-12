@@ -13,6 +13,8 @@ import { kit } from './bots/kit.mjs';
 import { check, near, done } from './check.js';
 
 const k = await kit({ rated: true });
+// (Polish phase B, deliberate: guardMeterOn / hurtRatesOn off — this file pins each guard SHAPE against the reference guard meter and stun bar; hurt_test pins the phase-B scales.)
+k.cfg.guardMeterOn = false; k.cfg.hurtRatesOn = false;
 const { cfg, core, sim, inp, NONE, T, fresh, run, of, first, mag, flick, SIM_DT } = k;
 const { STYLES, GUARDS } = core;
 const N = cfg.ratingNeutral;

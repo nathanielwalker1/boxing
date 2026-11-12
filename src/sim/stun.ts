@@ -187,7 +187,7 @@ export function stepKnee(s: SimState, side: Side, input: { block: boolean; level
   // Not while walking in (that is a man going to tie up — MEASURED: the AI's walk-in clinch took 169 knees in 40 fights
   // before this), and not with the other man close enough to grab: the knee is for when there is nobody to hold on to.
   const asking = cfg.takeKneeOn && cfg.hurtVarietyOn && f.hurt > 0 && !f.down && input.block && input.level && input.move.y <= KNEE_STICK && !f.clinch.active && f.clinch.reach === 0 && f.punch.type === null
-    && (!cfg.clinchOn || dist > cfg.clinchRange + cfg.takeKneeClear);
+    && dist > cfg.clinchRange + cfg.takeKneeClear;   // (the "nobody in reach" rule holds whether or not the clinch is on: with it off, block + level up close is just a low guard, never a knee)
   if (!asking) { f.kneeT = 0; return; }
   f.kneeT += dt;
   if (f.kneeT >= cfg.takeKneeHold) knockDown(s, side, cfg, events, 'health', { kind: 'knee' });

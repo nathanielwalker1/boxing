@@ -45,6 +45,14 @@ export async function installDrillBots(page) {
         return {};
       });
     };
+    /** Walks to range and throws jab, cross, lead hook, presses 8 ticks apart; then a breath. */
+    const combo = () => make((b, s) => {
+      const d = dist(s);
+      if (d > 0.86) return { move: { x: 0, y: 1 } };
+      if (s.fighters[0].punch.type !== null) return {};
+      b.push({ jab: true }); b.idle(7); b.push({ cross: true }); b.idle(7); b.push({ hook: true, move: { x: -1, y: 0 } }); b.idle(40);
+      return {};
+    });
     const BOTS = {
       // Jab when he is on the end of it, step back out when he gets close.
       'jab-and-move': () => make((b, s) => {
@@ -53,11 +61,12 @@ export async function installDrillBots(page) {
         if (d < 1.08 && s.fighters[0].punch.type === null) { b.push({ jab: true }); b.idle(10); return {}; }
         return d > 1.15 ? { move: { x: 0, y: 0.6 } } : {};
       }),
-      // Walk at him, stepping across the way he is going.
+      // Walk at him, stepping across the way he is going; when he is in reach, a 1-2 (the drill counts lands made with his back on the ropes).
       'cut-off': () => make((b, s) => {
         const o = s.fighters[1], me = s.fighters[0];
         const right = { x: -Math.sin(me.yaw), z: Math.cos(me.yaw) };
         const side = o.vel.x * right.x + o.vel.z * right.z;
+        if (dist(s) < 0.92 && me.punch.type === null) { b.push({ jab: true, move: { x: 0, y: 1 } }); b.idle(7); b.push({ cross: true, move: { x: 0, y: 1 } }); b.idle(14); return {}; }
         return { move: { x: Math.max(-1, Math.min(1, side * 1.2)), y: 1 } };
       }),
       // In behind the guard, then short hooks and uppercuts at his chest.
@@ -77,8 +86,15 @@ export async function installDrillBots(page) {
         b.idle(16);
         return {};
       }),
-      // Tie him up when he is on you; otherwise guard up and get along the ropes.
-      'survive': () => make((b, s) => (s.fighters[0].clinch.cd === 0 && dist(s) < 0.75 ? { block: true, level: true } : { block: dist(s) < 1.0, move: { x: 1, y: -0.4 } })),
+      // Guard up and get along the ropes, away from him (the clinch is off by default now: no tie-up).
+      'survive': () => make((b, s) => ({ block: dist(s) < 1.1, move: { x: 1, y: -0.4 } })),
+      // Polish phase: the drills for the fixes. A 1-2-3 at a man in front of you, hands off the guard until the hook is out.
+      'combinations': () => combo(),
+      'combinations-ropes': () => combo(),
+      'trading': () => combo(),
+      'stamina-pace': () => combo(),
+      'hurt': () => combo(),
+      'stamina-guard': () => make(() => ({ block: true })),
       // A jab and a cross at a man who stands there.
       'free-sparring': () => make((b, s) => {
         if (dist(s) > 0.95) return { move: { x: 0, y: 1 } };

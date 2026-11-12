@@ -94,10 +94,12 @@ const CONTROLS: Record<string, readonly DrillControl[]> = {
   'combinations-ropes': [
     c('1-2-3', 'J, K, then A + L', 'Y, B, then stick left + X', 'JAB, CRS, then drag left + HOK'),
     c('1-2, body hook', 'J, K, then Shift + A + L', 'Y, B, then LT + stick left + X', 'JAB, CRS, then LOW + drag left + HOK'),
+    c('Close the gap', 'Hold D', 'Stick right', 'Drag right'),
   ],
   'trading': [
     c('Throw back as he hits you', 'J  K  L  ;', 'Y  B  X  A', 'JAB  CRS  HOK  UPP'),
     BLOCK,
+    MOVE,
   ],
   'stamina-pace': [
     c('Jab / cross / hook / uppercut', 'J  K  L  ;', 'Y  B  X  A', 'JAB  CRS  HOK  UPP'),
@@ -107,6 +109,7 @@ const CONTROLS: Record<string, readonly DrillControl[]> = {
   'stamina-guard': [
     BLOCK,
     MOVE,
+    c('Rest the guard', 'Release Space', 'Release RB', 'Release BLOCK'),
   ],
   'hurt': [
     c('Hook / uppercut (they rock him)', 'L  ;', 'X  A', 'HOK  UPP'),
