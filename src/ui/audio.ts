@@ -29,8 +29,8 @@ import type { Config, EventBus, SimEvent, SimState } from '../core';
 import { mood, type Reaction } from '../render/mood';
 import { RECIPES } from './audio/recipes';
 import { CrowdBed } from './audio/crowd';
-import { buildMaster, makeNoise, playVoice } from './audio/voice';
-import { voicesForEvent, voicesForReaction, type VoiceReq } from './audio/map';
+import { buildMaster, duckBus, makeNoise, playVoice } from './audio/voice';
+import { duckForEvent, newVoiceMemory, voicesForEvent, voicesForReaction, type VoiceReq } from './audio/map';
 
 export interface AudioLogEntry { name: string; pitch: number; gain: number; t: number }
 declare global {
@@ -77,17 +77,26 @@ export class CombatAudio {
 
   private onEvent(e: SimEvent): void {
     try {
-      for (const v of voicesForEvent(e, this.cfg)) this.request(v);
+      for (const v of voicesForEvent(e, this.cfg, 0, this.memory)) this.request(v);
+      // A flush land or a finisher: the crowd is pulled down for a beat, so the hit has the room to itself and the answer arrives after it.
+      const duck = duckForEvent(e, this.cfg);
+      if (duck && this.ctx && this.crowdBus && this.cfg.audioCrowdEnabled && !this.paused) {
+        const t = this.ctx.currentTime;
+        duckBus(this.crowdBus.gain, this.cfg.audioCrowdVolume * this.cfg.audioMasterVolume, t, duck.depth, duck.hold);
+        this.duckUntil = t + duck.hold + 0.3;
+      }
       // The bell also reaches the bus from the fight flow, which the stage never sees: tell the mood (it applauds once per bell).
       if (e.type === 'bell') mood.bell(this.cfg);
     } catch { /* feedback, never state */ }
   }
 
   private onReaction(r: Reaction): void {
-    try { for (const v of voicesForReaction(r)) this.request(v); } catch { /* feedback, never state */ }
+    try { for (const v of voicesForReaction(r, this.cfg)) this.request(v); } catch { /* feedback, never state */ }
   }
 
   private request(v: VoiceReq): void { this.play(v.name, v.power ?? 1, v); }
+  private memory = newVoiceMemory();
+  private duckUntil = 0;   // context seconds until which the crowd bus belongs to a duck (levels() leaves it alone)
 
   /**
    * The host's per-frame call (main.ts, once per rendered frame, after the sim
@@ -182,19 +191,22 @@ export class CombatAudio {
     const t = this.ctx.currentTime;
     this.impactBus.gain.setTargetAtTime(c.audioImpactVolume, t, 0.05);
     const duck = this.paused ? c.audioPauseDuck : 1;
+    if (!this.paused && t < this.duckUntil) return;   // a flush land's duck is on the bus: let it finish
     this.crowdBus.gain.setTargetAtTime(c.audioCrowdEnabled ? c.audioCrowdVolume * c.audioMasterVolume * duck : 0, t, this.paused ? 0.12 : 0.3);
   }
 
   /** Play one logical sound; `power` scales the gain a little (a hard hit is louder). Jitter is random on purpose: audio is not sim. */
-  play(name: string, power = 1, bend: { pitch?: number | undefined; length?: number | undefined; delay?: number | undefined } = {}): void {
+  play(name: string, power = 1, bend: { pitch?: number | undefined; length?: number | undefined; delay?: number | undefined; level?: number | undefined; seed?: number | undefined } = {}): void {
     const recipe = RECIPES[name];
     if (!recipe) return;
     const c = this.cfg;
     const crowd = recipe.bus === 'crowd';
-    const pitch = (bend.pitch ?? 1) * (1 + (Math.random() * 2 - 1) * c.audioPitchJitter);
+    // A seeded voice (an impact carrying the land's own variation) is exact: its variety is the sim's, so a replayed fight sounds the same.
+    const jit = bend.seed === undefined ? 1 : 0;
+    const pitch = (bend.pitch ?? 1) * (1 + (Math.random() * 2 - 1) * c.audioPitchJitter * jit);
     // Impacts carry the master in their own gain (the log shows what was asked for); the crowd bus carries it for its sounds.
-    const level = crowd ? c.audioReactionGain : c.audioMasterVolume;
-    const gain = Math.max(0, level * recipe.gain * (0.75 + 0.25 * Math.min(2, power)) * (1 + (Math.random() * 2 - 1) * c.audioVolumeJitter));
+    const level = (crowd ? c.audioReactionGain : c.audioMasterVolume) * (bend.level ?? 1);
+    const gain = Math.max(0, level * recipe.gain * (0.75 + 0.25 * Math.min(2, power)) * (1 + (Math.random() * 2 - 1) * c.audioVolumeJitter * jit));
     this.log.push({ name, pitch: +pitch.toFixed(4), gain: +gain.toFixed(4), t: performance.now() });
     if (this.log.length > LOG_MAX) this.log.splice(0, this.log.length - LOG_MAX);
     if (!c.audioEnabled || gain <= 0 || this.unavailable || !this.ctx || this.ctx.state !== 'running' || !this.noise) return;
@@ -202,7 +214,7 @@ export class CombatAudio {
     try {
       const out: AudioNode = (crowd ? this.crowdBus : this.impactBus) ?? this.ctx.destination;
       playVoice(this.ctx, out, recipe, { noise: this.noise, walla: this.bed?.walla, applause: this.bed?.applause },
-        { when: this.ctx.currentTime + (bend.delay ?? 0), pitch, gain, sub: c.audioFlushSub, length: bend.length ?? 1 });
+        { when: this.ctx.currentTime + (bend.delay ?? 0), pitch, gain, sub: c.audioFlushSub, length: bend.length ?? 1, seed: bend.seed });
     } catch { /* feedback, never state: a failed sound is a silent one */ }
   }
 }

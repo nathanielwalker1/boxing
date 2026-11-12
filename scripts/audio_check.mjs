@@ -36,7 +36,7 @@ check(await page.evaluate(() => window.__audio.state()) === null, 'no AudioConte
 await page.evaluate(() => { window.__sim.place(0.85); window.__sim.script(0, [{}, {}, { jab: true }]); });
 await until(page, () => window.__audioLog.some(e => e.name.startsWith('impact')), undefined, { label: 'an impact', timeout: 30000 }).catch(() => {});
 const impact = (await names()).find(n => n.startsWith('impact'));
-check(impact === 'impactSharp' || impact === 'impactSharpGlance' || impact === 'impactSharpFlush' || impact === 'impactBlocked',
+check(impact === 'impactSharp' || impact === 'impactSharpGlance' || impact === 'scuffSharp' || impact === 'impactSharpFlush' || impact === 'impactBlocked',
   `a jab at range asks for a sharp-class impact (${impact})`);
 
 // Every event type the sim can emit, through the same path the bus takes — still before any gesture, so this is
@@ -82,7 +82,7 @@ const threw = Object.entries(made).filter(([, r]) => r.threw);
 check(threw.length === 0, `no event shape throws (${threw.map(([l, r]) => `${l}: ${r.threw}`).join('; ') || 'none'})`);
 const silent = Object.entries(made).filter(([, r]) => r.names.length === 0).map(([l]) => l).filter(l => l !== 'somethingNew');
 check(silent.every(l => QUIET.includes(l)), `every audible event type asks for a voice through the bus path (silent: ${silent.join(', ')})`);
-const want = { punchLand_glancing: 'impactSharpGlance', punchLand_flush: 'impactSharpFlush', punchLand_combo3: 'comboRise', punchLand_body: 'bodyExhale', punchLand_liver: 'liverThud',
+const want = { punchLand_glancing: 'scuffSharp', punchLand_flush: 'impactSharpFlush', punchLand_combo3: 'comboRise', punchLand_body: 'bodyExhale', punchLand_liver: 'liverThud',
   punchLand_through: 'gloveTick', punchLand_wrongWay: 'impactWrong', punchLand_overhand: 'impactTail', punchLand_counter: 'counterWeight', punchLand_oldShape: 'impactHeavy',
   punchBlock: 'blockHeavy', perfectBlock: 'parryTick', guardBreak: 'guardCrack', bodyHurt: 'bodyGroan', burst: 'shoeScuff', pivot: 'shoeSqueak', clinch: 'clinchThud', clinchBreak: 'breakTap', slip: 'slipNear' };
 const wrong = Object.entries(want).filter(([l, n]) => !made[l].names.includes(n)).map(([l, n]) => `${l} lacks ${n} (${made[l].names.join('+')})`);

@@ -38,7 +38,17 @@ export type ReactionKind =
   | 'slump'       // …and falls back: a groan
   | 'rise'        // …and stands: a roar
   | 'wince'       // a knockdown from the body: a groan, not an eruption
-  | 'shock';      // a flash knockdown: a gasp, then the roar
+  | 'shock'       // a flash knockdown: a gasp, then the roar
+  // Polish phase: the tiers and the kinds.
+  | 'bodyFlush'   // a flush body shot: the intake, then a bigger "oof"
+  | 'finisher'    // the last punch of a clean combination: the house pops
+  | 'flashDown'   // knockdown.kind flash: a shout and surprise that settles fast
+  | 'kneeDown'    // knockdown.kind knee: a murmur
+  | 'out'         // knockdown.kind out: a gasp, a roar, then it drops away
+  | 'hurtLegs'    // rocked and the legs are gone
+  | 'hurtReach'   // rocked and reaching for balance
+  | 'lateFold'    // the body shot that shows a beat late
+  | 'hurtKnee';   // winded and sinking toward a knee
 
 export interface Reaction {
   kind: ReactionKind;
@@ -69,6 +79,8 @@ export class CrowdMood {
   private sinceLand = 0;
   private hurtT = 0;
   private countT = -1;          // seconds since the knockdown while a count runs, else -1
+  private settleT = 0;          // seconds left of fast settling (a flash knockdown: he is straight back up)
+  private outT = -1;            // seconds since a man went out cold, else -1 (the roar, then the house drops away)
   private bellAgo = 99;
   private clock = 0;
   private clinches: number[] = [];   // mood-clock times of recent clinches
@@ -93,6 +105,8 @@ export class CrowdMood {
         knockdown: 1, ko: 1, nearMiss: c.exciteNearMiss, getUp: c.exciteGetUp, bell: c.exciteBell, decision: c.exciteBell,
         escape: c.exciteEscape, guardBreak: c.exciteGuardBreak, liver: c.exciteLand * c.exciteFlush, bodyHurt: c.exciteBodyHurt,
         grumble: 0, ole: c.exciteOle, knee: c.exciteGetUp * 0.6, slump: 0, rise: c.exciteGetUp, wince: c.exciteBodyHurt, shock: 1,
+        bodyFlush: c.exciteLand * c.exciteFlush, finisher: c.exciteFinisher, flashDown: c.exciteFlashKd, kneeDown: c.exciteKneeKd, out: 1,
+        hurtLegs: 0, hurtReach: 0, lateFold: 0, hurtKnee: 0,
       };
       this.add(gain[kind] * strength);
     }
@@ -113,12 +127,17 @@ export class CrowdMood {
       switch (e.type) {
         case 'punchLand': {
           const grade = gradeOf(e);
+          const tiers = c.showCrowdTiersOn;
+          this.lastPos = { x: e.at.x, z: e.at.z };
+          if (tiers && grade === 'glancing') break;   // a miss that touched is nothing to the house: no nudge, no sound, and the lull keeps running
           const scale = grade === 'glancing' ? c.exciteGlance : grade === 'flush' ? c.exciteFlush : 1;
           const chase = this.hurtT > 0 ? c.exciteChaseLand : 1;
-          this.add(c.exciteLand * scale * chase * Math.max(0.3, e.power));
-          this.lastPos = { x: e.at.x, z: e.at.z };
+          // A combination builds in the stands too: each later clean punch counts for more.
+          const build = tiers ? 1 + c.exciteComboStep * Math.min(4, Math.max(0, ((e as { combo?: number }).combo ?? 1) - 1)) : 1;
+          this.add(c.exciteLand * scale * chase * build * Math.max(0.3, e.power));
           this.sinceLand = 0;
-          if (grade === 'flush') this.emit(e.part === 'body' ? 'body' : 'flush', Math.min(1.5, e.power));
+          if (c.showFinisherOn && (e as { finisher?: boolean }).finisher === true) { this.add(c.exciteFinisher); this.emit('finisher', Math.min(1.5, e.power)); }
+          else if (grade === 'flush') this.emit(e.part === 'body' ? (tiers ? 'bodyFlush' : 'body') : 'flush', Math.min(1.5, e.power));
           else if (grade === 'clean') this.emit(e.part === 'body' ? 'body' : 'land', Math.min(1.5, e.power) * 0.5);
           break;
         }
@@ -136,12 +155,26 @@ export class CrowdMood {
           }
           break;
         case 'punchWhiff': if (this.hurtT > 0) this.add(c.exciteNearMiss); break;
-        case 'knockdown':
+        case 'knockdown': {
           this.hurtT = 0; this.countT = 0;
-          if (e.cause === 'body') { this.lift(c.exciteWince); this.emit('wince'); }
-          else if (e.cause === 'flash') { this.lift(1); this.emit('shock'); }
+          // The kind of knockdown (polish phase) decides the house: read `kind` first, the overhaul's `cause` for a heavy one.
+          const kind = c.showKindsOn ? (e as { kind?: string }).kind : undefined;
+          if (kind === 'out') { this.lift(1); this.countT = -1; this.outT = 0; this.emit('out'); }                        // no count: no hush for one — the drop comes from outT
+          else if (kind === 'knee') { this.lift(c.exciteKneeKd); this.emit('kneeDown'); }                                // a murmur, and the house waits out the count
+          else if (kind === 'flash') { this.lift(c.exciteFlashKd); this.countT = -1; this.settleT = c.showFlashSettleSeconds; this.emit('flashDown'); }   // he is up at two: no hush
+          else if (e.cause === 'body') { this.lift(c.exciteWince); this.emit('wince'); }
+          else if (e.cause === 'flash' && kind === undefined) { this.lift(1); this.emit('shock'); }
           else { this.lift(1); this.emit('knockdown'); }
           break;
+        }
+        case 'hurtStyle': {
+          if (!c.showKindsOn) break;
+          const h = e as { kind?: string; style?: string; late?: boolean };
+          if (h.kind === 'head' && h.style === 'legs') this.emit('hurtLegs');
+          else if (h.kind === 'head' && h.style === 'reach') this.emit('hurtReach');
+          else if (h.kind === 'body') { if (h.late) this.emit('lateFold'); if (h.style === 'knee') this.emit('hurtKnee'); }
+          break;
+        }
         case 'escape': this.add(c.exciteEscape); this.emit('escape'); break;
         case 'guardBreak': this.add(c.exciteGuardBreak); this.emit('guardBreak'); break;
         case 'liverShot': this.add(c.exciteLand * c.exciteFlush); this.emit('liver'); break;
@@ -161,9 +194,14 @@ export class CrowdMood {
           else if (e.phase === 'rise') { this.lift(c.exciteGetUp); this.emit('rise'); }
           break;
         case 'getUp': this.countT = -1; this.lift(c.exciteGetUp); this.emit('getUp'); break;
-        case 'ko': case 'tko': this.countT = -1; this.lift(1); this.emit('ko'); break;
+        case 'ko': case 'tko':
+          this.countT = -1; this.lift(1);
+          // Waved off (he was out before he landed): the 'out' reaction is the house's whole answer — no ovation over a man who is not moving.
+          if (!(c.showKindsOn && e.type === 'ko' && (e as { waved?: boolean }).waved === true)) this.emit('ko');
+          break;
         case 'decision': this.lift(c.exciteBell); this.emit('decision'); break;
-        case 'roundStart': case 'roundEnd': case 'bell': this.bell(c); break;
+        case 'roundStart': this.outT = -1; this.settleT = 0; this.bell(c); break;
+        case 'roundEnd': case 'bell': this.bell(c); break;
         default: break;   // events this module has no opinion on, and ones SIM adds later
       }
     }
@@ -186,11 +224,16 @@ export class CrowdMood {
     if (this.hurtT > 0) { this.hurtT -= dt; this.add(c.exciteChase * dt); }
     if (this.countT >= 0) this.countT += dt;
     const base = this.sinceLand > c.exciteLullSeconds ? c.exciteLull : c.exciteBase;
-    this.energy += (base - this.energy) * (1 - Math.exp(-c.exciteDecay * dt));
+    if (this.settleT > 0) this.settleT -= dt;
+    this.energy += (base - this.energy) * (1 - Math.exp(-c.exciteDecay * (this.settleT > 0 ? c.showFlashSettle : 1) * dt));
+    // Out cold: the gasp and the roar run, then the house drops away to near silence and stays there.
+    if (this.outT >= 0) this.outT += dt;
+    const dropped = this.outT > c.showOutDropAfter;
+    if (dropped) this.energy += (c.showOutDrop - this.energy) * (1 - Math.exp(-2.5 * dt));
     const target = this.forced ?? this.energy;
     const rate = target > this.value ? c.exciteAttack : Math.max(c.exciteDecay, 2);
     this.value += (target - this.value) * (1 - Math.exp(-rate * dt));
-    const hushTarget = this.countT >= c.countHushDelay ? 1 : 0;
+    const hushTarget = this.countT >= c.countHushDelay || dropped ? 1 : 0;
     this.hush += (hushTarget - this.hush) * (1 - Math.exp(-(hushTarget ? 1.5 : 4) * dt));
   }
 }

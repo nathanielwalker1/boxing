@@ -55,8 +55,49 @@ declare global {
       /** Draw calls and triangles of the last rendered frame (no 60-frame fps window to wait for). */
       info: () => { calls: number; triangles: number };
       setBoardText: (lines: readonly string[] | null) => void;
+      /** The lens's reaction to hits right now: punch-in, shake and jolt offsets (m) and its position. */
+      cam: () => { punchIn: number; shake: number; jolt: number; pos: [number, number, number] };
+      /** The crowd's hush, 0..1 (the count; a man out cold). */
+      hush: () => number;
     };
   }
+}
+
+/** What one landed punch asks of the lens: a dolly-in (m, and how long it takes to come back), a shake amplitude (m) and a jolt along the punch (m). */
+export interface LandKick { punchIn: number; recover: number; shake: number; jolt: number }
+
+/**
+ * The camera's answer to a landed punch, by grade (pure: the stage plays it,
+ * scripts/audio_render.mjs prints it).
+ *
+ * showCamTiersOn (polish phase): glancing = nothing at all; clean = a push in
+ * proportion to the punch's power; flush = a bigger push, twice the shake and a
+ * jolt along the punch; the finisher = the biggest of all three a land can make.
+ * Off = the overhaul: `impulse × camPunchIn` capped at camPunchInMax — which
+ * EVERY land reached (impulse is in N·s, a glancing jab is 117), so a clean jab
+ * and a clean hook pushed in by the same 25 cm — times flowKickGlancing / Flush.
+ */
+export function landKick(e: Extract<SimEvent, { type: 'punchLand' }>, c: Config): LandKick {
+  const fin = c.showFinisherOn && e.finisher === true && e.grade !== 'glancing';
+  let k: LandKick;
+  if (!c.showCamTiersOn) {
+    const mag = Math.hypot(e.impulse.x, e.impulse.y, e.impulse.z);
+    const kick = e.grade === 'glancing' ? c.flowKickGlancing : e.grade === 'flush' ? c.flowKickFlush : 1;
+    k = { punchIn: Math.min(c.camPunchInMax, mag * c.camPunchIn) * kick, recover: c.camPunchRecover, shake: Math.min(0.06, e.power * c.camShake) * kick, jolt: 0 };
+  } else if (e.grade === 'glancing') {
+    k = { punchIn: 0, recover: c.camPunchRecover, shake: 0, jolt: 0 };
+  } else {
+    const soft = 1 - 0.5 * Math.max(0, Math.min(1, e.nerf ?? 0));   // an arm punch thrown while being hit moves the lens less
+    const flush = e.grade === 'flush';
+    k = {
+      punchIn: c.camPunchInMax * Math.min(1, e.power / Math.max(0.1, c.camPunchPowerRef)) * (flush ? c.camFlushPunchIn : 1) * soft,
+      recover: c.camPunchRecover,
+      shake: Math.min(0.06, e.power * c.camShake * (flush ? c.camFlushShake : 1)) * soft,
+      jolt: flush ? c.camJolt * Math.min(2, e.power) * soft : 0,
+    };
+  }
+  if (fin) k = { punchIn: Math.max(k.punchIn, c.camFinisherPunchIn), recover: c.camFinisherRecover, shake: Math.max(k.shake, c.camFinisherShake), jolt: Math.max(k.jolt, c.camFinisherJolt) };
+  return k;
 }
 
 export class Stage {
@@ -93,6 +134,9 @@ export class Stage {
   private punchDur = 1;
   private shakeAmp = 0;   // camera shake on a landed punch, m (decays over camShakeRecover)
   private shakeT = 0;
+  private joltAmp = 0;    // the jolt along a flush punch, m (polish phase)
+  private joltT = 1e6;
+  private joltDir = { x: 0, z: 0 };
   private az = NaN;       // smoothed follow-camera azimuth, radians (NaN = not yet placed)
   private el = NaN;       // smoothed elevation, radians (the knockdown shot drops it)
   /** Extra handheld drift amplitude this frame, m (the hurt read: the host sets it from the player's hurt level). */
@@ -180,6 +224,8 @@ export class Stage {
       crowd: () => this.arena.stats,
       info: () => this.info,
       setBoardText: lines => this.setBoardText(lines),
+      cam: () => this.reaction,
+      hush: () => mood.hush,
     };
   }
 
@@ -265,13 +311,15 @@ export class Stage {
     for (const e of events) {
       if (e.type === 'knockdown' || e.type === 'ko' || e.type === 'tko') this.koT = 0;
       if (e.type === 'punchLand') {
-        const mag = Math.hypot(e.impulse.x, e.impulse.y, e.impulse.z);
-        // The grade is in the kick (overhaul UI): a glancing shot barely moves the lens, a flush one moves it more than a clean one.
-        const kick = e.grade === 'glancing' ? c.flowKickGlancing : e.grade === 'flush' ? c.flowKickFlush : 1;
-        this.pushPunchIn(Math.min(c.camPunchInMax, mag * c.camPunchIn) * kick, c.camPunchRecover);
-        // Shake scales with the punch's power (jab ≈ 0.7, hook ≈ 1.4), a bigger hit restarts it.
-        const shake = Math.min(0.06, e.power * c.camShake) * kick;
-        if (shake >= this.shakeAmp * Math.exp(-this.shakeT / Math.max(0.02, c.camShakeRecover))) { this.shakeAmp = shake; this.shakeT = 0; }
+        const k = landKick(e, c);
+        this.pushPunchIn(k.punchIn, k.recover);
+        // A bigger hit restarts the shake; a smaller one inside a bigger one's decay is left out.
+        if (k.shake > 0 && k.shake >= this.shakeAmp * Math.exp(-this.shakeT / Math.max(0.02, c.camShakeRecover))) { this.shakeAmp = k.shake; this.shakeT = 0; }
+        // The jolt: the lens shoved along the punch and let back (flush lands and finishers only).
+        if (k.jolt > 0 && k.jolt >= this.joltNow()) {
+          const mag = Math.hypot(e.impulse.x, e.impulse.z);
+          if (mag > 1e-6) { this.joltAmp = k.jolt; this.joltT = 0; this.joltDir.x = e.impulse.x / mag; this.joltDir.z = e.impulse.z / mag; }
+        }
       } else if (e.type === 'knockdown' || e.type === 'ko' || e.type === 'tko') {
         this.pushPunchIn(c.camKoPunchIn, c.camKoRecover);
         this.shakeAmp = Math.min(0.08, c.camShake * 3); this.shakeT = 0;
@@ -284,6 +332,18 @@ export class Stage {
         this.shakeAmp = Math.min(0.08, c.camShake * 2.5); this.shakeT = 0;
       }
     }
+  }
+
+  /** The jolt's offset right now, m: rises to its amplitude over camJoltSeconds and eases back (u·e^(1−u): no step at either end). */
+  private joltNow(): number {
+    const u = this.joltT / Math.max(0.01, this.cfg.camJoltSeconds);
+    return u > 12 ? 0 : this.joltAmp * u * Math.exp(1 - u);
+  }
+
+  /** What the lens is doing about the last hits, right now (probes: a camera that stalls through a hit-stop shows here as frames with no change). */
+  get reaction(): { punchIn: number; shake: number; jolt: number; pos: [number, number, number] } {
+    const shake = this.shakeAmp * Math.exp(-this.shakeT / Math.max(0.02, this.cfg.camShakeRecover)) * Math.sin(this.shakeT * this.cfg.camShakeHz * TAU);
+    return { punchIn: this.punchIn, shake, jolt: this.joltNow(), pos: [this.camera.position.x, this.camera.position.y, this.camera.position.z] };
   }
 
   private pushPunchIn(amp: number, dur: number): void {
@@ -422,10 +482,12 @@ export class Stage {
     const shake = this.shakeAmp * Math.exp(-this.shakeT / Math.max(0.02, c.camShakeRecover));
     const dx = Math.sin(t * c.camDriftHz * TAU) * drift + Math.sin(this.shakeT * c.camShakeHz * TAU) * shake;
     const dy = Math.sin(t * c.camDriftHz * TAU * 1.37 + 1.1) * drift * 0.6 + Math.sin(this.shakeT * c.camShakeHz * TAU * 1.3 + 0.9) * shake * 0.7;
+    this.joltT += dt;
+    const jolt = this.joltNow();
     this.camera.position.set(
-      this.look.x + dist * Math.cos(el) * Math.cos(az) + dx,
+      this.look.x + dist * Math.cos(el) * Math.cos(az) + dx + this.joltDir.x * jolt,
       this.look.y + dist * Math.sin(el) + dy,
-      this.look.z + dist * Math.cos(el) * Math.sin(az),
+      this.look.z + dist * Math.cos(el) * Math.sin(az) + this.joltDir.z * jolt,
     );
     this.camera.lookAt(this.look);
     if (Math.abs(this.camera.fov - this.fov) > 1e-3) { this.camera.fov = this.fov; this.camera.updateProjectionMatrix(); }
