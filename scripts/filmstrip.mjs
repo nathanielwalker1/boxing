@@ -137,11 +137,38 @@ tune(SHEETS.variants, sc => ({ to: sc.from + 18, step: 6, focus: 0, cfg: { camDi
 tune(SHEETS.guards, { from: 10, to: 40, step: 30, focus: 0, cfg: NEAR });
 tune(SHEETS.getup, { from: 60, to: 100, step: 40 });
 
+// ── POLISH phase (docs/POLISH_RIG.md): one punch, one hand, one range, every 2 ticks from the press to the hand home —
+//    first from the play camera on the pair (as Nate sees it), then closer on the puncher, whole body in frame.
+//    `node scripts/filmstrip.mjs polish_hook_lead_055 before` → docs/polish/strip_hook_lead_055_before.png
+//    (rows 1–2 = the pair, rows 3–4 = the puncher). `polish_all` shoots every one.
+const POLISH_LAST = { jab: 20, cross: 32, hook: 36, uppercut: 38 };   // last tick filmed (press at t=2; the hand is home by then, hit or miss)
+export const POLISH = {};
+for (const [punch, hands] of [['hook', ['lead', 'rear']], ['uppercut', ['lead', 'rear']], ['jab', ['lead']], ['cross', ['rear']]]) {
+  for (const hand of hands) for (const [tag, dist] of [['055', 0.55], ['085', 0.85]]) {
+    const press = { 2: { [punch]: true, move: { x: hand === 'lead' ? -1 : 1, y: 0 } } };
+    const base = { dist, s0: at(press), s1: [], from: 2, to: POLISH_LAST[punch], step: 2 };
+    const key = `${punch}_${hand}_${tag}`;
+    SCENARIOS[`pp_${key}`] = { ...base };
+    SCENARIOS[`pc_${key}`] = { ...base, focus: 0, cfg: { camDistMin: 2.7, camLookY: 0.88 } };
+    POLISH[`polish_${key}`] = [`pp_${key}`, `pc_${key}`];
+  }
+}
+// The clinch from the play camera and from a second angle (side-on and above, `cam`), and the variants item 4 asks for.
+SCENARIOS.pp_clinch = { dist: 0.6, s0: hold(hold([], 'block', 0, 100), 'level', 0, 100), s1: [], from: 0, to: 132, step: 6 };
+SCENARIOS.pc_clinch = { ...SCENARIOS.pp_clinch, cfg: { camDistMin: 1.7, camLookY: 1.35 } };
+POLISH.polish_clinch = ['pp_clinch', 'pc_clinch'];
+SCENARIOS.pp_shovel = { dist: 0.55, s0: at({ 2: { hook: true, move: { x: -1, y: 0 } } }), s1: [], from: 2, to: 32, step: 2, focus: 0, cfg: { camDistMin: 2.7, camLookY: 0.88 } };
+SCENARIOS.pp_bodyhook = { dist: 0.7, s0: hold(at({ 12: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], from: 12, to: 46, step: 2, focus: 0, cfg: { camDistMin: 2.7, camLookY: 0.88 } };
+POLISH.polish_shovel_lead_055 = ['pp_shovel'];
+POLISH.polish_bodyhook_lead_070 = ['pp_bodyhook'];
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const label = args.find(a => /^(before|after|wip)$/.test(a)) ?? null;
-const names = args.filter(a => a !== label);
+const cfgArgs = args.filter(a => /^cfg:/.test(a));   // `cfg:key=value` sets a config key for the whole run (A/B a toggle from the command line)
+const names = args.filter(a => a !== label && !cfgArgs.includes(a)).flatMap(a => (a === 'polish_all' ? Object.keys(POLISH) : [a]));
 const run = names.length ? names : Object.keys(SCENARIOS);
+const POLISH_OUT = resolve(HERE, '..', 'docs', 'polish');
 const FRAMES = resolve(HERE, 'output', 'filmstrip', 'frames');
 const OUT = label ? resolve(HERE, '..', 'docs', 'overhaul') : resolve(HERE, 'output', 'filmstrip');
 mkdirSync(FRAMES, { recursive: true }); mkdirSync(OUT, { recursive: true });
@@ -162,6 +189,7 @@ await page.evaluate(() => {
   c.camDistMin = 2.4; c.camLookY = 1.25;   // close on the pair, as Nate plays it
   window.__focus = -1;
 });
+await page.evaluate(sets => { for (const [k, v] of sets) window.__cfg[k] = v === 'true' ? true : v === 'false' ? false : Number(v); }, cfgArgs.map(a => a.slice(4).split('=')));
 
 /** Shoot one scenario; returns its frame files and ticks. */
 async function shoot(name, sc) {
@@ -215,6 +243,22 @@ async function assemble(files, labels, cols, path) {
 }
 
 for (const name of run) {
+  if (POLISH[name]) {
+    // A polish strip: each framing laid out over two rows, the framing's name on its first frame.
+    const files = [], labels = [];
+    let cols = 0;
+    const shots = [];
+    for (const part of POLISH[name]) { const r = await shoot(part, SCENARIOS[part]); shots.push(r); cols = Math.max(cols, Math.ceil(r.files.length / 2)); }
+    shots.forEach((r, k) => {
+      r.files.forEach((f, i) => { files.push(f); labels.push(i === 0 ? `${k === 0 ? 'pair' : 'puncher'}  t=${r.ticks[i]}` : `t=${r.ticks[i]}`); });
+      for (let i = r.files.length; i < cols * 2; i++) { files.push(r.files[r.files.length - 1]); labels.push(''); }
+    });
+    mkdirSync(POLISH_OUT, { recursive: true });
+    const path = label ? `${POLISH_OUT}/strip_${name.replace(/^polish_/, '')}_${label}.png` : `${OUT}/${name}.png`;
+    await assemble(files, labels, cols, path);
+    console.log(`${name} → ${path} (${shots.length} framings × ${cols * 2})`);
+    continue;
+  }
   const rowsOf = SHEETS[name];
   if (rowsOf) {
     // A sheet: one row per scenario, the scenario's name on its first frame.
