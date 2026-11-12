@@ -162,7 +162,7 @@ await key('Escape'); await on('title');
 // ── 10. Gym ──────────────────────────────────────────────────────────────────
 await key('ArrowDown', 2); await key('Enter'); await on('gym');
 const g1 = await page.evaluate(() => ({ items: document.querySelectorAll('#flow .ditem').length, last: [...document.querySelectorAll('#flow .ditem .t')].pop()?.textContent }));
-check(`the gym lists the seven drills and free sparring (${g1.items}; "${g1.last}" last)`, g1.items === 8 && g1.last === 'Free sparring');
+check(`the gym lists the thirteen drills and free sparring (${g1.items}; "${g1.last}" last)`, g1.items === 14 && g1.last === 'Free sparring');
 await shot('gym');
 await key('ArrowUp', 2);   // wraps: Back, then the last drill — the built-in one
 await key('Enter'); await on('fight');
