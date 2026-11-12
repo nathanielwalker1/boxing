@@ -15,7 +15,7 @@
  * `stanceParams` is the ONE place the stance and the bounce are read from, so
  * a style table (core/styles.ts, when it lands) can be pointed at it.
  */
-import { fighterStyle, lerp, spring1, type Config, type FighterState, type GetUpPhase, type PunchVariant, type Side, type SimEvent, type Spring1 } from '../core';
+import { fighterStyle, lerp, spring1, type Config, type FighterState, type GetUpPhase, type HurtStyle, type PunchVariant, type Side, type SimEvent, type Spring1 } from '../core';
 import { chase1 } from './springs';
 
 const DEG = Math.PI / 180;
@@ -108,10 +108,92 @@ export class Reads {
   cover = 0; coverSide = 1;
   /** Clinch: the drawn head's lean onto the other man's shoulder, m (forward, toward the right). */
   headFwd = 0; headLat = 0;
+  // ── Polish phase B (rigReactV2 / rigHurtV2 / rigNerfV2 / rigComboV2): drawn only ──
+  /** The hit-side shoulder gives: drop, m, [the fighter's right, his left]. */
+  readonly shoulderGive: [number, number] = [0, 0];
+  /** A hand knocked loose by a flush shot: how far the drawn glove leaves the sim's, m, [right, left]. */
+  readonly armKick: [number, number] = [0, 0];
+  /** Rocking back on the heels: 0..1 (toes off the canvas). The attacker's lead foot should step now (the follow step). */
+  toeUp = 0; followStep = false;
+  /** 0..1: hold still (the beat before a late body shot folds him): the bounce and the breath stop. */
+  still = 0;
+  /** Rocked: both knees turn in, 0..1; the wobble's size as a multiple. */
+  kneeIn = 0; wobbleAmp = 1;
+  /** A nerfed punch: the hips turn / the heel lifts this fraction of a full punch's. */
+  hipFollowScale = 1; heelScale = 1;
+  private kHeadRoll = spring1(); private kChestYaw = spring1(); private kHipLat = spring1(); private kHipBack = spring1();
+  private kShoulder = [spring1(), spring1()]; private kArm = [spring1(), spring1()];
+  private mouthT = 0; private rockN = 0; private rockT = 0; private sRock = spring1(); private sHurt = spring1(); private sStill = spring1();
+  private sNerf = spring1(); private sFlinch = spring1(); private style: HurtStyle = 'none';
   /** Reddening of the torso by side (the liver is on the right). */
   reddenBodyR = 0; reddenBodyL = 0;
 
   constructor(private side: Side) {}
+
+  /**
+   * rigReactV2 — one landed punch, by where it found him (zone), how well (grade, finisher), which way it was going
+   * (nF forward / nR toward his right, unit, in his frame) and the land's seeded `vary`. Everything is a KICK into a
+   * loose spring, so it follows through and comes back, and two lands stack.
+   *   glancing: the head moves a little and nothing else does.   clean: the head snaps, the shoulder gives, the chest rocks.
+   *   flush: the head whips, the chest goes, the knees dip, a hand is knocked loose, the mouth opens.   finisher: more, both hands.
+   * `vary` picks one of three ways of taking it (rides it: more head, less body / plain / stiffens: less head, more
+   * body), which hand comes loose and how far, which way the hips go, the head's extra roll, and the mouth.
+   */
+  private reactV2(e: Extract<SimEvent, { type: 'punchLand' }>, nF: number, nR: number, c: Config): void {
+    const vary = Math.max(-1, Math.min(1, (e.vary ?? 0) * c.rigReactVary));
+    const gk = e.grade === 'glancing' ? c.rigReactGlancing : e.grade === 'clean' ? c.rigReactClean : 1;
+    const big = gk * (e.finisher ? c.rigReactFinisher : 1);
+    const way = vary < -0.33 ? 0 : vary > 0.33 ? 2 : 1;
+    const headK = way === 0 ? 1.25 : way === 2 ? 0.75 : 1, bodyK = way === 0 ? 0.7 : way === 2 ? 1.5 : 1;
+    const body = e.grade === 'glancing' ? 0 : big * c.rigReactBody * bodyK;
+    // Which way it sends him: +1 = toward his right (he was struck on his left). A punch with no sideways travel is decided by vary.
+    const side = Math.abs(nR) > 0.2 ? Math.sign(nR) : vary >= 0 ? 1 : -1;
+    if (e.part === 'head') {
+      const A = c.rigFlushWhipDeg * DEG * big * c.rigReactHead * headK;
+      // Per zone: head yaw / pitch back / roll, chest rock back, knees, chest yaw, the hit-side shoulder, hips sideways.
+      let yaw = 0.3, pitch = 1, roll = 0, rock = 0.6, sag = 0.4, cyaw = 0, give = 0, hipL = 0.3, sideways = false;
+      switch (e.zone) {
+        case 'chin': yaw = 0.25; pitch = 1.15; roll = 0.3 * vary; rock = 1; sag = 1.2; break;                                  // lifted up and back; the legs feel it
+        case 'jaw': yaw = 1.5; pitch = 0.35; roll = 0.5; rock = 0.4; cyaw = 0.7; give = 1; hipL = 0.6; sideways = true; break;   // the head TURNS, the shoulders go with it
+        case 'temple': yaw = 0.45; pitch = 0.15; roll = 1.4; rock = 0.3; cyaw = 0.35; give = 1.2; hipL = 1; sideways = true; break;   // the head TIPS, ear to the far shoulder, and he is off balance sideways
+        case 'nose': yaw = 0.1 * vary; pitch = 0.85; rock = 1.3; sag = 0.6; break;                                              // straight back, the face screwed shut
+        case 'forehead': yaw = 0.15; pitch = 0.55; rock = 1.7; sag = 0.3; break;                                               // the skull takes it: the chest is shoved, the head hardly moves
+        default: break;
+      }
+      this.kWhipYaw.v += -(sideways ? side : nR) * A * 16 * yaw;
+      this.kWhipPitch.v += Math.max(0.3, -nF) * A * 17 * pitch;
+      this.kHeadRoll.v += side * A * 14 * (roll + (sideways ? 0.25 * vary : 0));
+      this.kRock.v += c.rigBlockRockDeg * DEG * 70 * rock * body;
+      this.kSag.v += 1.1 * sag * body * (e.grade === 'flush' ? 1 : 0.3);
+      this.kChestYaw.v += -side * 10 * DEG * 12 * cyaw * body;
+      this.kShoulder[side < 0 ? 0 : 1]!.v += c.rigReactShoulder * 14 * give * body;   // struck on the side it did NOT go toward
+      this.kHipLat.v += side * 0.4 * hipL * body * (1 + 0.6 * vary);
+      if (e.grade === 'flush' || e.finisher) {
+        const k = c.rigReactArm * 16 * (0.5 + 0.5 * Math.abs(vary)) * big;
+        if (e.finisher) { this.kArm[0]!.v += k; this.kArm[1]!.v += k * 0.8; } else this.kArm[vary >= 0 ? 0 : 1]!.v += k;
+        this.mouthT = 0.35;
+      } else if (e.grade === 'clean' && vary > 0.2) this.mouthT = 0.18;
+      if (nR > 0) this.hitsL += e.power; else this.hitsR += e.power;
+    } else {
+      const F = c.rigBodyFoldDeg * DEG * (e.grade === 'glancing' ? c.rigGradeGlancing : big * 1.6) * c.rigReactBody * (e.grade === 'glancing' ? 1 : bodyK);
+      this.struckSide = e.liver || e.zone === 'liver' ? 1 : nR > 0.15 ? -1 : nR < -0.15 ? 1 : vary >= 0 ? 1 : -1;   // the liver is on his right
+      let roll = 1, pitch = 1, back = 0.3, lat = 0.5, sag = 0.2;
+      switch (e.zone) {
+        case 'solar': roll = 0.15; pitch = 1.7; back = 0.7; lat = 0; this.mouthT = 0.4; break;   // folds over it, the wind going
+        case 'ribs': roll = 1.6; pitch = 0.4; lat = 1; break;                                     // bends sideways onto it
+        case 'liver': roll = 1.2; pitch = 1.1; lat = 0.8; sag = 1; break;                         // sideways AND down
+        case 'belly': roll = 0.1; pitch = 0.8; back = 1.6; sag = 0.4; lat = 0; break;             // the hips go back
+        default: break;
+      }
+      this.kFoldRoll.v += this.struckSide * F * 14 * roll;
+      this.kFoldPitch.v += F * 9 * pitch;
+      this.kHipBack.v += 0.6 * back * gk;
+      this.kHipLat.v += -this.struckSide * 0.4 * lat * gk * (1 + 0.5 * vary);
+      this.kSag.v += sag * gk;
+      if (this.struckSide > 0) this.bodyR += e.power; else this.bodyL += e.power;
+      if (e.grade !== 'glancing') { this.coverT = c.rigCoverTime * (e.grade === 'flush' ? 1.4 : 1) * (1 + 0.3 * vary); this.coverDur = this.coverT; this.coverSide = this.struckSide; }
+    }
+  }
 
   /**
    * `toLocal(x, y, z)` turns a world direction into the fighter's frame as [forward, up, right].
@@ -129,7 +211,8 @@ export class Reads {
         const g = e.grade === 'glancing' ? c.rigGradeGlancing : e.grade === 'flush' ? c.rigGradeFlush : 1;
         const [iF, , iR] = toLocal(e.impulse.x, 0, e.impulse.z);
         const il = Math.hypot(iF, iR) || 1;
-        if (e.part === 'head') {
+        if (c.rigReactV2 && e.zone !== undefined && (e.part === 'head' || c.rigReactBodyZones)) this.reactV2(e, iF / il, iR / il, c);
+        else if (e.part === 'head') {
           // Three sizes that cannot be mistaken for each other: a glancing shot barely turns the head; a clean one
           // snaps it; a flush one whips it right round, rocks the chest back with it and takes longer to come home.
           const whip = c.rigFlushWhipDeg * DEG * (e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.42 : 0.05);
@@ -147,7 +230,9 @@ export class Reads {
           if (this.struckSide > 0) this.bodyR += e.power; else this.bodyL += e.power;
           if (e.grade !== 'glancing') { this.coverT = c.rigCoverTime * (e.grade === 'flush' ? 1.4 : 1); this.coverDur = this.coverT; this.coverSide = this.struckSide; }
         }
-        if (e.grade !== 'glancing') this.winceT = Math.max(this.winceT, c.rigWinceTime * (e.grade === 'flush' ? 1.4 : e.part === 'body' ? 1 : 0.5));
+        if (e.grade !== 'glancing') this.winceT = Math.max(this.winceT, c.rigWinceTime * (e.grade === 'flush' ? 1.4 : e.part === 'body' ? 1 : 0.5) * (c.rigReactV2 && e.zone === 'nose' ? 2.5 : 1));
+        // rigComboV2: while the sim holds his knockback (punches 2…n of a clean combination) he rocks back on his heels a little more each time; the finisher lets him go.
+        if (c.rigComboV2) { if (e.finisher) { this.rockN = 0; this.rockT = 0; } else if (e.combo >= 2 && e.grade !== 'glancing') { this.rockN = Math.min(3, e.combo - 1); this.rockT = 0.45; } }
         const sprayK = e.part === 'head' ? (e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.4 : 0) : 0;
         this.hits.push({ part: e.part, squash: g, squashDur: e.grade === 'flush' ? c.rigGradeFlush : 1, spray: Math.round(c.rigSprayCount * sprayK * (0.3 + 0.7 * this.sweat)), at: e.at, dir: e.impulse });
       } else if (e.type === 'punchBlock' && e.target === this.side) {
@@ -158,6 +243,15 @@ export class Reads {
         this.kRock.v += c.rigBlockRockDeg * DEG * 34 * weight;
         this.kWhipPitch.v += 9 * DEG * 12 * weight;
         this.kSag.v += 0.25 * weight;
+        if (c.rigReactV2) {
+          // Phase 3 found a blocked cross, a blocked hook and a blocked shot on a worn guard "look almost alike": all three
+          // rocked him straight back. A hook on the gloves now shoves him SIDEWAYS (chest turns and tips away from the side
+          // it landed on), an uppercut lifts the gloves and the head, and on a worn guard the hands are driven apart.
+          const hitR = toLocal(e.at.x - f.pos.x, 0, e.at.z - f.pos.z)[2] >= 0 ? 1 : -1;   // which side of him the glove met
+          if (e.punch === 'hook') { this.kChestYaw.v += hitR * 12 * DEG * 12 * weight; this.kFoldRoll.v += -hitR * 7 * DEG * 14 * weight; this.kHipLat.v += -hitR * 0.3 * weight; this.kHeadRoll.v += -hitR * 8 * DEG * 14 * weight; }
+          else if (e.punch === 'uppercut') { this.kWhipPitch.v += 10 * DEG * 14 * weight; this.kSag.v -= 0.2 * weight; }
+          if (e.guard < 0.35) { const k = c.rigReactArm * 16 * (1 - e.guard / 0.35); this.kArm[0]!.v += k; this.kArm[1]!.v += k; this.kSag.v += 0.5; }
+        }
       } else if (e.type === 'guardBreak' && e.side === this.side) {
         this.kRock.v += c.rigBlockRockDeg * DEG * 26;
         this.winceT = Math.max(this.winceT, c.rigWinceTime);
@@ -243,28 +337,67 @@ export class Reads {
       if (v === 'checkHook') { hipYaw += env * 14 * DEG * -handSide; chestYaw += env * 8 * DEG * -handSide; }
       if (v === 'stepJab') step = smooth(p / 0.35) * (1 - smooth((p - 0.75) / 0.25)) * c.rigStepJabReach;
     }
+    // ── Polish phase B: the kind of hurt, the nerfed punch and the flinch, the combination (all drawn only) ──
+    let headPitchX = 0, headRollX = 0, toe = 0, coverHold = 0;
+    this.kneeIn = 0; this.wobbleAmp = 1; this.still = 0;
+    if (c.rigHurtV2) {
+      // The sub-kind (FighterState.hurtStyle) is held while it eases out, so he does not snap to the plain pose as the clock runs down.
+      const hurting = f.hurt > 0 && f.hurtMax > 0 && f.hurtStyle !== 'none';
+      if (hurting) this.style = f.hurtStyle;
+      const h = chase1(this.sHurt, hurting ? Math.min(1, (f.hurt / f.hurtMax) * 2.5) : 0, 80, 0.9, dt);
+      const loll = Math.sin(this.t * 2 * Math.PI * 0.9);
+      switch (this.style) {
+        case 'legs': drop += c.rigHurtLegsDrop * h; this.kneeIn = 0.7 * h; this.wobbleAmp = 1 + 0.5 * h; pitch += 6 * h; break;                                             // the knees buckle; he staggers
+        case 'reach': pitch -= c.rigHurtReachLeanDeg * h; headRollX = loll * 11 * DEG * h; headPitchX = 9 * DEG * h; toe = 0.7 * h; fwd -= 0.03 * h; shrug -= 0.012 * h; break;   // back on his heels, head loose (the sim has his hands wide)
+        case 'cover': pitch += c.rigHurtCoverHunchDeg * h; shrug += 0.03 * h; headPitchX = -10 * DEG * h; drop += 0.03 * h; this.wobbleAmp = 1 - 0.55 * h; break;              // small and tight behind the gloves
+        case 'elbow': roll += this.struckSide * c.rigHurtElbowLeanDeg * h; pitch -= buckle * c.rigBuckleFoldDeg * 0.5 * h; coverHold = 0.92 * h; lat += this.struckSide * 0.03 * h; break;   // leaning onto the pinned elbow, not folded over
+        case 'knee': drop += c.rigHurtKneeDrop * h; lat += this.struckSide * 0.07 * h; pitch -= buckle * c.rigBuckleFoldDeg * 0.25 * h; break;                                  // sinking toward that knee
+        default: break;                                                                                                                                                          // fold: the buckle above
+      }
+      // A body shot that lands a beat late (hurtDelay): upright, tight and STILL, then the fold arrives with the sim's bodyHurt.
+      this.still = chase1(this.sStill, f.hurtDelay > 0 ? 1 : 0, 300, 1, dt);
+      shrug += 0.012 * this.still;
+    }
+    // Taking a knee: the dip as he decides (kneeT runs up to takeKneeHold while the input is held).
+    if (c.rigDownV2 && f.kneeT > 0 && !f.down) { const kd = smooth(f.kneeT / Math.max(1e-3, c.takeKneeHold)); drop += c.rigDownKneeDip * kd; pitch += 6 * kd; }
+    // The nerfed punch (PunchState.nerf): an arm punch — weight on the back foot, chest and head away from it; and the flinch he throws through.
+    const nerf = chase1(this.sNerf, c.rigNerfV2 && f.punch.type !== null ? f.punch.nerf ?? 0 : 0, 300, 1, dt);
+    pitch -= c.rigNerfLeanDeg * nerf * env; fwd -= 0.04 * nerf * env;
+    this.hipFollowScale = 1 - 0.7 * nerf; this.heelScale = 1 - nerf;
+    const flinch = chase1(this.sFlinch, c.rigNerfV2 && f.hitT > 0 ? f.hitSev : 0, 500, 0.9, dt);
+    shrug += c.rigFlinch * flinch; headPitchX -= 8 * DEG * flinch;
+    // The combination: rocking back on the heels while the knockback is held; the attacker's lead foot goes with the sim's follow step.
+    if (this.rockT > 0) this.rockT = Math.max(0, this.rockT - dt);
+    const rock = chase1(this.sRock, c.rigComboV2 && this.rockT > 0 ? this.rockN : 0, 220, 0.8, dt);
+    pitch -= c.rigComboRockDeg * rock; fwd -= 0.015 * rock; toe = Math.max(toe, rock / 3);
+    this.toeUp = toe;
+    this.followStep = c.rigComboV2 && f.punch.type !== null && toLocal(f.stagger.x, 0, f.stagger.z)[0] > 0.25;
     const K = 260, Z = 0.75;
     this.chestPitch = chase1(this.sPitch, pitch * DEG, K, Z, dt) + chase1(this.kFoldPitch, 0, 120, 0.45, dt) - chase1(this.kRock, 0, 150, 0.5, dt) * (0.4 + 0.6 * Math.max(stun, 0.4));
     this.chestRoll = chase1(this.sRoll, roll * DEG, K, Z, dt) + chase1(this.kFoldRoll, 0, 110, 0.4, dt);
-    this.chestYaw = chase1(this.sChestYaw, chestYaw + shapeYaw, K, Z, dt);
+    this.chestYaw = chase1(this.sChestYaw, chestYaw + shapeYaw, K, Z, dt) + chase1(this.kChestYaw, 0, 120, 0.45, dt);
     this.shrug = chase1(this.sShrug, shrug, K, Z, dt);
     this.hipDrop = chase1(this.sDrop, drop, 420, 0.7, dt) + Math.max(0, chase1(this.kSag, 0, 70, 0.6, dt));
-    this.hipFwd = chase1(this.sFwd, fwd, K, Z, dt);
-    this.hipLat = chase1(this.sLat, lat, 120, 0.8, dt);
+    this.hipFwd = chase1(this.sFwd, fwd, K, Z, dt) - chase1(this.kHipBack, 0, 110, 0.55, dt);
+    this.hipLat = chase1(this.sLat, lat, 120, 0.8, dt) + chase1(this.kHipLat, 0, 110, 0.5, dt);
+    for (let k = 0; k < 2; k++) { this.shoulderGive[k] = Math.max(0, chase1(this.kShoulder[k]!, 0, 140, 0.6, dt)); this.armKick[k] = Math.max(0, chase1(this.kArm[k]!, 0, 90, 0.5, dt)); }
     this.hipYaw = chase1(this.sHipYaw, hipYaw, K, Z, dt);
     this.leadStep = chase1(this.sStep, step, 500, 0.9, dt);
     this.heelBoth = chase1(this.sHeelB, heelBoth, 400, 0.8, dt);
     this.heelRear = c.rigBounceHeel * (1 - f.flat) * (1 - 0.6 * post);
     // The head: whip on a loose spring; rocks back with a blocked shot; hangs when winded.
     this.headYaw = chase1(this.kWhipYaw, 0, 90, 0.38, dt);
-    this.headPitch = chase1(this.kWhipPitch, 0, 70, 0.4, dt) + this.kRock.x * 0.6 - buckle * 14 * DEG - fatigue * 6 * DEG + chase1(this.sShapeHead, shapeHead, 200, 0.8, dt);
-    this.headRoll = clinch * 16 * DEG * leadSign + (c.clinchV2 ? tied * c.rigClinchV2HeadDeg * DEG * leadSign : 0);
+    this.headPitch = chase1(this.kWhipPitch, 0, 70, 0.4, dt) + this.kRock.x * 0.6 - buckle * 14 * DEG - fatigue * 6 * DEG + chase1(this.sShapeHead, shapeHead, 200, 0.8, dt) + headPitchX;
+    this.headRoll = clinch * 16 * DEG * leadSign + (c.clinchV2 ? tied * c.rigClinchV2HeadDeg * DEG * leadSign : 0) + headRollX + chase1(this.kHeadRoll, 0, 80, 0.4, dt);
+    // (A neck has limits, however many kicks stack: first film of rigReactV2 had a clean chin shot pointing the face at the ceiling.)
+    this.headPitch = Math.max(-40 * DEG, Math.min(48 * DEG, this.headPitch)); this.headYaw = Math.max(-70 * DEG, Math.min(70 * DEG, this.headYaw)); this.headRoll = Math.max(-35 * DEG, Math.min(35 * DEG, this.headRoll));
     // Clinch: the head goes forward and to its own lead side — onto the other man's shoulder; his does the same, so they pass.
     this.headFwd = clinch * c.rigClinchHead; this.headLat = clinch * c.rigClinchHead * leadSign;
     // Covering up after a body shot: quick down, slow back.
     if (this.coverT > 0) this.coverT = Math.max(0, this.coverT - dt);
     const cu = this.coverT > 0 ? 1 - this.coverT / this.coverDur : 1;
     this.cover = this.coverT > 0 ? smooth(cu / 0.18) * (1 - smooth((cu - 0.55) / 0.45)) : 0;
+    if (coverHold > this.cover) { this.cover = coverHold; this.coverSide = this.struckSide; }   // winded, elbow: it stays pinned
     this.wobble = winded ? 0 : 1;
     this.breathRate = lerp(1, c.rigBreathTired, fatigue) * (winded ? 1.5 : 1);
     this.breathAmp = lerp(1, c.rigBreathTiredAmp, fatigue) * (winded ? 1.6 : 1);
@@ -272,14 +405,15 @@ export class Reads {
     // ── The get-up: lying → stir → a knee → (a slump) → the rise ──
     const phase: GetUpPhase = f.getUp.phase;
     const upT = !f.down ? 1 : phase === 'stir' ? c.rigGetUpStir : phase === 'knee' ? c.rigGetUpKnee : phase === 'slump' ? c.rigGetUpSlump : phase === 'rise' ? 0.9 : 0;
-    this.up = clamp01(chase1(this.sUp, upT, f.down ? c.rigGetUpK : c.rigGetUpK * 1.6, phase === 'slump' ? 1 : 0.75, dt));
+    this.up = clamp01(chase1(this.sUp, upT, (f.down ? c.rigGetUpK : c.rigGetUpK * 1.6) * (c.rigDownV2 && f.downKind === 'flash' ? 3 : c.rigDownV2 && f.downKind === 'knee' ? 1.8 : 1), phase === 'slump' ? 1 : 0.75, dt));
     // He is not steady: a slow sway while he is anywhere between the canvas and his feet.
     this.struggle = f.down && phase !== 'down' && phase !== 'none' ? Math.sin(this.t * 5.3) * 0.5 + Math.sin(this.t * 8.1 + 1) * 0.3 : 0;
 
     // ── Face and skin ──
     if (this.winceT > 0) this.winceT = Math.max(0, this.winceT - dt);
-    this.wince = Math.max(smooth(this.winceT / 0.18), winded ? 0.75 : 0, f.down && phase !== 'rise' ? 0.6 : 0);
-    this.mouthOpen = Math.max(smooth((fatigue - c.rigMouthFrom) / Math.max(0.05, 1 - c.rigMouthFrom)) * 0.85, winded ? 0.9 : 0, f.down ? 0.7 : 0);
+    if (this.mouthT > 0) this.mouthT = Math.max(0, this.mouthT - dt);
+    this.wince = Math.max(smooth(this.winceT / 0.18), winded ? 0.75 : 0, f.down && phase !== 'rise' ? 0.6 : 0, flinch, this.still * 0.5);
+    this.mouthOpen = Math.max(smooth((fatigue - c.rigMouthFrom) / Math.max(0.05, 1 - c.rigMouthFrom)) * 0.85, winded ? 0.9 : 0, f.down ? 0.7 : 0, smooth(this.mouthT / 0.1) * 0.8);
     this.sweat = clamp01(c.rigSweatBase + c.rigSweatFatigue * fatigue + c.rigSweatCap * (1 - f.staminaCap) + 0.3 * f.wear);
     const dh = f.damage.head, db = f.damage.body + f.damage.liver;
     const tot = this.hitsL + this.hitsR;

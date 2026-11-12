@@ -387,3 +387,47 @@ flip `hookV2` / `uppercutV2` / `straightV2` and throw the same punch again.
 level every 4 s; the player does nothing for the first one (watch the entry,
 the heads, the hands, the turn, the break), pushes off the second.
 
+
+---
+
+# Phase B — hit, hurt, floored (rig only) — CUT SHORT
+
+Nate asked for a wrap-up part-way through part 1. State at the stop:
+
+| Part | Code | Toggle (default) | Filmed |
+| --- | --- | --- | --- |
+| 1. Landed punches by zone / grade / vary — HEAD | `rig/reads.ts` `reactV2` | `rigReactV2` (on) | yes: `strip_react_head_after`, `strip_react_grade_before/after` |
+| 1. …BODY zones | same | `rigReactBodyZones` (**off**) | one strip, badly framed — not verified |
+| 1. …blocked cross / hook / worn guard told apart | same | rides `rigReactV2` (on) | **not filmed** |
+| 1. …`vary` | same | `rigReactVary` | **not filmed** |
+| The neck follows the head past `rigNeckReach` | `rig/index.ts` | always | seen only in the head strips |
+| 2. Rocked / winded sub-kinds, `hurtDelay` | written | `rigHurtV2` (**off**) | no |
+| 3. Knockdown kinds, stiff / crumple, `kneeT` | written | `rigDownV2` (**off**) | no |
+| 4. Nerfed punch, flinch | written | `rigNerfV2` (**off**) | no |
+| 5. Combination: heels, follow step | written | `rigComboV2` (**off**) | no |
+
+Parts 2–5 have never been drawn in front of anyone, me included: treat them as unreviewed code, not as features.
+Film scenarios for all of them are in `scripts/filmstrip.mjs` (sheets `react_head`, `react_body`, `react_grade`,
+`react_vary`, `react_block`, `hurt_rocked`, `hurt_body`, `kd_fall`, `kd_up`, `nerf`, `polish_combo`), each a real sim
+outcome checked in Node (flash = `stunBase` 96, out + stiff = 60 with a cross, out + crumple = 60 with an uppercut,
+heavy = `healthDamagePerImpulse` 0.006, a knee by choice at t=26, a nerfed cross at nerf 0.70, a late body hurt at t=55).
+`rig/replay.ts` gained `land` (re-label punchLand for the views) and `init` (start a side hurt in the sim).
+A sheet takes 2–3 minutes on software GL; that, not the code, is what ran out.
+
+**What the strips show.** `strip_react_head_after` (one clean cross, re-labelled per zone, close on the man hit):
+chin — the head goes back, face tipped up; jaw — the head TURNS away, you see the side and back of the skull; temple —
+it tips sideways; nose and forehead — back, less than the chin, and hard to tell from each other and from a small
+chin shot. The first cut pointed the face at the ceiling on a clean chin shot; the pitch was cut and the neck angles
+clamped. `strip_react_grade_after` (play camera): glancing — the head stays level; clean — it tips back, a few
+droplets; flush — thrown well back, more spray; finisher — I cannot tell it from flush. Against
+`strip_react_grade_before` the three grades are a little further apart, not dramatically. These strips re-label
+one sim punch, so the sim's own bigger head travel on a real flush land is NOT in them.
+`strip_react_body_after`: the camera framed the puncher; the four rows look the same. Hence the off-by-default key.
+
+`hurt_test` (the SIM agent's, merged) failed on the integrated branch because the clinch is off by default now; its
+"the hold is a clinch, not a knee" check runs with `clinchOn` on.
+
+Not done from phase A: the uppercut after-strips are still the 14 cm ones; jab / cross pose-grid sheets unread; no fps
+measurement. The `inside` strip was read: shovel hook lands at t=15–21 with spray, the uppercut and body hook follow,
+blue's hook comes back at t=30–36; nothing passes through a torso; at t=24–27 blue's lead glove is flung high and wide
+(the sim's knocked guard).
