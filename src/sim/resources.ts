@@ -23,9 +23,9 @@
  *     at the knockdown; the struggle is laid out between the fall and that
  *     moment, and whether the first try fails is rolled on the seeded rng.
  */
-import type { BodyPart, Config, FighterState, GetUpPhase, Side, SimEvent, SimState } from '../core';
+import type { BodyPart, Config, FallStyle, FighterState, GetUpPhase, KnockdownKind, Side, SimEvent, SimState } from '../core';
 import { clamp, lerp, rngChance, rngRange } from '../core';
-import { getUpAt, healthCap, healthRegenDelay, idlePunch, idleSlip, regenDelay, setGetUpAt, setHealthCap, setHeldKnock, setHealthRegenDelay, setRegenDelay } from './state';
+import { getUpAt, healthCap, healthRegenDelay, idlePunch, idleSlip, regenDelay, setGetUpAt, setGetUpCount, setHealthCap, setHeldKnock, setHealthRegenDelay, setRegenDelay } from './state';
 import { clearPunish } from './vulnerability';
 import { rated } from './ratings';
 
@@ -92,8 +92,14 @@ export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean
 }
 
 /** Down: the bar emptied ('health'), a shot finished a rocked fighter ('finish'), one shot was enough ('flash'), or the body gave ('body') — sim/stun.ts. */
-export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent[], cause: 'health' | 'finish' | 'flash' | 'body'): void {
+export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent[], cause: 'health' | 'finish' | 'flash' | 'body', opt: { kind?: KnockdownKind; fall?: FallStyle; over?: number } = {}): void {
   const d = s.fighters[side];
+  // The kind (polish phase): OUT and a knee are decided by the caller; otherwise a one-shot knockdown of a man with
+  // health left is a FLASH (caught, up early) and everything else is HEAVY (hurt, up late or not at all).
+  const variety = cfg.hurtVarietyOn;
+  const kind: KnockdownKind = opt.kind ?? (cause === 'flash' && d.health >= cfg.knockdownFlashHealth ? 'flash' : 'heavy');
+  const fall: FallStyle = kind === 'out' ? (opt.fall ?? 'crumple') : 'none';
+  d.downKind = kind; d.fall = fall; d.hurtStyle = 'none'; d.hurtDelay = 0; d.kneeT = 0;
   d.down = true;
   d.hurt = 0; d.hurtMax = 0; d.hurtKind = 'none';   // the canvas ends the hurt state; the count is its own thing
   d.downT = 0;
@@ -111,8 +117,14 @@ export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent
   d.hitT = 0; d.hitSev = 0; setHeldKnock(d, 0, 0);   // (polish phase: nothing held or pending survives the canvas)
   for (const f of s.fighters) { f.clinch.active = false; f.clinch.reach = 0; f.clinch.t = 0; f.clinch.by = -1; }
   clearPunish(d);   // the knockdown supersedes any punish window
-  events.push({ type: 'knockdown', side, count: d.knockdowns, cause });
-  if (d.knockdowns >= cfg.knockdownsForTko) {
+  events.push(opt.over === undefined ? { type: 'knockdown', side, count: d.knockdowns, cause, kind, fall } : { type: 'knockdown', side, count: d.knockdowns, cause, kind, fall, over: opt.over });
+  if (variety && kind === 'out') {
+    // OUT before he lands (polish phase): no count. The referee waves it off.
+    events.push({ type: 'ko', winner: side === 0 ? 1 : 0, waved: true });
+    s.round.phase = 'over';
+    d.getUp = { phase: 'down', t: 0, tries: 0, owed: false };
+    setGetUpAt(d, -1);
+  } else if (d.knockdowns >= cfg.knockdownsForTko) {
     events.push({ type: 'tko', winner: side === 0 ? 1 : 0 });
     s.round.phase = 'over';
     d.getUp = { phase: 'down', t: 0, tries: 0, owed: false };
@@ -123,15 +135,22 @@ export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent
     // 10 or more = they do not beat the count. Rolled now so the count is
     // deterministic and the rig can be told how long the fall lasts.
     const chin = clamp(d.ratings.chin / 100, 0, 1);
-    const count = lerp(cfg.getUpCountWorst, cfg.getUpCountBest, chin)
+    const rolled = lerp(cfg.getUpCountWorst, cfg.getUpCountBest, chin)
       + cfg.getUpCountPerKnockdown * (d.knockdowns - 1)
       + rngRange(s.rng, -cfg.getUpJitter, cfg.getUpJitter);
+    // (Polish phase: by the kind. A flash knockdown: up early. A heavy one: late. A knee by choice: he uses the count.)
+    const count = !variety ? rolled
+      : kind === 'knee' ? clamp(cfg.takeKneeCount + (rolled - Math.floor(rolled) - 0.5), cfg.knockdownFlashMin, 9.4)
+      : kind === 'flash' ? Math.max(cfg.knockdownFlashMin, rolled - cfg.knockdownFlashEarly)
+      : rolled + cfg.knockdownHeavyLate;
+    setGetUpCount(d, count);
     setGetUpAt(d, count >= 10 ? -1 : Math.max(0, count) * cfg.countTickSeconds);
     // The struggle (overhaul): does the first try fail? A fighter who will
     // not beat the count always slumps; otherwise the odds grow with the
     // knockdowns this round and shrink with the chin. One roll, made now.
     const beaten = count >= 10;
-    const slump = cfg.getUpOn && (beaten || rngChance(s.rng, clamp(cfg.getUpSlumpChance * (d.knockdowns - chin), 0, 1)));
+    const rolledSlump = cfg.getUpOn && (beaten || rngChance(s.rng, clamp(cfg.getUpSlumpChance * (d.knockdowns - chin), 0, 1)));
+    const slump = rolledSlump && !(variety && (kind === 'knee' || kind === 'flash'));   // a man who chose it, or was only caught, does not fail to get up
     d.getUp = { phase: 'down', t: 0, tries: 0, owed: slump };
     s.round.phase = 'count';
     s.round.count = 0;
@@ -213,7 +232,7 @@ export function stepCount(s: SimState, cfg: Config, dt: number, events: SimEvent
       setHealthCap(f, Math.max(healthCap(f), f.health));
       // The count is a breather (phase 3): he gets up with some wind. Without it a man floored with an empty tank got
       // up with an empty tank — no guard, no punches — and was floored again (measured: 3 knockdowns in 26 s, stamina 0.01 at each get-up).
-      f.stamina = Math.max(f.stamina, Math.min(f.staminaCap, cfg.knockdownStaminaRestore));
+      f.stamina = Math.max(f.stamina, Math.min(f.staminaCap, cfg.hurtVarietyOn && f.downKind === 'knee' ? cfg.takeKneeStamina : cfg.knockdownStaminaRestore));
       events.push({ type: 'getUp', side });
       s.round.phase = 'fighting';
       s.round.phaseT = 0;

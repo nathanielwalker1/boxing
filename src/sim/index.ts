@@ -26,7 +26,7 @@ import { stepArms } from './arms';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip, type FlickRequest } from './slip';
 import { stepVulnerability } from './vulnerability';
-import { stepLiver, stepStun } from './stun';
+import { stepHurtDelay, stepKnee, stepLiver, stepStun } from './stun';
 import { cornerOf, endRound, startRound, stepBetween } from './round';
 import { stepFooting } from './footing';
 import { stepClinch } from './clinch';
@@ -118,6 +118,8 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   }
   // The liver fuse: a clean liver shot buckles him a beat later (or puts him down).
   if (fighting) for (const side of SIDES) stepLiver(s, side, cfg, dt, events);
+  // Polish phase (item 3): a body hurt that lands a beat late; a hurt fighter taking a knee by choice.
+  if (fighting) for (const side of SIDES) { stepHurtDelay(s, side, cfg, dt, events); if (s.round.phase === 'fighting') stepKnee(s, side, ins[side], cfg, dt, events); }
   for (const side of SIDES) { stepReaction(s.fighters[side], cfg, dt); computeBoxes(s.fighters[side], cfg); }
   // Glove targets, then the springs integrated with the contacts (head,
   // body, arms, gloves) resolved inside each sub-step; the arm joints the

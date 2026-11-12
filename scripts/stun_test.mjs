@@ -22,7 +22,9 @@ const [core, sim] = await load('/src/core/index.ts', '/src/sim/index.ts');
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // ratingsOn / stylesOn off (overhaul phase 2): this file pins the reference fighters' numbers and margins as they were before
 // ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
-const base = ({ ...createConfig(), ratingsOn: false, stylesOn: false });
+// (Polish phase, item 3, deliberate: hurtRatesOn / hurtVarietyOn off — this file pins the ROCKED formula and its numbers as designed
+// (stunBase, stunFinishFrac, stunFlashFrac, the punch lock…). The polish phase scales them and adds kinds of hurt; hurt_test pins those.)
+const base = ({ ...createConfig(), ratingsOn: false, stylesOn: false, hurtRatesOn: false, hurtVarietyOn: false });
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();

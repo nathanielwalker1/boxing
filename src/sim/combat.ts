@@ -20,7 +20,7 @@ import { slipBack, slipLateral } from './slip';
 import { applyPunish } from './vulnerability';
 import { applyBodyHurt, applyStun, stunPunchLocked } from './stun';
 import { VARIANTS, aimAtPress, pickVariant } from './variants';
-import { ESCAPE_AT, addHop, guardOf } from './footing';
+import { ESCAPE_AT, addHop, guardOf, hurtMods } from './footing';
 import { rated } from './ratings';
 import { gradeHit, punchReach } from './grade';
 import { addHitStop, applyKnock, followStep, hitNerf, hitZone, openHitWindow, seededUnit, throwWeight, typeWeight } from './flow';
@@ -624,7 +624,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   if (type === 'jab' && cfg.jabImpulseCap > 0) mag = Math.min(mag, cfg.jabImpulseCap);
   const raw = mag;   // what arrived at the guard — block stun, guard wear and the chip threshold read this
   // (What a block absorbs rises a little with the blocker's defense rating, capped.)
-  if (guarded) mag *= 1 - Math.min(BLOCK_MAX, cfg.blockReduction * rated(d, 'defense', cfg.ratingDefenseBlock, cfg)) * cover * (d.hurt > 0 ? cfg.stunBlockScale : 1);   // a rocked guard is loose
+  if (guarded) mag *= 1 - Math.min(BLOCK_MAX, cfg.blockReduction * rated(d, 'defense', cfg.ratingDefenseBlock, cfg)) * cover * (d.hurt > 0 ? Math.min(1, cfg.stunBlockScale * hurtMods(d, cfg).block) : 1);   // a rocked guard is loose (unless he is the kind that covers up: polish phase)
 
   // The grade (overhaul): only a land has one.
   let grade: HitGrade = 'clean';

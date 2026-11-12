@@ -164,6 +164,9 @@ const HIST_STUN_AGE = 38;     // seconds the current block stun has been running
 const HIST_NECK = 39;         // multiplier on the neck clamp for the reaction in progress (a flush shot lets the head travel further)
 const HIST_REACT_VARY = 40;   // −1..1: the seeded variation of the reaction in progress
 const HIST_GETUP_COUNT = 41;  // the count he was rolled to rise on (for the knockdown's kind)
+const HIST_HURT_AFTER = 42;   // seconds left of the raised stun bar after a hurt state ended
+export function hurtAfter(f: FighterState): number { return f.moveHist[HIST_HURT_AFTER] ?? 0; }
+export function setHurtAfter(f: FighterState, t: number): void { f.moveHist[HIST_HURT_AFTER] = t; }
 export function getUpCount(f: FighterState): number { return f.moveHist[HIST_GETUP_COUNT] ?? 0; }
 export function setGetUpCount(f: FighterState, n: number): void { f.moveHist[HIST_GETUP_COUNT] = n; }
 /** How nerfed the punch in flight was AT THE PRESS (its reach is shortened by this; a hit taken in flight does not shorten an arm already on its way). */

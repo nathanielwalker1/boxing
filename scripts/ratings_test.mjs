@@ -56,7 +56,7 @@ console.log('\n=== Stamina ===');
   const noRegen = { ...cfg, staminaRegen: 0 };
   const after = o => run(start(pair(o), 2.0, noRegen), 300, i => [inp({ jab: i % 30 === 0 }), NONE], noRegen).s.fighters[0].stamina;
   const hi = after({ stamina: 90 }), lo = after({ stamina: 40 });
-  check(`ten missed jabs: stamina 90 has ${(hi * 100).toFixed(0)}% left, stamina 40 has ${(lo * 100).toFixed(0)}%`, hi > lo + 0.25);
+  check(`ten missed jabs: stamina 90 has ${(hi * 100).toFixed(0)}% left, stamina 40 has ${(lo * 100).toFixed(0)}%`, hi > lo + 0.12);   // (polish phase, item 6, deliberate: a missed jab costs half what it did, so the gap between the two is 18 points, not 30+)
   const regen = o => { const s = start(pair(o), 2.0); s.fighters[0].stamina = 0.2; return run(s, 60, () => [NONE, NONE]).s.fighters[0].stamina - 0.2; };
   check(`a second of rest gives back ${(regen({ stamina: 90 }) * 100).toFixed(0)}% vs ${(regen({ stamina: 40 }) * 100).toFixed(0)}%`, near(regen({ stamina: 90 }) / regen({ stamina: 40 }), (1 + cfg.ratingStaminaRegen * x(90)) / (1 + cfg.ratingStaminaRegen * x(40)), 0.02));
   const tired = o => { const s = start(pair(o), 2.0, noRegen); s.fighters[0].stamina = 0.5; return run(s, 5, () => [NONE, NONE], noRegen).s.fighters[0]; };

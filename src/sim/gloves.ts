@@ -16,7 +16,7 @@ import { reachNerf, setTargetCut, setTouchedBlock } from './state';
 import { stepArms } from './arms';
 import { hurtLevel } from './stun';
 import { VARIANTS } from './variants';
-import { stanceDrop } from './footing';
+import { hurtMods, stanceDrop } from './footing';
 import { hitBody } from './reaction';
 
 const HANDS: [Hand, Hand] = ['lead', 'rear'];
@@ -70,7 +70,7 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterSta
   // Rocked: the resting guard sags by stunGuardDrop × how rocked (sim/stun.ts) — the chin is open.
   // Overhaul: it also hangs by guardDroop (fatigue, body wear, winded) and, through a guard break, is knocked down and apart.
   const broken = f.guardBroken > 0 ? cfg.guardBreakDrop : 0;
-  const sag = (f.hurt > 0 && f.hurtKind !== 'body' ? cfg.stunGuardDrop * hurtLevel(f) : 0) + f.guardDroop + broken;
+  const sag = (f.hurt > 0 && f.hurtKind !== 'body' ? cfg.stunGuardDrop * hurtLevel(f) * hurtMods(f, cfg).guard : 0) + f.guardDroop + broken;   // (× the kind of rocked: reaching = further, covering up = not at all — polish phase)
   return { pose: sag > 0 ? { fwd: g.fwd, up: g.up - sag, lat: g.lat + Math.sign(g.lat) * broken * 0.5 } : g, kMul: 1, contact: null, guard: true };
 }
 

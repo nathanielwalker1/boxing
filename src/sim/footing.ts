@@ -37,7 +37,7 @@ export function stanceDrop(f: FighterState, cfg: Config): number {
   return f.crouch + guardOf(f, cfg).crouch
     + (cfg.levelOn ? cfg.levelDrop * f.level : 0)
     + (cfg.postureOn ? cfg.insideCrouch * f.posture : 0)
-    + (cfg.bodyHurtOn ? cfg.buckleDrop * f.buckle : 0);
+    + (cfg.bodyHurtOn ? cfg.buckleDrop * f.buckle * hurtMods(f, cfg).buckle : 0);   // (a man sinking toward a knee folds deeper — `buckle` itself stays 0..1; read hurtStyle 'knee' for the rest)
 }
 
 export function rangeBand(dist: number, cfg: Config): RangeBand {
@@ -56,12 +56,27 @@ export function angleExposure(f: FighterState, cfg: Config): number {
   return clamp((a - cfg.angleExposeDeg) / Math.max(1e-6, cfg.angleFullDeg - cfg.angleExposeDeg), 0, 1);
 }
 
+/** The mechanical differences between the kinds of hurt (polish phase, item 3): multipliers on what the hurt state already does. All 1 with hurtVarietyOn off. */
+export function hurtMods(f: FighterState, cfg: Config): { move: number; guard: number; block: number; vuln: number; buckle: number; lock: number } {
+  const m = { move: 1, guard: 1, block: 1, vuln: 1, buckle: 1, lock: 1 };
+  if (!cfg.hurtVarietyOn || !(f.hurt > 0)) return m;
+  switch (f.hurtStyle) {
+    case 'legs': m.move = cfg.hurtLegsMove; break;
+    case 'reach': m.guard = cfg.hurtReachGuard; m.vuln = cfg.hurtReachVuln; break;
+    case 'cover': m.guard = 0; m.block = cfg.stunBlockScale > 0 ? cfg.hurtCoverBlock / cfg.stunBlockScale : 1; m.lock = cfg.hurtCoverLock; break;
+    case 'elbow': m.guard = cfg.hurtElbowDroop; m.move = cfg.hurtElbowMove; break;
+    case 'knee': m.buckle = cfg.hurtKneeBuckle; m.move = cfg.hurtKneeMove; break;
+    default: break;
+  }
+  return m;
+}
+
 /** Everything that scales walking speed and push-off beyond stamina (movement.ts multiplies it in). */
 export function moveScales(f: FighterState, cfg: Config): { speed: number; accel: number } {
   let speed = rated(f, 'speed', cfg.ratingSpeedFeet, cfg) * guardOf(f, cfg).move, accel = 1;   // foot speed: the rating, and a low guard's lighter feet
   if (cfg.levelOn) speed *= 1 - (1 - cfg.levelMoveScale) * f.level;
   speed *= 1 - cfg.bodyMoveLoss * bodyWear(f, cfg);
-  if (f.hurt > 0 && f.hurtKind === 'body') speed *= cfg.bodyHurtMoveScale;
+  if (f.hurt > 0 && f.hurtKind === 'body') speed *= Math.min(1, cfg.bodyHurtMoveScale * hurtMods(f, cfg).move);   // (by the kind of winded: polish phase. The rocked kinds are applied in movement.ts)
   if (cfg.blockStunOn && f.blockStun > 0) speed *= cfg.blockStunMoveScale;
   // A punch plants the feet by its own amount; once it has landed or missed the feet come free half-way.
   const p = f.punch;
@@ -112,7 +127,7 @@ export function stepFooting(f: FighterState, opp: FighterState, input: Readonly<
   const wear = bodyWear(f, cfg);
   f.staminaCap = Math.max(cfg.staminaCapFloor, 1 - wear * cfg.bodyStaminaCapLoss - (cfg.whiffCostOn ? f.wear : 0));
   const winded = f.hurt > 0 && f.hurtKind === 'body' && f.hurtMax > 0 ? clamp(f.hurt / f.hurtMax, 0, 1) : 0;
-  f.guardDroop = f.fatigue * cfg.tiredGuardDroop + wear * cfg.bodyGuardDroop + (winded > 0 ? cfg.bodyHurtGuardDrop * Math.min(1, winded * 2) : 0);
+  f.guardDroop = f.fatigue * cfg.tiredGuardDroop + wear * cfg.bodyGuardDroop + (winded > 0 ? cfg.bodyHurtGuardDrop * Math.min(1, winded * 2) * hurtMods(f, cfg).guard : 0);
   f.buckle = approach(f.buckle, winded > 0 && !f.down ? 1 : 0, cfg.levelTime > 0 ? dt / cfg.levelTime : 1);
 
   // ── The guard meter recovers once it has been left alone.

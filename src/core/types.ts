@@ -450,7 +450,9 @@ export type SimEvent =
   | { type: 'counter';     side: Side; target: Side; punch: PunchType }
   | { type: 'hurt';        side: Side; part: BodyPart; impulse: Vec3 }
   /** kind / fall (polish phase): see KnockdownKind / FallStyle. `cause` keeps its four values (a knee taken by choice reports cause 'health', an instant KO 'flash'): read `kind` for those. */
-  | { type: 'knockdown';   side: Side; count: number; cause: 'health' | 'finish' | 'flash' | 'body'; kind?: KnockdownKind; fall?: FallStyle }
+  | { type: 'knockdown';   side: Side; count: number; cause: 'health' | 'finish' | 'flash' | 'body'; kind?: KnockdownKind; fall?: FallStyle;
+      /** For a knockdown by a head shot: how many times the target's stun threshold the shot was (probes and the crowd's size of reaction). */
+      over?: number }
   /** A hurt state's sub-kind was picked (polish phase): fires with `rocked` / `bodyHurt`, and again when a late body hurt folds him. */
   | { type: 'hurtStyle';   side: Side; kind: HurtKind; style: HurtStyle; late: boolean }
   /** A clean head shot cleared the target's stun threshold (sim/stun.ts): `seconds` of the hurt state. */

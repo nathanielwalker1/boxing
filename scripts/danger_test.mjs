@@ -12,6 +12,10 @@ import { kit } from './bots/kit.mjs';
 import { check, near, done } from './check.js';
 
 const k = await kit();
+// (Polish phase, item 3, deliberate: hurtRatesOn / hurtVarietyOn off — this file pins the danger numbers as designed (the liver drop, the
+// counter flash, the get-up struggle); the polish phase scales the rates and adds kinds of hurt and of knockdown, pinned in hurt_test.
+// Set on the kit's own config object so every helper default sees it.)
+k.cfg.hurtRatesOn = false; k.cfg.hurtVarietyOn = false;
 const { cfg, sim, inp, NONE, T, fresh, run, of, first, mag, flick, SIM_DT } = k;
 const MID = 0.79;
 const soft = { ...cfg, healthDamagePerImpulse: 0.00002, healthRegen: 0 };   // the bar never empties by itself here
@@ -117,6 +121,7 @@ console.log('\n=== 4. Counter flash ===');
 console.log('\n=== 4b. The loaded counter ===');
 {
   const r = await kit({ rated: true });
+  r.cfg.hurtRatesOn = false; r.cfg.hurtVarietyOn = false;   // (as at the top of the file)
   const c = r.cfg;
   const len = v => Math.hypot(v.x, v.y, v.z);
   const GAP = 3;
