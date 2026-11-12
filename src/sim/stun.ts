@@ -147,7 +147,8 @@ export function stepStun(f: FighterState, dt: number, cfg?: Config): void {
 
 /** No punch starts for the first stunPunchLock (rocked) / bodyHurtPunchLock (winded) seconds of the hurt state. */
 export function stunPunchLocked(f: FighterState, cfg: Config): boolean {
-  return f.hurt > 0 && f.hurtMax - f.hurt < (f.hurtKind === 'body' ? cfg.bodyHurtPunchLock : cfg.stunPunchLock);
+  // (Polish phase: with hitNerfOn the locks are hurtPunchLockScale as long — the hands come back sooner, and what they throw is nerfed.)
+  return f.hurt > 0 && f.hurtMax - f.hurt < (f.hurtKind === 'body' ? cfg.bodyHurtPunchLock : cfg.stunPunchLock) * (cfg.hitNerfOn ? cfg.hurtPunchLockScale : 1);
 }
 
 /** 0..1: how hurt, for the rig and the reads (1 = just hurt, fading to 0 as it clears). */

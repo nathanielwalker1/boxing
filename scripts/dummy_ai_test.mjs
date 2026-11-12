@@ -445,7 +445,9 @@ const quiet = base;
   // jabs into its wind-up (the sim stuffs it), and with aiCoverChance 1 the
   // guard comes up as soon as the rewound arm is home, the armed burst dropped.
   const coverRun = chance => {
-    const cfg = { ...quiet, aiCoverChance: chance, aiSpeedScale: 0, aiBlockChance: 0, aiJabWeight: 0, aiCrossWeight: 0, aiHookWeight: 1, aiUppercutWeight: 0, aiHookEngageDist: 0.95, aiAttackDelayMin: 999, aiAttackDelayMax: 999, aiComboChance: 1, aiComboMax: 3, aiReactionTime: 0 };
+    // (Polish phase, deliberate: with hitNerfOn a clean jab no longer stuffs a wind-up — only a flush shot early in it
+    // does. What this pins is the AI's cover AFTER a stuff, so it runs on the old interrupt rule; interrupt_test has the new one.)
+    const cfg = { ...quiet, hitNerfOn: false, aiCoverChance: chance, aiSpeedScale: 0, aiBlockChance: 0, aiJabWeight: 0, aiCrossWeight: 0, aiHookWeight: 1, aiUppercutWeight: 0, aiHookEngageDist: 0.95, aiAttackDelayMin: 999, aiAttackDelayMax: 999, aiComboChance: 1, aiComboMax: 3, aiReactionTime: 0 };
     const w = fresh(cfg);
     w.s.fighters[0].pos = { x: -0.425, z: 0 }; w.s.fighters[1].pos = { x: 0.425, z: 0 };
     run(w, ticks(0.5));

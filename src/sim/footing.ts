@@ -21,7 +21,8 @@
  */
 import type { Config, FighterState, FrameInput, GuardDef, RangeBand, Side, SimEvent, Vec2 } from '../core';
 import { rated } from './ratings';
-import { GUARDS, RING_HALF, angleDelta, clamp, cos, frameOf, handLateralSign, sin, v2angle, v2dist } from '../core';
+import { GUARDS, RING_HALF, SIM_DT, angleDelta, clamp, cos, frameOf, handLateralSign, sin, v2angle, v2dist } from '../core';
+import { setStunAge, stunAge } from './state';
 import { VARIANTS } from './variants';
 
 const DEG = Math.PI / 180;
@@ -78,6 +79,9 @@ export function stepFooting(f: FighterState, opp: FighterState, input: Readonly<
   const down0 = (t: number): number => Math.max(0, t - dt);
   f.burstCd = down0(f.burstCd); f.turned = down0(f.turned); f.pushCd = down0(f.pushCd);
   f.blockStun = down0(f.blockStun); f.clinch.cd = down0(f.clinch.cd);
+  // Polish phase: how long this block stun has run, in REAL time (the punch lock is its first hitLockMax — combat.ts), and the hit window.
+  setStunAge(f, f.blockStun > 0 ? stunAge(f) + SIM_DT : 0);
+  if (f.hitT > 0) { f.hitT = down0(f.hitT); if (f.hitT === 0) f.hitSev = 0; }
   if (f.loadedT > 0) { f.loadedT = down0(f.loadedT); if (f.loadedT === 0) f.loaded = 0; }
   if (f.comboT > 0) { f.comboT = down0(f.comboT); if (f.comboT === 0) f.combo = 0; }
   if (f.guardBroken > 0) { f.guardBroken = down0(f.guardBroken); if (f.guardBroken === 0) f.guardHp = Math.max(f.guardHp, cfg.guardBreakRestore); }

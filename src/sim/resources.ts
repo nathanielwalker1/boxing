@@ -25,7 +25,7 @@
  */
 import type { BodyPart, Config, FighterState, GetUpPhase, Side, SimEvent, SimState } from '../core';
 import { clamp, lerp, rngChance, rngRange } from '../core';
-import { getUpAt, healthCap, healthRegenDelay, idlePunch, idleSlip, regenDelay, setGetUpAt, setHealthCap, setHealthRegenDelay, setRegenDelay } from './state';
+import { getUpAt, healthCap, healthRegenDelay, idlePunch, idleSlip, regenDelay, setGetUpAt, setHealthCap, setHeldKnock, setHealthRegenDelay, setRegenDelay } from './state';
 import { clearPunish } from './vulnerability';
 import { rated } from './ratings';
 
@@ -97,6 +97,7 @@ export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent
   d.hop = { x: 0, z: 0 }; d.burstT = 0; d.pivot = { t: 0, dir: 0, left: 0, cx: 0, cz: 0 };
   d.level = 0; d.riseT = 0; d.posture = 0; d.buckle = 0; d.liverT = 0; d.liverMag = 0;
   d.blockStun = 0; d.guardBroken = 0; d.loaded = 0; d.loadedT = 0; d.combo = 0; d.comboT = 0;
+  d.hitT = 0; d.hitSev = 0; setHeldKnock(d, 0, 0);   // (polish phase: nothing held or pending survives the canvas)
   for (const f of s.fighters) { f.clinch.active = false; f.clinch.reach = 0; f.clinch.t = 0; f.clinch.by = -1; }
   clearPunish(d);   // the knockdown supersedes any punish window
   events.push({ type: 'knockdown', side, count: d.knockdowns, cause });

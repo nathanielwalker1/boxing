@@ -191,7 +191,18 @@ export interface PunchState {
   aim: number;
   /** Cancelled before the commit point (a feint): rewinding home, never resolves. */
   feint: boolean;
+  /** NERFED (polish phase): 0..1, how much this punch was thrown — or caught in flight — while its thrower was being hit or is hurt. It comes out slower, shorter and weaker by this much (hitNerf… keys). 0 = a normal punch. Draw / voice it: an arm punch, off balance. */
+  nerf: number;
 }
+
+/** Where a landed punch found the target (polish phase), from the contact geometry: head zones and body zones. */
+export type HitZone = 'chin' | 'jaw' | 'temple' | 'nose' | 'forehead' | 'solar' | 'ribs' | 'liver' | 'belly';
+/** The sub-kind of a hurt state (polish phase). Rocked (head): legs = the legs are gone, reach = reaching for balance, cover = covering up. Winded (body): fold = folded over, elbow = an elbow clamped down on the side, knee = sinking toward a knee. */
+export type HurtStyle = 'none' | 'legs' | 'reach' | 'cover' | 'fold' | 'elbow' | 'knee';
+/** What kind of knockdown (polish phase): flash = caught, up early; heavy = hurt, barely beats the count (or does not); knee = took a knee by choice; out = unconscious before he lands, no count. */
+export type KnockdownKind = 'flash' | 'heavy' | 'knee' | 'out';
+/** How a man who is OUT goes down: stiff (a plank) or crumple (the legs fold). */
+export type FallStyle = 'none' | 'stiff' | 'crumple';
 
 export interface SlipState {
   active: boolean;
@@ -343,6 +354,18 @@ export interface FighterState {
   /** COMBINATION: consecutive clean/flush lands inside the chain (0 = none) and the seconds before it lapses. */
   combo: number;
   comboT: number;
+  /** BEING HIT (polish phase): seconds left of the "hit" window a landed punch opened on this fighter, and how hard that hit was, 0..1 (glancing low, flush 1). A punch he starts inside it is nerfed (PunchState.nerf). Draw: the flinch he is throwing through. */
+  hitT: number;
+  hitSev: number;
+  /** The sub-kind of the hurt state while hurt > 0 (polish phase): see HurtStyle. Picked at the hurt from the shot and the seeded rng; each has a small mechanical difference (hurt… keys). */
+  hurtStyle: HurtStyle;
+  /** A body hurt that lands a beat LATE (polish phase): seconds until the fold begins (0 = none pending). He is hit, keeps his feet for this long, then folds. */
+  hurtDelay: number;
+  /** The last / current knockdown's kind and, if he is out, how he falls (polish phase). 'none' fall = an ordinary knockdown. Meaningful while down. */
+  downKind: KnockdownKind;
+  fall: FallStyle;
+  /** TAKING A KNEE (polish phase): seconds the take-a-knee input has been held while hurt (0 = not asking). At takeKneeHold he goes down by choice. */
+  kneeT: number;
 
   // ── derived every step by the sim, read by rig/render/ai — never written elsewhere
   headBox: Sphere;
@@ -375,6 +398,8 @@ export interface SimState {
   tick: number;
   time: number;        // sim seconds elapsed (advances during hit-stop at the scaled rate)
   hitStop: number;     // seconds of hit-stop remaining (global)
+  /** Hit-stop spent lately, s (polish phase): a leaky bucket — every freeze granted adds to it, it drains at hitStopBudget per hitStopBudgetWindow. A new freeze is cut to what the budget has left. Optional so states built by hand elsewhere stay valid; the sim treats a missing value as 0. */
+  stopUsed?: number;
   rng: RngState;
   round: RoundState;
   fighters: [FighterState, FighterState];
@@ -386,9 +411,12 @@ export type BodyPart = 'head' | 'body';
 
 export type SimEvent =
   /** variant = what was actually thrown; tell = seconds until its hit test (the read the defender gets). */
-  | { type: 'punchStart';  side: Side; punch: PunchType; hand: Hand; variant: PunchVariant; tell: number }
+  /** nerf (polish phase) = 0..1, thrown while being hit / hurt: slower, shorter, weaker by that much. */
+  | { type: 'punchStart';  side: Side; punch: PunchType; hand: Hand; variant: PunchVariant; tell: number; nerf?: number }
   /** grade = glancing / clean / flush (the tier every downstream read keys off); combo = which punch of a clean combination this is (1 = first); liver = a body shot on the liver side; through = it came round or through a held guard; wrongWay = the target slipped INTO it. */
-  | { type: 'punchLand';   side: Side; target: Side; punch: PunchType; hand: Hand; part: BodyPart; at: Vec3; impulse: Vec3; power: number; counter: boolean; variant: PunchVariant; grade: HitGrade; combo: number; liver: boolean; through: boolean; wrongWay: boolean }
+  | { type: 'punchLand';   side: Side; target: Side; punch: PunchType; hand: Hand; part: BodyPart; at: Vec3; impulse: Vec3; power: number; counter: boolean; variant: PunchVariant; grade: HitGrade; combo: number; liver: boolean; through: boolean; wrongWay: boolean;
+      /** Polish phase. finisher = the last, biggest punch of a clean combination (its own bonus; sound / camera / crowd key on it). zone = where it found him, from the contact geometry. vary = −1..1, a seeded variation (the same punch never lands identically twice; the reaction springs already carry it). nerf = how nerfed the punch was. */
+      finisher?: boolean; zone?: HitZone; vary?: number; nerf?: number }
   /** chip = health the guard let through (0 on a light shot); guard = the guard meter after it; stun = block stun, s. */
   | { type: 'punchBlock';  side: Side; target: Side; punch: PunchType; at: Vec3; variant: PunchVariant; part: BodyPart; chip: number; guard: number; stun: number }
   | { type: 'perfectBlock'; side: Side; target: Side; punch: PunchType; at: Vec3; variant: PunchVariant }
@@ -421,7 +449,10 @@ export type SimEvent =
   | { type: 'slip';        side: Side; dir: -1 | 1 | 2; dodged: boolean; kind: SlipKind; chain: number }
   | { type: 'counter';     side: Side; target: Side; punch: PunchType }
   | { type: 'hurt';        side: Side; part: BodyPart; impulse: Vec3 }
-  | { type: 'knockdown';   side: Side; count: number; cause: 'health' | 'finish' | 'flash' | 'body' }
+  /** kind / fall (polish phase): see KnockdownKind / FallStyle. `cause` keeps its four values (a knee taken by choice reports cause 'health', an instant KO 'flash'): read `kind` for those. */
+  | { type: 'knockdown';   side: Side; count: number; cause: 'health' | 'finish' | 'flash' | 'body'; kind?: KnockdownKind; fall?: FallStyle }
+  /** A hurt state's sub-kind was picked (polish phase): fires with `rocked` / `bodyHurt`, and again when a late body hurt folds him. */
+  | { type: 'hurtStyle';   side: Side; kind: HurtKind; style: HurtStyle; late: boolean }
   /** A clean head shot cleared the target's stun threshold (sim/stun.ts): `seconds` of the hurt state. */
   | { type: 'rocked';      side: Side; by: Side; punch: PunchType; impulse: number; threshold: number; seconds: number }
   | { type: 'countTick';   side: Side; n: number }
@@ -429,7 +460,8 @@ export type SimEvent =
   | { type: 'roundStart';  index: number }
   | { type: 'roundEnd';    index: number; score: [number, number] }
   | { type: 'bell' }
-  | { type: 'ko';          winner: Side }
+  /** waved = the referee waved it off without a count (polish phase: he was out before he landed). */
+  | { type: 'ko';          winner: Side; waved?: boolean }
   | { type: 'tko';         winner: Side }
   | { type: 'decision';    winner: Side | null; cards: [number, number][] };
 

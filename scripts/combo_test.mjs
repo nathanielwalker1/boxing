@@ -192,7 +192,8 @@ const spam = (periodS, seconds, c = cfg) => {
   check('mashing faster than the fighter can punch lands as many as the chain window allows', fast.starts.length >= ceiling * 0.8 && fast.starts.length <= ceiling, `${fast.starts.length} punches from ${fast.presses} presses (ceiling ${ceiling}): ${fast.seq}`);
   check('…never faster than the chain window allows', fast.minGapS >= jabMin - 1e-9, `min gap ${(fast.minGapS * 1000).toFixed(0)} ms vs ${(jabMin * 1000).toFixed(0)} ms`);
 
-  const noBuf = { ...cfg, punchBuffer: 0, punchChainAt: 1 };
+  // (Polish phase: "the old settings" include the old hit-stop — with the jab's freeze halved this cadence happens to fit every press between punches.)
+  const noBuf = { ...cfg, punchBuffer: 0, punchChainAt: 1, hitStopBudgetOn: false };
   const old = spam(0.25, 3, noBuf);
   check('the old settings (no buffer, no chain) drop presses — the bug being fixed', old.starts.length < human.starts.length, `${old.starts.length} vs ${human.starts.length}: ${old.seq}`);
   console.log(`     combo rate when mashing: ${(fast.starts.length / 3).toFixed(1)} punches/s (v1-style at 4/s presses: ${(old.starts.length / 3).toFixed(1)}/s)`);

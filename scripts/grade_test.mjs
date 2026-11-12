@@ -30,7 +30,8 @@ console.log('\n=== 1. Clean ===');
 for (const [type, d] of [['jab', MID], ['cross', MID], ['hook', 0.72]]) {
   const a = hit(type, d), b = hit(type, d, plain);
   check(`a set ${type} at ${d} m is CLEAN and worth exactly what it was (${a.land?.power.toFixed(3)})`, a.land?.grade === 'clean' && near(a.land.power, b.land.power, 1e-9));
-  check(`…hit-stop = hitStopBase × power, capped (${a.hs.toFixed(3)} s)`, near(a.hs, Math.min(cfg.hitStopMax, cfg.hitStopBase * a.land.power), 1e-9));
+  // (Polish phase, deliberate: a clean JAB's freeze is hitStopJabScale of that — the most frequent land in a fight, and the lightest.)
+  check(`…hit-stop = hitStopBase × power, capped${type === 'jab' ? ' × hitStopJabScale' : ''} (${a.hs.toFixed(3)} s)`, near(a.hs, Math.min(cfg.hitStopMax, cfg.hitStopBase * a.land.power) * (type === 'jab' && cfg.hitStopBudgetOn ? cfg.hitStopJabScale : 1), 1e-9));
 }
 
 // ── 2. Glancing ─────────────────────────────────────────────────────────────
@@ -87,7 +88,8 @@ console.log('\n=== 4. Combinations ===');
   // first two knock him out of the hook's reach (measured: the 3 of a 1-2-3 whiffs on a free target at 0.74 m — a
   // third punch has to be stepped in behind, or thrown on the ropes). No rebound and no rocking, so the on / off runs
   // differ only by the build.
-  const base = { ...cfg, ropeRebound: 0, stunBase: 0 };
+  // (Polish phase: the hold, the follow step and the finisher are off here — this section pins the BUILD ratios alone; flow_test pins those three.)
+  const base = { ...cfg, ropeRebound: 0, stunBase: 0, comboHoldOn: false, comboStepOn: false, comboFinisherOn: false, hitStopBudgetOn: false, comboHitStopScale: 1, reactionVary: 0, hitNerfOn: false, gradeSpreadOn: false };   // (…and the old hit-stop: the budget makes the freeze, and so the timing of the next punch, depend on the power being compared)
   const combo = (c, seq = ['jab', 'cross', 'hook']) => {
     const s0 = fresh(c, 0.74, 20, k.bound(c) - 0.02 - 0.37);
     const r = run(s0, 70, i => [inp({ [seq[0]]: i === 0, [seq[1]]: i === 2, [seq[2]]: i === 16 }), NONE], c);
@@ -101,7 +103,7 @@ console.log('\n=== 4. Combinations ===');
   check('the first punch of a combination is untouched', near(on.lands[0].power, off.lands[0].power, 1e-9));
   const cap = { ...base, comboBuildStep: 0.3 };
   const capped = combo(cap), capOff = combo({ ...cap, comboBuildOn: false });
-  check('the bonus is capped at comboBuildMax', near(capped.lands[2].power / capOff.lands[2].power, 1 + cfg.comboBuildMax, 0.03));
+  check('the bonus is capped at comboBuildMax', near(capped.lands[2].power / capOff.lands[2].power, 1 + cfg.comboBuildMax, 0.03), `${capped.lands.map(l => `${l.variant}:${l.grade}:${l.power.toFixed(2)}`).join(' ')} vs off ${capOff.lands.map(l => `${l.variant}:${l.grade}:${l.power.toFixed(2)}`).join(' ')}`);
 
   // Resets.
   // (From 0.66 m: the first jab knocks him back ~0.15 m and the second must still be in clean range — a glancing land neither counts nor resets.)

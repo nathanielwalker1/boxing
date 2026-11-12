@@ -30,6 +30,7 @@ import { stepLiver, stepStun } from './stun';
 import { cornerOf, endRound, startRound, stepBetween } from './round';
 import { stepFooting } from './footing';
 import { stepClinch } from './clinch';
+import { stepHitStopBudget, stepHold } from './flow';
 
 export { healthCap, PUNISH_SLIP, punishSource } from './state';
 export { canStartPunch } from './combat';
@@ -39,6 +40,7 @@ export { stanceDrop, rangeBand, bodyWear, angleExposure } from './footing';
 export { punchReach, probe as gradeProbe } from './grade';
 export { getUpPhaseAt } from './resources';
 export { scoreRound } from './round';
+export { hitNerf, hitZone, seededUnit } from './flow';
 
 const SIDES: [Side, Side] = [0, 1];
 
@@ -134,6 +136,10 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     settleContacts(s.fighters[0], s.fighters[1], cfg);
     for (const side of SIDES) stepArms(s.fighters[side], cfg, 0);
   }
+  // Polish phase (flow.ts): knockback held while a combination ran is let go once it is over; the hit-stop bucket refills.
+  stepHold(s.fighters[0], s.fighters[1], cfg);
+  stepHold(s.fighters[1], s.fighters[0], cfg);
+  stepHitStopBudget(s, cfg);
   stepCount(s, cfg, dt, events);
   stepBetween(s, cfg, dt, events);
 
