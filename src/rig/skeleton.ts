@@ -122,8 +122,9 @@ export function rigDims(spec: FighterSpec, body: BodyDims, cfg: Config): RigDims
   const neckR = body.headR * cfg.rigNeckR * (1 + m.neck * cfg.rigMorphNeckR);
   const neckBase = body.chestLen * 0.05;
   return {
-    upperArmR: body.bodyR * cfg.rigUpperArmR * limb,
-    forearmR: body.bodyR * cfg.rigForearmR * limb,
+    // The referee's arms are an older man's: thinner than a fighter's (cfg.rigRefArm).
+    upperArmR: body.bodyR * cfg.rigUpperArmR * limb * (spec.outfit ? cfg.rigRefArm : 1),
+    forearmR: body.bodyR * cfg.rigForearmR * limb * (spec.outfit ? cfg.rigRefArm : 1),
     thighR: body.bodyR * cfg.rigThighR * limb,
     shinR: body.bodyR * cfg.rigShinR * limb,
     neckR,

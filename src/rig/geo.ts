@@ -29,6 +29,16 @@ export class Geo {
   /** Sparse morph deltas: name → vertex → [dx, dy, dz]. */
   morph = new Map<string, Map<number, [number, number, number]>>();
 
+  /** Named runs of vertices and indices (a part builder's output), for the clipping check: which vertices are the trunks, which the skin. */
+  parts: { name: string; v0: number; v1: number; i0: number; i1: number }[] = [];
+
+  /** Run a part builder and record the vertices and indices it added under `name`. */
+  part(name: string, build: () => void): void {
+    const v0 = this.count, i0 = this.idx.length;
+    build();
+    this.parts.push({ name, v0, v1: this.count, i0, i1: this.idx.length });
+  }
+
   get count(): number { return this.pos.length / 3; }
   get triangles(): number { return this.idx.length / 3; }
 

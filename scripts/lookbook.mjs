@@ -100,6 +100,8 @@ const rows = [];
 for (const id of roster) {
   const row = [];
   for (const [name, kind, az, el, dist, lookFrac, st] of (shots ? SHOT_VIEWS : VIEWS)) {
+    // (Again per view: a hot reload while another workstream edits the sources drops the page's roster.)
+    if (shots) await page.evaluate(async () => { const m = await import('/src/core/roster.ts'); m.addToRoster(m.REFEREE); });
     await page.evaluate(([id, kind, az, el, dist, lookFrac, camAz, fov]) => {
       window.__look(id, kind, camAz - az);
       const c = window.__cfg;

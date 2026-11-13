@@ -26,6 +26,11 @@ export { BONE, BONE_COUNT, rigDims, type RigDims } from './skeleton';
 
 /** Morph targets, in order (the face state the view exposes). */
 export const MORPHS = ['wince', 'mouthOpen', 'swellL', 'swellR'] as const;
+/**
+ * Phase 1.3 morphs, appended after MORPHS (indices 4 and 5 of morphTargetInfluences; also in morphTargetDictionary by name). They are
+ * kept out of MORPHS because the rig driver (index.ts) types its face state by that list; the next worker folds them in. See LOG_MESH.md.
+ */
+export const MORPHS_EXTRA = ['grimace', 'slack'] as const;
 
 /** Everything that changes the geometry or the atlas; the view rebuilds when it changes. */
 export function rigGeomKey(spec: FighterSpec, body: BodyDims, cfg: Config): string {
@@ -38,6 +43,8 @@ export function rigGeomKey(spec: FighterSpec, body: BodyDims, cfg: Config): stri
     cfg.rigChestWidth, cfg.rigWaistDepth, cfg.rigPelvisWidth, cfg.rigHipJoint, cfg.rigDeltoid, cfg.rigMuscleDef, cfg.rigMorphMuscleDef,
     cfg.rigMorphMuscleLimb, cfg.rigMorphFatBelly, cfg.rigMorphNeckR, cfg.rigAoStrength, cfg.rigHandScale, cfg.rigJointBlend, cfg.rigQuality,
     // anim Phase 1.1: the skeleton changes the bones (a hierarchy) and the skin weights.
+    // anim Phase 1.2 / 1.3.
+    cfg.rigNeckBase, cfg.rigHipBlend, cfg.rigTrunkGap, cfg.rigRefBelly, cfg.rigRefArm, cfg.rigRefTrouser,
     cfg.skelOn, cfg.skelSpine1At, cfg.skelSpine2At, cfg.skelChestAt, cfg.skelNeckBase, cfg.skelHeadPivot, cfg.skelClavicleInset, cfg.skelSkinBlend,
   ].join('|');
 }
@@ -55,6 +62,9 @@ export interface RigMesh {
   boneBind: THREE.Vector3[];
   atlas: FighterAtlas;
   triangles: number;
+  /** Named runs of the geometry (torso, arm0, leg0, trunks, glove0 …) by vertex and index range. */
+  parts: { name: string; v0: number; v1: number; i0: number; i1: number }[];
+  specId: string;
   dispose(): void;
 }
 
@@ -69,17 +79,16 @@ export function buildRigMesh(
   const c: Ctx = { g, spec, body, d, cfg, m: morphOf(spec), lat: latSign, low, bind, rect: atlasRect };
 
   const torso = torsoShape(c);
-  buildTorso(c, torso);
-  for (let i = 0; i < 2; i++) { buildArm(c, i); buildLeg(c, i); }
+  g.part('torso', () => buildTorso(c, torso));
+  for (let i = 0; i < 2; i++) { g.part(`arm${i}`, () => buildArm(c, i, torso)); g.part(`leg${i}`, () => buildLeg(c, i)); }
   const head = headShape(c);
-  buildHead(c, head);
-  buildHair(c, head);
-  buildFacialHair(c, head);
-  buildTrunks(c, torso);
-  for (let i = 0; i < 2; i++) { buildGlove(c, i); buildBoot(c, i); }
-  if (spec.outfit) buildBowTie(c, torso);
+  g.part('head', () => buildHead(c, head));
+  g.part('hair', () => { buildHair(c, head); buildFacialHair(c, head); });
+  g.part('trunks', () => buildTrunks(c, torso));
+  for (let i = 0; i < 2; i++) { g.part(`glove${i}`, () => buildGlove(c, i)); g.part(`boot${i}`, () => buildBoot(c, i)); }
+  if (spec.outfit) g.part('tie', () => buildBowTie(c, torso));
 
-  const geometry = g.build(MORPHS);
+  const geometry = g.build([...MORPHS, ...MORPHS_EXTRA]);
   const span = armSpan(c);
   const atlas = paintAtlas(spec, cfg, low, {
     torsoV: y => 1 - (y - torso.yBottom) / (torso.yTop - torso.yBottom),
@@ -125,13 +134,26 @@ export function buildRigMesh(
   outline.visible = cfg.outlines;
   group.add(outline);
 
-  return {
-    group, bones, skeleton, body: bodyMesh, outline, dims: d, bind, boneBind, atlas, triangles: g.triangles,
+  const built: RigMesh = {
+    group, bones, skeleton, body: bodyMesh, outline, dims: d, bind, boneBind, atlas, triangles: g.triangles, parts: g.parts, specId: spec.id,
     dispose(): void {
+      if (typeof window !== 'undefined' && window.__rigMeshes) { const k = window.__rigMeshes.indexOf(built); if (k >= 0) window.__rigMeshes.splice(k, 1); }
       geometry.dispose();
       skeleton.dispose();
       atlas.dispose();
       group.removeFromParent();
     },
   };
+  // Test hook (scripts/clip_check.mjs): every live fighter mesh, so the check can read the skinned vertices the page is drawing.
+  if (typeof window !== 'undefined') { (window.__rigMeshes = window.__rigMeshes ?? []).push(built); window.__THREE = THREE; }
+  return built;
+}
+
+declare global {
+  interface Window {
+    /** three.js, for scripts/mesh_view.mjs (it renders a bare mesh on its own canvas). */
+    __THREE?: typeof THREE;
+    /** The live fighter meshes (newest last). Test hook for scripts/clip_check.mjs; nothing in the game reads it. */
+    __rigMeshes?: RigMesh[];
+  }
 }
