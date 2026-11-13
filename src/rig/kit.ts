@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { addGrid, bump, KIND, rowParams, sampleKeys, sgnPow, smooth01, type BW } from './geo';
 import { BONE, armBones, legBones, type Ctx } from './skeleton';
-import { legStations, type TorsoShape } from './anatomy';
+import { legBumps, legSkinWeights, legStations, limbPoint, type TorsoShape } from './anatomy';
 
 const TAU = Math.PI * 2;
 
@@ -114,22 +114,86 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
   const cut = spec.trunksStyle;
   const bandH = outfit ? R * 0.22 : R * (cut === 'belt' ? 0.9 : 0.5);
   const top = torso.waistY + (outfit ? -sp * 0.1 : sp * 0.1) + (cut === 'belt' ? R * 0.22 : 0);
-  const bottom = hy - R * 0.6;
-  const keys = [top, top - bandH, hy + sp * 0.05, hy - R * 0.3, bottom];
-  const ys = rowParams(keys.map(k => -k), [outfit ? 1 : 3, 4, 3, 2], c.low).map(k => -k);
+  const gap = cfg.rigTrunkGap;
+  const leg = legStations(c);
+  const bumps = legBumps(c);
+  // Where the panel ends and the two leg shells begin: at the crotch, a little below the hip joint. The panel's lower rim is the OUTER OUTLINE
+  // of the two leg shells' top rings, so the shell is closed all the way round from the waistband to the hem and nothing can show between.
+  const sRim = d.thighR * 0.85;
+  const rimY = hy - sRim;
+  const bottom = outfit ? hy - R * 0.6 : rimY;
+  const keys = outfit ? [top, top - bandH, hy + sp * 0.05, hy - R * 0.3, bottom] : [top, top - bandH, hy + sp * 0.05, hy - R * 0.1, bottom];
+  const ys = rowParams(keys.map(k => -k), [outfit ? 1 : 3, 4, 3, outfit ? 3 : 4], c.low).map(k => -k);
   const cols = c.low ? 20 : 36;
   const skirt = cut === 'skirt' && !outfit;
   const vBand = 0.26;
-  // Body: the torso's own surface, pushed out — a thick waistband, then cloth that hangs off the hips.
+  const row = [0, 0, 0, 0];
+  let len = Math.max(d.trunkLen, sRim + 0.05);
+  const mirrorOf = (i: number): boolean => c.lat[i]! < 0;
+  /** Phase 1.3: leg i's shell surface at depth sh and angle phi: the leg's own surface (muscle bumps and all) pushed OUT by gapAt along its own radial. Pre-mirror, local to the joint. */
+  const legSurf = (i: number, sh: number, phi: number, gapAt: number, out: THREE.Vector3): void => {
+    const J = c.bind[legBones(i).thigh]!;
+    limbPoint(leg.keys, leg.vals, bumps, sh, phi, row, out);
+    let ex = out.x - row[2]!, ez = out.z - row[3]!;
+    const el = Math.hypot(ex, ez) || 1;
+    ex /= el; ez /= el;
+    out.set(J.x + out.x + ex * gapAt, J.y - sh, Math.abs(J.z) + out.z + ez * gapAt);
+  };
+  // The union of the two legs' outlines at depth s, as a polygon each (rig-local x, z, post-mirror), for the panel's rim.
+  const NP = 48;
+  const polyCache = new Map<number, number[][]>();
+  const polys = (s: number): number[][] => {
+    const hit = polyCache.get(s);
+    if (hit) return hit;
+    const out: number[][] = [];
+    const p = new THREE.Vector3();
+    for (let i = 0; i < 2; i++) {
+      const pts: number[] = [];
+      for (let k = 0; k < NP; k++) {
+        legSurf(i, s, (k / NP) * TAU, gap, p);
+        pts.push(p.x, mirrorOf(i) ? -p.z : p.z);
+      }
+      out.push(pts);
+    }
+    polyCache.set(s, out);
+    return out;
+  };
+  /** Farthest distance from the centre line at which the ray at polar angle psi leaves any of the polygons (0 if it hits none). */
+  const rayReach = (pl: number[][], psi: number): number => {
+    const dx = Math.cos(psi), dz = Math.sin(psi);
+    let best = 0;
+    for (const pts of pl) {
+      for (let k = 0; k < NP; k++) {
+        const ax = pts[2 * k]!, az = pts[2 * k + 1]!, bx = pts[2 * ((k + 1) % NP)]!, bz = pts[2 * ((k + 1) % NP) + 1]!;
+        // ray O + t d = A + u (B − A): t = cross(A, e) / cross(d, e), u = cross(A, d) / cross(d, e)
+        const ex = bx - ax, ez = bz - az;
+        const den = dx * ez - dz * ex;
+        if (Math.abs(den) < 1e-12) continue;
+        const t = (ax * ez - az * ex) / den, u = (ax * dz - az * dx) / den;
+        if (u >= 0 && u <= 1 && t > best) best = t;
+      }
+    }
+    return best;
+  };
+  // Body: the torso's own surface, pushed out — a thick waistband, then cloth that hangs off the hips — widening at the hips to the outline of the
+  // thigh tops (the pelvis alone is narrower than the two thighs it hangs from).
+  const blendTop = hy + R * 0.45;
   addGrid(c.g, {
     rows: ys.length, cols, wrap: true,
     point: (r, j, out) => {
       const y = ys[r]!;
       const band = y >= top - bandH;
       const sag = smooth01((top - bandH - y) / (R * 0.8));
-      const lift = outfit ? 0.012 : band ? 0.016 : 0.012 + 0.04 * sag;
+      const lift = outfit ? 0.02 : band ? gap * 0.9 : gap * 0.6 + 0.04 * sag;
       torso.point(y, (0.5 - j / cols) * TAU, out, lift);
       if (band && !outfit) { const edge = bump((y - (top - bandH / 2)) / (bandH * 0.62)); out.x *= 1 + 0.012 * edge; out.z *= 1 + 0.012 * edge; }
+      if (!outfit && y < blendTop) {
+        const w = smooth01((blendTop - y) / (blendTop - rimY));
+        const r0 = Math.hypot(out.x, out.z), psi = Math.atan2(out.z, out.x);
+        const ru = rayReach(polys(hy - y), psi);
+        const rr = r0 + (Math.max(r0, ru) - r0) * w;
+        if (r0 > 1e-6) { out.x *= rr / r0; out.z *= rr / r0; }
+      }
     },
     weights: p => torso.weights(p),
     rect: c.rect('trunks'), kind: KIND.cloth,
@@ -142,9 +206,6 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
   });
   if (outfit) return;
 
-  const leg = legStations(c);
-  const row = [0, 0, 0, 0];
-  let len = d.trunkLen;
   if (skirt) {
     // One flared skirt of panels round both legs; each half follows its own leg's hem bone.
     const rows = c.low ? 5 : 8;
@@ -170,35 +231,41 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
       ao: cfg.rigAoStrength * 0.4,
     });
     // Short leg panels under the skirt, in the same cloth: a thigh that lifts shows trunks at its root, not skin.
-    len *= 0.62;
+    len = Math.max(len * 0.62, sRim + 0.05);
   }
   for (let i = 0; i < 2; i++) {
     const bones = legBones(i);
     const J = c.bind[bones.thigh]!;
     const mirror = c.lat[i]! < 0;
     const lc = c.low ? 12 : 16;
-    const s0 = -d.thighR * 0.1;   // starts at the hip joint, under the body panel (higher, it came through the waistband on a wide fighter)
-    const sKeys = [s0, len * 0.25, len * 0.7, len];
+    const s0 = sRim;   // starts where the panel's rim is: the rim is the outline of these top rings
+    const sKeys = [s0, s0 + (len - s0) * 0.3, s0 + (len - s0) * 0.7, len];
     const ss = rowParams(sKeys, [2, 3, 3], c.low);
     const hemAt = (phi: number): number => cut === 'split' ? 1 - 0.42 * bump((phi - Math.PI / 2) / 0.75) : 1;
-    const ring = (s: number, phi: number, gap: number, out: THREE.Vector3): void => {
+    const ring = (s: number, phi: number, gapAt: number, out: THREE.Vector3): void => {
       const sh = Math.max(s0, s * hemAt(phi));
-      sampleKeys(leg.keys, leg.vals, Math.max(sh, 0), row);
-      const t = Math.max(0, sh) / len;
-      // Starts under the body panel (no two cloth surfaces share a plane), then hangs away from the thigh toward the hem, with a few folds.
-      const g = 0.002 + (gap - 0.002) * smooth01(t / 0.3) + 0.024 * t + 0.008 * t * Math.cos(phi * 5 + i);
-      out.set(J.x + row[2]! + (row[0]! + g) * Math.cos(phi), J.y - sh, Math.abs(J.z) + row[3]! + (row[1]! + g) * Math.sin(phi));
+      // The thigh's own surface, muscle bumps and all, pushed OUT by the gap, which opens a little toward the hem (cloth hangs, it does not
+      // cling) with a few folds.
+      const t = Math.max(0, sh - s0) / (len - s0);
+      legSurf(i, sh, phi, gapAt + 0.022 * t + 0.006 * t * Math.cos(phi * 5 + i), out);
     };
     const weights = (p: THREE.Vector3): BW[] => {
+      // The skin's own weight field (pelvis → thigh → knee helper → shin), so the shell and the thigh under it move as one, including over a bending
+      // knee (a long cut reaches it); the hem takes a share toward the cloth's lower edge, except where the knee is bending the skin.
       const s = J.y - p.y;
-      const t = Math.min(1, Math.max(0, s / len));
-      const wHips = 0.3 * (1 - smooth01(t / 0.4));    // mostly the thigh's: more of the hips and the thigh comes through the cloth when it lifts
-      const wHem = 0.8 * smooth01((t - 0.15) / 0.85);
-      return [[BONE.hips, wHips], [bones.hem, wHem], [bones.thigh, Math.max(0, 1 - wHips - wHem)]];
+      const t = Math.min(1, Math.max(0, (s - s0) / (len - s0)));
+      const base = legSkinWeights(c, i, p);
+      let kneeShare = 0;
+      for (const e of base) if (e[0] !== BONE.hips && e[0] !== bones.thigh) kneeShare += e[1];
+      // At most 0.45 × cfg.rigClothMax of cloth swing at the hem, which the hem flare below (gap + 2.2 cm) can absorb: a swinging hem never uncovers the thigh.
+      const wHem = 0.45 * smooth01((t - 0.15) / 0.85) * (1 - kneeShare);
+      const w: BW[] = base.map(e => [e[0], e[1] * (1 - wHem)] as BW);
+      w.push([bones.hem, wHem]);
+      return w;
     };
     addGrid(c.g, {
       rows: ss.length, cols: lc, wrap: true, mirror,
-      point: (r, j, out) => ring(ss[r]!, (j / lc) * TAU - Math.PI / 2, 0.022, out),
+      point: (r, j, out) => ring(ss[r]!, (j / lc) * TAU - Math.PI / 2, gap, out),
       weights,
       rect: c.rect(mirror ? 'trunkLegL' : 'trunkLegR'), kind: KIND.cloth,
       uv: (r, j) => [j / lc, (ss[r]! - s0) / (len - s0)],
@@ -209,7 +276,8 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
       rows: 2, cols: lc, wrap: true, mirror,
       point: (r, j, out) => {
         const phi = (j / lc) * TAU - Math.PI / 2;
-        if (r === 0) ring(len, phi, 0.022, out); else { ring(len - 0.03, phi, -0.03, out); }
+        // The lining: from the outer lip in to just off the skin, so the leg opening reads as a hem, not a hole (never inside the skin).
+        if (r === 0) ring(len, phi, gap, out); else ring(len - 0.03, phi, -0.008, out);
       },
       weights,
       outward: (_p, o) => { o.set(0, -1, 0); },
