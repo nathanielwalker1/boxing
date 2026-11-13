@@ -116,19 +116,22 @@ export function headShape(c: Ctx): HeadShape {
     const front = smooth01((cf + 0.05) / 0.5);
     let h = 0;                                            // radial relief, head radii
     // Brow ridge and the sockets under it.
-    h += front * (0.035 + 0.035 * hm.brow) * bump((y - FACE.browY) / 0.1) * bump(ath / 1.15);
-    h -= front * 0.07 * bump((ath - FACE.eyeTh) / 0.3) * bump((y - FACE.eyeY) / 0.13);
-    h -= front * 0.03 * bump(ath / 0.16) * bump((y - 0.2) / 0.12);                       // the nasion, between the eyes
-    // Cheekbones, the hollow under them, the jaw corner.
-    h += 0.035 * (1 + 0.5 * hm.width) * bump((ath - 0.95) / 0.5) * bump((y + 0.03) / 0.16);
-    h -= 0.03 * (1 - fat) * bump((ath - 0.85) / 0.45) * bump((y + 0.36) / 0.2);
-    h += (0.03 + 0.05 * hm.jaw) * bump((ath - 1.45) / 0.5) * bump((y + 0.55) / 0.22);
+    // Phase 1.3: a heavier brow ridge, deeper sockets, a firmer cheekbone and a jawline that runs from the corner to the chin.
+    h += front * (0.05 + 0.04 * hm.brow) * bump((y - FACE.browY) / 0.1) * bump(ath / 1.15);
+    h -= front * 0.09 * bump((ath - FACE.eyeTh) / 0.3) * bump((y - FACE.eyeY) / 0.13);
+    h -= front * 0.035 * bump(ath / 0.16) * bump((y - 0.2) / 0.12);                      // the nasion, between the eyes
+    // Cheekbones, the hollow under them, the jaw corner and the line of the jaw.
+    h += 0.045 * (1 + 0.5 * hm.width) * bump((ath - 0.95) / 0.5) * bump((y + 0.03) / 0.16);
+    h -= 0.04 * (1 - fat) * bump((ath - 0.85) / 0.45) * bump((y + 0.36) / 0.2);
+    h += (0.04 + 0.05 * hm.jaw) * bump((ath - 1.45) / 0.5) * bump((y + 0.55) / 0.22);
+    h += (0.02 + 0.02 * hm.jaw) * (1 - fat) * bump((ath - 1.0) / 0.5) * bump((y + 0.8) / 0.1);
     // Lips, the groove between them, the chin.
     const mouthW = bump(ath / (FACE.mouthHalfTh * 1.25));
     h += front * 0.035 * mouthW * bump((y - (FACE.mouthY + 0.06)) / 0.07);
     h += front * 0.04 * mouthW * bump((y - (FACE.mouthY - 0.065)) / 0.075);
     h -= front * 0.02 * mouthW * bump((y - FACE.mouthY) / 0.03);
     h -= front * 0.025 * bump(ath / 0.4) * bump((y + 0.67) / 0.07);                      // under the lower lip
+    h -= front * 0.014 * bump(ath / 0.07) * bump((y - (FACE.mouthY + 0.17)) / 0.08);     // the philtrum
     h += front * (0.035 + 0.04 * hm.chin) * bump(ath / 0.42) * bump((y + 0.84) / 0.14);
     // Temples.
     h -= 0.02 * bump((ath - 1.15) / 0.4) * bump((y - 0.36) / 0.2);
@@ -144,6 +147,9 @@ export function headShape(c: Ctx): HeadShape {
       const width = 0.07 + 0.12 * Math.pow(Math.max(0, Math.min(1, t)), 1.5) * ns;
       x += ns * along * Math.pow(bump(ath / (width * 2.6)), 1.8) * smooth01((t + 0.2) / 0.2);
     }
+    // The nostril mass: a wing (ala) each side of the tip, standing out from the cheek, with the nostril hollow under it.
+    x += 0.04 * ns * bump((ath - 0.2) / 0.1) * bump((y - (FACE.noseBaseY + 0.045)) / 0.06) * front;
+    x -= 0.012 * bump((ath - 0.13) / 0.07) * bump((y - (FACE.noseBaseY - 0.005)) / 0.035) * front;
     const yy = y >= 0 ? y * (1 + 0.07 * hm.height) : y * (1 + 0.05 * hm.chin);
     out.set(x * R, yy * R + (lift && y > 0.9 ? lift : 0), z * R);
   };
@@ -224,6 +230,26 @@ export function buildHead(c: Ctx, hs: HeadShape): void {
         const rx = p.x - H.x - pivot.x, ry = p.y - H.y - pivot.y;
         out.mouthOpen = [(rx * cj - ry * sj - rx) * jw, (rx * sj + ry * cj - ry) * jw, 0];
       }
+      const frontMask = smooth01((Math.cos(th) + 0.1) / 0.5);
+      // Grimace (teeth clenched): the brow hauled down and together, the eyes narrowed, the cheeks bunched, the nose wrinkled, the lips drawn
+      // back wide and thin so the strip between them opens a little onto the guard and the teeth. The jaw stays shut.
+      {
+        const mouthBand = bump(ath / (FACE.mouthHalfTh * 1.35)) * bump((y - FACE.mouthY) / 0.2) * frontMask;
+        const lipSign = i === MOUTH_UPPER ? 1 : i === MOUTH_LOWER ? -1 : 0;
+        const nose = bump(ath / 0.32) * bump((y - (FACE.noseBaseY + 0.08)) / 0.14) * frontMask;
+        const gy = -(y - FACE.eyeY) * 0.6 * eye - 0.05 * brow + 0.065 * cheek + 0.035 * nose + (0.022 * lipSign + 0.0) * mouthBand * (lipSign !== 0 ? 1 : 0);
+        const gx = 0.015 * brow - 0.01 * eye;
+        const gz = -Math.sign(th) * 0.035 * brow + Math.sign(th) * 0.055 * mouthBand;
+        if (Math.abs(gy) + Math.abs(gx) + Math.abs(gz) > 1e-4) out.grimace = [gx * R, gy * R, gz * R];
+      }
+      // Slack (stunned, out on his feet): the jaw hangs part-way open, the upper lids half shut, the brow and cheeks let go.
+      {
+        const lid = y > FACE.eyeY ? -(y - FACE.eyeY) * 0.62 * eye : 0;
+        const sy = lid - 0.025 * brow - 0.02 * cheek;
+        const jaw = out.mouthOpen;
+        const sx = jaw ? jaw[0] * 0.5 : 0, sjy = jaw ? jaw[1] * 0.5 : 0;
+        if (Math.abs(sy) + Math.abs(sx) + Math.abs(sjy) > 1e-4) out.slack = [sx, sjy + sy * R, 0];
+      }
       return out;
     },
   });
@@ -246,7 +272,11 @@ function buildEars(c: Ctx, hs: HeadShape): void {
         // A flattened ellipsoid (the ear), tipped back and flared off the skull.
         const phi = -Math.PI / 2 + Math.PI * i / (rows - 1), th = j / cols * Math.PI * 2;
         const w = 0.155 * size;
-        const ex = w * Math.cos(phi) * Math.cos(th), ey = 0.26 * size * Math.sin(phi), ez = 0.045 * Math.cos(phi) * Math.sin(th);
+        const ex = w * Math.cos(phi) * Math.cos(th), ey = 0.26 * size * Math.sin(phi);
+        // The outer face is scooped (the concha) inside a raised rim, with a fuller lobe at the bottom: an ear, not a flat petal.
+        const scoop = 1 - 0.7 * Math.max(0, Math.sin(th)) * bump(ey / (0.26 * size * 0.85)) * bump((ex + 0.08 * w) / (w * 0.85));
+        const lobe = 1 + 0.5 * bump((ey + 0.19 * size) / (0.1 * size));
+        const ez = 0.045 * Math.cos(phi) * Math.sin(th) * scoop * lobe;
         // Rooted at its front edge, the back edge swings out by the flare; the top leans back a little.
         const q = (w - ex) / (2 * w);
         const back = q * 2 * w + 0.05 * ey;
@@ -486,7 +516,8 @@ export function buildFacialHair(c: Ctx, hs: HeadShape): void {
       if (jw < 1e-3) return null;
       const pivotX = -0.1 * R, pivotY = -0.12 * R, a = -JAW_OPEN_DEG * Math.PI / 180;
       const rx = p.x - H.x - pivotX, ry = p.y - H.y - pivotY;
-      return { mouthOpen: [(rx * Math.cos(a) - ry * Math.sin(a) - rx) * jw, (rx * Math.sin(a) + ry * Math.cos(a) - ry) * jw, 0] };
+      const dx = (rx * Math.cos(a) - ry * Math.sin(a) - rx) * jw, dy = (rx * Math.sin(a) + ry * Math.cos(a) - ry) * jw;
+      return { mouthOpen: [dx, dy, 0], slack: [dx * 0.5, dy * 0.5, 0] };   // slack: the jaw hangs half-way
     },
   });
 }
