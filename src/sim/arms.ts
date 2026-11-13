@@ -60,7 +60,7 @@ export function stepArms(f: FighterState, cfg: Config, dt: number): void {
     setArmPose(f, i, pose);
     const solved = solveArm(f.body, cfg, f.stance, hand, f.bodyBox.b, f.bodyBox.a, fr, f.torsoTwist, reach, glove, pose);
     // anim Phase 1.1: with the skeleton on, solveArm's joints are the hint (its elbow is the pole); the arm and glove come from the fit.
-    if (cfg.skelOn && f.skel) fitSimArm(f, cfg, i, solved, reach);
+    if (cfg.skelOn && f.skel) fitSimArm(f, cfg, i, solved, reach, pose);
     else f.arms[i] = solved;
   }
 }

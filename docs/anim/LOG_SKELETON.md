@@ -160,13 +160,53 @@ Branch `anim/skeleton-and-feel`. Every decision with its reason. Spec: `docs/ani
     fixture asks for more than arm length; the fixture states have no sim skeleton, the rig clamps). Facing left the
     rear hook at p=0.6 sends blue's glove over his own head — the fixture's target, hit sphere there too.
 
+## Phase 1.1b — review fix-ups (2026-11-13)
+
+Tool: `scripts/skel_probe.mjs` (permanent; `node scripts/skel_probe.mjs [punch hand] [--table] [--set key=val]`):
+per tick, elbow flexion, shoulder swing/twist, clavicle, joints ON a limit, glove target → hand error, the
+clearance-pole blend and whether core/arms.ts would snap, upper-arm / flexion change and elbow travel per tick; with
+`--set skelOn=false` the legacy joints.
+
+1. **Hook elbow ("dislocated").** MEASURED, lead hook t16–22 (the film's ticks): no joint clamped, the pole switch never
+   fired. With the pole turned by the FULL torso twist (my 1.1 fix) the elbow sat 29 cm forward, 10 cm below the
+   shoulder and 13 cm ACROSS the midline, 72° abduction, ~80° external rotation: a vertical forearm standing across the
+   face on a low, crossed elbow — the fit obeying a bad POLE (mine). Unturned (the legacy pole) the elbow goes 21 cm out
+   in the floor frame, 55° of horizontal extension behind 66°-turned shoulders: the shoulder sits on its cone t16–23 and
+   the hook whiffs — a bad legacy TARGET combination. `skelPoleTwist` 0.5 (new key): elbow 11 cm outside, 5–7 cm below
+   the shoulder, no clamp, lands on the head; upper arm ≤ 23°/tick (was 25), elbow ≤ 17 cm/tick (legacy 18.8).
+   Pole switch: replaced in the skeleton path by a continuous blend of the same two poles over ± `skelClearBlend`
+   (sim/skel.ts armPole; core/arms.ts untouched, skelOn off unchanged). It now engages only on the lead uppercut (0.07, t17).
+   Bad LEGACY targets for Phase 1.4 (fit obeys them): hook t11–13 shoulder twist −31 → −70 → −94° (40°/tick) as the glove
+   sweeps ~20 cm/tick while the level lag rises; hook glove targets 20–30 cm above the shoulder (the head CENTRE), so a
+   level elbow cannot also have a level forearm; uppercut 60–63°/tick upper-arm swing (elbow 36–38 cm in a tick) when
+   uppercutV2's binary "back" target flips into the fast lag; cross 45°/tick at the extension.
+   Shifts at 0.5: danger_test §4b slip-counter lead hook whiffs; heights_test hook→boiler body shots miss; ai_tools
+   inside-fighter 0–8. Those sections are pinned to `skelPoleTwist: 1` (comments in the files).
+2. **Whiplash.** Neck + head extension 65° → 35° (neck 22 + head 13), flexion 40, lateral 30, rotation 70 (config). The
+   unreachable sideways / fore-aft part of the head target is carried by the spine (`skelHeadSpineCarry` 1: the chest
+   target moves by it, one more spine + neck pass). Clean cross (skel_test): neck + head ≤ 22.5° extension, spine 16.2°,
+   head travel 30.1 cm (29.5 before).
+3. **Head sunk into the shoulders.** Cause: a head target CLOSER than neck + head reach (a slip's dip, a sink, a drop the
+   neck base did not share) was aimed at along its own direction, which tilts the neck far over and drops the head into
+   the trapezius. Fix: aim at the point on the head's reach sphere straight above the target (sideways and fore-aft
+   offsets tilt the neck; a pure drop is not chased). Head centre to neck base held within 0.1 cm.
+4. **Chicken-wing guard.** Two causes. Rig: the drawn arm was re-fitted from the rig's bladed chest (item 5). Sim: the
+   flare term flares the elbow as the glove rises above the SHOULDER, and a guard holds the gloves 15–25 cm above it.
+   `skelGuardFlareFree` 0.3: the glove's height counts only above that (−1 = the legacy flare). Idle lead elbow below its
+   shoulder: red 15.5 → 18.4 cm, blue 11.2 → 15.0 cm. Still a legacy TARGET: blue's guard glove sits 6–8 cm under his
+   head centre (eye level; style guard) — 1.4. heights_test pinned to −1 (monsoon's uppercut on raffle misses at 0.3).
+5. **Drawn shoulders off the sim's.** MEASURED (probe.skelDiverge, cross_mid): drawn − sim shoulder 8.8 / 13.0 cm idle
+   (red / blue), elbow 12–13 cm, hand up to 7.7 cm mid-cross. Fix: no rig blade with skelOn; standing, the drawn arm IS
+   the sim's (clavicle to the sim shoulder, hand to the sim glove, elbow to the sim elbow), blending to the rig's own arm
+   targets only by the knockdown weight. After: shoulder / elbow 0.9–2.3 cm (red mid-cross 4.4 cm, one tick: the
+   clavicle cannot reach from the rig's chest), hands 0. Drawn-only arm reads (armKick, cover, clinch drawn arms,
+   shrug / give / feint) are therefore off standing with skelOn — they return as sim-side joint reactions (1.5).
+
 ## Deferred / below standard
 
 - Joint-limit boxes are now cones, but the shoulder is still a single exp-map cone; a proper plane-of-elevation model
   (ISB) is a later refinement if the hook still clamps after authored key poses (1.4).
 - Head targets the skeleton cannot reach (slips, flush hits) are just missed; nothing hands the residual to the spine
   or the hips. Stage B (joint-space reactions, 1.5) replaces those targets.
-- The rig's legacy blade (chest turned 20° under the shoulders) now turns the shoulders with it (they are on the
-  chest), so the DRAWN shoulders and arms are not exactly the sim's at rest (estimate 0.23 m × sin 20° ≈ 8 cm, not
-  measured); the hit geometry is the sim's skeleton. Moving the blade into the sim fit is the fix; deferred (it moves
-  arm contacts).
+- (Resolved in 1.1b, item 5: the blade is gone with skelOn and the drawn arms are the sim's standing. If the stance
+  blade is wanted back it goes into the sim's fit, where the hit shapes carry it.)

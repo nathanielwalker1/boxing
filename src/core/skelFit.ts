@@ -69,6 +69,21 @@ export function fitTorso(def: SkelDef, lim: readonly (JointLimit | null)[], cfg:
   setPoseQ(pose, SKJ.pelvis, qNorm(qMul(qConj(R0), Rp)));
   fitSpine(def, lim, pose, Rp, t);
   fitNeck(def, lim, cfg, pose, t);
+  // What the neck could not reach (its limits; sideways and fore-aft only — a head target that is merely LOWER is
+  // not chased by folding the neck), the spine carries: the chest target moves by it and spine + neck are fitted again.
+  const carry = cfg.skelHeadSpineCarry;
+  if (carry > 0) {
+    const f = fk(def, pose, SKJ.head + 1);
+    const Rc = f.r[SKJ.chest]!;
+    const res = qRot(qConj(Rc), sub(t.head, skelHeadCentre(def, f)));
+    res.y = 0;
+    if (res.x * res.x + res.z * res.z > 1e-8) {
+      const w = qRot(Rc, scl(res, carry));
+      const t2 = { ...t, chest: add(t.chest, w) };
+      fitSpine(def, lim, pose, Rp, t2);
+      fitNeck(def, lim, cfg, pose, t);
+    }
+  }
 }
 
 /** The spinal joints (1..3), heights above the pelvis and levers: how far each sits below the shoulder line, as a fraction. */
@@ -171,7 +186,14 @@ function fitNeck(def: SkelDef, lim: readonly (JointLimit | null)[], cfg: Config,
   const Rc = f.r[SKJ.chest]!, nb = f.p[SKJ.neck]!;
   const Hrel = qMul(qConj(Rc), qNorm(t.headRot));   // the head's wanted orientation relative to the chest
   const hs = swingTwist(Hrel, 1);
-  const tv = nrm(qRot(qConj(Rc), sub(t.head, nb)), UP);   // where the head centre should be, from the neck base, chest frame
+  // Where the head centre should be, from the neck base, chest frame. A target CLOSER than the neck + head can reach
+  // (a slip's dip, a sink, a level drop the neck base did not share) was aimed at along its own direction, which tilted
+  // the neck far over and sank the head into the shoulders (Phase 1.1b). Now the aim is the point on the head's reach
+  // sphere straight above the target: only the sideways and fore-aft offset tilt the neck; the drop is not chased.
+  const raw = qRot(qConj(Rc), sub(t.head, nb));
+  const R = def.off[SKJ.head]!.y + def.headCentre;
+  const tang = raw.x * raw.x + raw.z * raw.z;
+  const tv = nrm({ x: raw.x, y: Math.max(raw.y, Math.sqrt(Math.max(0, R * R - tang))), z: raw.z }, UP);
   const share = cfg.skelNeckShare;
   const ln = lim[SKJ.neck], lh = lim[SKJ.head];
   // The head's turn relative to the chest, shared neck / head (C2–C7 / C1–C2), each inside its range.

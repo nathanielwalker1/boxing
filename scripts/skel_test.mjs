@@ -271,7 +271,7 @@ function slipPeak(x, y, sp = specs) {
   const d0 = s.fighters[1], def = skelDef(d0.body, d0.stance, cfg);
   const k0 = fk(def, d0.skel), nb0 = v3dist(skelHeadCentre(def, k0), k0.p[SKJ.neck]);
   const restHead = local(d0, d0.headBox);
-  let peak = 0, nbDev = 0, neckTurn = 0, landed = false;
+  let peak = 0, nbDev = 0, neckTurn = 0, landed = false, ext = 0, spineExt = 0;
   for (let i = 0; i < 40; i++) {
     const r = sim.step(s, [inp({ cross: i === 2 }), inp()], T0); s = r.state;
     if (r.events.some(e => e.type === 'punchLand' && e.side === 0 && e.part === 'head')) landed = true;
@@ -280,7 +280,10 @@ function slipPeak(x, y, sp = specs) {
     nbDev = Math.max(nbDev, Math.abs(v3dist(skelHeadCentre(def, k), k.p[SKJ.neck]) - nb0));
     const a = jointAngles(poseQ(d.skel, SKJ.neck), LIM[SKJ.neck], 0);
     neckTurn = Math.max(neckTurn, Math.hypot(a[0], a[2]));
+    ext = Math.max(ext, a[2] + jointAngles(poseQ(d.skel, SKJ.head), LIM[SKJ.head], 0)[2]);   // + z = extension
+    spineExt = Math.max(spineExt, [SKJ.spine1, SKJ.spine2, SKJ.chest].reduce((sum, j) => sum + jointAngles(poseQ(d.skel, j), LIM[j], 0)[2], 0));
   }
+  check(`whiplash cap (skeleton): a clean cross extends neck + head at most ${(cfg.skelNeckExt + cfg.skelHeadExt).toFixed(0)}° — ${(ext / DEG).toFixed(1)}°; the spine carries the rest: ${(spineExt / DEG).toFixed(1)}° of extension down spine1/spine2/chest; head travel ${cm(peak)} cm`, ext <= (cfg.skelNeckExt + cfg.skelHeadExt) * DEG + 1e-6);
   check(`a landed cross displaces the struck head (skeleton) — ${cm(peak)} cm at the peak`, landed && peak > 0.03);
   check(`…by turning neck and head about the neck base: neck swing ${(neckTurn / DEG).toFixed(1)}°, head-centre-to-neck-base distance held within ${cm(nbDev)} cm (no neck stretch; the old neck scaled 0.3–1.6×)`, neckTurn > 5 * DEG && nbDev < 0.03);
 }

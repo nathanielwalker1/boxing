@@ -76,6 +76,8 @@ export interface RigProbe {
    * input cannot reach quickly (a spent fighter, a cut face, a clinch) can be looked at. null clears it. Never set in play.
    */
   override?: (o: Partial<FighterState> | null) => void;
+  /** skelOn: the largest distance this frame from a drawn shoulder / elbow / hand to the sim's skeleton (m). */
+  skelDiverge?: () => { sh: number; el: number; gl: number };
   /** Sweat droplets in the air right now (tests). */
   sprayCount?: () => number;
   /** The drawn feet's WORLD positions, lead then rear (the pivot's planted foot is measured with this). */
@@ -182,6 +184,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   /** The sim's own skeleton, interpolated to this frame, and its FK (world): the base the rig's targets start from. */
   let skBaseFk: SkelFK | null = null;
   let skBaseDef: ReturnType<typeof skelDef> | null = null;
+  /** The knockdown blend this frame (0 standing … 1 down): outside it the drawn arms are the sim's. */
+  let skFallK = 0;
+  /** Drawn vs sim arm joints this frame, m (probe.skelDiverge). */
+  const skDiverge = { sh: 0, el: 0, gl: 0 };
   const dbgPts: THREE.Vector3[] = [];
   for (let i = 0; i < 16; i++) dbgPts.push(new THREE.Vector3());
 
@@ -428,9 +434,23 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const fc = fk(def, pose, SKJ.chest + 1);
     for (let i = 0; i < 2; i++) {
       const a = skelArm(i);
-      // The elbow's bend side: where the solver put the elbow (the sim's, or its clinch / cover / fall / knock re-solve).
-      const pole = { x: elbowJ[i]!.x - shoulderJ[i]!.x, y: elbowJ[i]!.y - shoulderJ[i]!.y, z: elbowJ[i]!.z - shoulderJ[i]!.z };
-      const r = fitArm(def, lim, c, pose, i, clavicleTarget(def, fc, i, skReach[i]!, skLift[i]!), tv(gloveL[i]!), pole, 0);
+      // The rig's own arm targets: the drawn shoulder offsets, the elbow where the solver put it (clinch / cover / knock
+      // re-solves), the glove with its drawn-only offsets — used as they are only in a knockdown.
+      let clavT = clavicleTarget(def, fc, i, skReach[i]!, skLift[i]!), glT = tv(gloveL[i]!);
+      let pole = { x: elbowJ[i]!.x - shoulderJ[i]!.x, y: elbowJ[i]!.y - shoulderJ[i]!.y, z: elbowJ[i]!.z - shoulderJ[i]!.z };
+      // Phase 1.1b: hit geometry = drawn geometry. Standing, the drawn arm IS the sim's — the clavicle aims at the sim's
+      // shoulder, the hand at the sim's glove, the elbow bends to the sim's elbow — blending to the rig's own targets
+      // only through a knockdown (fallK). No rig-only shoulder, elbow or hand offset survives outside one.
+      if (skBaseFk) {
+        const k = 1 - skFallK;
+        const sS = toLocal(skBaseFk.p[a.upper]!, v2), sx = sS.x, sy = sS.y, sz = sS.z;
+        const sE = toLocal(skBaseFk.p[a.fore]!, v2), ex = sE.x, ey = sE.y, ez = sE.z;
+        const sH = toLocal(skBaseFk.p[a.hand]!, v2);
+        clavT = { x: clavT.x + (sx - clavT.x) * k, y: clavT.y + (sy - clavT.y) * k, z: clavT.z + (sz - clavT.z) * k };
+        glT = { x: glT.x + (sH.x - glT.x) * k, y: glT.y + (sH.y - glT.y) * k, z: glT.z + (sH.z - glT.z) * k };
+        pole = { x: pole.x + (ex - sx - pole.x) * k, y: pole.y + (ey - sy - pole.y) * k, z: pole.z + (ez - sz - pole.z) * k };
+      }
+      const r = fitArm(def, lim, c, pose, i, clavT, glT, pole, 0);
       // The fist turns over as the arm straightens (as drawn before), on the hand joint: the forearm's twist, carried at the wrist.
       const ext = smoothstep((Math.cos(r.flex) + 0.2) / 1.1);
       setPoseQ(pose, a.hand, clampJoint(qAxis(1, latSign[i]! * lerp(c.rigGloveGuardRollDeg, c.rigGlovePronateDeg, ext) * DEG), lim[a.hand] ?? null, def.side[a.hand]!));
@@ -474,6 +494,16 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     bt.position.set(0, def.headCentre, 0);
     bt.quaternion.multiplyQuaternions(qJ.set(hr.x, hr.y, hr.z, hr.w).invert(), skTailQ);
     chainOut.hipY = f.p[0]!.y; chainOut.hipLat = f.p[0]!.z;
+    // Drawn vs hit geometry: the largest distance from a drawn shoulder / elbow / hand to the sim's, this frame (probe).
+    skDiverge.sh = skDiverge.el = skDiverge.gl = 0;
+    if (skBaseFk) for (let i = 0; i < 2; i++) {
+      const a = skelArm(i);
+      for (const [key, j] of [['sh', a.upper], ['el', a.fore], ['gl', a.hand]] as const) {
+        toLocal(skBaseFk.p[j]!, v2);
+        const p = f.p[j]!;
+        skDiverge[key] = Math.max(skDiverge[key], Math.hypot(p.x - v2.x, p.y - v2.y, p.z - v2.z));
+      }
+    }
     if (c.skelDebug) skelView.update(def, pose, f, lim);
   }
 
@@ -667,7 +697,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // THE BLADE (phase 2): the ribcage turns toward the lead side (stanceParams.chestYawDeg) on top of the shoulder
     // line. The shoulder BONES stay on the sim's joints and carry the deltoids and the corners of the chest, so
     // no hit geometry moves; the turn fades as the punch's own twist takes over (a cross squares the chest itself).
-    const blade = leadSign * st.chestYawDeg * DEG * (1 - Math.min(1, Math.abs(twist) / 0.5));
+    // skelOn: no drawn-only blade — on the skeleton the shoulders ride the chest, so a rig-only chest turn moved the drawn
+    // shoulders 9–13 cm off the sim's (measured, Phase 1.1b). The stance blade belongs in the sim's fit or nowhere.
+    const blade = c.skelOn ? 0 : leadSign * st.chestYawDeg * DEG * (1 - Math.min(1, Math.abs(twist) / 0.5));
     qTmp.setFromAxisAngle(YAXIS, yawSh + spin + blade + reads.chestYaw);   // the shoulders whip round with a hook's spin
     qChest.multiply(qTmp);
     qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg + mvFwd * c.rigMoveLeanDeg) * DEG - reads.chestPitch);
@@ -687,6 +719,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // boxes stay standing — a downed fighter cannot be hit, so that is fine.
     if (next.down) { fallAmt.x = 1; fallAmt.v = 0; lastDownT = lerp(prev.down ? prev.downT : 0, next.downT, alpha); downKind = next.downKind; downFall = next.fall; }
     const fallK = next.down ? 1 : chase1(fallAmt, 0, 25 / (c.rigGetUpTime * c.rigGetUpTime), 0.9, dt);
+    skFallK = fallK;
     if (fallK > 1e-4) {
       const t = lastDownT;
       const isUp = fallType === 'uppercut', isHook = fallType === 'hook';
@@ -1186,6 +1219,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   probe.freeze = (on): void => { frozen = on; };
   if (probing) installRigReplay(cfg, () => (window.__rig ?? {}) as Partial<Record<Side, ReplayFeed>>);
   probe.sprayCount = (): number => spray.active;
+  probe.skelDiverge = () => ({ ...skDiverge });
   probe.chain = () => ({ hipYaw: chainOut.hipYaw, hipY: chainOut.hipY, hipLat: chainOut.hipLat, footYaw: [chainOut.footYaw[0]!, chainOut.footYaw[1]!], heel: [chainOut.heel[0]!, chainOut.heel[1]!], kneeIn: [chainOut.kneeIn[0]!, chainOut.kneeIn[1]!] });
   probe.footPos = () => [{ x: feet[0].out.x, y: feet[0].out.y, z: feet[0].out.z }, { x: feet[1].out.x, y: feet[1].out.y, z: feet[1].out.z }];
 

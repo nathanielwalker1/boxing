@@ -13,8 +13,9 @@
  *     glove spring does not fight the clamp.
  * Nothing here runs with skelOn off: the sim is then bit-identical to before.
  */
-import type { ArmJoints, Config, FighterState, Vec3 } from '../core';
+import type { ArmJoints, ArmPose, Config, FighterState, Vec3 } from '../core';
 import {
+  closestOnSegment, smoothstep, twoBoneMid,
   clavicleTarget, fitArm, fitLeg, fitTorso, fk, frameOf, handLateralSign, localToWorld, qAxisAngle, qMul, qRot, restPose, rootQuat,
   skelDef, skelLimits, torsoShapes, SKJ,
 } from '../core';
@@ -55,18 +56,54 @@ export function fitSimTorso(f: FighterState, cfg: Config): void {
   f.bodyBox.b.x = t.shoulders.x; f.bodyBox.b.y = t.shoulders.y; f.bodyBox.b.z = t.shoulders.z;
 }
 
-/** Fit arm i to its glove; `hint` is solveArm's joints (the elbow is the pole), `reach` the shoulder's forward roll (m). */
-export function fitSimArm(f: FighterState, cfg: Config, i: number, hint: ArmJoints, reach: number): void {
+/** What the last arm fit did, per side and arm (scripts/skel_probe.mjs reads it; output only, never read by the sim). */
+export const skelProbe: { arm: Record<string, { glove: Vec3; hand: Vec3; clear: number; oldSwitch: boolean; clearDist: number; clearAt: number }> } = { arm: {} };
+
+/**
+ * The elbow pole, continuous (anim Phase 1.1b). core/arms.ts solveArm SNAPS to a second pole ("elbow out, hanging")
+ * the tick the first pole's elbow comes within the torso clearance — a discontinuity the elbow jumps across. Here the
+ * same two poles (the same config keys) are BLENDED by how far inside the clearance the first pole's elbow would sit,
+ * over ± skelClearBlend, and both are turned with the torso twist: solveArm builds them in the fighter's FLOOR frame,
+ * and on a skeleton the elbow's "out" belongs to the chest (a lead hook's chest turns 66°: the unturned pole put the
+ * elbow 33° behind the shoulders, past the shoulder's range).
+ */
+function armPole(f: FighterState, cfg: Config, i: number, shoulder: Vec3, glove: Vec3, ap: ArmPose): { pole: Vec3; w: number; d: number; clearance: number } {
+  const fr = frameOf(f.yaw);
+  const side = handLateralSign(i === 0 ? 'lead' : 'rear', f.stance);
+  // The flare (Phase 1.1b): core/arms.ts flares the elbow as the glove rises above the SHOULDER — but a guard holds the
+  // gloves at the face, 15–25 cm above the shoulder line, so the idle guard flared its elbows up and out (the chicken
+  // wing in every strip). Here the glove's height counts only above skelGuardFlareFree over the shoulder, continuously;
+  // a hook's level and an uppercut's back still drive the elbow as before.
+  const lift = (glove.y - shoulder.y - cfg.skelGuardFlareFree) / Math.max(1e-3, f.body.upperArm);
+  const flare = Math.max(ap.level, Math.min(ap.flare, Math.max(0, Math.min(1, lift))));
+  const poleFwd = -cfg.rigElbowPoleBack + (-cfg.rigUppercutElbowBack + cfg.rigElbowPoleBack) * ap.back;
+  const poleOut = side * cfg.rigElbowPoleOut * (0.6 + flare * 0.6 + ap.level * 0.8);
+  const poleDown = -cfg.rigElbowPoleDown * (1 - flare * 0.8) * (1 - ap.level);
+  const tw = qAxisAngle(0, 1, 0, f.torsoTwist * cfg.skelPoleTwist);
+  const p1 = qRot(tw, { x: fr.fwd.x * poleFwd + fr.right.x * poleOut, y: poleDown, z: fr.fwd.z * poleFwd + fr.right.z * poleOut });
+  const p2 = qRot(tw, { x: fr.right.x * side, y: -cfg.rigElbowPoleDown, z: fr.right.z * side });
+  const e1 = twoBoneMid(shoulder, glove, f.body.upperArm, f.body.forearm, p1, 1);
+  const c = closestOnSegment(f.bodyBox.a, f.bodyBox.b, e1);
+  const d = Math.hypot(e1.x - c.x, e1.y - c.y, e1.z - c.z);
+  const clearance = f.body.bodyR * (1 + cfg.rigForearmR) * cfg.rigElbowClearance;
+  const band = Math.max(1e-4, cfg.skelClearBlend);
+  const w = smoothstep((clearance + band - d) / (2 * band));
+  const n1 = Math.hypot(p1.x, p1.y, p1.z) || 1, n2 = Math.hypot(p2.x, p2.y, p2.z) || 1;
+  return { pole: { x: p1.x / n1 * (1 - w) + p2.x / n2 * w, y: p1.y / n1 * (1 - w) + p2.y / n2 * w, z: p1.z / n1 * (1 - w) + p2.z / n2 * w }, w, d, clearance };
+}
+
+/** Fit arm i to its glove; `hint` is solveArm's joints (probe only), `reach` the shoulder's forward roll (m), `ap` the elbow pole lags. */
+export function fitSimArm(f: FighterState, cfg: Config, i: number, hint: ArmJoints, reach: number, ap: ArmPose): void {
   const pose = f.skel!;
   const def = skelDef(f.body, f.stance, cfg), lim = skelLimits(cfg);
   const fc = fk(def, pose, SKJ.chest + 1);
   const g = f.gloves[i]!;
-  // solveArm builds its pole in the FIGHTER's floor frame; on a skeleton the elbow's "out" belongs to the chest, so the
-  // same pole is turned with the torso twist (a lead hook's chest turns 66°: the unturned pole put the elbow 33°
-  // behind the shoulders, past the shoulder's range, and the clamp folded the fist onto the body). LOG_SKELETON.md.
-  const pole = qRot(qAxisAngle(0, 1, 0, f.torsoTwist), { x: hint.elbow.x - hint.shoulder.x, y: hint.elbow.y - hint.shoulder.y, z: hint.elbow.z - hint.shoulder.z });
-  const r = fitArm(def, lim, cfg, pose, i, clavicleTarget(def, fc, i, reach, 0), g.pos, pole, 0);
+  const clavT = clavicleTarget(def, fc, i, reach, 0);
+  const P = armPole(f, cfg, i, clavT, g.pos, ap);
+  const r = fitArm(def, lim, cfg, pose, i, clavT, g.pos, P.pole, 0);
   f.arms[i] = { shoulder: r.shoulder, elbow: r.elbow };
+  skelProbe.arm[`${f.specId}:${i}`] = { glove: { ...g.pos }, hand: { ...r.hand }, clear: P.w, oldSwitch: P.d < P.clearance, clearDist: P.d, clearAt: P.clearance };
+  void hint;
   // The glove is the hand. If the fit moved it (out of reach, or a limit), the velocity that carried it there goes.
   const dx = g.pos.x - r.hand.x, dy = g.pos.y - r.hand.y, dz = g.pos.z - r.hand.z;
   const d = Math.sqrt(dx * dx + dy * dy + dz * dz);

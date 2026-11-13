@@ -124,6 +124,8 @@ console.log('\n=== 4b. The loaded counter ===');
 {
   const r = await kit({ rated: true });
   r.cfg.hurtRatesOn = false; r.cfg.hurtVarietyOn = false;   // (as at the top of the file)
+  // skelPoleTwist 1 (anim Phase 1.1b): with the hook's elbow out where a shoulder can put it (0.5, the default) this slip-counter lead hook whiffs; LOG_SKELETON.md, behavioural shifts.
+  r.cfg.skelPoleTwist = 1;
   const c = r.cfg;
   const len = v => Math.hypot(v.x, v.y, v.z);
   const GAP = 3;

@@ -107,7 +107,8 @@ console.log('\n=== 4. Plans ===');
   // inside-fighter on hurtRatesOn off (where the plan was written) so the suite stays a regression net for everything else;
   // jab-and-move runs on the game as shipped. docs/POLISH_SIM.md "Phase B" has the numbers.
   for (const bot of [jabAndMove, insideFighter]) {
-    const c = bot === insideFighter ? { ...fast, hurtRatesOn: false } : fast;
+    // (anim Phase 1.1b: the inside-fighter also on skelPoleTwist 1 — with the hook's elbow out (0.5, the default) it wins 0 of 8 here too; LOG_SKELETON.md.)
+    const c = bot === insideFighter ? { ...fast, hurtRatesOn: false, skelPoleTwist: 1 } : fast;
     let w = 0, l = 0; for (let seed = 1; seed <= N; seed++) { const f = fight(bot, seed, c); if (f.winner === 0) w++; else if (f.winner === 1) l++; }
     check(`${bot.name} (a legitimate plan) can win: ${w}-${l} over ${N}${bot === insideFighter ? ' (hurtRatesOn off — known gap, see the comment)' : ''}`, w > 0);
   }

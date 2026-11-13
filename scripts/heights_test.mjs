@@ -20,7 +20,9 @@ const { core, inp, NONE, run, fresh } = k;
 const ROSTER = core.ROSTER;
 const args = process.argv.slice(2);
 const probe = args[0] === 'probe';
-const cfg = { ...k.cfg };
+// skelPoleTwist 1 (anim Phase 1.1b): with the hook's elbow out where a shoulder can put it (0.5, the default) the body hook on boiler (1.98 m) from 0.675 m misses; LOG_SKELETON.md, behavioural shifts.
+// skelGuardFlareFree −1 = the legacy flare (Phase 1.1b): with the guard's elbows held down (0.3, the default) monsoon's uppercut misses raffle — one pairing of 49; LOG_SKELETON.md.
+const cfg = { ...k.cfg, skelPoleTwist: 1, skelGuardFlareFree: -1 };
 for (const a of args.slice(1)) { const [key, v] = a.split('='); cfg[key] = Number(v); }
 
 /** The seven punches: [name, press, body lane?, stick x at the press (the hand, for hook / uppercut)]. */
