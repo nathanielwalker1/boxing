@@ -843,6 +843,7 @@ export const SCHEMA = {
   debugHitboxes:    bool(false, 'debug', 'draw sim hit spheres and capsules'),
   debugSkeleton:    bool(false, 'debug', 'draw rig joints and bones'),
   debugFps:         bool(true, 'debug', 'show the frame-time overlay'),
+  devTelemetry:     bool(false, 'debug', 'DEV ONLY (ui/telemetry.ts): a text panel of each fighter\'s last landed punch (grade, counter, damage, impulse, hit-stop, blocked), live health / stamina / hurt, the last 8 events and per-fighter tallies, so mechanics can be checked before they are felt. Off by default; the shipping game shows no words'),
   sparRestartSeconds: num(2, 0, 10, 0.5, 'debug', 'sparring shell: seconds after the fight ends (decision, KO or TKO) before a fresh one starts (0 = never; the Stage 3 menus replace this)'),
   refEnabled:       bool(true, 'referee', 'the third man in the ring (ui/referee.ts). Presentation only: he has no hitbox and the fighters walk through him (flagged)'),
   refStandoff:      num(2.8, 1, 3.5, 0.05, 'referee', 'how far off the fighters\' midpoint he keeps during the round, m, on the far side from the camera — at the ropes, out of the exchange ("he gets in the way", 2026-10-15)'),

@@ -23,9 +23,11 @@ import { Hud } from './ui/hud';
 import { InputManager, wantsTouch } from './ui/input';
 import { CombatAudio } from './ui/audio';
 import { ReadOverlay } from './ui/read';
+import { TelemetryOverlay, type TelemetryProbe } from './ui/telemetry';
 
 declare global {
   interface Window {
+    __telemetry: TelemetryProbe;
     __tick: { frames: number; simTicks: number; gameTime: number; ready: boolean };
     __cfg: Config;
     __sim: {
@@ -114,6 +116,7 @@ const views: [RigView, RigView] = [
   createFighterView(1, specs[1], cfg, stage.scene),
 ];
 const hud = new Hud(document.body, specs, cfg, wantsTouch(params) ? 'top' : 'bottom');
+const telemetry = new TelemetryOverlay(cfg);   // dev only (cfg.devTelemetry, off by default)
 const read = new ReadOverlay(cfg, bus, views);   // the slip's counter window, drawn on the exposed fighter's rim
 
 // The fight flow (menu → select → tale of the tape → fight → results). Tests
@@ -344,6 +347,7 @@ function tickOnce(): void {
   prev = next;
   next = r.state;
   frameEvents.push(...r.events);
+  telemetry.tick(prev, next, r.events);
   if (flow) buffer.push({ state: next, events: r.events, ref: referee ? referee.snapshot() : null });
   window.__tick.simTicks++;
   window.__tick.gameTime = next.time;
