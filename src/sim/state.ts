@@ -239,6 +239,8 @@ export function cloneFighter(f: FighterState): FighterState {
     headBox: { ...f.headBox },
     bodyBox: { a: v3c(f.bodyBox.a), b: v3c(f.bodyBox.b), r: f.bodyBox.r },
     arms: [{ shoulder: v3c(f.arms[0].shoulder), elbow: v3c(f.arms[0].elbow) }, { shoulder: v3c(f.arms[1].shoulder), elbow: v3c(f.arms[1].elbow) }],
+    // The skeleton (anim Phase 1.1): only present while cfg.skelOn has fitted one; absent, the state is as before.
+    ...(f.skel ? { skel: { root: f.skel.root.slice(), q: f.skel.q.slice() } } : {}),
   };
 }
 

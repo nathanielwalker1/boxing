@@ -11,7 +11,8 @@ const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT, frameOf, worldToLo
 // jabHealthFloor 0 (overhaul 2026-11-11): one case here uses a jab as its knockdown blow; by default a jab can no longer empty the bar (attrition_test pins that).
 // ratingsOn / stylesOn off (overhaul phase 2): this file pins the reference fighters' numbers and margins as they were before
 // ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
-const cfg = { ...({ ...createConfig(), ratingsOn: false, stylesOn: false }), jabHealthFloor: 0 };
+// skelOn false (anim Phase 1.1): this file pins the slip's point maths (head exactly slipHeadOffset over, shoulders exactly slipShoulderFrac, the dip exactly); a rigid spine arcs instead. skel_test §4 has the skeleton's counterparts.
+const cfg = { ...({ ...createConfig(), ratingsOn: false, stylesOn: false }), jabHealthFloor: 0, skelOn: false };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();

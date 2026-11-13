@@ -12,6 +12,8 @@ import { kit } from './bots/kit.mjs';
 import { check, near, done } from './check.js';
 
 const k = await kit();
+// skelOn false (anim Phase 1.1): this file pins the roll's U depth exactly and the wrong-way slip that the old shoulder line caught; on the rigid skeleton the spine arcs and the shoulder clears the jab. skel_test §4 has the skeleton's counterparts.
+k.cfg.skelOn = false;
 const { cfg, sim, inp, NONE, T, fresh, run, of, first, mag, flick, SIM_DT } = k;
 const MID = 0.79;
 const startOf = (evs, side = 0) => evs.find(e => e.type === 'punchStart' && e.side === side);

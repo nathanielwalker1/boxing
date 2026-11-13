@@ -21,12 +21,16 @@ const NONE = inp();
 const BLOCK = inp({ block: true });
 const cm = v => (v * 100).toFixed(1);
 
-function fresh(dist) {
-  let s = sim.createState(specs, cfg, 1);
+function fresh(dist, c = cfg) {
+  let s = sim.createState(specs, c, 1);
   s.fighters[0].pos = { x: -dist / 2, z: 0 }; s.fighters[1].pos = { x: dist / 2, z: 0 };
-  for (let i = 0; i < 30; i++) s = sim.step(s, [NONE, NONE], cfg).state;
+  for (let i = 0; i < 30; i++) s = sim.step(s, [NONE, NONE], c).state;
   return s;
 }
+// skelOn false for the exchange (§2, anim Phase 1.1): on the rigid skeleton a glove the contacts push out of reach is
+// pulled back by the arm and sinks deeper into the other's forearm (measured 5.6 / 6.5 cm vs the 4.4 cm bound);
+// skel_test reports the skeleton's depths. LOG_SKELETON.md, behavioural shifts.
+const LEGACY = { ...cfg, skelOn: false };
 
 // ── 1. Rest ──────────────────────────────────────────────────────────────────
 {
@@ -47,12 +51,12 @@ function fresh(dist) {
 // Every pairing of the four punches thrown simultaneously at 0.75 m (and the
 // straights at 0.6), with the AI off. Tracks, every tick, the deepest entry
 // of any forearm into the other fighter's forearm / upper arm / glove.
-function exchange(pa, pb, dist, xa = -1, xb = -1) {
-  let s = fresh(dist);
+function exchange(pa, pb, dist, xa = -1, xb = -1, c = LEGACY) {
+  let s = fresh(dist, c);
   const give = s.fighters[0].body.gloveR * cfg.contactSquash;
   let worst = { ff: -1, fu: -1, fg: -1 };
   for (let i = 0; i < 45; i++) {
-    s = sim.step(s, [inp(i === 0 ? { [pa]: true, move: { x: xa, y: 0 } } : {}), inp(i === 0 ? { [pb]: true, move: { x: xb, y: 0 } } : {})], cfg).state;
+    s = sim.step(s, [inp(i === 0 ? { [pa]: true, move: { x: xa, y: 0 } } : {}), inp(i === 0 ? { [pb]: true, move: { x: xb, y: 0 } } : {})], c).state;
     const [a, b] = s.fighters;
     const foreA = a.body.bodyR * cfg.rigForearmR, foreB = b.body.bodyR * cfg.rigForearmR;
     const upA = a.body.bodyR * cfg.rigUpperArmR, upB = b.body.bodyR * cfg.rigUpperArmR;

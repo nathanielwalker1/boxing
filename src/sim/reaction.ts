@@ -14,6 +14,7 @@ import { PUNCHES } from './punches';
 import { neckMult, reactionSnap, setNeckMult, setReactionSnap } from './state';
 import { slipBack, slipHeadDip, slipLateral, slipShape } from './slip';
 import { stanceDrop } from './footing';
+import { fitSimTorso } from './skel';
 
 /**
  * Kick the defender's springs. `dir` is the unit impulse direction, `mag` in
@@ -140,6 +141,8 @@ export function computeBoxes(f: FighterState, cfg: Config): void {
   f.bodyBox.a.x = hip.x + r.torso.x * hf; f.bodyBox.a.y = hip.y + r.torso.y * hf; f.bodyBox.a.z = hip.z + r.torso.z * hf;
   f.bodyBox.b.x = sh.x + r.torso.x; f.bodyBox.b.y = sh.y + r.torso.y; f.bodyBox.b.z = sh.z + r.torso.z;
   f.bodyBox.r = b.bodyR;
+  // anim Phase 1.1: the points above are targets; the skeleton is fitted to them and the boxes rewritten from it.
+  if (cfg.skelOn) fitSimTorso(f, cfg);
 }
 
 /**

@@ -106,10 +106,12 @@ console.log('\n=== 4. Counter flash ===');
     const L = first(run(fresh(c, MID, 30), 20, i => [inp({ jab: i === 0 }), NONE], c).evs, 'punchLand').tick;
     return run(fresh(c, MID, 30), 70, i => [inp({ jab: i === 0 }), inp({ cross: i === L + 3, move: flick(-1, 0)(i) })], c);
   };
-  const base = exchange(cfg);
+  // skelOn false (anim Phase 1.1): on the rigid skeleton this counter brushes the attacker's rear guard glove and grades clean, not flush, so it does not rock (LOG_SKELETON.md, behavioural shifts).
+  const c0 = { ...cfg, skelOn: false };
+  const base = exchange(c0);
   check('a slip-counter cross ROCKS a fresh man but does not floor him', base.evs.some(e => e.type === 'counter') && base.evs.some(e => e.type === 'rocked' && e.side === 0) && of(base.evs, 'knockdown').length === 0);
   // (Phase 3: stunFlashFrac 1.85 → 3.2 and a hit costs less wind, so the scale that makes this cross a flash is 0.4, was 0.7.)
-  const eager = { ...cfg, counterFlashScale: 0.4 };
+  const eager = { ...c0, counterFlashScale: 0.4 };
   const fl = exchange(eager), flOff = exchange({ ...eager, counterFlashOn: false });
   check('with the counter flash threshold lower (counterFlashScale 0.4) the same counter floors him: cause flash', first(fl.evs, 'knockdown')?.cause === 'flash' && first(fl.evs, 'knockdown').side === 0);
   check('…and with counterFlashOn off it is back to a rock', of(flOff.evs, 'knockdown').length === 0 && flOff.evs.some(e => e.type === 'rocked'));

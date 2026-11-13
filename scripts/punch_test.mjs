@@ -11,10 +11,10 @@ const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();
 
-function fresh(dist) {
-  let s = sim.createState(specs, cfg, 1);
+function fresh(dist, c = cfg) {
+  let s = sim.createState(specs, c, 1);
   s.fighters[0].pos = { x: -dist / 2, z: 0 }; s.fighters[1].pos = { x: dist / 2, z: 0 };
-  for (let i = 0; i < 30; i++) s = sim.step(s, [NONE, NONE], cfg).state;   // let the gloves settle on the new guard
+  for (let i = 0; i < 30; i++) s = sim.step(s, [NONE, NONE], c).state;   // let the gloves settle on the new guard
   return s;
 }
 /** Run n ticks; returns final state and events tagged with their tick. */
@@ -78,14 +78,16 @@ check(`test distances bracket the band (smother ${cfg.smotherDist}, rangeMax ${c
   // against the face — the fist on the gloves on the head — and is absorbed
   // as a plain block (never a perfect one: nobody held a block). The jab
   // above still splits the guard and lands.
-  const closeCross = run(fresh(CLOSE), 40, tapThen('cross')).evs;
+  // skelOn false (anim Phase 1.1): on the rigid skeleton this close cross no longer meets the pinned guard gloves and lands clean (LOG_SKELETON.md, behavioural shifts).
+  const legacy = { ...cfg, skelOn: false };
+  const closeCross = run(fresh(CLOSE, legacy), 40, tapThen('cross'), legacy).evs;
   const c = outcome(closeCross);
   // Overhaul 2026-11-11: a RESTING guard pinned on the face is not a block any more (guardPinnedCover) — the fist
   // lands THROUGH the hands at what they left of it. The second punch of every combination was being "blocked" by a
   // guard nobody held. With guardPinnedCover 1 (or guardShapeOn off) it is the plain block it was.
   check('cross inside smotherDist meets the guard gloves pinned on the face: a land THROUGH the hands (cramped and muffled), not a miss', c?.type === 'punchLand' && c.through === true && c.power < midCross.power * 0.5, `${c?.type} ${c?.power?.toFixed(3)} vs ${midCross?.power?.toFixed(3)}`);
-  const oldRule = { ...cfg, guardPinnedCover: 1 };
-  check('…guardPinnedCover 1: the plain block it was', outcome(run(fresh(CLOSE), 40, tapThen('cross'), oldRule).evs)?.type === 'punchBlock');
+  const oldRule = { ...legacy, guardPinnedCover: 1 };
+  check('…guardPinnedCover 1: the plain block it was', outcome(run(fresh(CLOSE, oldRule), 40, tapThen('cross'), oldRule).evs)?.type === 'punchBlock');
   check('…and not a perfect block (the guard was not held)', !closeCross.some(e => e.type === 'perfectBlock'));
   check('no punchSmother is emitted any more', !evs.some(e => e.type === 'punchSmother'));
 }

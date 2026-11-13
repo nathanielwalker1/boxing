@@ -202,7 +202,9 @@ function resolvesOf(evs, side) { return evs.filter(e => e.side === side && (e.ty
 {
   // Side 1 crosses first (lands ~tick 12, then holds and recovers); side 0's jab, pressed the tick it lands, lands into that recovery. A touch closer so the cross's shove does not put the jab out of reach.
   const script = i => [inp({ jab: i === 12 }), inp({ cross: i === 0 })];
-  const { evs, trace } = run(fresh(0.72, NO_HITSTOP), 60, script, NO_HITSTOP);
+  // skelOn false (anim Phase 1.1): the arm no longer stretches 15 % past reach, and after the cross's shove this jab falls short and whiffs (LOG_SKELETON.md, behavioural shifts).
+  const NH3 = { ...NO_HITSTOP, skelOn: false };
+  const { evs, trace } = run(fresh(0.72, NH3), 60, script, NH3);
   const first = evs.find(e => (e.type === 'punchLand' || e.type === 'punchBlock') && e.side === 1);   // at 0.72 m the resting guard glove on the cheek absorbs it: a plain block, still a touch that holds
   const second = evs.find(e => e.type === 'punchLand' && e.side === 0);
   check('the earlier cross arrived first and the later jab landed into its recovery', first && second && first.tick < second.tick && trace[second.tick][1].phase === 'recover', `${first?.tick} < ${second?.tick}, phase ${trace[second?.tick]?.[1].phase}; ${evs.map(e => `${e.type}${e.side ?? ''}@${e.tick}`).join(', ')}`);

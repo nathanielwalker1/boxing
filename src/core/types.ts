@@ -372,9 +372,23 @@ export interface FighterState {
   bodyBox: Capsule;
   /** Shoulder and elbow per arm (index 0 = lead); the hand is gloves[i].pos. The rig draws the arms on these; contacts use them (2026-09-18). */
   arms: [ArmJoints, ArmJoints];
+  /**
+   * The rigid skeleton (anim Phase 1.1, core/skeleton.ts), fitted every tick while cfg.skelOn. With it on,
+   * headBox, bodyBox, gloves[].pos and arms are rewritten FROM this pose, so hit geometry = the skeleton.
+   * Absent with skelOn off (and on states built outside the sim: the referee, fixtures).
+   */
+  skel?: SkelPose;
 }
 
 export interface ArmJoints { shoulder: Vec3; elbow: Vec3 }
+
+/**
+ * A rigid skeleton pose (core/skeleton.ts). Plain number arrays so it clones with slice() and survives JSON.
+ *   root: [floor x, floor z, yaw, pelvis forward, pelvis up, pelvis right] — the pelvis offset is in the root frame.
+ *   q:    one LOCAL rotation per joint, (x, y, z, w) × JOINT_COUNT, in core/skeleton.ts joint order.
+ * Bone lengths are not in the pose: they are fixed by the skeleton definition (skelDef), so a pose cannot stretch.
+ */
+export interface SkelPose { root: number[]; q: number[] }
 
 export type RoundPhase = 'intro' | 'fighting' | 'between' | 'count' | 'over';
 

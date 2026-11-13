@@ -9,3 +9,5 @@ export * from './events';
 export * from './fixtures';
 export * from './arms';
 export * from './styles';
+export * from './skeleton';
+export * from './skelFit';

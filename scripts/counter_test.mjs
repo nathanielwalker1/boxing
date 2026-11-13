@@ -181,18 +181,20 @@ check('control: the jab lands', L !== undefined);
 
 // ── 5. Slip punish, and a post-slip counter vs a cold one ───────────────────
 {
+  // skelOn false (anim Phase 1.1): on the rigid skeleton the whiffed jab is held at reach in line, and the counter cross brushes the rear guard glove — "through the guard", clean not flush (LOG_SKELETON.md, behavioural shifts).
+  const Q5 = { ...QUIET, skelOn: false };
   const ctrlPos = [];
-  run(fresh(MID, QUIET), 40, tap('jab'), st => ctrlPos.push({ x: st.fighters[1].pos.x, z: st.fighters[1].pos.z }), QUIET);
+  run(fresh(MID, Q5), 40, tap('jab'), st => ctrlPos.push({ x: st.fighters[1].pos.x, z: st.fighters[1].pos.z }), Q5);
   const start = L - 8, release = start + 3;
   const trace = [];
-  let s = fresh(MID, QUIET);
+  let s = fresh(MID, Q5);
   const evs = [];
   const COUNTER_AT = L + 3;
   for (let i = 0; i < 70; i++) {
     // The counter is a CROSS (2026-09-19): with soft arms a counter jab met the
     // attacker's rear guard glove resting on its cheek and was absorbed as a
     // block; the cross comes to the lead side, which the whiffed jab left open.
-    const r = sim.step(s, [inp({ jab: i === 0 }), inp({ cross: i === COUNTER_AT, move: { x: i >= start && i < release ? -1 : 0, y: 0 } })], QUIET);
+    const r = sim.step(s, [inp({ jab: i === 0 }), inp({ cross: i === COUNTER_AT, move: { x: i >= start && i < release ? -1 : 0, y: 0 } })], Q5);
     s = r.state;
     for (const e of r.events) evs.push({ ...e, tick: i });
     if (i >= start && i <= release + 1) { s.fighters[1].pos = { ...ctrlPos[i] }; s.fighters[1].vel = { x: 0, z: 0 }; }
@@ -204,7 +206,7 @@ check('control: the jab lands', L !== undefined);
   check('the spike survives the attacker\'s stretched whiff recovery', after && after.w0 > 0 && near(after.v0, cfg.slipPunishVuln, 1e-9), `punch ended tick ${after?.i}: v ${after?.v0}, ${after?.w0.toFixed(2)} s left`);
   const hot = evs.find(e => e.type === 'punchLand' && e.side === 1);
   const hotHurt = evs.find(e => e.type === 'hurt' && e.side === 0);
-  const cold = run(fresh(MID, QUIET), 70, i => [NONE, inp({ cross: i === COUNTER_AT })], null, QUIET);
+  const cold = run(fresh(MID, Q5), 70, i => [NONE, inp({ cross: i === COUNTER_AT })], null, Q5);
   const coldHurt = cold.evs.find(e => e.type === 'hurt' && e.side === 0);
   const vAtHit = trace[hot?.tick]?.v0;
   const ratio = v3len(hotHurt.impulse) / v3len(coldHurt.impulse);
@@ -215,7 +217,7 @@ check('control: the jab lands', L !== undefined);
   check('the land is flagged as a counter and a counter event fires', hot.counter === true && evs.some(e => e.type === 'counter' && e.side === 1 && e.target === 0 && e.tick === hot.tick));
   check('a cold hit is not a counter', cold.evs.find(e => e.type === 'punchLand').counter === false && !cold.evs.some(e => e.type === 'counter'));
   const coldStop = cold.evs.find(e => e.type === 'punchLand').tick;
-  let coldHs = null; run(fresh(MID, QUIET), coldStop + 1, i => [NONE, inp({ jab: i === COUNTER_AT })], (st, i) => { if (i === coldStop) coldHs = st.hitStop; }, QUIET);
+  let coldHs = null; run(fresh(MID, Q5), coldStop + 1, i => [NONE, inp({ jab: i === COUNTER_AT })], (st, i) => { if (i === coldStop) coldHs = st.hitStop; }, Q5);
   // (The rock the counter causes can raise the hit-stop to stunHitStop; the counter's own is the flush tier + the bonus.)
   check('the counter adds counterHitStopBonus × vulnerability of hit-stop on top of the flush tier', trace[hot.tick].hs > coldHs && near(trace[hot.tick].hs, Math.max(cfg.stunHitStop, cfg.hitStopFlush + vAtHit * cfg.counterHitStopBonus), 1e-6), `${trace[hot.tick].hs.toFixed(3)} vs cold ${coldHs?.toFixed(3)}`);
   // An out-of-range whiff opens NO punish window.
