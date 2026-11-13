@@ -29,7 +29,11 @@ const CELLS = resolve(HERE, 'output', 'lookbook', 'cells');
 mkdirSync(CELLS, { recursive: true });
 const args = process.argv.slice(2);
 const label = args.find(a => /^(before|after|wip)$/.test(a)) ?? null;
-const rest = args.filter(a => a !== label);
+const rest0 = args.filter(a => a !== label);
+// `shots <outDir> [ids…]` (anim Phase 1.2): full-body front / 3/4 / side / back of each id in the guard pose and with the arms hung,
+// one PNG per cell in <outDir>, no sheet. The id `referee` is added to the roster for the occasion.
+const shots = rest0[0] === 'shots' ? { dir: resolve(rest0[1]) } : null;
+const rest = shots ? rest0.slice(2) : rest0;
 const gen = rest[0] === 'gen' ? { n: Number(rest[1] ?? 8), from: Number(rest[2] ?? 1) } : null;
 const only = gen ? [] : rest;
 const OUT = label && label !== 'wip' ? resolve(HERE, '..', 'docs', 'overhaul') : resolve(HERE, 'output', 'lookbook');   // only before / after are tracked
@@ -49,6 +53,11 @@ const VIEWS = [
   ['cross', 'cross', 40, 8, 2.8, 0.5, {}],
   ['face', 'rest', 28, 4, 1.05, 0.9, { portrait: true }],
   ['hurt', 'rest', -28, 4, 1.05, 0.9, { portrait: true, face: HURT, body: SPENT }],
+];
+const SHOT_VIEWS = [
+  ['guard_front', 'rest', 0, 4, 3.4, 0.5, {}], ['guard_34', 'rest', 38, 6, 3.4, 0.5, {}], ['guard_side', 'rest', 90, 4, 3.4, 0.5, {}], ['guard_back', 'rest', 180, 6, 3.4, 0.5, {}],
+  ['hang_front', 'rest', 0, 4, 3.4, 0.5, { portrait: true }], ['hang_34', 'rest', 38, 6, 3.4, 0.5, { portrait: true }],
+  ['hang_side', 'rest', 90, 4, 3.4, 0.5, { portrait: true }], ['hang_back', 'rest', 180, 6, 3.4, 0.5, { portrait: true }],
 ];
 const FOV = 46;   // the lens must stay inside the ropes (ring half 3.05 m), so the full figure needs a wide-ish lens
 // The lens stays on one clear seat (ringside panels block others) and the
@@ -77,7 +86,12 @@ await page.evaluate(() => {
   c.roundSeconds = 36000;
   window.__sim.reset(1);
 });
-const roster = gen
+if (shots) {
+  mkdirSync(shots.dir, { recursive: true });
+  await page.evaluate(async () => { const m = await import('/src/core/roster.ts'); m.addToRoster(m.REFEREE); });
+}
+const roster = shots ? only
+  : gen
   ? await page.evaluate(({ n, from }) => window.__rigGen(Array.from({ length: n }, (_, i) => from + i)), gen)
   : (await page.evaluate(() => window.__roster())).filter(id => !only.length || only.includes(id));
 const labels = await page.evaluate(ids => ids.map(id => { const s = window.__rosterSpec ? window.__rosterSpec(id) : null; return s ? `${id} — ${s.name}, ${s.heightM} m ${s.massKg} kg, ${s.style}` : id; }), roster);
@@ -85,7 +99,7 @@ const labels = await page.evaluate(ids => ids.map(id => { const s = window.__ros
 const rows = [];
 for (const id of roster) {
   const row = [];
-  for (const [name, kind, az, el, dist, lookFrac, st] of VIEWS) {
+  for (const [name, kind, az, el, dist, lookFrac, st] of (shots ? SHOT_VIEWS : VIEWS)) {
     await page.evaluate(([id, kind, az, el, dist, lookFrac, camAz, fov]) => {
       window.__look(id, kind, camAz - az);
       const c = window.__cfg;
@@ -99,11 +113,17 @@ for (const id of roster) {
       r.portrait(!!st.portrait); r.setFace(st.face ?? calm); r.setBodyState(st.body ?? dry);
     }, [st, CALM, DRY]);
     await frames(page, 12);  // the face eases in; cloth and hair springs settle
-    const file = `${CELLS}/${id}_${name.replace('/', '')}.png`;
+    const file = `${shots ? shots.dir : CELLS}/${id}_${name.replace('/', '')}.png`;
     await page.screenshot({ path: file });
     row.push(file);
   }
   rows.push(row);
+}
+if (shots) {
+  await browser.close();
+  console.log(`shots → ${shots.dir}`);
+  if (logs.length) { console.error(`console problems:\n  ${logs.join('\n  ')}`); process.exit(1); }
+  process.exit(0);
 }
 
 const sheet = await page.evaluate(async ({ rows, w, h, cols, labels }) => {
