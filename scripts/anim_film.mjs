@@ -1,0 +1,137 @@
+/**
+ * anim_film.mjs — the animation rebuild's fixed set of filmstrips, from the PLAY camera.
+ *
+ *   PORT=5191 node scripts/anim_film.mjs docs/anim/baseline                 every scenario
+ *   PORT=5191 node scripts/anim_film.mjs docs/anim/after1 jab_mid hit_head  only these
+ *   PORT=5191 node scripts/anim_film.mjs docs/anim/after1 --noside          skip the second (side-on) angle
+ *   PORT=5191 node scripts/anim_film.mjs docs/anim/after1 list              print scenario names
+ *
+ * Per scenario it writes <outDir>/<name>.png (contact sheet, ticks labelled) and full-size frames
+ * <outDir>/frames/<name>_tNNN.png; the side-on angle is <name>_side. Deterministic: every frame is a fresh
+ * seeded sim through window.__rigReplay (fighters `dist` apart, 30 idle settle ticks, then script[i] per
+ * tick), so a before/after pair shows the same ticks. Waits are rendered frames, never sleeps. One-tick
+ * presses only: holding the stick through a punch walks the fighter through it.
+ * Side 0 (red) is the player; the play camera sits behind his shoulder, so side 1 (blue) is the man whose
+ * face is seen. Hand picking: jab = lead and cross = rear regardless of stick; hook/uppercut take the sign of
+ * stick x at the press (-1 lead, +1 rear).
+ */
+import { chromium } from 'playwright';
+import { writeFileSync, mkdirSync, readFileSync } from 'fs';
+import { resolve } from 'path';
+import { DEV_URL } from './devUrl.js';
+import { bootReady, frames } from './waits.js';
+
+const at = o => { const a = []; for (const [k, v] of Object.entries(o)) a[Number(k)] = v; return a; };
+const hold = (a, key, from, to) => { for (let i = from; i <= to; i++) a[i] = { ...(a[i] ?? {}), [key]: true }; return a; };
+const flick = (x, t) => ({ [t]: { move: { x, y: 0 } }, [t + 1]: { move: { x, y: 0 } } });
+const stick = (x, y, from, to) => { const a = []; for (let i = from; i <= to; i++) a[i] = { move: { x, y } }; return a; };
+
+export const SCENARIOS = {};
+// Punches: press at tick 2, filmed every 2 ticks until the hand is home. jab = lead only, cross = rear only (stick ignored).
+const LAST = { jab: 22, cross: 34, hook: 38, upper: 40 };
+for (const [tag, dist] of [['mid', 0.84], ['in', 0.55]]) {
+  for (const [name, key, punch, x] of [['jab', 'jab', 'jab', 0], ['cross', 'cross', 'cross', 0], ['hook_lead', 'hook', 'hook', -1], ['hook_rear', 'hook', 'hook', 1], ['upper_lead', 'uppercut', 'upper', -1], ['upper_rear', 'uppercut', 'upper', 1]]) {
+    SCENARIOS[`${name}_${tag}`] = { dist, s0: at({ 2: { [key]: true, move: { x, y: 0 } } }), s1: [], from: 2, to: LAST[punch], step: 2 };
+  }
+}
+// 1-2-hook as fast as the sim accepts a press after a press (the timing fight_film/filmstrip's c_123 uses).
+SCENARIOS.combo_12hook = { dist: 0.8, s0: at({ 2: { jab: true }, 10: { cross: true }, 22: { hook: true, move: { x: -1, y: 0 } } }), s1: [], from: 2, to: 50, step: 3 };
+// The man hit. Side 1 (blue, face toward the camera) takes it; *_p is the player's own fighter (side 0, seen from behind).
+const bodyHook = (x = -1) => hold(at({ 12: { hook: true, move: { x, y: 0 } } }), 'level', 0, 30);
+SCENARIOS.hit_head = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], from: 10, to: 34, step: 2 };
+SCENARIOS.hit_head_p = { dist: 0.79, s0: [], s1: at({ 2: { cross: true } }), from: 10, to: 34, step: 2 };
+SCENARIOS.hit_body = { dist: 0.7, s0: bodyHook(), s1: [], from: 22, to: 58, step: 3 };
+SCENARIOS.hit_body_p = { dist: 0.7, s0: [], s1: bodyHook(), from: 22, to: 58, step: 3 };
+// Slip then cross into the window of his jab: a counter.
+SCENARIOS.counter = { dist: 0.79, s0: at({ ...flick(-1, 0), 12: { cross: true } }), s1: at({ 0: { jab: true } }), from: 0, to: 46, step: 2 };
+// His cross on a held block.
+SCENARIOS.block = { dist: 0.79, s0: hold([], 'block', 0, 60), s1: at({ 12: { cross: true } }), from: 8, to: 50, step: 2 };
+// Footwork: the stick held sideways about a second (60 ticks), and a step in then out.
+SCENARIOS.footwork_lateral = { dist: 1.2, s0: stick(1, 0, 2, 62), s1: [], from: 0, to: 84, step: 6 };
+SCENARIOS.footwork_in_out = { dist: 1.5, s0: [...stick(0, 0, 0, 1), ...stick(0, 1, 2, 24), ...stick(0, 0, 25, 29), ...stick(0, -1, 30, 52)], s1: [], from: 0, to: 80, step: 5 };
+// One cross that floors him (damage per impulse turned up for the strip: the one existing mechanism, no hook forces a knockdown), the fall, the get-up.
+SCENARIOS.knockdown = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: { healthDamagePerImpulse: 0.006, camLookY: 0.75, camDistMin: 3.3 }, from: 12, to: 204, step: 8 };
+
+const SIDE = { camFollow: 0, camAzimuthDeg: 90, camElevationDeg: 12, camDistMin: 2.6, camLookY: 1.05 };
+
+const args = process.argv.slice(2);
+const noSide = args.includes('--noside');
+const plain = args.filter(a => !a.startsWith('--'));
+const outDir = resolve(plain[0] ?? 'docs/anim/baseline');
+const names = plain.slice(1);
+if (names.includes('list')) { console.log(Object.keys(SCENARIOS).join(' ')); process.exit(0); }
+for (const n of names) if (!SCENARIOS[n]) { console.error(`no scenario '${n}' (${Object.keys(SCENARIOS).join(' ')})`); process.exit(2); }
+const run = names.length ? names : Object.keys(SCENARIOS);
+const FRAMES = resolve(outDir, 'frames');
+mkdirSync(FRAMES, { recursive: true });
+
+const W = 640, H = 400, COLS = 5;
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2 });
+const logs = [];
+page.on('console', m => { if ((m.type() === 'error' || m.type() === 'warning') && !/GPU stall due to ReadPixels/.test(m.text())) logs.push(m.text()); });
+page.on('pageerror', e => logs.push(e.message));
+await page.goto(`${DEV_URL}/?ai=0`, { waitUntil: 'networkidle', timeout: 20_000 });
+await bootReady(page);
+
+// fps: headless software GL, reported not asserted.
+await page.evaluate(() => { window.__cfg.debugFps = true; });
+await frames(page, 70);
+const fps = await page.evaluate(() => window.__fps ?? null);
+console.log(`fps (headless software GL, ${W}x${H} @2x; NOT the desktop number) → ${fps ? `${fps.fps} fps, ${fps.msAvg} ms avg, ${fps.calls} calls, ${fps.tris} tris` : 'no sample'}`);
+
+await page.evaluate(() => {
+  const c = window.__cfg;
+  c.rigQuality = 1; c.debugHitboxes = false; c.debugFps = false; c.refEnabled = false;
+  c.camDriftAmp = 0; c.camFollowLambda = 1000; c.camDollyLambda = 1000;   // the lens placed, not chasing
+  c.camDistMin = 2.4; c.camLookY = 1.25;   // the play camera, as Nate fights from
+  window.__focus = -1;
+});
+
+async function shoot(file, sc, camCfg) {
+  const files = [], ticks = [];
+  const restore = await page.evaluate(over => { const was = {}; for (const k in over) { was[k] = window.__cfg[k]; window.__cfg[k] = over[k]; } return was; }, { ...(sc.cfg ?? {}), ...(camCfg ?? {}) });
+  await page.evaluate(() => { window.__look('red', 'rest', 0); });
+  await frames(page, 4);
+  await page.evaluate(() => { window.__cfg.rigQuality = 1; window.__focus = -1; });
+  for (let t = sc.from; t <= sc.to; t += sc.step) {
+    await page.evaluate(([dist, s0, s1, t]) => (window.__rigReplay ?? window.__replay)(dist, s0.map(x => x ?? {}), t, s1.map(x => x ?? {}), {}), [sc.dist, Array.from(sc.s0, x => x ?? null), Array.from(sc.s1, x => x ?? null), t]);
+    await frames(page, 3);
+    const f = `${FRAMES}/${file}_t${String(t).padStart(3, '0')}.png`;
+    await page.screenshot({ path: f }).catch(() => page.screenshot({ path: f, timeout: 120_000 }));
+    files.push(f); ticks.push(t);
+  }
+  await page.evaluate(was => { Object.assign(window.__cfg, was); window.__focus = -1; for (const s of [0, 1]) { window.__rig?.[s]?.override?.(null); window.__rig?.[s]?.freeze?.(false); } }, restore);
+  return { files, ticks };
+}
+
+async function sheet(files, labels, path) {
+  const data = await page.evaluate(async ({ imgs, labels, w, h, cols }) => {
+    const rows = Math.ceil(imgs.length / cols);
+    const canvas = document.createElement('canvas'); canvas.width = w * cols; canvas.height = h * rows;
+    const g = canvas.getContext('2d');
+    g.fillStyle = '#000'; g.fillRect(0, 0, canvas.width, canvas.height); g.font = '15px monospace';
+    for (let i = 0; i < imgs.length; i++) {
+      const img = await new Promise(res => { const im = new Image(); im.onload = () => res(im); im.src = imgs[i]; });
+      const x = (i % cols) * w, y = Math.floor(i / cols) * h;
+      g.drawImage(img, x, y, w, h);
+      g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(x, y, g.measureText(labels[i]).width + 12, 22);
+      g.fillStyle = '#fff'; g.fillText(labels[i], x + 6, y + 16);
+    }
+    return canvas.toDataURL('image/png');
+  }, { imgs: files.map(f => 'data:image/png;base64,' + readFileSync(f).toString('base64')), labels, w: W, h: H, cols: COLS });
+  writeFileSync(path, Buffer.from(data.split(',')[1], 'base64'));
+}
+
+for (const name of run) {
+  const sc = SCENARIOS[name];
+  for (const [suffix, cam] of noSide ? [['', null]] : [['', null], ['_side', SIDE]]) {
+    const file = name + suffix;
+    const { files, ticks } = await shoot(file, sc, cam);
+    await sheet(files, ticks.map(t => `${file} t=${t}`), `${outDir}/${file}.png`);
+    console.log(`${file} → ${outDir}/${file}.png (${files.length} frames, ticks ${ticks[0]}–${ticks[ticks.length - 1]} every ${sc.step})`);
+  }
+}
+await browser.close();
+if (logs.length) { console.error(`console problems:\n  ${logs.join('\n  ')}`); process.exit(1); }
+console.log('console clean');
