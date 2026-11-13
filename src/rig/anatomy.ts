@@ -140,10 +140,21 @@ export function torsoShape(c: Ctx): TorsoShape {
   // Weights by height, with the top corners following the shoulder bones.
   const yb = hy + sp * 0.3, ym = (hy + sy) / 2, yc = sy - cl * 0.5;
   const shR = d.upperArmR * 3.0;
+  // anim Phase 1.1 (skelOn): the torso rides the real spine — pelvis → lumbar → low thoracic → chest by height, each
+  // spinal joint blending its two bones over ± skelSkinBlend × (hips → shoulder line) around it.
+  const S = sy - hy, sb = S * cfg.skelSkinBlend;
+  const jy = [hy + S * cfg.skelSpine1At, hy + S * cfg.skelSpine2At, hy + S * cfg.skelChestAt];
+  const SPINE_BONES = [BONE.hips, BONE.spine, BONE.spine2, BONE.chest];
+  const spineWeights = (y: number, w: BW[]): void => {
+    // cumulative: c[k] = how far past joint k the point is (0 below its zone, 1 above); bone k gets c[k] − c[k + 1].
+    const c = [1, ...jy.map(j => smooth01((y - (j - sb)) / (2 * sb))), 0];
+    for (let k = 0; k < 4; k++) { const v = c[k]! - c[k + 1]!; if (v > 1e-4) w.push([SPINE_BONES[k]!, v]); }
+  };
   const weights = (p: THREE.Vector3): BW[] => {
     const w: BW[] = [];
     const y = p.y;
-    if (y <= yb) w.push([BONE.hips, 1]);
+    if (cfg.skelOn && y <= neck0 - cl * 0.1) spineWeights(y, w);
+    else if (y <= yb) w.push([BONE.hips, 1]);
     else if (y <= ym) { const t = smooth01((y - yb) / (ym - yb)); w.push([BONE.hips, 1 - t], [BONE.spine, t]); }
     else if (y <= yc) { const t = smooth01((y - ym) / (yc - ym)); w.push([BONE.spine, 1 - t], [BONE.chest, t]); }
     else if (y <= neck0 - cl * 0.1) w.push([BONE.chest, 1]);
@@ -157,7 +168,8 @@ export function torsoShape(c: Ctx): TorsoShape {
       const j = c.bind[armBones(i).shoulder]!;
       const dist = Math.hypot(p.x - j.x, (p.y - j.y) * 1.3, p.z - j.z);
       const s = 0.82 * bump(dist / shR);   // high, so the corner stays with the sim's shoulder while the ribcage blades under it (rigStanceChestYawDeg)
-      if (s > 0.01) { for (const e of w) e[1] *= 1 - s; w.push([armBones(i).shoulder, s]); }
+      // skelOn: the corner goes to the CLAVICLE, a child of the chest — the shoulder is on the ribcage now.
+      if (s > 0.01) { for (const e of w) e[1] *= 1 - s; w.push([cfg.skelOn ? (i === 0 ? BONE.clav0 : BONE.clav1) : armBones(i).shoulder, s]); }
     }
     return w;
   };
@@ -272,7 +284,9 @@ export function buildArm(c: Ctx, i: number): void {
       // Deltoid: mostly the shoulder bone at the cap, all upper arm by the insertion.
       const a = smooth01((s + R1 * 0.5) / (L1 * 0.44 + R1 * 0.5));
       if (a < 1) {
-        w.push([bones.shoulder, (1 - a) * 0.8], [bones.upper, 1 - (1 - a) * 0.8]);
+        // skelOn: the cap's top rides the clavicle (on the chest), then the deltoid helper (half-way to the arm), then the arm.
+        if (cfg.skelOn) w.push([i === 0 ? BONE.clav0 : BONE.clav1, (1 - a) * 0.5], [bones.shoulder, (1 - a) * 0.3], [bones.upper, 1 - (1 - a) * 0.8]);
+        else w.push([bones.shoulder, (1 - a) * 0.8], [bones.upper, 1 - (1 - a) * 0.8]);
       } else hingeWeights(s, L1, wj, bones.upper, bones.elbow, bones.fore, w);
       return w;
     },

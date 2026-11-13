@@ -21,10 +21,12 @@
 import * as THREE from 'three';
 import {
   ROSTER, SIM_DT, addToRoster, generateFighter, angleDelta, closestOnSegment, frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, v3dist, worldToLocal,
-  type Config, type FighterSpec, type FighterState, type FighterView, type Frame, type PunchType, type Side, type SimEvent, type Vec2, type Vec3,
+  SKJ, clampJoint, clampPose, clavicleTarget, fitArm, fitLeg, fitTorso, fk, lerpPose, poseQ, qAxis, restPose, setPoseQ, skelArm, skelDef, skelHeadCentre, skelLeg, skelLimits, skelShoulderLine,
+  type Config, type FighterSpec, type FighterState, type FighterView, type Frame, type PunchType, type Side, type SimEvent, type SkelFK, type SkelPose, type Vec2, type Vec3,
 } from '../core';
-import { BONE, MORPHS, buildRigMesh, rigGeomKey, type RigMesh } from './mesh';
-import { armBones, legBones } from './skeleton';
+import { BONE, BONE_COUNT, MORPHS, buildRigMesh, rigGeomKey, type RigMesh } from './mesh';
+import { JOINT_BONE, armBones, legBones } from './skeleton';
+import { SkelDebugView } from './debug';
 import { Reads, stanceParams } from './reads';
 import { Spray } from './spray';
 import { installRigReplay, type ReplayFeed } from './replay';
@@ -164,6 +166,22 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
 
   const debug = new SkeletonDebug(16, DEBUG_BONES.length, 0.018);
   root.add(debug.group);
+  const skelView = new SkelDebugView();   // cfg.skelDebug: the fitted skeleton and its joint limits
+  root.add(skelView.group);
+
+  // ── Skeleton (anim Phase 1.1, cfg.skelOn) ──
+  // The solver below still produces its points, offsets, springs and rotations; with skelOn they are TARGETS. These
+  // hold what it produced this frame where it is overwritten in a loop, for the fit at the end (poseSkeleton).
+  const skAnkle = [new THREE.Vector3(), new THREE.Vector3()] as const;
+  const skKneePole = [new THREE.Vector3(), new THREE.Vector3()] as const;
+  const skFoot = [new THREE.Quaternion(), new THREE.Quaternion()] as const;
+  const skHem = [new THREE.Vector3(), new THREE.Vector3()] as const;
+  const skReach = [0, 0], skLift = [0, 0];
+  const skHeadQ = new THREE.Quaternion(), skTailQ = new THREE.Quaternion();
+  let skPose: SkelPose | null = null;
+  /** The sim's own skeleton, interpolated to this frame, and its FK (world): the base the rig's targets start from. */
+  let skBaseFk: SkelFK | null = null;
+  let skBaseDef: ReturnType<typeof skelDef> | null = null;
   const dbgPts: THREE.Vector3[] = [];
   for (let i = 0; i < 16; i++) dbgPts.push(new THREE.Vector3());
 
@@ -249,6 +267,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   };
   const lerpLocal = (a: Vec3, b: Vec3, t: number, out: THREE.Vector3): THREE.Vector3 =>
     toLocal({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t) }, out);
+  /** The sim's shoulder joint for arm i this frame, rig-local: the skeleton's FK when there is one, else the lerped point. */
+  const simShoulder = (prev: FighterState, next: FighterState, alpha: number, i: number, out: THREE.Vector3): THREE.Vector3 =>
+    skBaseFk ? toLocal(skBaseFk.p[skelArm(i).upper]!, out) : lerpLocal(prev.arms[i]!.shoulder, next.arms[i]!.shoulder, alpha, out);
   /** World direction → rig-local direction (rotation only). */
   const dirToLocal = (x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 =>
     out.set(x * frame.fwd.x + z * frame.fwd.z, y, x * frame.right.x + z * frame.right.z);
@@ -318,7 +339,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   };
 
   const probe: RigProbe = {
-    head: () => { bone(BONE.head).getWorldPosition(wp); return { x: wp.x, y: wp.y, z: wp.z }; },
+    // (skelOn: the head bone is the skull's pivot on the neck; the tail bone sits at the head centre in both modes.)
+    head: () => { bone(cfg.skelOn ? BONE.tail : BONE.head).getWorldPosition(wp); return { x: wp.x, y: wp.y, z: wp.z }; },
     gloves: () => {
       bone(BONE.glove0).getWorldPosition(wp); const a = { x: wp.x, y: wp.y, z: wp.z };
       bone(BONE.glove1).getWorldPosition(wp); const b = { x: wp.x, y: wp.y, z: wp.z };
@@ -388,6 +410,73 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const spray = new Spray(parent);
   const readLocal = (x: number, y: number, z: number): readonly [number, number, number] => [x * frame.fwd.x + z * frame.fwd.z, y, x * frame.right.x + z * frame.right.z];
 
+  // ── The skeleton pose (cfg.skelOn) ──
+  const tv = (p: THREE.Vector3): Vec3 => ({ x: p.x, y: p.y, z: p.z });
+  const tq = (q: THREE.Quaternion): { x: number; y: number; z: number; w: number } => ({ x: q.x, y: q.y, z: q.z, w: q.w });
+  const qIdent = new THREE.Quaternion(), qJ = new THREE.Quaternion();
+  /**
+   * Fit the core skeleton to what the solver produced this frame (all rig-local: the rig frame is the root, floor
+   * point at the origin facing +x), clamp it, and write it into the bone hierarchy: the pelvis takes its position and
+   * orientation, every other bone its FIXED offset and its local rotation, helpers their half-way turns. No bone is
+   * scaled — breath, squash, the stretchy neck and forearm and the joint mitres are gone with skelOn.
+   */
+  function poseSkeleton(body: FighterState['body'], c: Config): void {
+    const def = skelDef(body, spec.stance, c), lim = skelLimits(c);
+    const pose = skPose ?? restPose(def, 0, 0, 0);
+    skPose = pose;
+    fitTorso(def, lim, c, pose, { rootX: 0, rootZ: 0, yaw: 0, pelvis: tv(H), pelvisRot: tq(qHips), chest: tv(S), chestRot: tq(qChest), chestTwist: 0, head: tv(headL), headRot: tq(skHeadQ) });
+    const fc = fk(def, pose, SKJ.chest + 1);
+    for (let i = 0; i < 2; i++) {
+      const a = skelArm(i);
+      // The elbow's bend side: where the solver put the elbow (the sim's, or its clinch / cover / fall / knock re-solve).
+      const pole = { x: elbowJ[i]!.x - shoulderJ[i]!.x, y: elbowJ[i]!.y - shoulderJ[i]!.y, z: elbowJ[i]!.z - shoulderJ[i]!.z };
+      const r = fitArm(def, lim, c, pose, i, clavicleTarget(def, fc, i, skReach[i]!, skLift[i]!), tv(gloveL[i]!), pole, 0);
+      // The fist turns over as the arm straightens (as drawn before), on the hand joint: the forearm's twist, carried at the wrist.
+      const ext = smoothstep((Math.cos(r.flex) + 0.2) / 1.1);
+      setPoseQ(pose, a.hand, clampJoint(qAxis(1, latSign[i]! * lerp(c.rigGloveGuardRollDeg, c.rigGlovePronateDeg, ext) * DEG), lim[a.hand] ?? null, def.side[a.hand]!));
+    }
+    for (let i = 0; i < 2; i++) fitLeg(def, lim, c, pose, i, tv(skAnkle[i]!), tv(skKneePole[i]!), tq(skFoot[i]!));
+    clampPose(def, pose, lim);
+    const f = fk(def, pose);
+    const r = rig!;
+    for (let b = 0; b < BONE_COUNT; b++) r.bones[b]!.scale.set(1, 1, 1);
+    for (let j = 0; j < JOINT_BONE.length; j++) {
+      const b = bone(JOINT_BONE[j]!);
+      if (j === SKJ.pelvis) { b.position.set(f.p[0]!.x, f.p[0]!.y, f.p[0]!.z); b.quaternion.set(f.r[0]!.x, f.r[0]!.y, f.r[0]!.z, f.r[0]!.w); continue; }
+      const o = def.off[j]!, q = poseQ(pose, j);
+      b.position.set(o.x, o.y, o.z);
+      b.quaternion.set(q.x, q.y, q.z, q.w);
+    }
+    for (let i = 0; i < 2; i++) {
+      const ab = armBones(i), lb = legBones(i), a = skelArm(i), l = skelLeg(i);
+      const qu = poseQ(pose, a.upper), qf = poseQ(pose, a.fore), qs = poseQ(pose, l.shin);
+      const bs = bone(ab.shoulder), ou = def.off[a.upper]!;
+      bs.position.set(ou.x, ou.y, ou.z);
+      bs.quaternion.slerpQuaternions(qIdent, qJ.set(qu.x, qu.y, qu.z, qu.w), c.rigShoulderFollow);   // the deltoid, turned part of the way to the arm
+      const be = bone(ab.elbow);
+      be.position.set(0, -def.upperArm, 0);
+      be.quaternion.slerpQuaternions(qIdent, qJ.set(qf.x, qf.y, qf.z, qf.w), 0.5);
+      const bk = bone(lb.knee);
+      bk.position.set(0, -def.thigh, 0);
+      bk.quaternion.slerpQuaternions(qIdent, qJ.set(qs.x, qs.y, qs.z, qs.w), 0.5);
+      // The hem: the cloth spring's point, carried into the thigh's frame.
+      const tp = f.p[l.thigh]!, tr = f.r[l.thigh]!;
+      const bm = bone(lb.hem);
+      bm.position.copy(skHem[i]!).sub(v.set(tp.x, tp.y, tp.z)).applyQuaternion(qJ.set(tr.x, tr.y, tr.z, tr.w).invert());
+      bm.quaternion.identity();
+      // Probes report what is drawn.
+      const ps = f.p[a.upper]!, pe = f.p[a.fore]!, ph = f.p[a.hand]!;
+      shoulderJ[i]!.set(ps.x, ps.y, ps.z); elbowJ[i]!.set(pe.x, pe.y, pe.z); gloveL[i]!.set(ph.x, ph.y, ph.z);
+      chainOut.kneeIn[i] = -latSign[i]! * (f.p[l.shin]!.z - (f.p[l.thigh]!.z + f.p[l.foot]!.z) / 2);
+    }
+    // Hair rides the head at its centre; the spring's swing is relative to the head.
+    const hr = f.r[SKJ.head]!, bt = bone(BONE.tail);
+    bt.position.set(0, def.headCentre, 0);
+    bt.quaternion.multiplyQuaternions(qJ.set(hr.x, hr.y, hr.z, hr.w).invert(), skTailQ);
+    chainOut.hipY = f.p[0]!.y; chainOut.hipLat = f.p[0]!.z;
+    if (c.skelDebug) skelView.update(def, pose, f, lim);
+  }
+
   // ── Per frame ──
   function apply(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]): void {
     if (stateOverride) { prev = { ...prev, ...stateOverride }; next = { ...next, ...stateOverride }; }
@@ -411,6 +500,17 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     lerpLocal(prev.gloves[1].pos, next.gloves[1].pos, alpha, gloveL[1]);
     lerpLocal(prev.bodyBox.a, next.bodyBox.a, alpha, hipL);
     lerpLocal(prev.bodyBox.b, next.bodyBox.b, alpha, shoulderL);
+    // skelOn: start from the SIM's skeleton, interpolated (slerp per joint), not from linearly lerped points — the
+    // head, hips, shoulder line and gloves are its FK, so a turning segment keeps its length between ticks too.
+    skBaseFk = null;
+    if (c.skelOn && prev.skel && next.skel && !stateOverride) {
+      skBaseDef = skelDef(body, spec.stance, c);
+      skBaseFk = fk(skBaseDef, lerpPose(prev.skel, next.skel, alpha));
+      toLocal(skelHeadCentre(skBaseDef, skBaseFk), headL);
+      toLocal(skBaseFk.p[SKJ.pelvis]!, hipL);
+      toLocal(skelShoulderLine(skBaseDef, skBaseFk), shoulderL);
+      for (let i = 0; i < 2; i++) toLocal(skBaseFk.p[skelArm(i).hand]!, gloveL[i]!);
+    }
     dirToLocal(
       lerp(prev.reaction.torso.x, next.reaction.torso.x, alpha),
       lerp(prev.reaction.torso.y, next.reaction.torso.y, alpha),
@@ -561,7 +661,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // deltoids and the corners of the chest are one skin with them the chest
     // has to agree: the old stance blade (rigStanceShoulderYawDeg, still what
     // the head follows) turned the chest 38° off the shoulders it carries.
-    for (let i = 0; i < 2; i++) lerpLocal(prev.arms[i]!.shoulder, next.arms[i]!.shoulder, alpha, shoulderJ[i]!);
+    for (let i = 0; i < 2; i++) simShoulder(prev, next, alpha, i, shoulderJ[i]!);
     const iR = latSign[0] > 0 ? 0 : 1;
     const yawSh = Math.atan2(shoulderJ[iR]!.x - shoulderJ[1 - iR]!.x, shoulderJ[iR]!.z - shoulderJ[1 - iR]!.z);
     // THE BLADE (phase 2): the ribcage turns toward the lead side (stanceParams.chestYawDeg) on top of the shoulder
@@ -763,6 +863,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     bHead.quaternion.multiply(qTmp);
     qTmp.setFromAxisAngle(XAXIS, reads.headRoll);
     bHead.quaternion.multiply(qTmp);
+    skHeadQ.copy(bHead.quaternion);   // skelOn: the head's orientation target
     scl.set(1, 1, 1);
     squashHead.step(dt);
     squashHead.applyTo(scl);
@@ -804,6 +905,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       bTail.quaternion.multiplyQuaternions(qTmp, bHead.quaternion);
     } else bTail.quaternion.copy(bHead.quaternion);
     bTail.scale.set(1, 1, 1);
+    skTailQ.copy(bTail.quaternion);
 
     // Arms: drawn on the SIM's joints (2026-09-18 — hit geometry is drawn
     // geometry: the sim places shoulders and elbows in sim/arms.ts with the
@@ -813,8 +915,9 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // gloves do not follow the fall.
     for (let i = 0; i < 2; i++) {
       const sh = shoulderJ[i]!, gl = gloveL[i]!;
-      lerpLocal(prev.arms[i]!.shoulder, next.arms[i]!.shoulder, alpha, sh);
-      lerpLocal(prev.arms[i]!.elbow, next.arms[i]!.elbow, alpha, elbowJ[i]!);
+      simShoulder(prev, next, alpha, i, sh);
+      if (skBaseFk) toLocal(skBaseFk.p[skelArm(i).fore]!, elbowJ[i]!);
+      else lerpLocal(prev.arms[i]!.elbow, next.arms[i]!.elbow, alpha, elbowJ[i]!);
       if (portrait) {
         // Lookbook portrait: the arms hang, a little forward and bent, so the face and chest are clear. Never set in play.
         elbowJ[i]!.set(sh.x - 0.02, sh.y - body.upperArm * 0.98, sh.z + latSign[i]! * 0.07);
@@ -825,6 +928,13 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       // V2 chain, drawn only: the punching shoulder drops in an uppercut's sit; the lead shoulder comes up into the chin on a jab.
       if (cp.on && (next.punch.hand === 'lead') === (i === 0)) sh.y += pt === 'uppercut' ? -cp.sit * c.rigUppercutShoulderDrop : pt === 'jab' ? cp.push * c.rigJabShrug : 0;
       if ((next.punch.hand === 'lead') === (i === 0)) sh.x += reads.feintReach;
+      if (c.skelOn) {
+        // The same reach and the same few cm of shrug / give / feint, for the clavicle to carry (chest frame) — the skeleton's shoulder rides the chest.
+        const isPunch = (next.punch.hand === 'lead') === (i === 0), mineP = next.punch.type !== null && isPunch;
+        skReach[i] = (next.punch.type === null ? 0 : leanN * c.rigPunchShoulderReach * (mineP ? 1 : -0.5)) + (isPunch ? reads.feintReach : 0);
+        skLift[i] = shrug + (i === 0 ? reads.shrugLead : 0) - reads.shoulderGive[latSign[i]! > 0 ? 0 : 1]!
+          + (cp.on && isPunch ? (pt === 'uppercut' ? -cp.sit * c.rigUppercutShoulderDrop : pt === 'jab' ? cp.push * c.rigJabShrug : 0) : 0);
+      }
       // Clinch and push-off: the sim leaves the gloves at the guard (nobody can punch in a clinch; a shove has no
       // fist), so the DRAWN arms leave the sim's joints for these two — wrapped round the other man, or both
       // forearms driving out from the chest.
@@ -980,6 +1090,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       // The knee on the slip's side turns in as the weight lands on it.
       const slipKnee = slipLat !== 0 && Math.sign(slipLat) === Math.sign(s) ? Math.min(1, Math.abs(slipLat) / Math.max(1e-3, c.slipHeadOffset)) * c.rigSlipKneeIn : 0;
       pole.set(c.rigKneePoleFwd * Math.cos(yawL), 0, -c.rigKneePoleFwd * Math.sin(yawL)).addScaledVector(ZAXIS, s * (c.rigKneePoleOut - slipKnee - (cp.on && i === pushFoot ? cp.push * c.rigChainKneeIn : 0) - reads.kneeIn * 0.5));   // (kneeIn: rocked, the legs gone — both knees fall in)
+      skAnkle[i]!.copy(ankle); skKneePole[i]!.copy(pole);   // skelOn: the leg's targets (core IK, knee limited)
       solveTwoBone(hipJ[i]!, ankle, body.thigh, body.shin, pole, 1, ik);
       const lb = legBones(i);
       placeChain(lb.thigh, lb.knee, lb.shin, hipJ[i]!, ik.mid, ankle, hingeLeg[i]!, -1, 1);
@@ -999,17 +1110,23 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       if (ol > c.rigClothMax) { const k = c.rigClothMax / ol; ox *= k; oy *= k; oz *= k; hsp.x = v2.x + ox; hsp.y = v2.y + oy; hsp.z = v2.z + oz; }
       v2.set(hsp.x, hsp.y, hsp.z);
       bHem.position.copy(toLocalV(v2));
+      skHem[i]!.copy(bHem.position);
       const bBoot = bone(lb.boot);
       bBoot.position.copy(ankle);
       bBoot.quaternion.setFromAxisAngle(YAXIS, yawL);
       if (lift > 0) bBoot.quaternion.multiply(qTmp.setFromAxisAngle(ZAXIS, -Math.asin(Math.min(1, lift / (d.footLen * 0.72)))));
       else if (reads.toeUp > 1e-3) bBoot.quaternion.multiply(qTmp.setFromAxisAngle(ZAXIS, reads.toeUp * 16 * DEG));   // rocked back on the heels: the toes come off the canvas
       bBoot.scale.set(1, 1, 1);
+      skFoot[i]!.copy(bBoot.quaternion);
       chainOut.footYaw[i] = pivotYaw; chainOut.heel[i] = lift;
       chainOut.kneeIn[i] = -s * (ik.mid.z - (hipJ[i]!.z + ankle.z) / 2);
       if (i === 0) { dbgPts[J.hp0]!.copy(hipJ[0]!); dbgPts[J.kn0]!.copy(ik.mid); dbgPts[J.an0]!.copy(ankle); }
       else { dbgPts[J.hp1]!.copy(hipJ[1]!); dbgPts[J.kn1]!.copy(ik.mid); dbgPts[J.an1]!.copy(ankle); }
     }
+
+    // anim Phase 1.1: everything above was a target; fit the skeleton to it, clamp it, and pose the bone hierarchy.
+    if (c.skelOn) poseSkeleton(body, c);
+    skelView.visible = c.skelOn && c.skelDebug;
 
     // Debug overlay.
     debug.visible = c.debugSkeleton;
@@ -1083,6 +1200,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       if (mat) { mat.dispose(); mat = null; }
       spray.dispose();
       debug.dispose();
+      skelView.dispose();
       root.removeFromParent();
       if (probing && window.__rig) delete window.__rig[side];
     },

@@ -25,7 +25,7 @@
  *   tail   : hair that hangs (braids, dreads, a tied tail), on a spring
  */
 import * as THREE from 'three';
-import { morphOf, type BodyDims, type BodyMorph, type Config, type FighterSpec } from '../core';
+import { fk, morphOf, restPose, skelDef, skelHeadCentre, type BodyDims, type BodyMorph, type Config, type FighterSpec } from '../core';
 import type { Geo, Rect } from './geo';
 
 export const BONE = {
@@ -35,8 +35,59 @@ export const BONE = {
   thigh0: 15, knee0: 16, shin0: 17, boot0: 18, hem0: 19,
   thigh1: 20, knee1: 21, shin1: 22, boot1: 23, hem1: 24,
   tail: 25,
+  // anim Phase 1.1 (cfg.skelOn): the low thoracic joint and the clavicles of the core skeleton. Unweighted and unposed with skelOn off.
+  spine2: 26, clav0: 27, clav1: 28,
 } as const;
-export const BONE_COUNT = 26;
+export const BONE_COUNT = 29;
+
+/**
+ * With cfg.skelOn the bones are a real HIERARCHY that mirrors core/skeleton.ts joint for joint (the parent of each
+ * bone, −1 = the rig root group). Helpers ride as children: the deltoid on the clavicle at the shoulder joint, the
+ * elbow and knee on the upper bone at the hinge, the hem on the thigh, the hair on the head. `spine` is the lumbar
+ * joint (spine1), `chest` the chest joint, `glove` the hand, `boot` the foot.
+ */
+export const BONE_PARENT: readonly number[] = (() => {
+  const p = new Array<number>(BONE_COUNT).fill(-1);
+  p[BONE.spine] = BONE.hips; p[BONE.spine2] = BONE.spine; p[BONE.chest] = BONE.spine2;
+  p[BONE.neck] = BONE.chest; p[BONE.head] = BONE.neck; p[BONE.tail] = BONE.head;
+  // (armBones / legBones are declared below; the ids are spelled out so this runs at module load.)
+  const arms = [[BONE.clav0, BONE.shoulder0, BONE.upperArm0, BONE.elbow0, BONE.forearm0, BONE.glove0], [BONE.clav1, BONE.shoulder1, BONE.upperArm1, BONE.elbow1, BONE.forearm1, BONE.glove1]] as const;
+  const legs = [[BONE.thigh0, BONE.knee0, BONE.shin0, BONE.boot0, BONE.hem0], [BONE.thigh1, BONE.knee1, BONE.shin1, BONE.boot1, BONE.hem1]] as const;
+  for (const [clav, sh, up, el, fo, gl] of arms) { p[clav] = BONE.chest; p[sh] = clav; p[up] = clav; p[el] = up; p[fo] = up; p[gl] = fo; }
+  for (const [th, kn, shn, bt, hm] of legs) { p[th] = BONE.hips; p[kn] = th; p[shn] = th; p[bt] = shn; p[hm] = th; }
+  return p;
+})();
+
+/** The core joint each skeleton bone draws (index = core SKJ id). */
+export const JOINT_BONE: readonly number[] = [
+  BONE.hips, BONE.spine, BONE.spine2, BONE.chest, BONE.neck, BONE.head,
+  BONE.clav0, BONE.upperArm0, BONE.forearm0, BONE.glove0, BONE.clav1, BONE.upperArm1, BONE.forearm1, BONE.glove1,
+  BONE.thigh0, BONE.shin0, BONE.boot0, BONE.thigh1, BONE.shin1, BONE.boot1,
+];
+
+/**
+ * Bone ORIGINS for the skeleton hierarchy (cfg.skelOn), rig-local, every bone unrotated: the core skeleton's rest
+ * FK. They differ from bindPose's reference points only where a joint moved: the spinal joints, the chest joint
+ * (mid ribcage, not the shoulder line), the clavicles, and the head (its pivot on the top of the neck, not its
+ * centre). The mesh is still authored around bindPose's points; the inverse binds use these.
+ */
+export function skelBindPose(spec: FighterSpec, body: BodyDims, d: RigDims, cfg: Config): THREE.Vector3[] {
+  const def = skelDef(body, spec.stance, cfg);
+  const f = fk(def, restPose(def, 0, 0, 0));
+  const out: THREE.Vector3[] = [];
+  for (let i = 0; i < BONE_COUNT; i++) out.push(new THREE.Vector3());
+  for (let j = 0; j < JOINT_BONE.length; j++) { const p = f.p[j]!; out[JOINT_BONE[j]!]!.set(p.x, p.y, p.z); }
+  const hc = skelHeadCentre(def, f);
+  out[BONE.tail]!.set(hc.x, hc.y, hc.z);
+  for (let i = 0; i < 2; i++) {
+    const a = armBones(i), l = legBones(i);
+    out[a.shoulder]!.copy(out[a.upper]!);
+    out[a.elbow]!.copy(out[a.fore]!);
+    out[l.knee]!.copy(out[l.shin]!);
+    out[l.hem]!.copy(out[l.thigh]!).y -= d.trunkLen;
+  }
+  return out;
+}
 
 export interface ArmBones { shoulder: number; upper: number; elbow: number; fore: number; glove: number }
 export interface LegBones { thigh: number; knee: number; shin: number; boot: number; hem: number }

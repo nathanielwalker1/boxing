@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { morphOf, type BodyDims, type Config, type FighterSpec } from '../core';
 import { Geo } from './geo';
-import { BONE_COUNT, bindPose, rigDims, type Ctx, type RigDims } from './skeleton';
+import { BONE_COUNT, BONE_PARENT, bindPose, rigDims, skelBindPose, type Ctx, type RigDims } from './skeleton';
 import { armSpan, buildArm, buildLeg, buildTorso, muscleDef, torsoShape } from './anatomy';
 import { buildFacialHair, buildHair, buildHead, headShape } from './head';
 import { buildBoot, buildBowTie, buildGlove, buildTrunks } from './kit';
@@ -37,6 +37,8 @@ export function rigGeomKey(spec: FighterSpec, body: BodyDims, cfg: Config): stri
     cfg.rigGloveElongate, cfg.rigCuffLen, cfg.rigFootLen, cfg.rigFootW, cfg.rigHairColor, cfg.rigEyeColor, cfg.rigCuffColor,
     cfg.rigChestWidth, cfg.rigWaistDepth, cfg.rigPelvisWidth, cfg.rigHipJoint, cfg.rigDeltoid, cfg.rigMuscleDef, cfg.rigMorphMuscleDef,
     cfg.rigMorphMuscleLimb, cfg.rigMorphFatBelly, cfg.rigMorphNeckR, cfg.rigAoStrength, cfg.rigHandScale, cfg.rigJointBlend, cfg.rigQuality,
+    // anim Phase 1.1: the skeleton changes the bones (a hierarchy) and the skin weights.
+    cfg.skelOn, cfg.skelSpine1At, cfg.skelSpine2At, cfg.skelChestAt, cfg.skelNeckBase, cfg.skelHeadPivot, cfg.skelClavicleInset, cfg.skelSkinBlend,
   ].join('|');
 }
 
@@ -47,7 +49,10 @@ export interface RigMesh {
   body: THREE.SkinnedMesh;
   outline: THREE.SkinnedMesh;
   dims: RigDims;
+  /** The reference points the mesh is authored around (bindPose). */
   bind: THREE.Vector3[];
+  /** Bone origins, rig-local, unrotated (= bind with skelOn off; the skeleton's rest FK with it on). */
+  boneBind: THREE.Vector3[];
   atlas: FighterAtlas;
   triangles: number;
   dispose(): void;
@@ -87,13 +92,20 @@ export function buildRigMesh(
   const group = new THREE.Group();
   const bones: THREE.Bone[] = [];
   const inverses: THREE.Matrix4[] = [];
+  // skelOn: a real hierarchy on the core skeleton's joints (bone origins from skelBindPose; still unrotated, so the
+  // inverse binds stay translations). Off: 26 flat siblings placed absolutely, as before.
+  const boneBind = cfg.skelOn ? skelBindPose(spec, body, d, cfg) : bind;
   for (let i = 0; i < BONE_COUNT; i++) {
     const b = new THREE.Bone();
     b.name = `bone${i}`;
-    b.position.copy(bind[i]!);
+    b.position.copy(boneBind[i]!);
     bones.push(b);
-    group.add(b);
-    inverses.push(new THREE.Matrix4().makeTranslation(-bind[i]!.x, -bind[i]!.y, -bind[i]!.z));
+    inverses.push(new THREE.Matrix4().makeTranslation(-boneBind[i]!.x, -boneBind[i]!.y, -boneBind[i]!.z));
+  }
+  for (let i = 0; i < BONE_COUNT; i++) {
+    const p = cfg.skelOn ? BONE_PARENT[i]! : -1;
+    if (p < 0) group.add(bones[i]!);
+    else { bones[p]!.add(bones[i]!); bones[i]!.position.sub(boneBind[p]!); }
   }
   const skeleton = new THREE.Skeleton(bones, inverses);
 
@@ -114,7 +126,7 @@ export function buildRigMesh(
   group.add(outline);
 
   return {
-    group, bones, skeleton, body: bodyMesh, outline, dims: d, bind, atlas, triangles: g.triangles,
+    group, bones, skeleton, body: bodyMesh, outline, dims: d, bind, boneBind, atlas, triangles: g.triangles,
     dispose(): void {
       geometry.dispose();
       skeleton.dispose();
