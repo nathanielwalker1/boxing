@@ -362,6 +362,8 @@ export function styleParams(id: AiStyle, cfg: Config, difficulty: number = cfg.a
     attackDelayMin: st.attackDelayMin * pick(cfg.aiHumanTempoEasy, cfg.aiHumanTempoMed, 1),
     attackDelayMax: st.attackDelayMax * pick(cfg.aiHumanTempoEasy, cfg.aiHumanTempoMed, 1),
     counterChance: st.counterChance * pick(cfg.aiHumanCounterEasy, cfg.aiHumanCounterMed, 1),
+    blockCounter: st.blockCounter * pick(cfg.aiHumanReplyEasy, cfg.aiHumanReplyMed, 1),
+    intercept: st.intercept * pick(cfg.aiHumanReplyEasy, cfg.aiHumanReplyMed, 1),
     blockWindow: i === 2 ? st.blockWindow : pick(cfg.aiHumanHoldEasy, cfg.aiHumanHoldMed, 0),
   };
   return out;
