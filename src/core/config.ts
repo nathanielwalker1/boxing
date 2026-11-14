@@ -1805,6 +1805,7 @@ export const SCHEMA = {
   hitChainBodyLat:   num(12, 0, 30, 0.5, 'hit chain', 'body shot, hook: the spine bends sideways TOWARD the hit side (the liver fold), degrees'),
   hitChainBodyHeadDip: num(8, 0, 30, 0.5, 'hit chain', 'body shot: the head dips forward (neck flexion) as the torso folds, degrees'),
   hitChainPelvis:    num(0.15, 0, 0.5, 0.01, 'hit chain', 'the pelvis takes this share of the spine\'s angles, last (it carries the whole upper body, so a little goes a long way)'),
+  hitChainSitBack:   num(1, 0, 1, 0.05, 'hit chain', 'share of any FORWARD head travel the chain causes (a body shot\'s fold) that the hips take back, so the fold never brings his head toward the puncher (1 = none comes forward; 0 = the folded head came 20–30 cm into range and the next punches landed flush)'),
   hitChainNeckShare: num(0.6, 0, 1, 0.05, 'hit chain', 'share of the head group\'s angle in the neck joint (the rest in the head joint)'),
   hitChainHeadPeak:  num(2.5, 1, 8, 0.25, 'hit chain', 'ticks from the hit to the peak of the head / neck'),
   hitChainSpinePeak: num(4.25, 1, 12, 0.25, 'hit chain', 'ticks from the hit to the peak of the spine'),

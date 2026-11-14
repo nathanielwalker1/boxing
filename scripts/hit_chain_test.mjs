@@ -164,6 +164,34 @@ for (const m of onM) {
   for (const v of sig) { const over = Math.sign(v) === -Math.sign(pk) && Math.abs(v) > 0.1 * Math.abs(pk); if (over && !inLobe) lobes++; inLobe = over; }
   check(`${m.cs.name}: settled by 24 ticks (${(a[24] / peak * 100).toFixed(0)}% of peak at t24), overshoots over 10%: ${lobes}`, settled && lobes <= 1);
 }
+// ── The chain is presentation: an idle man vs the Hard AI is hurt the same with it on and off (the body-fold regression:
+// folded about the hips his head came ~20 cm forward into range, a whiff became a land and the fight ended in a knockdown at 4 s) ──
+{
+  const { kit } = await import('./bots/kit.mjs');
+  const kk = await kit({ rated: true });
+  const RR = kk.core.ROSTER;
+  const named = n => RR.find(f => new RegExp(n, 'i').test(f.id));
+  const pairs = [[named('blue') ?? RR[0], named('boiler') ?? RR[1]], [RR[0], RR[1]], [RR[2], RR[3]]];
+  const fight = (a, b, seed, over) => {
+    const c = { ...kk.cfg, ...over, aiDifficulty: 2 };
+    let s = kk.sim.createState([a, b], c, seed);
+    let ai = kk.ai.createAi(1, seed, c, kk.ai.styleFor(b, c));
+    let kd = 0;
+    for (let i = 0; i < 12 * 60; i++) {
+      const d = kk.ai.aiStep(ai, s, c); ai = d.ai;
+      const r = kk.sim.step(s, [{ move: { x: 0, y: 0 } }, d.input], c); s = r.state;
+      for (const e of r.events) if (e.type === 'knockdown' && e.side === 0) kd++;
+      if (s.round.phase === 'over') break;
+    }
+    return { kd, health: s.fighters[0].health };
+  };
+  const bad = [];
+  for (const [a, b] of pairs) for (let seed = 1; seed <= 4; seed++) {
+    const on = fight(a, b, seed, { hitChainV2: true }), off = fight(a, b, seed, { hitChainV2: false });
+    if (on.kd !== off.kd || Math.abs(on.health - off.health) > 0.08) bad.push(`${a.id}/${b.id} s${seed}: kd ${on.kd}/${off.kd} health ${on.health.toFixed(2)}/${off.health.toFixed(2)}`);
+  }
+  check('idle man vs Hard AI, 12 s, 3 pairs × 4 seeds: knockdowns equal and health within 0.08, chain on vs off', bad.length === 0, bad.join('; ') || 'all 12 match');
+}
 // ── Toggle off ──
 check('toggle off: no chain slot is ever written, and the legacy head spring still moves the head', offM.every(m => m.hit.rows.every(r => r.hist.every(v => v === undefined))) && offM.some(m => Math.abs(m.hit.state.fighters[1].reaction.head.x) + Math.abs(m.hit.state.fighters[1].reaction.head.vx) >= 0) && by(offM, 'cross head').pk.head > 0.2);
 check('toggle on with skelOn off: identical to toggle off (the chain is a skeleton layer)', (() => {
