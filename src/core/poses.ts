@@ -97,6 +97,11 @@ export function punchKey(cfg: Config, body: BodyDims, stance: Stance, guard: RPo
     h.aL += c(cfg, `punchk_${punch}_${bodyLevel ? 'bodyAimL' : 'aimL'}`);
   }
   h.swivel += k('hSwivel') * D; h.pron += k('hPron') * D;
+  // The BODY hook drops its elbow (punchk_hook*_bodySwivel / bodyContactU; 0 for the other punches).
+  if (bodyLevel) {
+    h.swivel += c(cfg, `punchk_${punch}_bodySwivel`) * D;
+    if (key !== 'load') h.cU += c(cfg, `punchk_${punch}_bodyContactU`) * s;
+  }
   const fp = r.foot[ip], fo = r.foot[ip === 0 ? 1 : 0];
   fp.stepF += k('fpStepF') * s; fp.stepL += k('fpStepL') * s; fp.pivot += sp * k('fpPivot') * D; fp.heel += k('fpHeel') * s;
   fo.stepF += k('foStepF') * s; fo.stepL += k('foStepL') * s; fo.pivot += sp * k('foPivot') * D; fo.heel += k('foHeel') * s;
