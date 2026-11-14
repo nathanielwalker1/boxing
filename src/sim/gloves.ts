@@ -334,6 +334,10 @@ export function integrateGloves(a: FighterState, b: FighterState, cfg: Config, d
       stepArms(a, cfg, 0); stepArms(b, cfg, 0);
       clampGloves(a, b, cfg); clampGloves(b, a, cfg);
       resolveGloveContacts(a, b, cfg);
+      // Punch keys: a kinematic glove is driven to its key whatever is in the way, and the glove-on-glove pass above
+      // could shove it on into the face behind his gloves (−3.6 cm past the give, arms_test). The surfaces have the
+      // last word: head and body clamp once more after the glove contacts.
+      if (springs(a).some(s => s.kin) || springs(b).some(s => s.kin)) { clampGloves(a, b, cfg); clampGloves(b, a, cfg); }
     }
   }
 }
