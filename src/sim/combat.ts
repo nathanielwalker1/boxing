@@ -366,6 +366,34 @@ function missed(a: FighterState, cfg: Config, whiff: boolean, type: PunchType = 
 }
 
 /**
+ * blockFeelV2: what the BODIES do on a block. The glove that met the fist is driven back toward its own head (by the
+ * blocked power, capped; part an instant shove, part a starting speed) and springs home by the ordinary glove spring;
+ * it is never left inside his own head. The thrower's fist is already stopped on the glove by the contacts — it
+ * skips part of its hold there, so it bounces back along its path sooner than a land's follow-through.
+ */
+function blockFeel(a: FighterState, d: FighterState, at: Vec3, dirX: number, dirZ: number, rawPower: number, cfg: Config): void {
+  const dist = Math.min(cfg.blockFeelGloveMax, cfg.blockFeelGlove * rawPower);
+  const t0 = touchedBlock(d, 0), t1 = touchedBlock(d, 1);
+  const near = (i: number): number => { const p = d.gloves[i]!.pos; return Math.hypot(p.x - at.x, p.y - at.y, p.z - at.z); };
+  const which = t0 && !t1 ? [0] : t1 && !t0 ? [1] : t0 && t1 ? [0, 1] : [near(0) <= near(1) ? 0 : 1];
+  const hb = d.headBox, minDist = hb.r + d.body.gloveR;
+  for (const i of which) {
+    const g = d.gloves[i]!;
+    const shove = dist * (1 - cfg.blockFeelGloveVel);
+    g.pos.x += dirX * shove; g.pos.z += dirZ * shove;
+    g.vel.x += dirX * dist * cfg.blockFeelGloveVel * Math.sqrt(cfg.chainK); g.vel.z += dirZ * dist * cfg.blockFeelGloveVel * Math.sqrt(cfg.chainK);
+    // Never inside his own head: pushed back out along the line from its centre.
+    const rx = g.pos.x - hb.x, ry = g.pos.y - hb.y, rz = g.pos.z - hb.z, rl = Math.hypot(rx, ry, rz);
+    if (rl < minDist && rl > 1e-9) { const k = minDist / rl; g.pos.x = hb.x + rx * k; g.pos.y = hb.y + ry * k; g.pos.z = hb.z + rz * k; }
+  }
+  const p = a.punch;
+  if (p.type !== null && cfg.blockFeelFistSkip > 0) {
+    const total = whiffPhases(a, PUNCHES[p.type].phases(cfg)).total;
+    p.progress = Math.min(1, p.progress + cfg.blockFeelFistSkip / Math.max(1e-6, total));
+  }
+}
+
+/**
  * How much of a held guard a punch meets, 0..1 (overhaul, brief A4). The
  * block covers the FRONT: full inside guardArcFullDeg of the blocker's
  * facing, nothing past guardArcNoneDeg — so a hook, which arrives from the
@@ -745,7 +773,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // The hold (polish phase): inside a clean combination most of the knockback waits for its last punch (flow.ts).
   applyKnock(a, d, impulse.x / d.body.massKg * stumble, impulse.z / d.body.massKg * stumble, combo, finisher, !blocked && grade !== 'glancing', cfg);
   applyReaction(d, type, dir, mag, cfg, {
-    scale: blocked && !perfect && cfg.guardHolesV2 ? cfg.guardHolesBlockReact : !spread ? 1 : grade === 'glancing' ? cfg.gradeReactGlancing : grade === 'flush' ? cfg.gradeReactFlush : 1,
+    scale: blocked && !perfect && cfg.guardHolesV2 ? cfg.guardHolesBlockReact * (cfg.blockFeelV2 ? cfg.blockFeelHeadScale : 1) :!spread ? 1 : grade === 'glancing' ? cfg.gradeReactGlancing : grade === 'flush' ? cfg.gradeReactFlush : 1,
     neck: (!spread ? 1 : finisher ? cfg.gradeNeckFinisher : grade === 'flush' ? cfg.gradeNeckFlush : 1)
       * (cfg.counterFeelV2 && counter && !blocked ? cfg.counterReactionOver : 1),   // counterFeelV2: the head travels further on a counter
     vary: blocked ? 0 : vary * cfg.reactionVary, vary2: blocked ? 0 : seededUnit(s.seed, s.tick, side + 7) * cfg.reactionVary,
@@ -754,6 +782,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // Guard holes: every punch on a held guard (blocked or through) wears the cover for the next; a perfect one is free.
     if (!perfect) setGuardPress(d, guardPress(d) + 1);
     if (blocked && !perfect) setWhiffMult(a, Math.max(whiffMult(a), cfg.guardHolesRebound));   // rebound: the arm comes off the gloves slower
+    if (blocked && !perfect && cfg.blockFeelV2) blockFeel(a, d, at, dirX, dirZ, rawPower, cfg);
     // A WELL-TIMED block (raised inside the last guardHolesTimedTicks before the hit): the thrower is rocked and the
     // counter window the slip opens opens for the blocker (counter event on his landing, as for a slip).
     // (A SKILL, not an accident of reaction time: the seeded roll against the blocker's timedSkill — 1 for a human, set by the AI per difficulty.)

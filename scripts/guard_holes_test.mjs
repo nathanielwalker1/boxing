@@ -9,7 +9,7 @@ import { check, near, done } from './check.js';
 
 const k = await kit();
 const { cfg, sim, inp, NONE, fresh, run, mag } = k;
-const quiet = { ...cfg, stylesOn: true, staminaBlockDrain: 0, staminaRegen: 0, healthRegen: 0, guardMeterOn: false, guardHolesV2: true };
+const quiet = { ...cfg, stylesOn: true, staminaBlockDrain: 0, staminaRegen: 0, healthRegen: 0, guardMeterOn: false, guardHolesV2: true, blockFeelV2: false };   // (blockFeelV2 tones the block's head rock down and brings the fist home sooner on purpose: block_feel_test.mjs holds that; this file pins guardHolesV2's own numbers)
 const off = { ...quiet, guardHolesV2: false };
 const BLOCK = inp({ block: true });
 const MID = 0.79;

@@ -46,6 +46,9 @@ SCENARIOS.hit_body_p = { dist: 0.7, s0: [], s1: bodyHook(), from: 22, to: 58, st
 SCENARIOS.counter = { dist: 0.79, s0: at({ ...flick(-1, 0), 12: { cross: true } }), s1: at({ 0: { jab: true } }), from: 0, to: 46, step: 2 };
 // His cross on a held block.
 SCENARIOS.block = { dist: 0.79, s0: hold([], 'block', 0, 60), s1: at({ 12: { cross: true } }), from: 8, to: 50, step: 2 };
+// blockFeelV2: side 1 (blue, face to camera) holds a high guard and takes the shot; side 0 throws it.
+SCENARIOS.block_cross = { dist: 0.8, s0: at({ 12: { cross: true } }), s1: hold([], 'block', 0, 60), from: 10, to: 40, step: 2 };
+SCENARIOS.block_hook = { dist: 0.8, s0: at({ 12: { hook: true, move: { x: 1, y: 0 } } }), s1: hold([], 'block', 0, 60), from: 10, to: 44, step: 2 };
 // Footwork: the stick held sideways about a second (60 ticks), and a step in then out.
 SCENARIOS.footwork_lateral = { dist: 1.2, s0: stick(1, 0, 2, 62), s1: [], from: 0, to: 84, step: 6 };
 SCENARIOS.footwork_in_out = { dist: 1.5, s0: [...stick(0, 0, 0, 1), ...stick(0, 1, 2, 24), ...stick(0, 0, 25, 29), ...stick(0, -1, 30, 52)], s1: [], from: 0, to: 80, step: 5 };
