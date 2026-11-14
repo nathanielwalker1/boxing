@@ -24,8 +24,9 @@
  *     moment, and whether the first try fails is rolled on the seeded rng.
  */
 import type { BodyPart, Config, FallStyle, FighterState, GetUpPhase, KnockdownKind, Side, SimEvent, SimState } from '../core';
-import { clamp, lerp, rngChance, rngRange } from '../core';
-import { getUpAt, healthCap, healthRegenDelay, idlePunch, idleSlip, regenDelay, setGetUpAt, setGetUpCount, setHealthCap, setHeldKnock, setHealthRegenDelay, setRegenDelay } from './state';
+import { clamp, frameOf, handLateralSign, lerp, rngChance, rngRange } from '../core';
+import { VARIANTS } from './variants';
+import { setFallInfo, getUpAt, healthCap, healthRegenDelay, idlePunch, idleSlip, regenDelay, setGetUpAt, setGetUpCount, setHealthCap, setHeldKnock, setHealthRegenDelay, setRegenDelay } from './state';
 import { clearPunish } from './vulnerability';
 import { rated } from './ratings';
 
@@ -103,6 +104,17 @@ export function knockDown(s: SimState, side: Side, cfg: Config, events: SimEvent
   d.down = true;
   d.hurt = 0; d.hurtMax = 0; d.hurtKind = 'none';   // the canvas ends the hurt state; the count is its own thing
   d.downT = 0;
+  if (cfg.knockdownV2) {
+    // knockdownV2: which fall — chosen NOW, from the punch that is landing (it is still on the puncher), read by sim/skel.ts fitFall.
+    const a = s.fighters[side === 0 ? 1 : 0];
+    const pt = a.punch.type;
+    const folded = cause === 'body' || pt === 'uppercut' || (pt !== null && !!VARIANTS[a.punch.variant]?.body);
+    let px = d.pos.x - a.pos.x, pz = d.pos.z - a.pos.z;
+    const pl = Math.hypot(px, pz) || 1; px /= pl; pz /= pl;
+    // A hook goes across: from the puncher's hand side toward the other (his hand's side basis vector, turned against it).
+    const ra = frameOf(a.yaw).right, hs = handLateralSign(a.punch.hand, a.stance);
+    setFallInfo(d, folded ? 3 : pt === 'hook' ? 2 : 1, px, pz, -hs * ra.x, -hs * ra.z);
+  }
   d.knockdowns += 1;
   d.block = false;
   d.blockT = 0;

@@ -1810,6 +1810,19 @@ export const SCHEMA = {
   hitChainSpinePeak: num(4.25, 1, 12, 0.25, 'hit chain', 'ticks from the hit to the peak of the spine'),
   hitChainPelvisPeak: num(6.5, 1, 14, 0.25, 'hit chain', 'ticks from the hit to the peak of the pelvis'),
   hitChainZeta:      num(0.72, 0.4, 1.2, 0.01, 'hit chain', 'damping ratio of every group\'s return (≥ 0.7: one overshoot under 5 %, no jelly; 1 = none)'),
+  // ── Knockdown falls (knockdownV2, sim/skel.ts fitFall; docs/anim/LOG_KNOCKDOWN.md): authored falls on the skeleton, by what dropped him ──
+  knockdownV2:       bool(true, 'knockdown fall', 'with skelOn: a heavy / flash knockdown is posed on the SIM skeleton by what dropped him (straight to the head: seat then back; hook: sideways onto hip and shoulder; body shot or uppercut: knees then forward onto the hands) and the rig draws that skeleton. Off = the rig\'s own fall timeline exactly. The count, the get-up and every sim rule are the same either way'),
+  kdDelay:           num(8, 0, 20, 1, 'knockdown fall', 'ticks between the knockdown and the legs going: the knees lock a beat first'),
+  kdFall:            num(30, 12, 60, 1, 'knockdown fall', 'ticks from the legs going to the pelvis reaching the canvas'),
+  kdSettle:          num(8, 1, 30, 1, 'knockdown fall', 'ticks the landing takes to settle (the small bounce dies over this)'),
+  kdBounce:          num(0.008, 0, 0.05, 0.001, 'knockdown fall', 'height of the landing bounce of the pelvis, m (keep under about 1 cm)'),
+  kdStiffen:         num(0.012, 0, 0.05, 0.001, 'knockdown fall', 'the pelvis rises this much as the legs stiffen in the delay, m'),
+  kdSlide:           num(0.3, 0, 0.8, 0.01, 'knockdown fall', 'how far the pelvis travels along the fall line as it drops, m'),
+  kdBackTilt:        num(84, 40, 90, 1, 'knockdown fall', 'straight fall: the trunk\'s final tilt back from vertical, degrees (90 = flat on the back)'),
+  kdSideTilt:        num(80, 40, 90, 1, 'knockdown fall', 'hook fall: the trunk\'s final tilt toward the side, degrees'),
+  kdFoldTilt:        num(70, 40, 90, 1, 'knockdown fall', 'folded fall: the trunk\'s final tilt forward over the knees, degrees'),
+  kdHookTurn:        num(40, 0, 90, 1, 'knockdown fall', 'hook fall: how far round toward the back the side fall line is turned, degrees (0 = straight sideways)'),
+  kdSeatShare:       num(0.7, 0.3, 1, 0.05, 'knockdown fall', 'the pelvis tips this share of the trunk\'s tilt (the rest is the spine arching back over the seat)'),
   ...poseEntries(),
 } satisfies Record<string, Entry>;
 

@@ -19,12 +19,12 @@ import {
   clavicleTarget, fitArm, fitLeg, fitTorso, fk, frameOf, handLateralSign, localToWorld, qAxisAngle, qMul, qRot, restPose, rootQuat,
   skelDef, skelLimits, torsoShapes, SKJ, clampPose,
   applyKeyedTorso, keyedClavicleTarget, keyedPose, poseScale, swivelPole, type KeyedInput, type RPose,
-  poseQ, setPoseQ, qFromRotVec,
+  poseQ, setPoseQ, qFromRotVec, qFromBasis, SIM_DT, type SkelFK,
 } from '../core';
 import { chainAngles, chainOn } from './reaction';
 import { PUNCHES, whiffPhases } from './punches';
 import { VARIANTS } from './variants';
-import { pressDist } from './state';
+import { pressDist, fallInfo } from './state';
 
 /** Pelvis yaw (relative to the root) for a torso twist: skelHipTwistShare of it, more if the spine would pass its rotation limits. */
 export function pelvisYawFor(twist: number, cfg: Config): number {
@@ -160,6 +160,102 @@ export function fitSimTorso(f: FighterState, cfg: Config): void {
   f.headBox.x = t.head.x; f.headBox.y = t.head.y; f.headBox.z = t.head.z;
   f.bodyBox.a.x = t.hips.x; f.bodyBox.a.y = t.hips.y; f.bodyBox.a.z = t.hips.z;
   f.bodyBox.b.x = t.shoulders.x; f.bodyBox.b.y = t.shoulders.y; f.bodyBox.b.z = t.shoulders.z;
+  // knockdownV2: the fall is posed over the standing fit (the hit shapes above stay as they were: a downed man cannot be hit).
+  if (fallActive(f, cfg)) fitFall(f, cfg, def, lim);
+}
+
+/** knockdownV2 is posing this fighter: a heavy / flash knockdown, with the skeleton on and a fall chosen at the knockdown. */
+export function fallActive(f: FighterState, cfg: Config): boolean {
+  return cfg.knockdownV2 && cfg.skelOn && f.down && !!f.skel && (f.downKind === 'heavy' || f.downKind === 'flash') && fallInfo(f).kind > 0;
+}
+
+const v3 = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
+const vAdd = (a: Vec3, b: Vec3, k = 1): Vec3 => v3(a.x + b.x * k, a.y + b.y * k, a.z + b.z * k);
+const vDot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
+const vNorm = (a: Vec3): Vec3 => { const l = Math.hypot(a.x, a.y, a.z) || 1; return v3(a.x / l, a.y / l, a.z / l); };
+const vCross = (a: Vec3, b: Vec3): Vec3 => v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+const mix = (a: number, b: number, t: number): number => a + (b - a) * t;
+const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
+const DEG2 = Math.PI / 180;
+
+/** World orientation of a body part whose spine axis is `A` and whose chest faces `X` (made perpendicular to A). */
+function bodyBasis(A: Vec3, Xh: Vec3): ReturnType<typeof qFromBasis> {
+  const Y = vNorm(A), X = vNorm(vAdd(Xh, Y, -vDot(Xh, Y)));
+  return qFromBasis(X, Y, vCross(X, Y));
+}
+
+/**
+ * The authored falls (knockdownV2), as targets for the same legal fit the standing body uses (torso, legs, arms), clamped.
+ * Clock in ticks since the knockdown: kdDelay (the legs lock), then kdFall (the pelvis accelerates to the canvas, u²), then
+ * kdSettle (a bounce under a centimetre). The trunk tips later than the pelvis drops (seat first), the feet stay planted
+ * until the knees have folded, then slide out.
+ */
+function fitFall(f: FighterState, cfg: Config, def: ReturnType<typeof skelDef>, lim: ReturnType<typeof skelLimits>): void {
+  const info = fallInfo(f), pose = f.skel!, body = f.body, kind = info.kind;
+  const tk = f.downT / SIM_DT;
+  const u = clamp01((tk - cfg.kdDelay) / cfg.kdFall);
+  const ts = Math.max(0, tk - cfg.kdDelay - cfg.kdFall);
+  const fr = frameOf(f.yaw), fwd = v3(fr.fwd.x, 0, fr.fwd.z), UP = v3(0, 1, 0);
+  const push = v3(info.px, 0, info.pz), lat = v3(info.lx, 0, info.lz);
+  // Fall line D (horizontal, the way the head goes), trunk tilt, and where the pelvis ends.
+  let D: Vec3, tilt: number, v0: number, hLie: number;
+  if (kind === 1) { D = push; tilt = cfg.kdBackTilt * DEG2; v0 = 0.3; hLie = body.bodyR * 1.05; }
+  else if (kind === 2) {
+    const b = cfg.kdHookTurn * DEG2;
+    D = vNorm(vAdd(vAdd(v3(0, 0, 0), lat, Math.cos(b)), push, Math.sin(b)));
+    tilt = cfg.kdSideTilt * DEG2; v0 = 0.3; hLie = body.bodyR * 1.05;
+  } else { D = v3(-push.x, 0, -push.z); tilt = cfg.kdFoldTilt * DEG2; v0 = 0.4; hLie = def.thigh + body.bodyR * 0.6; }
+  const hs = def.hipY;
+  const drop = u * u;
+  const bounce = ts > 0 ? cfg.kdBounce * Math.exp(-ts * 3 / cfg.kdSettle) * Math.abs(Math.sin(ts * 1.1)) : 0;
+  const stiffen = cfg.kdStiffen * Math.sin(Math.PI * clamp01(tk / Math.max(1, cfg.kdDelay))) * (u > 0 ? 0 : 1);
+  const py = mix(hs, hLie, drop) + bounce + stiffen;
+  const slide = cfg.kdSlide * drop * (kind === 3 ? 0.5 : 1);
+  const pel = v3(f.pos.x + D.x * slide, py, f.pos.z + D.z * slide);
+  const v = Math.pow(clamp01((u - v0) / (1 - v0)), 1.5);
+  const th = tilt * v, thP = th * cfg.kdSeatShare;
+  const axis = (a: number): Vec3 => v3(D.x * Math.sin(a), Math.cos(a), D.z * Math.sin(a));
+  const torsoLen = body.shoulderY - body.hipY, neckLen = body.headY - body.shoulderY;
+  const chest = vAdd(pel, axis(th), torsoLen);
+  const thH = th * 1.04;
+  const head = vAdd(chest, axis(thH), neckLen);
+  fitTorso(def, lim, cfg, pose, {
+    rootX: f.pos.x, rootZ: f.pos.z, yaw: f.yaw,
+    pelvis: pel, pelvisRot: bodyBasis(axis(thP), fwd), chest, chestRot: bodyBasis(axis(th), fwd), chestTwist: 0,
+    head, headRot: bodyBasis(axis(thH), fwd),
+  });
+  // Legs: planted at the stance until the knees have folded, then the feet slide out to lie (straight along the fall line behind him, or behind the knees).
+  const lead = handLateralSign('lead', f.stance), legLen = (def.thigh + def.shin) * 0.95;
+  const wl = clamp01((u - (kind === 3 ? 0.2 : 0.5)) / (kind === 3 ? 0.6 : 0.5));
+  const rest = pose.root;   // (root kept by fitTorso)
+  void rest;
+  const fk0: SkelFK = fk(def, pose, SKJ.chest + 1);
+  for (let i = 0; i < 2; i++) {
+    const s = i === 0 ? lead : -lead;
+    const stand = localToWorld(f.pos, fr, i === 0 ? cfg.rigStanceFwd : -cfg.rigStanceBack, body.bootH, s * cfg.rigStanceLat);
+    const lie = kind === 3
+      ? v3(pel.x - D.x * def.shin * 0.9 + fr.right.x * s * 0.1, body.bootH, pel.z - D.z * def.shin * 0.9 + fr.right.z * s * 0.1)
+      : v3(pel.x - D.x * legLen + fr.right.x * s * 0.12, body.bootH, pel.z - D.z * legLen + fr.right.z * s * 0.12);
+    const ankle = v3(mix(stand.x, lie.x, wl), body.bootH, mix(stand.z, lie.z, wl));
+    const pole = kind === 3 ? vAdd(D, UP, -0.4) : vAdd(vAdd(fwd, UP, 0.4 + 0.8 * wl), v3(fr.right.x * s, 0, fr.right.z * s), 0.2);
+    fitLeg(def, lim, cfg, pose, i, ankle, pole, null);
+  }
+  // Arms: from the guard, loose — they lie on the canvas out from the shoulders (straight, hook) or reach down to it under the shoulders (folded).
+  const wa = smoothstep(clamp01((u - (kind === 3 ? 0.35 : 0.2)) / (kind === 3 ? 0.55 : 0.8)));
+  const chestQ = fk0.r[SKJ.chest]!, chestP = fk0.p[SKJ.chest]!;
+  const Zh = qRot(chestQ, v3(0, 0, 1)); const zl = Math.hypot(Zh.x, Zh.z) || 1;
+  for (let i = 0; i < 2; i++) {
+    const side = handLateralSign(i === 0 ? 'lead' : 'rear', f.stance);
+    const g0 = vAdd(chestP, qRot(chestQ, v3(0.28, 0.05, side * 0.2)));
+    const zz = v3(Zh.x / zl * side, 0, Zh.z / zl * side);
+    const lieH = kind === 3
+      ? v3(chestP.x + D.x * 0.1 + zz.x * (body.shoulderW / 2 + 0.05), body.gloveR, chestP.z + D.z * 0.1 + zz.z * (body.shoulderW / 2 + 0.05))
+      : v3(chestP.x + zz.x * (body.shoulderW / 2 + body.upperArm * 0.75) - D.x * 0.22, body.gloveR, chestP.z + zz.z * (body.shoulderW / 2 + body.upperArm * 0.75) - D.z * 0.22);
+    const hand = v3(mix(g0.x, lieH.x, wa), Math.max(body.gloveR, mix(g0.y, lieH.y, wa)), mix(g0.z, lieH.z, wa));
+    const fc = fk(def, pose, SKJ.chest + 1);
+    fitArm(def, lim, cfg, pose, i, clavicleTarget(def, fc, i, 0, 0), hand, v3(zz.x, -0.3, zz.z), 0);
+  }
+  clampPose(def, pose, lim);
 }
 
 /** Spine group split, lumbar / low thoracic / chest (sums to 1). Shape of the bend, not a tunable. */
@@ -217,6 +313,7 @@ function armPole(f: FighterState, cfg: Config, i: number, shoulder: Vec3, glove:
 
 /** Fit arm i to its glove; `hint` is solveArm's joints (probe only), `reach` the shoulder's forward roll (m), `ap` the elbow pole lags. */
 export function fitSimArm(f: FighterState, cfg: Config, i: number, hint: ArmJoints, reach: number, ap: ArmPose): void {
+  if (fallActive(f, cfg)) return;   // knockdownV2: fitFall (end of fitSimTorso) posed both arms
   const pose = f.skel!;
   const def = skelDef(f.body, f.stance, cfg), lim = skelLimits(cfg);
   const fc = fk(def, pose, SKJ.chest + 1);

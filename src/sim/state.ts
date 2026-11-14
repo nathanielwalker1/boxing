@@ -185,6 +185,17 @@ export function heldKnock(f: FighterState): { x: number; z: number } { return { 
 export function setHeldKnock(f: FighterState, x: number, z: number): void { f.moveHist[HIST_HELD_KNOCK] = x; f.moveHist[HIST_HELD_KNOCK + 1] = z; }
 export function stunAge(f: FighterState): number { return f.moveHist[HIST_STUN_AGE] ?? 0; }
 export function setStunAge(f: FighterState, t: number): void { f.moveHist[HIST_STUN_AGE] = t; }
+const HIST_FALL = 70;         // knockdownV2: +0 kind (0 none, 1 straight to the head, 2 hook, 3 folded), +1/+2 push direction x/z (away from the puncher), +3/+4 the hook's side direction x/z
+/** The fall the last knockdown chose (sim/skel.ts fitFall reads it): kind, push direction, hook side direction. */
+export function fallInfo(f: FighterState): { kind: number; px: number; pz: number; lx: number; lz: number } {
+  const h = f.moveHist, b = HIST_FALL;
+  return { kind: h[b] ?? 0, px: h[b + 1] ?? 0, pz: h[b + 2] ?? 0, lx: h[b + 3] ?? 0, lz: h[b + 4] ?? 0 };
+}
+export function setFallInfo(f: FighterState, kind: number, px: number, pz: number, lx: number, lz: number): void {
+  const h = f.moveHist, b = HIST_FALL;
+  while (h.length < b + 5) h.push(0);
+  h[b] = kind; h[b + 1] = px; h[b + 2] = pz; h[b + 3] = lx; h[b + 4] = lz;
+}
 export function neckMult(f: FighterState): number { return f.moveHist[HIST_NECK] || 1; }
 export function setNeckMult(f: FighterState, m: number): void { f.moveHist[HIST_NECK] = m; }
 export function reactVary(f: FighterState): number { return f.moveHist[HIST_REACT_VARY] ?? 0; }

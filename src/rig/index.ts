@@ -21,7 +21,7 @@
 import * as THREE from 'three';
 import {
   ROSTER, SIM_DT, addToRoster, generateFighter, angleDelta, closestOnSegment, frameOf, handLateralSign, lerp, localToWorld, smoothstep, spring1, spring3, v3dist, worldToLocal,
-  SKJ, clampJoint, clampPose, clavicleTarget, fitArm, fitLeg, fitTorso, fk, lerpPose, poseQ, qAxis, restPose, setPoseQ, skelArm, skelDef, skelHeadCentre, skelLeg, skelLimits, skelShoulderLine,
+  SKJ, clampJoint, clampPose, cloneSkel, clavicleTarget, fitArm, fitLeg, fitTorso, fk, lerpPose, poseQ, qAxis, restPose, setPoseQ, skelArm, skelDef, skelHeadCentre, skelLeg, skelLimits, skelShoulderLine,
   type Config, type FighterSpec, type FighterState, type FighterView, type Frame, type PunchType, type Side, type SimEvent, type SkelFK, type SkelPose, type Vec2, type Vec3,
 } from '../core';
 import { BONE, BONE_COUNT, MORPHS, buildRigMesh, rigGeomKey, type RigMesh } from './mesh';
@@ -186,6 +186,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   let skBaseDef: ReturnType<typeof skelDef> | null = null;
   /** The knockdown blend this frame (0 standing … 1 down): outside it the drawn arms are the sim's. */
   let skFallK = 0;
+  let skSimPose: SkelPose | null = null;   // knockdownV2: the sim's skeleton this frame (interpolated), rig-world
+  let skSimFall = false;                    // knockdownV2: this frame is drawn straight from skSimPose
   /** Drawn vs sim arm joints this frame, m (probe.skelDiverge). */
   const skDiverge = { sh: 0, el: 0, gl: 0 };
   const dbgPts: THREE.Vector3[] = [];
@@ -428,8 +430,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
    */
   function poseSkeleton(body: FighterState['body'], c: Config): void {
     const def = skelDef(body, spec.stance, c), lim = skelLimits(c);
-    const pose = skPose ?? restPose(def, 0, 0, 0);
+    const pose = skSimFall && skSimPose ? cloneSkel(skSimPose) : (skPose ?? restPose(def, 0, 0, 0));
     skPose = pose;
+    // knockdownV2: the pose is the sim's (root zeroed: the rig's frame is the root); nothing is refitted.
+    if (skSimFall) { pose.root[0] = 0; pose.root[1] = 0; pose.root[2] = 0; } else {
     fitTorso(def, lim, c, pose, { rootX: 0, rootZ: 0, yaw: 0, pelvis: tv(H), pelvisRot: tq(qHips), chest: tv(S), chestRot: tq(qChest), chestTwist: 0, head: tv(headL), headRot: tq(skHeadQ) });
     const fc = fk(def, pose, SKJ.chest + 1);
     for (let i = 0; i < 2; i++) {
@@ -456,6 +460,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       setPoseQ(pose, a.hand, clampJoint(qAxis(1, latSign[i]! * lerp(c.rigGloveGuardRollDeg, c.rigGlovePronateDeg, ext) * DEG), lim[a.hand] ?? null, def.side[a.hand]!));
     }
     for (let i = 0; i < 2; i++) fitLeg(def, lim, c, pose, i, tv(skAnkle[i]!), tv(skKneePole[i]!), tq(skFoot[i]!));
+    }
     clampPose(def, pose, lim);
     const f = fk(def, pose);
     const r = rig!;
@@ -532,10 +537,11 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     lerpLocal(prev.bodyBox.b, next.bodyBox.b, alpha, shoulderL);
     // skelOn: start from the SIM's skeleton, interpolated (slerp per joint), not from linearly lerped points — the
     // head, hips, shoulder line and gloves are its FK, so a turning segment keeps its length between ticks too.
-    skBaseFk = null;
+    skBaseFk = null; skSimPose = null;
     if (c.skelOn && prev.skel && next.skel && !stateOverride) {
       skBaseDef = skelDef(body, spec.stance, c);
-      skBaseFk = fk(skBaseDef, lerpPose(prev.skel, next.skel, alpha));
+      skSimPose = lerpPose(prev.skel, next.skel, alpha);
+      skBaseFk = fk(skBaseDef, skSimPose);
       toLocal(skelHeadCentre(skBaseDef, skBaseFk), headL);
       toLocal(skBaseFk.p[SKJ.pelvis]!, hipL);
       toLocal(skelShoulderLine(skBaseDef, skBaseFk), shoulderL);
@@ -719,8 +725,10 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // boxes stay standing — a downed fighter cannot be hit, so that is fine.
     if (next.down) { fallAmt.x = 1; fallAmt.v = 0; lastDownT = lerp(prev.down ? prev.downT : 0, next.downT, alpha); downKind = next.downKind; downFall = next.fall; }
     const fallK = next.down ? 1 : chase1(fallAmt, 0, 25 / (c.rigGetUpTime * c.rigGetUpTime), 0.9, dt);
-    skFallK = fallK;
-    if (fallK > 1e-4) {
+    // knockdownV2: a heavy / flash knockdown is posed by the SIM's skeleton (sim/skel.ts fitFall): the rig draws it as it comes.
+    skSimFall = c.knockdownV2 && c.skelOn && (downKind === 'heavy' || downKind === 'flash') && !!skSimPose && fallK > 1e-4 && next.down;
+    skFallK = skSimFall ? 0 : fallK;
+    if (fallK > 1e-4 && !(c.knockdownV2 && c.skelOn && (downKind === 'heavy' || downKind === 'flash') && skSimPose)) {
       const t = lastDownT;
       const isUp = fallType === 'uppercut', isHook = fallType === 'hook';
       // Uppercut lead-in: up on the toes, head punched up, a slight arch — then the legs go.

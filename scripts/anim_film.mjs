@@ -54,6 +54,11 @@ SCENARIOS.footwork_lateral = { dist: 1.2, s0: stick(1, 0, 2, 62), s1: [], from: 
 SCENARIOS.footwork_in_out = { dist: 1.5, s0: [...stick(0, 0, 0, 1), ...stick(0, 1, 2, 24), ...stick(0, 0, 25, 29), ...stick(0, -1, 30, 52)], s1: [], from: 0, to: 80, step: 5 };
 // One cross that floors him (damage per impulse turned up for the strip: the one existing mechanism, no hook forces a knockdown), the fall, the get-up.
 SCENARIOS.knockdown = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: { healthDamagePerImpulse: 0.006, camLookY: 0.75, camDistMin: 3.3 }, from: 12, to: 204, step: 8 };
+// knockdownV2 falls by what dropped him (fall only: 12 to 100, every 4 ticks).
+const KD = { healthDamagePerImpulse: 0.006, camLookY: 0.75, camDistMin: 3.3 };
+SCENARIOS.kd_cross = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: KD, from: 12, to: 100, step: 4 };
+SCENARIOS.kd_hook = { dist: 0.79, s0: at({ 2: { hook: true, move: { x: -1, y: 0 } } }), s1: [], cfg: KD, from: 12, to: 100, step: 4 };
+SCENARIOS.kd_upper = { dist: 0.65, s0: at({ 2: { uppercut: true, move: { x: 1, y: 0 } } }), s1: [], cfg: KD, from: 12, to: 100, step: 4 };
 
 const SIDE = { camFollow: 0, camAzimuthDeg: 90, camElevationDeg: 12, camDistMin: 2.6, camLookY: 1.05 };
 
