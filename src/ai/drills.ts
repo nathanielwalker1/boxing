@@ -339,8 +339,9 @@ export const DRILLS: readonly Drill[] = [
     metric(events, state) {
       const p = state.fighters[0];
       let light = 0, heavy = 0;
-      for (const e of events) if ((e.type === 'punchBlock' || e.type === 'perfectBlock') && e.side === 1) { if (e.punch === 'jab') light++; else heavy++; }
-      return { progress: clamp01((light + heavy) / 30), stat: `${light} jabs and ${heavy} heavy shots on the guard · tank ${Math.round(p.stamina * 100)}% · guard ${Math.round(p.guardHp * 100)}% · ${landsBy(events, 1)} got through` };
+      // (guardHolesV2: a shot that met the guard but leaked through a hole or a worn guard is still a shot ON the guard — it counts here, and is not "got through" below.)
+      for (const e of events) if ((e.type === 'punchBlock' || e.type === 'perfectBlock' || (e.type === 'punchLand' && e.through)) && e.side === 1) { if (e.punch === 'jab') light++; else heavy++; }
+      return { progress: clamp01((light + heavy) / 30), stat: `${light} jabs and ${heavy} heavy shots on the guard · tank ${Math.round(p.stamina * 100)}% · guard ${Math.round(p.guardHp * 100)}% · ${landsBy(events, 1, e => !e.through)} got through` };
     },
     tune: cfg => ({ healthDamagePerImpulse: cfg.healthDamagePerImpulse * 0.25 }),
   },

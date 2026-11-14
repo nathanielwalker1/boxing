@@ -162,7 +162,7 @@ const settle = w => {
 // One jab, then wait for the punch to resolve AND the guard to be genuinely
 // down again — a condition, not a duration (legacy: hit-stop made a fixed gap flaky).
 function jabSeries(chance, count) {
-  const cfg = { ...base, aiBlockChance: chance, aiAttackDelayMin: 999, aiAttackDelayMax: 999 };
+  const cfg = { ...base, aiBlockChance: chance, aiAttackDelayMin: 999, aiAttackDelayMax: 999, guardHolesV2: false };   // (off: this counts the AI's DECISION to block; wear from six jabs in a row is a guard rule, guard_holes_test)
   const w = settle(fresh(cfg));
   w.a = { ...w.a, attackTimer: 999, armed: null };   // it may have armed during the walk-in
   w.evs.length = 0;
