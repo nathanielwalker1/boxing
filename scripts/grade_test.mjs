@@ -13,6 +13,7 @@ import { check, near, done } from './check.js';
 
 const k = await kit();
 const { cfg, sim, inp, NONE, T, fresh, run, of, first, mag, SIM_DT } = k;
+cfg.hitStopV2 = false;   // anim 2.4: this file asserts the old seconds-based freezes / 5% clock, so it pins hitStopV2 off (hitstop_test.mjs covers V2)
 const MID = 0.79;
 const plain = { ...cfg, gradesOn: false };
 const landOf = evs => evs.find(e => e.type === 'punchLand' && e.side === 0);

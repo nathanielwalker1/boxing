@@ -21,6 +21,7 @@
  * B and D (the game as shipped). Tick = 1/60 s = 16.667 ms.
  */
 import { kit } from './bots/kit.mjs';
+import { load } from './load.mjs';
 import * as jabAndMove from './bots/jab_and_move.mjs';
 import * as insideFighter from './bots/inside_fighter.mjs';
 import * as counterPuncher from './bots/counter_puncher.mjs';
@@ -50,6 +51,7 @@ const title = t => console.log('\n## ' + t + '\n');
 const median = xs => { if (!xs.length) return NaN; const s = [...xs].sort((a, b) => a - b); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
 const quant = (xs, q) => { if (!xs.length) return NaN; const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(q * s.length))]; };
 
+const [UI] = await load('/src/ui/slowmo.ts');   // the host's slow-motion rule, shared with main.ts
 const k = await kit();                       // reference fighters: ratings and styles off
 const kr = await kit({ rated: true });       // the game as shipped
 const { sim, inp, NONE, fresh, SIM_DT } = k;
@@ -460,7 +462,7 @@ export function hostRun({ s, c, inputs, wallSeconds = 95, fightingOnly = true, k
     const frozen = c.showSlowAfterStop && s.hitStop > 0;
     const f1 = s.fighters[1];
     const open = c.readEnabled && !f1.down && f1.counterWindow > 0 && kx.sim.punishSource(f1) === kx.sim.PUNISH_SLIP;
-    const readScale = c.readEnabled && open && !s.fighters[0].down ? c.readWindowSlowMo : 1;
+    const readScale = UI.readWindowScale(c, c.readEnabled && open && !s.fighters[0].down ? c.readWindowSlowMo : 1);   // hitStopV2: no read-window slow motion (main.ts)
     if (open) trig.readWindowFrames++;
     const slow = Math.min(slowMo.t > 0 && !frozen ? slowMo.scale : 1, readScale);
     if (!frozen) slowMo.t = Math.max(0, slowMo.t - dt);
@@ -469,13 +471,13 @@ export function hostRun({ s, c, inputs, wallSeconds = 95, fightingOnly = true, k
     const fightingBefore = s.round.phase === 'fighting', t0 = s.time;
     const events = [];
     while (acc >= DT) { const r = S.step(s, inputs(s, simTick++), c); s = r.state; events.push(...r.events); acc -= DT; }
-    const slowTo = (t, sc) => { if (t > 0 && (slowMo.t <= 0 || sc <= slowMo.scale)) slowMo = { t, scale: sc }; };
     for (const e of events) {
-      if (e.type === 'counter') { trig.counter++; slowTo(c.readCounterSlowMoSeconds, c.readCounterSlowMo); }
-      else if (e.type === 'rocked') { trig.rocked++; slowTo(c.readRockedSlowMoSeconds, c.readRockedSlowMo); }
-      else if (e.type === 'punchLand' && e.finisher === true && c.showFinisherOn) { trig.finisher++; slowTo(c.showFinisherSlowMoSeconds, c.showFinisherSlowMo); }
+      if (e.type === 'counter') trig.counter++;
+      else if (e.type === 'rocked') trig.rocked++;
+      else if (e.type === 'punchLand' && e.finisher === true && c.showFinisherOn) trig.finisher++;
+      else if (e.type === 'knockdown') trig.knockdown++;
     }
-    if (events.some(e => e.type === 'knockdown')) { trig.knockdown++; slowMo = { t: c.knockdownSlowMoSeconds, scale: c.knockdownSlowMo }; }
+    slowMo = UI.slowMoAfter(slowMo, events, c);   // the game's own rule (src/ui/slowmo.ts): under hitStopV2 only a knockdown slows
     wallTotal += dt;
     if (trace) trace.push({ frame, kind, slow, simDt: s.time - t0, ev: events.filter(e => ['slip', 'counter', 'punchLand', 'punchStart', 'punchWhiff', 'rocked', 'knockdown'].includes(e.type)).map(e => (e.type === 'slip' ? (e.dodged ? 'slipDodged' : 'slipFlick') : e.type + (e.side !== undefined ? e.side : ''))) });
     if (!fightingOnly || fightingBefore || s.round.phase === 'fighting') {
@@ -519,6 +521,10 @@ function sectionB() {
   for (const r of rows) console.log(row(...r));
   console.log('\nNot a time freeze, but named "hold": flow.ts stepHold / applyKnock (THE HOLD) delays knockback during a combination; it never stops the clock.\n');
 
+  console.log('Rows 1-10 are the mechanisms as they were (hitStopV2 false). With hitStopV2 (anim 2.4, default true) #2 (budget), #3 (slip freeze), #6, #7, #8 and #10 are off in live play, #1 and #4 become the hitStopTicks* table in 60 Hz ticks, and a press during #1 is buffered and fires after the stop at full speed; #5 keeps stunHitStop only for a knockdown, #9 and #11 stay.\n');
+  for (const v2 of [false, true]) {
+  const c = { ...kr.cfg, hitStopV2: v2 };
+  console.log(`\n#### hitStopV2 = ${v2}${v2 ? ' (the new default)' : ' (the old behaviour, the baseline)'}\n`);
   console.log('### B.2 Measured: ms of each kind per 10 s, shipped config, medium AI (host model; fighting phases only)\n');
   console.log('"freeze" = frames where the sim has hitStop > 0 (picture near-still). "slow" = frames at less than real time from the host timers or the read window. Per 10 s of WALL time and per 10 s of SIM time. Seeds 1-3, one 3 x 30 s fight each (a KO ends it early; the scripted exchange runs 3 x 60 s); the bots drive side 0, the AI (monsoon, pressure, medium) side 1.\n');
   head('scenario', 'wall s measured', 'sim s advanced', 'FREEZE ms / 10 s wall', 'SLOW ms / 10 s wall', 'normal ms / 10 s wall', 'game speed (sim s per wall s)', 'FREEZE ms / 10 s of sim', 'SLOW ms / 10 s of sim', 'wall s to play 10 s of sim', 'freeze episodes /10 s wall (mean, max ms)', 'slow episodes /10 s wall (mean, max ms)', 'counters / rocks / finishers / knockdowns', 'read-window frames');
@@ -569,6 +575,12 @@ function sectionB() {
     let wall = 0, n = 0; const enough = 1.45 * 60;
     for (const g of seg) { if (wall > enough * MS * 1.8) break; n++; console.log(row(n, g.kind, g.kind === 'freeze' ? 'sim x' + c.hitStopScale + ' (hit-stop)' : f2(g.slow) + 'x', f1(g.frames * MS), f1(g.sim * 1000), [...new Set(g.ev)].join(' ') || '-')); wall += g.frames; }
     console.log('(The cycle begins at the AI\'s jab press; side 0 flicks the same tick. Stretches after the last row are normal speed until the next jab, 1.5 s of sim time per cycle.)');
+    // The slip-and-counter on the wall clock: from the AI's jab press to the tick the counter's stop has ended.
+    const cEnd = trace.findIndex((f, i) => i >= t && f.ev.includes('punchLand0'));
+    let k = cEnd + 1; while (k < trace.length && trace[k].kind !== 'normal') k++;   // until real time again after the counter's freeze and slow motion
+    const fightMs = trace.slice(t, k).reduce((a, f) => a + f.simDt, 0) * 1000;
+    console.log(`\nSLIP-AND-COUNTER (hitStopV2 ${v2}): jab press until real time again after the counter = ${f1((k - t) * MS)} ms of wall clock for ${f1(fightMs)} ms of fight time (baseline: 2.0 s wall for 0.84 s of fight).`);
+  }
   }
   console.log('\nHook: hostRun({ s, c, inputs }) in scripts/anim_measure.mjs. After the rebuild re-run to see the same table; if the host loop in main.ts changes, hostRun must be re-copied from it.');
 }

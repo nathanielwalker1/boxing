@@ -15,6 +15,7 @@ import { COMBOS, runCombo } from './combo_probe.mjs';
 
 const k = await kit();
 const { cfg, inp, NONE, T, fresh, run, of, mag } = k;
+cfg.hitStopV2 = false;   // anim 2.4: this file asserts the old seconds-based freezes / 5% clock, so it pins hitStopV2 off (hitstop_test.mjs covers V2)
 const BEFORE = { ...cfg, comboHoldOn: false, comboStepOn: false, comboFinisherOn: false, hitStopBudgetOn: false, comboHitStopScale: 1, hitNerfOn: false, carryFadeOn: false, gradeSpreadOn: false, reactionVary: 0 };
 const DISTS = [0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90];
 
