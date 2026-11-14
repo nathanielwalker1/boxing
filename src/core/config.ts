@@ -1810,6 +1810,9 @@ export const SCHEMA = {
   hitChainSpinePeak: num(4.25, 1, 12, 0.25, 'hit chain', 'ticks from the hit to the peak of the spine'),
   hitChainPelvisPeak: num(6.5, 1, 14, 0.25, 'hit chain', 'ticks from the hit to the peak of the pelvis'),
   hitChainZeta:      num(0.72, 0.4, 1.2, 0.01, 'hit chain', 'damping ratio of every group\'s return (≥ 0.7: one overshoot under 5 %, no jelly; 1 = none)'),
+  hitChainBlockScale: num(0.3, 0, 1, 0.01, 'hit chain', 'with blockFeelV2: a BLOCKED punch drives the chain as a straight push along the punch (whatever the punch) at this share of a land\'s degrees — the rock behind the gloves (replaces blockFeelHeadScale on the legacy springs)'),
+  hitChainBlockFloor: num(130, 0, 400, 5, 'hit chain', 'blocked: impulse ARRIVING at the guard (N·s, before the block absorbs it) under which the chain does not move; size = (impulse − floor) / (hitChainRefImpulse − floor), capped at hitChainBlockMax — lower than the land\'s floor so a blocked jab still rocks a little'),
+  hitChainBlockMax:  num(1.5, 0.5, 3, 0.05, 'hit chain', 'blocked: cap on the size above (a blocked hook rocks about as far as a blocked cross)'),
   ...poseEntries(),
 } satisfies Record<string, Entry>;
 

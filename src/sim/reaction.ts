@@ -22,7 +22,7 @@ import { fitSimTorso, keyedFor } from './skel';
  * defender's frame, becomes a yaw whip of the head and shoulders — a hook
  * turns the head round, a straight barely does.
  */
-export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: number, cfg: Config, opt: { scale?: number; neck?: number; vary?: number; vary2?: number; part?: 'head' | 'body' } = {}): void {
+export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: number, cfg: Config, opt: { scale?: number; neck?: number; vary?: number; vary2?: number; part?: 'head' | 'body'; blockRaw?: number | undefined } = {}): void {
   const def = PUNCHES[type];
   if (!def) return;
   // Polish phase: `scale` = the grade's own size on top of the impulse (glancing less, flush more); `neck` = how much
@@ -41,7 +41,15 @@ export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: 
     f.reaction.sink.v += dsink;
     f.reaction.sink.x += dsink * cfg.reactionImpactPose;
     clampReaction(f.reaction, cfg, neckMult(f));
-    kickChain(f, type, opt.part === 'body', dir, mag / (sc || 1), sc * (opt.neck ?? 1) * (1 + va * 0.5), cfg);
+    if (opt.blockRaw !== undefined) {
+      // blockFeelV2: a BLOCKED punch rocks him behind his gloves — the same chain as a land, as a straight push along the
+      // punch, sized from what arrived at the guard (the guard hands ride the head: gloves.ts keyHeadShift).
+      const size = clamp((opt.blockRaw - cfg.hitChainBlockFloor) / Math.max(1e-6, cfg.hitChainRefImpulse - cfg.hitChainBlockFloor), 0, cfg.hitChainBlockMax);
+      kickChain(f, 'cross', false, dir, size, cfg.hitChainBlockScale, cfg);
+    } else {
+      const size = clamp((mag / (sc || 1) - cfg.hitChainFloorImpulse) / Math.max(1e-6, cfg.hitChainRefImpulse - cfg.hitChainFloorImpulse), 0, cfg.hitChainMaxScale);
+      kickChain(f, type, opt.part === 'body', dir, size, sc * (opt.neck ?? 1) * (1 + va * 0.5), cfg);
+    }
     setReactionSnap(f, s.snap);
     return;
   }
@@ -123,15 +131,14 @@ export function chainAngles(f: FighterState, g: number): [number, number, number
   return [h[b] ?? 0, h[b + 2] ?? 0, h[b + 4] ?? 0];
 }
 
-function kickChain(f: FighterState, type: PunchType, body: boolean, dir: Vec3, mag: number, neck: number, cfg: Config): void {
+function kickChain(f: FighterState, type: PunchType, body: boolean, dir: Vec3, size: number, neck: number, cfg: Config): void {
   const fr = frameOf(f.yaw);
   const fwd = dir.x * fr.fwd.x + dir.z * fr.fwd.z;           // − = pushed back
   const side = dir.x * fr.right.x + dir.z * fr.right.z;      // + = pushed toward his right (hit on his left)
   const back = clamp(-fwd, 0, 1), hs = clamp(side * 2, -1, 1);
-  // Size from the landed impulse (before the grade scale) over a floor: a jab barely moves the joints, a cross snaps
-  // them; `neck` here carries the grade's scale (glancing less, flush more) times the neck multiplier (flush, finisher,
-  // counter), so a flush or counter shot goes further, up to the cap and the joint limits.
-  const size = clamp((mag - cfg.hitChainFloorImpulse) / Math.max(1e-6, cfg.hitChainRefImpulse - cfg.hitChainFloorImpulse), 0, cfg.hitChainMaxScale);
+  // `size`: from the landed impulse (before the grade scale) over a floor (applyReaction): a jab barely moves the joints,
+  // a cross snaps them; `neck` here carries the grade's scale (glancing less, flush more) times the neck multiplier
+  // (flush, finisher, counter), so a flush or counter shot goes further, up to the cap and the joint limits.
   const k = size * neck * DEG;
   let head: [number, number, number], spine: [number, number, number];
   if (body) {
