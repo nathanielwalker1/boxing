@@ -20,13 +20,10 @@ const { core, inp, NONE, run, fresh } = k;
 const ROSTER = core.ROSTER;
 const args = process.argv.slice(2);
 const probe = args[0] === 'probe';
-// PINNED punchKeysOn false + skelPoleTwist 1 (anim Phase 1.4, LOG_PUNCHES.md): with the punch keys a head hook from a
-// short or mid man (alambre, grandad) lands on a taller man's BODY at 0.6–0.75 m — the hook's contact spot is mostly in
-// his own chest frame (hAim 0.25); raising it to 0.5 fixed boiler but broke the hook shape (shoulder travel 34°).
-// And the keyed aim always goes to the head, so punchAimTrack has nothing to switch. Counterpart: skel_test's
-// punch-key checks. Keys off still needs the 1.1b pole pin: the body hook on boiler (1.98 m) from 0.675 m misses at 0.5.
+// (anim Phase 1.4: the 1.1b skelPoleTwist 1 pin is gone — the punch keys do not use it; the keyed punch plane follows
+//  his height, so a short man's hook finds a tall man's jaw.)
 // skelGuardFlareFree −1 = the legacy flare (Phase 1.1b): with the guard's elbows held down (0.3, the default) monsoon's uppercut misses raffle — one pairing of 49; LOG_SKELETON.md.
-const cfg = { ...k.cfg, punchKeysOn: false, skelPoleTwist: 1, skelGuardFlareFree: -1 };
+const cfg = { ...k.cfg, skelGuardFlareFree: -1 };
 for (const a of args.slice(1)) { const [key, v] = a.split('='); cfg[key] = Number(v); }
 
 /** The seven punches: [name, press, body lane?, stick x at the press (the hand, for hook / uppercut)]. */

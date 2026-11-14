@@ -16,11 +16,6 @@ const k = await kit();
 // counter flash, the get-up struggle); the polish phase scales the rates and adds kinds of hurt and of knockdown, pinned in hurt_test.
 // Set on the kit's own config object so every helper default sees it.)
 k.cfg.hurtRatesOn = false; k.cfg.hurtVarietyOn = false;
-// PINNED punchKeysOn false (anim Phase 1.4, LOG_PUNCHES.md): with the punch keys the worn body cross lands 181 N·s,
-// not 259 (lean and distance equal on the land tick; cause not yet found), under the 234 worn threshold; and the
-// slip-counter lead hook lands 12 cm lower and whiffs. Counterpart: skel_test's punch-key checks (every punch × hand ×
-// level lands where aimed). These numbers are the designed danger values on the legacy motion until the keys match them.
-k.cfg.punchKeysOn = false;
 const { cfg, sim, inp, NONE, T, fresh, run, of, first, mag, flick, SIM_DT } = k;
 const MID = 0.79;
 const soft = { ...cfg, healthDamagePerImpulse: 0.00002, healthRegen: 0 };   // the bar never empties by itself here
@@ -129,8 +124,9 @@ console.log('\n=== 4b. The loaded counter ===');
 {
   const r = await kit({ rated: true });
   r.cfg.hurtRatesOn = false; r.cfg.hurtVarietyOn = false;   // (as at the top of the file)
-  // (anim Phase 1.4: the 1.1b skelPoleTwist 1 pin is gone — the keys do not use it; pinned punchKeysOn false as at the top.)
-  r.cfg.punchKeysOn = false;
+  // skelPoleTwist 1 (anim Phase 1.1b): the slip-counter LEAD HOOK is on the legacy motion while punchKeysHook is off,
+  // and there it needs the pin (at 0.5 it lands glancing); LOG_SKELETON.md / LOG_PUNCHES.md.
+  r.cfg.skelPoleTwist = 1;
   const c = r.cfg;
   const len = v => Math.hypot(v.x, v.y, v.z);
   const GAP = 3;

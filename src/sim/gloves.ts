@@ -19,8 +19,8 @@ import { hurtLevel } from './stun';
 import { VARIANTS } from './variants';
 import { hurtMods, stanceDrop } from './footing';
 import { hitBody } from './reaction';
-import { aimPoint, keyedOn, simKeyedPose } from './skel';
-import { fk, keyedHandTarget, skelDef, SKJ } from '../core';
+import { aimPoint, keyHeadShift, keyedFor, laneLift, simKeyedPose } from './skel';
+import { fk, guardPose, keyedHandTarget, posePunchOf, skelDef, SKJ } from '../core';
 
 const HANDS: [Hand, Hand] = ['lead', 'rear'];
 /**
@@ -197,7 +197,7 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
   const sink = f.body.gloveR * cfg.contactSquash;
   // Phase 1.4, punch keys: the hands go to the KEYED spots — the chest-frame spot on the fitted skeleton (so they ride
   // the body through a slip, a dip, a hit), blended toward the aim point by the key. The clinch keeps its own.
-  const keyed = keyedOn(cfg) && !!f.skel && !(cfg.clinchV2 && clinchAmount(f, cfg) > 0);
+  const keyed = keyedFor(f, cfg) && !!f.skel && !(cfg.clinchV2 && clinchAmount(f, cfg) > 0);
   const rp = keyed ? simKeyedPose(f, cfg) : null;
   const kf = keyed ? fk(skelDef(f.body, f.stance, cfg), f.skel!) : null;
   for (let i = 0; i < 2; i++) {
@@ -208,7 +208,8 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     // drive); the legacy soft recovery spring floated it back over twice that. Exposure reads the punch clock, not the glove.
     const kMul = keyed && f.punch.type !== null && f.punch.hand === hand ? cfg.chainPunchK : tl.kMul;
     let t: Vec3;
-    {
+    const toWorld = (pose: LocalPose, guard: boolean, contact: Vec3 | null): Vec3 => {
+    let t: Vec3;
     const bob = sin(time * TAU * cfg.chainBobHz + BOB_PHASE_HAND[i]! + BOB_PHASE_SIDE[side]!) * cfg.chainBobAmp;
     // The hands ride the body down through a crouch (guard and punch alike).
     // The guard also rides the shoulders sideways through a slip; a punching
@@ -217,32 +218,53 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     const lat = pose.lat + (guard ? slipLateral(f) * cfg.slipShoulderFrac : 0);
     // …and forward with the weight transfer (the shoulders move; computeBoxes
     // moves the body by the same shift), back with a pull.
-    const fwd = pose.fwd + f.lean.fwd * cfg.punchLeanShift - (guard ? slipBack(f) * cfg.slipShoulderFrac : 0);
+    // (Keyed: no lean shift — the body does not take it either; the key's travel reaches the hands through the head shift.)
+    const fwd = pose.fwd + (keyed ? 0 : f.lean.fwd * cfg.punchLeanShift) - (guard ? slipBack(f) * cfg.slipShoulderFrac : 0);
     t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, fwd, pose.up + bob - stanceDrop(f, cfg), lat);
     // The gloves ride the torso's reaction offset, so they travel with the body.
     if (!contact) { t.x += f.reaction.torso.x; t.y += f.reaction.torso.y; t.z += f.reaction.torso.z; }
-    }
-    // Punch keys: the PUNCHING hand goes where its key puts it; the guard hands keep the legacy targets (each style's
-    // guard spot is gameplay — exposure, what a glove covers — and styles_test pins it). The keyed target is held no
-    // further from the shoulder than the legacy target, nor past poseReachMax of the arm: reach is gameplay too (the
-    // keys aimed at the head landed punches the legacy whiffs — punch_test), and an out-of-reach glove settled by the
-    // contacts was pulled back by the arm fit into the other man's forearm (measured).
-    if (rp && kf && !(f.punch.type !== null && f.punch.hand === hand)) {
-      // (The guard hands keyed too, held at the face against the punch's turn: with the legacy spots instead the rear
-      // glove drifted 9 cm through the jab and the lead forearm folded onto its stop through the cross — measured.
-      // That moves the style guard spots: styles_test passes only with the keys off; LOG_PUNCHES.md.)
-      const counter = f.punch.type !== null ? (rp.pelYaw + rp.spTwist - rp.yawRef) * cfg.poseOffhandHold : 0;
-      t = keyedHandTarget(kf, rp.hand[i]!, handLateralSign(hand, f.stance), null, fr.fwd, counter);
-      if (guard) t.y -= guardSag(f, cfg);
-    } else if (rp && kf) {
-      const legacy = t;
-      t = keyedHandTarget(kf, rp.hand[i]!, handLateralSign(hand, f.stance), aimPoint(f, other, cfg), fr.fwd, 0);
-      const sh = kf.p[i === 0 ? SKJ.upper0 : SKJ.upper1]!;
-      const arm = f.body.upperArm + f.body.forearm;
-      // (Floored at poseReachMin of the arm: held closer, the forearm folded onto its stop — measured.)
-      const reach = Math.max(arm * cfg.poseReachMin, Math.min(arm * cfg.poseReachMax, Math.hypot(legacy.x - sh.x, legacy.y - sh.y, legacy.z - sh.z)));
-      const dx = t.x - sh.x, dy = t.y - sh.y, dz = t.z - sh.z, dl = Math.hypot(dx, dy, dz);
-      if (dl > reach) { const s = reach / dl; t = { x: sh.x + dx * s, y: sh.y + dy * s, z: sh.z + dz * s }; }
+    return t;
+    };
+    t = toWorld(pose, guard, contact);
+    // Punch keys. HOME is each hand's guard spot as the guard tables give it (per style and stance, the block's
+    // spot while blocking, sagged when rocked) carried by the key layer's head offset: the guard rides the head and
+    // chest, so the hand at home stays ~0 cm off its spot relative to the head (the authored chest-frame guard spots
+    // put an orthodox lead glove on the RIGHT of the face and swung the off hand 13–15 cm with the turn — measured).
+    // The PUNCHING hand leaves home along its key: the key's chest-frame path, offset by home − its keyed guard spot
+    // (so it starts and ends exactly at home) and lifted by the lane difference to the other man as it goes out (the
+    // whole punch plane follows his height), then blended toward the aim point by the key; held inside the arm.
+    if (rp && kf) {
+      const hs = keyHeadShift(f), sideL = handLateralSign(hand, f.stance);
+      const mine = f.punch.type !== null && f.punch.hand === hand;
+      const hl = mine ? targetLocal({ ...f, punch: { ...f.punch, type: null } }, hand, cfg, other) : tl;
+      const home = mine ? toWorld(hl.pose, hl.guard, null) : t;
+      home.x += hs.x; home.y += hs.y; home.z += hs.z;
+      if (!mine) t = home;
+      else if (!contact) {   // (contactSolid 0, the old way: through the hold the target IS the contact point — kept)
+        // (Both fade with the key's `out`: home at 0, the authored key exactly at contact — the keys were tuned there.)
+        const out = rp.hand[i]!.out, home0 = 1 - out;
+        const g0 = keyedHandTarget(kf, guardPose(cfg, f.body, f.stance, cfg.stylesOn ? f.guardShape : 'high', false).hand[i]!, sideL, null, fr.fwd, 0);
+        const off = { x: (home.x - g0.x) * home0, y: (home.y - g0.y) * home0 + laneLift(f, other, cfg) * cfg.punchAimTrack * out, z: (home.z - g0.z) * home0 };
+        t = keyedHandTarget(kf, rp.hand[i]!, sideL, aimPoint(f, other, cfg), fr.fwd, 0, off);
+        const sh = kf.p[i === 0 ? SKJ.upper0 : SKJ.upper1]!;
+        const reach = (f.body.upperArm + f.body.forearm) * cfg.poseReachMax;
+        const dx = t.x - sh.x, dy = t.y - sh.y, dz = t.z - sh.z, dl = Math.hypot(dx, dy, dz);
+        if (dl > reach) { const s = reach / dl; t = { x: sh.x + dx * s, y: sh.y + dy * s, z: sh.z + dz * s }; }
+        // Range gating (the spec is the legacy band): the fist goes no further forward of his feet than touches the
+        // target's surface from punchk_<punch>_reach × his arm, centre to centre — beyond it the punch falls short.
+        const pp = posePunchOf(f.punch.type!, hand), bodyV = !!VARIANTS[f.punch.variant]?.body;
+        const sink = f.body.gloveR * cfg.contactSquash;
+        // (× the guard's jab reach — the long guard's jab goes further — and shortened when nerfed, as the legacy reach was.)
+        //  (The nerf is of the EXTENSION, the arm's worth, not the whole distance.)
+        const arm = f.body.upperArm + f.body.forearm;
+        // (and the hook / uppercut reach scales, and a hook variant's own reach — the shovel hook. The uppercut's reach
+        //  was calibrated on the head uppercut, which is the 0.92-reach inside uppercut: not applied twice.)
+        const vt = f.punch.type;
+        const jr = (vt === 'jab' ? GUARDS[cfg.stylesOn ? f.guardShape : 'high'].jabReach : vt === 'hook' ? cfg.hookReachScale * (VARIANTS[f.punch.variant]?.reach ?? 1) : vt === 'uppercut' ? cfg.uppercutReachScale : 1);
+        const fwdMax = (cfg as unknown as Record<string, number>)[`punchk_${pp}_reach`]! * arm * jr - cfg.hitNerfReach * reachNerf(f) * arm - (bodyV ? other.body.bodyR : other.body.headR) - f.body.gloveR + sink;
+        const over = (t.x - f.pos.x) * fr.fwd.x + (t.z - f.pos.z) * fr.fwd.z - fwdMax;
+        if (over > 0) t = { x: t.x - fr.fwd.x * over, y: t.y, z: t.z - fr.fwd.z * over };
+      }
     }
     const g = f.gloves[i]!;
     const free = t;

@@ -14,7 +14,7 @@ import { PUNCHES } from './punches';
 import { neckMult, reactionSnap, setNeckMult, setReactionSnap } from './state';
 import { slipBack, slipHeadDip, slipLateral, slipShape } from './slip';
 import { stanceDrop } from './footing';
-import { fitSimTorso } from './skel';
+import { fitSimTorso, keyedFor } from './skel';
 
 /**
  * Kick the defender's springs. `dir` is the unit impulse direction, `mag` in
@@ -117,7 +117,7 @@ export function computeBoxes(f: FighterState, cfg: Config): void {
   // Overhaul: the held level, the inside posture and the buckle are in stanceDrop — real height.
   // (Phase 1.4, punch keys: the punch's lean shift is the key pose's travel — the base body leaves it out. The dip
   // stays here: it is gameplay — the head box ducks with it (timing_test) — and the keys add no dip of their own.)
-  const keyed = cfg.skelOn && cfg.punchKeysOn;
+  const keyed = keyedFor(f, cfg);
   const c = stanceDrop(f, cfg) + r.sink.x + (f.slip.dir === -1 || f.slip.dir === 1 ? cfg.slipCrouch * slipShape(f, cfg) : 0);
   // The weight transfer moves the BODY, not just the drawing (2026-09-16):
   // head and shoulders go forward by lean.fwd × punchLeanShift (back through

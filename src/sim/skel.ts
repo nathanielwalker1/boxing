@@ -18,7 +18,7 @@ import {
   closestOnSegment, smoothstep, twoBoneMid, GUARDS,
   clavicleTarget, fitArm, fitLeg, fitTorso, fk, frameOf, handLateralSign, localToWorld, qAxisAngle, qMul, qRot, restPose, rootQuat,
   skelDef, skelLimits, torsoShapes, SKJ, clampPose,
-  applyKeyedTorso, keyedClavicleTarget, keyedPose, swivelPole, type KeyedInput, type RPose,
+  applyKeyedTorso, keyedClavicleTarget, keyedPose, poseScale, swivelPole, type KeyedInput, type RPose,
 } from '../core';
 import { PUNCHES, whiffPhases } from './punches';
 import { VARIANTS } from './variants';
@@ -35,6 +35,15 @@ export function pelvisYawFor(twist: number, cfg: Config): number {
 
 /** Punches as key poses (Phase 1.4): on with the skeleton. */
 export const keyedOn = (cfg: Config): boolean => cfg.skelOn && cfg.punchKeysOn;
+/**
+ * This fighter keyed this tick: the keys are on and, if he is throwing, that punch's own toggle (punchKeysJab /
+ * Cross / Hook / Uppercut) is on. A punch whose keys are off runs the whole fighter on the legacy motion for its flight.
+ */
+export function keyedFor(f: FighterState, cfg: Config): boolean {
+  if (!keyedOn(cfg)) return false;
+  const t = f.punch.type;
+  return t === null || (t === 'jab' ? cfg.punchKeysJab : t === 'cross' ? cfg.punchKeysCross : t === 'hook' ? cfg.punchKeysHook : cfg.punchKeysUppercut);
+}
 
 /** This fighter's keyed pose for this tick (core/poses.ts), from the punch clock as it stands. */
 export function simKeyedPose(f: FighterState, cfg: Config): RPose {
@@ -62,16 +71,43 @@ export function aimPoint(f: FighterState, other: FighterState, cfg: Config): Vec
   const body = f.punch.type !== null && !!VARIANTS[f.punch.variant]?.body;
   // (The head CENTRE: aimed at the legacy chin point the endpoint sat inside his body capsule under the chin and was cut
   // back out of his chest, 13 cm short of the face — measured. A key's hAU moves it.)
-  const y = body ? (other.body.shoulderY + other.body.hipY) / 2 : other.body.headY;
-  return { x: other.pos.x, y: y - GUARDS[shape].crouch, z: other.pos.z };
+  // (Revised: the CHIN line — the legacy lane, punchAimChin under the head centre — is the aim; a key's hAU puts an
+  //  uppercut under it and a hook at the jaw. His STANDING height: a duck still takes the head away — level_test.)
+  const y = body ? (other.body.shoulderY + other.body.hipY) / 2 : other.body.headY - cfg.punchAimChin;
+  // (+ his guard key's knee bend: he STANDS that much lower with the keys on.)
+  const guardDrop = keyedFor(other, cfg) ? ((cfg as unknown as Record<string, number>).pose_guard_pelUp ?? 0) * poseScale(other.body) : 0;
+  // The two punches that answer a low head (variants.ts aimAtPress) come down / up to where it was at the press —
+  // the overhand and the uppercut; straights and hooks keep their lane (that is what ducking is for).
+  const v = f.punch.type !== null ? VARIANTS[f.punch.variant] : undefined;
+  const pressDrop = v && !v.body && (v.arc(cfg) > 0 || v.base === 'uppercut') ? f.punch.aim : 0;
+  // punchAimTrack (as the legacy lane): the aim height is mine + track × (his − mine); 0 = thrown at my own height.
+  const his = y - GUARDS[shape].crouch + guardDrop;
+  const mine = (body ? (f.body.shoulderY + f.body.hipY) / 2 : f.body.headY - cfg.punchAimChin) - GUARDS[cfg.stylesOn ? f.guardShape : 'high'].crouch + guardDrop;
+  return { x: other.pos.x, y: mine + (his - mine) * cfg.punchAimTrack - pressDrop, z: other.pos.z };
 }
+
+/**
+ * How far his lane sits above mine (m, standing, guards' crouch included): the whole keyed punch plane — its
+ * chest-frame part too — is lifted by this, so a short man's hook tilts up to a tall man's jaw instead of landing
+ * on his chest (heights_test).
+ */
+export function laneLift(f: FighterState, other: FighterState, cfg: Config): number {
+  const body = f.punch.type !== null && !!VARIANTS[f.punch.variant]?.body;
+  const lane = (x: FighterState): number => (body ? (x.body.shoulderY + x.body.hipY) / 2 : x.body.headY) - GUARDS[cfg.stylesOn ? x.guardShape : 'high'].crouch;
+  return lane(other) - lane(f);
+}
+
+/** Per fighter object, this tick: keyed head minus the reactive head target (m). Derived, rebuilt every computeBoxes. */
+const HEAD_SHIFT = new WeakMap<FighterState, Vec3>();
+const ZERO3: Vec3 = { x: 0, y: 0, z: 0 };
+export const keyHeadShift = (f: FighterState): Vec3 => HEAD_SHIFT.get(f) ?? ZERO3;
 
 export function fitSimTorso(f: FighterState, cfg: Config): void {
   const def = skelDef(f.body, f.stance, cfg), lim = skelLimits(cfg);
   if (!f.skel) f.skel = restPose(def, f.pos.x, f.pos.z, f.yaw);
   const pose = f.skel;
   const R0 = rootQuat(f.yaw);
-  const keyed = keyedOn(cfg);
+  const keyed = keyedFor(f, cfg);
   // Keyed: the base is the reactive body only (computeBoxes left the punch's lean and dip out); the punch is the key layer.
   const tw = keyed ? 0 : f.torsoTwist;
   const rp = keyed ? simKeyedPose(f, cfg) : null;
@@ -113,6 +149,9 @@ export function fitSimTorso(f: FighterState, cfg: Config): void {
   if (rp) { clampPose(def, pose, lim); f.footKey = [...fk2, rp.weight]; }
   else if (f.footKey) delete f.footKey;
   const t = torsoShapes(def, pose);
+  // Keyed: how far the key layer carried the head off its reactive target (the guard hands ride it: gloves.ts).
+  if (rp) HEAD_SHIFT.set(f, { x: t.head.x - f.headBox.x, y: t.head.y - f.headBox.y, z: t.head.z - f.headBox.z });
+  else HEAD_SHIFT.delete(f);
   f.headBox.x = t.head.x; f.headBox.y = t.head.y; f.headBox.z = t.head.z;
   f.bodyBox.a.x = t.hips.x; f.bodyBox.a.y = t.hips.y; f.bodyBox.a.z = t.hips.z;
   f.bodyBox.b.x = t.shoulders.x; f.bodyBox.b.y = t.shoulders.y; f.bodyBox.b.z = t.shoulders.z;
@@ -163,7 +202,7 @@ export function fitSimArm(f: FighterState, cfg: Config, i: number, hint: ArmJoin
   let clavT = clavicleTarget(def, fc, i, reach, 0);
   let P = armPole(f, cfg, i, clavT, g.pos, ap);
   let roll = 0;
-  if (keyedOn(cfg)) {
+  if (keyedFor(f, cfg)) {
     // Keyed (Phase 1.4): the clavicle takes the key's protraction and elevation, the elbow its swivel about the
     // shoulder→hand axis (it replaces the legacy pole terms), the forearm its pronation.
     const rp = simKeyedPose(f, cfg), side = handLateralSign(i === 0 ? 'lead' : 'rear', f.stance);

@@ -114,10 +114,14 @@ const GUARD_SHAPE_CH = ['leadF', 'leadU', 'leadL', 'rearF', 'rearU', 'rearL'] as
  */
 const POSE_DEFAULTS: Record<string, Record<string, number>> = {
   guard: {
-    pelYaw: -35, pelUp: -0.03, spTwist: 12, spFlex: 8, hdPitch: 10, hdLook: 0.85,
+    // (spFlex 0: at 8° the bend along the bladed chest put the head 9 cm forward and 4.5 cm sideways of his feet —
+    //  every head 9 cm easier to reach than the range gating says. The chin stays down by hdPitch.)
+    pelYaw: -35, pelUp: -0.03, spTwist: 12, spFlex: 0, hdPitch: 10, hdLook: 0.85,
     clProL: 5, clElevL: 3, clProR: 0, clElevR: 0,
-    leadF: 0.3, leadU: 0.37, leadL: 0.02, leadSwivel: -12, leadPron: 25,
-    rearF: 0.15, rearU: 0.39, rearL: 0.1, rearSwivel: -12, rearPron: 25,
+    // (Swivel +: the elbows at the guard's legacy spots, out over the ribs' sides. At −12 they tucked onto the centre
+    //  line — lead 6 cm, rear 12 cm off it vs 23 / 24 — and every body straight was a 'through' land at 0.69×: measured.)
+    leadF: 0.3, leadU: 0.37, leadL: 0.02, leadSwivel: 25, leadPron: 25,
+    rearF: 0.15, rearU: 0.39, rearL: 0.1, rearSwivel: 12, rearPron: 25,
     weight: 0.5, rearHeel: 0.03,
   },
   guard_shell: { leadF: 0.2, leadU: 0.08, leadL: 0.02, rearF: 0.15, rearU: 0.39, rearL: 0.06 },
@@ -158,12 +162,17 @@ const POSE_DEFAULTS: Record<string, Record<string, number>> = {
 };
 const PUNCH_TIMING: Record<string, Record<string, number>> = {
   // bodyDrop is ON TOP of the level input, which already takes the hips down levelDrop (26 cm) through the knees.
-  jab: { loadAt: 0.5, dSpine: 0.01, dShoulder: 0.02, dHand: 0.03, followMin: 0.25, bodyDrop: 0.02 },
-  cross: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.03, dHand: 0.04, followMin: 0.25, bodyDrop: 0.02 },
-  hookL: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.035, dHand: 0.05, followMin: 0.3, bodyDrop: 0.02 },
-  hookR: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.035, dHand: 0.05, followMin: 0.3, bodyDrop: 0.02 },
-  upperL: { loadAt: 0.6, dSpine: 0.02, dShoulder: 0.035, dHand: 0.045, followMin: 0.25, bodyDrop: 0.02 },
-  upperR: { loadAt: 0.6, dSpine: 0.02, dShoulder: 0.035, dHand: 0.045, followMin: 0.25, bodyDrop: 0.02 },
+  // reach: calibrated so the keyed landing band's far edge matches the legacy one (red vs blue, scripts/skel_probe.mjs
+  // --keys --bands: jab 1.05, cross 1.10, hooks 0.875, uppercuts 0.70 m), as a multiple of the thrower's arm.
+  // aim*/bodyAim*: the legacy lane — where the legacy glove met him on the hit tick (head centre / body middle, m, up
+  // and lateral toward the punching hand's side; measured keys off at each punch's mid range): the jab and cross on the
+  // chin a little to the hand's side, the hooks on the jaw, the uppercuts under the chin (on the centre line here).
+  jab: { loadAt: 0.5, dSpine: 0.01, dShoulder: 0.02, dHand: 0.03, followMin: 0.25, bodyDrop: 0.02, reach: 1.505, aimU: -0.064, aimL: 0.061, bodyAimU: 0.087, bodyAimL: 0.063, bodyLoadU: -0.15 },
+  cross: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.03, dHand: 0.04, followMin: 0.25, bodyDrop: 0.02, reach: 1.579, aimU: -0.043, aimL: 0.056, bodyAimU: 0.104, bodyAimL: 0.056, bodyLoadU: -0.15 },
+  hookL: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.035, dHand: 0.05, followMin: 0.3, bodyDrop: 0.02, reach: 1.263, aimU: -0.097, aimL: -0.034, bodyAimU: 0.067, bodyAimL: -0.062, bodyLoadU: -0.12 },
+  hookR: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.035, dHand: 0.05, followMin: 0.3, bodyDrop: 0.02, reach: 1.263, aimU: -0.080, aimL: -0.035, bodyAimU: 0.077, bodyAimL: -0.055, bodyLoadU: -0.12 },
+  upperL: { loadAt: 0.6, dSpine: 0.02, dShoulder: 0.035, dHand: 0.045, followMin: 0.25, bodyDrop: 0.02, reach: 0.985, aimU: -0.06, aimL: 0, bodyAimU: -0.06, bodyAimL: 0, bodyLoadU: 0 },
+  upperR: { loadAt: 0.6, dSpine: 0.02, dShoulder: 0.035, dHand: 0.045, followMin: 0.25, bodyDrop: 0.02, reach: 0.985, aimU: -0.05, aimL: 0, bodyAimU: -0.05, bodyAimL: 0, bodyLoadU: 0 },
 };
 const TIMING_DESC: Record<string, string> = {
   loadAt: 'fraction of the cock phase at which the load key is reached',
@@ -172,6 +181,12 @@ const TIMING_DESC: Record<string, string> = {
   dHand: 'drive: the hand (elbow extension) starts this long after the pelvis, s — it still arrives on the hit-test tick',
   followMin: 'the follow-through key is reached over at least this fraction of the recovery (the hold, or this on a miss)',
   bodyDrop: 'BODY version: the pelvis drops this far (the knees), m at the reference height',
+  reach: 'RANGE GATING: the centre-to-centre distance it lands from, × the thrower\'s arm (upper arm + forearm); the fist goes no further forward than reaches the target\'s surface from there',
+  aimU: 'AIM: the head shot\'s contact spot this far above his head centre (−: below; the legacy lane), m',
+  aimL: 'AIM: …and this far toward the punching hand\'s side, m',
+  bodyAimU: 'AIM, body version: above the middle of his body lane, m',
+  bodyAimL: 'AIM, body version: toward the punching hand\'s side, m',
+  bodyLoadU: 'BODY version: the hand drops this far in the wind-up (chest frame, m at the reference height), so the drive comes in under his elbows',
 };
 export const POSE_PUNCHES = ['jab', 'cross', 'hookL', 'hookR', 'upperL', 'upperR'] as const;
 export const POSE_KEY_NAMES = ['load', 'contact', 'follow'] as const;
@@ -195,7 +210,7 @@ function poseEntries(): Record<`pose_${string}` | `punchk_${string}`, NumEntry> 
     }
   }
   for (const p of POSE_PUNCHES) {
-    for (const [k, v] of Object.entries(PUNCH_TIMING[p]!)) out[`punchk_${p}_${k}`] = num(v, 0, k === 'bodyDrop' ? 0.3 : 1, k === 'bodyDrop' || k.startsWith('d') ? 0.005 : 0.01, `pose: ${p}`, `${p}: ${TIMING_DESC[k]}`);
+    for (const [k, v] of Object.entries(PUNCH_TIMING[p]!)) out[`punchk_${p}_${k}`] = num(v, k.toLowerCase().includes('aim') ? -0.3 : 0, k === 'bodyDrop' ? 0.3 : k === 'reach' ? 2.5 : 1, k === 'bodyDrop' || k.startsWith('d') ? 0.005 : 0.01, `pose: ${p}`, `${p}: ${TIMING_DESC[k]}`);
     for (const key of POSE_KEY_NAMES) {
       for (const [ch, [unit, what]] of Object.entries(POSE_CHANNELS)) {
         const v = POSE_DEFAULTS[`${p}_${key}`]?.[ch] ?? 0;
@@ -1650,9 +1665,14 @@ export const SCHEMA = {
   skelAnkleRot:            num(30, 0, 50, 1, 'skeleton', 'ankle / foot: turn of the foot about the shin each way, degrees (subtalar plus the knee\'s small free rotation)'),
 
   // ── Punch key poses (anim Phase 1.4; the channels are generated: see POSE_DEFAULTS above) ──
-  // (Default OFF for now, Phase 1.4: the keyed fist path changes where punches land — reach, height, guard spots —
-  // and ~10 gameplay tests move with it; whether the keys may reshape gameplay is an open decision. LOG_PUNCHES.md.)
-  punchKeysOn:             bool(false, 'pose', 'PUNCHES AS KEY POSES (needs skelOn): the guard and every punch are authored key poses in joint space (core/poses.ts), timed down the body by the kinetic chain (feet and pelvis first, the hand last, the fist on the existing hit-test tick); the gloves chase the keyed hand. The gameplay scalars (lean, twist, crouch: force, exposure) are computed as before. Off = the legacy punch motion'),
+  // Per punch (Phase 1.4, wrapped up 2026-11-13): a punch whose keys are off runs on the legacy motion for its flight.
+  // Hook OFF: on the keys a short man's head hook still lands on a taller man's body (heights_test) and the lead body
+  // hook is too light to light the liver (danger_test: 328 N·s) — LOG_PUNCHES.md.
+  punchKeysJab:            bool(true, 'pose', 'punch keys for the jab (needs punchKeysOn)'),
+  punchKeysCross:          bool(false, 'pose', 'punch keys for the cross (needs punchKeysOn)'),
+  punchKeysHook:           bool(false, 'pose', 'punch keys for the hooks (needs punchKeysOn) — off: fails game rules yet, see LOG_PUNCHES.md'),
+  punchKeysUppercut:       bool(true, 'pose', 'punch keys for the uppercuts (needs punchKeysOn)'),
+  punchKeysOn:             bool(true, 'pose', 'PUNCHES AS KEY POSES (needs skelOn): the guard and every punch are authored key poses in joint space (core/poses.ts), timed down the body by the kinetic chain (feet and pelvis first, the hand last, the fist on the existing hit-test tick); the gloves chase the keyed hand. The gameplay scalars (lean, twist, crouch: force, exposure) are computed as before. Off = the legacy punch motion'),
   poseWeightTravel:        num(0.5, 0, 1, 0.05, 'pose', 'a key\'s weight shift moves the pelvis this fraction of the way between the feet (weight 0.3 rear = 20 % of the stance forward of centre × this)'),
   poseOffhandSwivel:       num(0, -60, 60, 1, 'pose', 'the NON-punching elbow\'s swivel through a punch\'s contact and follow keys, degrees (the guard\'s −12 "in" held while the chest turned 80° under it put the lead shoulder on its stop)'),
   poseOffhandHold:         num(0.45, 0, 1, 0.05, 'pose', 'the NON-punching glove is turned back this fraction of the punch\'s added body turn, so it stays near the face while the chest turns under it (1 = held exactly where it was: the lead arm then had to reach across an 80° turn and sat on the shoulder\'s stops; 0 = it swings with the chest, 32 cm off the cheek on a cross)'),

@@ -27,7 +27,8 @@ export function posePunchOf(type: PunchType, hand: Hand): PosePunch {
   return hand === 'lead' ? 'upperL' : 'upperR';
 }
 
-export interface RHand { cF: number; cU: number; cL: number; aF: number; aU: number; aL: number; aim: number; swivel: number; pron: number }
+/** `out`: how far the hand has left home — guard and load 0 (the load rides home), contact and follow 1, blended with the hand group. */
+export interface RHand { cF: number; cU: number; cL: number; aF: number; aU: number; aL: number; aim: number; swivel: number; pron: number; out: number }
 export interface RFoot { stepF: number; stepL: number; pivot: number; heel: number }
 /** A resolved pose: absolute, radians / metres (already scaled to the body), lead = index 0. */
 export interface RPose {
@@ -53,7 +54,7 @@ export function guardPose(cfg: Config, body: BodyDims, stance: Stance, shape: Gu
   const g = (ch: string): number => c(cfg, `pose_guard_${ch}`);
   const sh = (ch: string): number => (shape === 'high' ? g(ch) : c(cfg, `pose_guard_${shape}_${ch}`));
   const hand = (pre: 'lead' | 'rear'): RHand => ({
-    cF: sh(`${pre}F`) * s, cU: sh(`${pre}U`) * s, cL: sh(`${pre}L`) * s, aF: 0, aU: 0, aL: 0, aim: 0,
+    cF: sh(`${pre}F`) * s, cU: sh(`${pre}U`) * s, cL: sh(`${pre}L`) * s, aF: 0, aU: 0, aL: 0, aim: 0, out: 0,
     swivel: g(`${pre}Swivel`) * D, pron: g(`${pre}Pron`) * D,
   });
   const r: RPose = {
@@ -89,7 +90,12 @@ export function punchKey(cfg: Config, body: BodyDims, stance: Stance, guard: RPo
   const h = r.hand[ip];
   if (key !== 'load') r.hand[ip === 0 ? 1 : 0].swivel = cfg.poseOffhandSwivel * D;
   h.cF += k('hCF') * s; h.cU += k('hCU') * s; h.cL += k('hCL') * s;
-  h.aF = k('hAF') * s; h.aU = k('hAU') * s; h.aL = k('hAL') * s; h.aim = k('hAim');
+  h.aF = k('hAF') * s; h.aU = k('hAU') * s; h.aL = k('hAL') * s; h.aim = k('hAim'); h.out = key === 'load' ? 0 : 1;
+  // The lane (punchk_<punch>_aim* / bodyAim*): where on him the contact is, on top of the key's own aim offsets.
+  if (key !== 'load') {
+    h.aU += c(cfg, `punchk_${punch}_${bodyLevel ? 'bodyAimU' : 'aimU'}`);
+    h.aL += c(cfg, `punchk_${punch}_${bodyLevel ? 'bodyAimL' : 'aimL'}`);
+  }
   h.swivel += k('hSwivel') * D; h.pron += k('hPron') * D;
   const fp = r.foot[ip], fo = r.foot[ip === 0 ? 1 : 0];
   fp.stepF += k('fpStepF') * s; fp.stepL += k('fpStepL') * s; fp.pivot += sp * k('fpPivot') * D; fp.heel += k('fpHeel') * s;
@@ -98,6 +104,9 @@ export function punchKey(cfg: Config, body: BodyDims, stance: Stance, guard: RPo
   if (bodyLevel && key !== 'follow') {
     // The BODY version: the level is the knees (the pelvis drops), the waist bends no further than poseBodyFlexMax.
     r.pelUp -= c(cfg, `punchk_${punch}_bodyDrop`) * s * (key === 'load' ? 0.7 : 1);
+    // …and the hand drops in the wind-up, so the drive comes in under his elbows, not down through his forearms
+    // (from face height the body jab met his guard arms: a 'through' land at 0.69× — measured).
+    if (key === 'load') h.cU += c(cfg, `punchk_${punch}_bodyLoadU`) * s;
   }
   if (bodyLevel) {
     r.pelUp -= key === 'follow' ? c(cfg, `punchk_${punch}_bodyDrop`) * s : 0;
@@ -118,7 +127,7 @@ function blend(a: RPose, b: RPose, w: Record<Group, number>): RPose {
     r.foot[i] = { stepF: lerp(fa.stepF, fb.stepF, wf), stepL: lerp(fa.stepL, fb.stepL, wf), pivot: lerp(fa.pivot, fb.pivot, wf), heel: lerp(fa.heel, fb.heel, wf) };
     r.clPro[i] = lerp(a.clPro[i]!, b.clPro[i]!, wc); r.clElev[i] = lerp(a.clElev[i]!, b.clElev[i]!, wc);
     const ha = a.hand[i]!, hb = b.hand[i]!;
-    r.hand[i] = { cF: lerp(ha.cF, hb.cF, wh), cU: lerp(ha.cU, hb.cU, wh), cL: lerp(ha.cL, hb.cL, wh), aF: lerp(ha.aF, hb.aF, wh), aU: lerp(ha.aU, hb.aU, wh), aL: lerp(ha.aL, hb.aL, wh), aim: lerp(ha.aim, hb.aim, wh), swivel: lerp(ha.swivel, hb.swivel, wh), pron: lerp(ha.pron, hb.pron, wh) };
+    r.hand[i] = { cF: lerp(ha.cF, hb.cF, wh), cU: lerp(ha.cU, hb.cU, wh), cL: lerp(ha.cL, hb.cL, wh), aF: lerp(ha.aF, hb.aF, wh), aU: lerp(ha.aU, hb.aU, wh), aL: lerp(ha.aL, hb.aL, wh), aim: lerp(ha.aim, hb.aim, wh), swivel: lerp(ha.swivel, hb.swivel, wh), pron: lerp(ha.pron, hb.pron, wh), out: lerp(ha.out, hb.out, wh) };
   }
   r.pelYaw = lerp(a.pelYaw, b.pelYaw, wp); r.pelPitch = lerp(a.pelPitch, b.pelPitch, wp); r.pelRoll = lerp(a.pelRoll, b.pelRoll, wp);
   r.pelFwd = lerp(a.pelFwd, b.pelFwd, wp); r.pelUp = lerp(a.pelUp, b.pelUp, wp); r.pelLat = lerp(a.pelLat, b.pelLat, wp);
@@ -204,11 +213,12 @@ export function applyKeyedTorso(def: SkelDef, pose: SkelPose, r: RPose, cfg: Con
  * turns the chest-frame spot back about the vertical: the NON-punching hand stays at the face while the punch turns
  * the chest under it (a cross turned the chest ~80° and swung the lead glove 32 cm off the cheek — measured).
  */
-export function keyedHandTarget(f: SkelFK, h: RHand, side: number, aimPoint: Vec3 | null, fwd: { x: number; z: number }, counterYaw = 0): Vec3 {
+export function keyedHandTarget(f: SkelFK, h: RHand, side: number, aimPoint: Vec3 | null, fwd: { x: number; z: number }, counterYaw = 0, offset: Vec3 | null = null): Vec3 {
   const Rc = f.r[SKJ.chest]!, pc = f.p[SKJ.chest]!;
   let d = qRot(Rc, { x: h.cF, y: h.cU, z: side * h.cL });
   if (counterYaw !== 0) d = qRot(qAxis(1, -counterYaw), d);
-  const chest = { x: pc.x + d.x, y: pc.y + d.y, z: pc.z + d.z };
+  // `offset` (world, m) moves the chest-frame spot only: the home correction and the lane lift (sim/gloves.ts).
+  const chest = { x: pc.x + d.x + (offset?.x ?? 0), y: pc.y + d.y + (offset?.y ?? 0), z: pc.z + d.z + (offset?.z ?? 0) };
   if (!aimPoint || h.aim <= 0) return chest;
   const right = { x: -fwd.z, z: fwd.x };
   const aim = { x: aimPoint.x + fwd.x * h.aF + right.x * side * h.aL, y: aimPoint.y + h.aU, z: aimPoint.z + fwd.z * h.aF + right.z * side * h.aL };

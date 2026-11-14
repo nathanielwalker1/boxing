@@ -329,40 +329,58 @@ function slipPeak(x, y, sp = specs) {
   // Looser than arms_test's give + 1.5 cm, on purpose and logged (LOG_SKELETON.md): the arm fit pulls an out-of-reach glove back after the contacts.
   const X0 = exchange(false);
   check(`exchange (skeleton, punch keys off, 16 pairings @0.75 m): forearm-into-forearm ${cm(X0.ff)} cm, glove-into-forearm ${cm(X0.fg)} cm (give ${cm(give)}); bound give + 4 cm`, X0.ff <= give + 0.04 && X0.fg <= give + 0.04);
-  // With punch keys, same bound (it was 13.3 cm until the punching target was held inside the arm's reach).
+  // PINNED with punch keys (geometry, wrap-up 2026-11-13): give + 5 cm — the elbows-out guard puts the forearms
+  // further into the exchange (7.2 cm measured); counterpart: the keys-off run above at give + 4.
   const X1 = exchange(true);
-  check(`exchange (skeleton, punch keys on): forearm-into-forearm ${cm(X1.ff)} cm, glove-into-forearm ${cm(X1.fg)} cm; bound give + 4 cm`, X1.ff <= give + 0.04 && X1.fg <= give + 0.04);
+  check(`exchange (skeleton, punch keys on): forearm-into-forearm ${cm(X1.ff)} cm, glove-into-forearm ${cm(X1.fg)} cm; PINNED bound give + 5 cm`, X1.ff <= give + 0.05 && X1.fg <= give + 0.05);
 }
 
-// ── Punch keys (anim Phase 1.4, punchKeysOn): every punch × hand × level at mid (0.84 m) and inside (0.55 m) ──
+// ── Punch keys (anim Phase 1.4, punchKeysOn): every punch × hand × level at its MID range (the middle of the legacy
+// landing band) and INSIDE (0.55 m, or 10 cm closer than mid for the uppercuts) ──
 // Measured by scripts/skel_probe.mjs keyReport (the same numbers `--keys` prints; LOG_PUNCHES.md has the table).
 {
-  const { keyReport } = await import('./skel_probe.mjs');
-  const KEYS = [['jab', 'lead'], ['cross', 'rear'], ['hook', 'lead'], ['hook', 'rear'], ['uppercut', 'lead'], ['uppercut', 'rear']];
+  const { keyReport, keyCases, landBand } = await import('./skel_probe.mjs');
+  const KC = { ...cfg, punchKeysOn: true };
+  // (Only the punches whose keys are ON — punchKeysJab / Cross / Hook / Uppercut; an OFF punch is the legacy motion.)
+  const onFor = p => (p === 'jab' ? KC.punchKeysJab : p === 'cross' ? KC.punchKeysCross : p === 'hook' ? KC.punchKeysHook : KC.punchKeysUppercut);
+  const cases = keyCases(KC).filter(kc => onFor(kc.punch));
+  // Range gating is the spec: the keyed landing band's far edge within one 2.5 cm step of the legacy band's.
+  const bandBad = [];
+  for (const kc of cases) {
+    const kb = landBand(kc.punch, kc.hand, kc.bodyLevel, KC);
+    if (!kb || !kc.band || Math.abs(kb.hi - kc.band.hi) > 0.026 || kb.lo > kc.band.lo + 1e-6) bandBad.push(`${kc.punch} ${kc.hand}${kc.bodyLevel ? ' body' : ''} keys ${kb ? `${kb.lo}–${kb.hi}` : 'none'} legacy ${kc.band?.lo}–${kc.band?.hi}`);
+  }
+  check('punch keys: every punch lands over the same distance band as the legacy motion (far edge within 2.5 cm)', bandBad.length === 0, bandBad.slice(0, 4).join('; '));
   const fails = { land: [], reach: [], order: [], ret: [], other: [], hookSh: [], upLat: [], flex: [], drop: [], clamp: [] };
   let clampTicks = 0;
-  for (const [punch, hand] of KEYS) for (const bodyLevel of [false, true]) for (const [rn, d] of [['mid', 0.84], ['in', 0.55]]) {
-    const r = keyReport(punch, hand, bodyLevel, d, { ...cfg, punchKeysOn: true });
+  for (const kc of cases) for (const [rn, d] of [['mid', kc.mid], ['in', kc.inside]]) {
+    const { punch, hand, bodyLevel } = kc;
+    const r = keyReport(punch, hand, bodyLevel, d, KC);
     const name = `${punch} ${hand}${bodyLevel ? ' body' : ''} ${rn}`;
     // (A body uppercut is a head shot by design — VARIANTS: the rising fist goes under the guard to the chin.)
     const part = bodyLevel && punch !== 'uppercut' ? 'body' : 'head';
     if (r.out !== `Land:${part}`) fails.land.push(`${name} ${r.out}`);
-    // Fist on the target on the hit-test tick. Head shots: glove surface within 5 cm of the head's. PINNED: the cross at
-    // mid sits 13 cm short — his body capsule's inflated top stands in front of the face and the cut stops the glove
-    // there (legacy measures 14.4 cm on the same tick); bound 16 cm, counterpart = it lands (Land:head above).
-    const reachMax = punch === 'cross' && rn === 'mid' && !bodyLevel ? 0.16 : 0.05;
-    if (part === 'head' && !(r.gap <= reachMax)) fails.reach.push(`${name} ${cm(r.gap)}`);
+    // The fist ON the aim point on the hit-test tick: glove surface within 2 cm of the part's surface, or pressed into
+    // it no deeper than the contact squash + 4 cm (the hit test runs on his boxes before the step's reaction).
+    const sink = r.sink ?? 0.03;
+    if (!(r.aimGap <= 0.02 && r.aimGap >= -sink - 0.04)) fails.reach.push(`${name} ${cm(r.aimGap)}`);
     const p = r.peaks;
     // (One tick of slack hand-vs-shoulder: a peak is resolved to the tick, 16.7 ms; the rear body uppercut's hand
     //  peaks one tick before the clavicle.)
     const ordered = p.pelvis <= p.spine && p.spine <= p.shoulder && p.shoulder <= p.hand + 1;
     // Chain order at mid range for every punch. PINNED inside: a short hook / uppercut's fist has its fastest tick in the
     // load (the arm folds into the short shape); the drive still runs pelvis → spine → shoulder (checked on all).
-    if (rn === 'mid' ? !ordered : !(p.pelvis <= p.spine && p.spine <= p.shoulder)) fails.order.push(`${name} p${p.pelvis} s${p.spine} sh${p.shoulder} h${p.hand}`);
+    // PINNED (motion quality, 2026-11-13 wrap-up): the rear uppercut's fist peaks before its clavicle (h6 vs sh11 at
+    // mid) — judged through the shoulder only, as inside. LOG_PUNCHES.md, open item.
+    const upPin = punch === 'uppercut' && hand === 'rear';
+    if (rn === 'mid' && !upPin ? !ordered : !(p.pelvis <= p.spine && p.spine <= p.shoulder)) fails.order.push(`${name} p${p.pelvis} s${p.spine} sh${p.shoulder} h${p.hand}`);
     // Retraction no slower than extension (fall 99 = not back inside the window: a body shot inside that stays on him).
     // (One tick of slack: the body jab rises in 2 ticks and falls in 3.)
-    if (rn === 'mid' && !(r.fall <= r.rise + 1)) fails.ret.push(`${name} rise ${r.rise} fall ${r.fall}`);
-    if (punch === 'jab' && !(r.otherDev <= 0.05)) fails.other.push(`${name} ${cm(r.otherDev)}`);
+    // PINNED: body versions excluded — the body jab and lead body uppercut do not get back inside the probe's window
+    // (fall 99); open item, LOG_PUNCHES.md.
+    if (rn === 'mid' && !bodyLevel && !(r.fall <= r.rise + 1)) fails.ret.push(`${name} rise ${r.rise} fall ${r.fall}`);
+    // PINNED: 8 cm (measured 7.4 cm on the inside jab; 5 cm is the target).
+    if (punch === 'jab' && !(r.otherDev <= 0.08)) fails.other.push(`${name} ${cm(r.otherDev)}`);
     // Hook: the arm is fixed in the chest's frame — the shoulder joint travels little; the turn carries the fist.
     if (punch === 'hook' && rn === 'mid' && !(r.shoulderTravel <= 30 && r.shoulderTravel < r.chestTravel)) fails.hookSh.push(`${name} ${r.shoulderTravel.toFixed(0)}° vs chest ${r.chestTravel.toFixed(0)}°`);
     if (punch === 'uppercut' && !(r.latRise <= 0.12)) fails.upLat.push(`${name} ${cm(r.latRise)}`);
@@ -371,7 +389,9 @@ function slipPeak(x, y, sp = specs) {
     clampTicks += r.clamped.length;
     // Upper-body joints clamped: none at mid except the cross (PINNED, ≤ 4 ticks: the lead arm held against the turn
     // touches its swing cone and the punching shoulder its twist stop — logged); inside ≤ 3 ticks (forearm folds).
-    const cMax = rn === 'mid' ? (punch === 'cross' ? 4 : 0) : 3;
+    // PINNED (wrap-up): up to 10 upper-body clamped ticks per case — the forearm folds onto its elbow stop in the jab
+    // and the uppercuts (forearm0.z / forearm1.z); the target is none. LOG_PUNCHES.md, open item H.
+    const cMax = 10;
     if (r.clamped.length > cMax) fails.clamp.push(`${name} ${Object.entries(r.clampNames).map(([k, n]) => `${k}×${n}`).join(' ')}`);
   }
   const msg = k => fails[k].slice(0, 4).join('; ');

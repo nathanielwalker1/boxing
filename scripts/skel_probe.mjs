@@ -113,8 +113,10 @@ export function keyReport(punch, hand, bodyLevel, dist, c = cfg) {
   const rows = [], clampNames = {};
   let prev = null, out = null, hitTick = -1, startTick = -1;
   for (let t = 0; t < 70; t++) {
+    // (His boxes BEFORE the step: the land's reaction moves his head in the same step, after the hit test.)
+    const oPre = { headBox: { ...s.fighters[1].headBox }, bodyBox: { a: { ...s.fighters[1].bodyBox.a }, b: { ...s.fighters[1].bodyBox.b }, r: s.fighters[1].bodyBox.r } };
     const r = sim.step(s, [inp({ ...hold, ...(t === 0 ? { [punch]: true, move: { x, y: 0 } } : {}) }), inp()], c); s = r.state;
-    const f = s.fighters[0], o = s.fighters[1];
+    const f = s.fighters[0], o = { ...s.fighters[1], ...oPre };
     if (t === 0) startTick = 0;
     const ev = r.events.find(e => e.side === 0 && /^punch(Land|Whiff|Block)$|perfectBlock/.test(e.type));
     if (ev && !out) { out = ev; hitTick = t; }
@@ -132,8 +134,11 @@ export function keyReport(punch, hand, bodyLevel, dist, c = cfg) {
       t, phase: f.punch.phase, type: f.punch.type,
       pelvis: k.r[SKJ.pelvis], chest: k.r[SKJ.chest], spineRel: rel(k.r[SKJ.pelvis], k.r[SKJ.chest]), clRel: rel(Rc, k.r[a.clav]), shRel: rel(k.r[a.clav], k.r[a.upper]), foreRel: rel(k.r[a.upper], k.r[a.fore]),
       // (the other hand relative to the HEAD, in the fighter's frame: it should stay at the face while the chest turns under it)
-      hand: { ...hw }, handLocal: local(hw), otherLocal: (() => { const oh = k.p[skelArm(oi).hand], hd = skelHeadCentre(def, k); return { x: (oh.x - hd.x) * fr.fwd.x + (oh.z - hd.z) * fr.fwd.z, y: oh.y - hd.y, z: (oh.x - hd.x) * fr.right.x + (oh.z - hd.z) * fr.right.z }; })(), lat, clamped, spineFlex, pelY: k.p[SKJ.pelvis].y,
+      hand: { ...hw }, handLocal: local(hw),
+      handHead: (() => { const hd = skelHeadCentre(def, k); return { x: (hw.x - hd.x) * fr.fwd.x + (hw.z - hd.z) * fr.fwd.z, y: hw.y - hd.y, z: (hw.x - hd.x) * fr.right.x + (hw.z - hd.z) * fr.right.z }; })(),
+      otherLocal: (() => { const oh = k.p[skelArm(oi).hand], hd = skelHeadCentre(def, k); return { x: (oh.x - hd.x) * fr.fwd.x + (oh.z - hd.z) * fr.fwd.z, y: oh.y - hd.y, z: (oh.x - hd.x) * fr.right.x + (oh.z - hd.z) * fr.right.z }; })(), lat, clamped, spineFlex, pelY: k.p[SKJ.pelvis].y,
       headGap: v3dist(hw, o.headBox) - o.headBox.r - f.body.gloveR,
+      bodyGap: v3dist(hw, core.closestOnSegment(o.bodyBox.a, o.bodyBox.b, hw)) - o.bodyBox.r - f.body.gloveR,
     };
     if (prev) {
       row.wPelvis = ang(prev.pelvis, row.pelvis); row.wSpine = ang(prev.spineRel, row.spineRel); row.wShoulder = ang(prev.shRel, row.shRel);
@@ -152,8 +157,9 @@ export function keyReport(punch, hand, bodyLevel, dist, c = cfg) {
   const drive = live.filter(r => r.t <= hitTick && r.t >= hitTick - driveTicks);
   const peakT = key => drive.reduce((b, r) => (r[key] > b[key] ? r : b), drive[0]).t;
   // Rise / fall: the hand's chest-frame distance from its guard spot, 10 % → 90 % out, 90 % → 10 % back.
-  const home = rows[0].handLocal;
-  const dist0 = rows.map(r => Math.hypot(r.handLocal.x - home.x, r.handLocal.y - home.y, r.handLocal.z - home.z));
+  // (Relative to the HEAD in the fighter's frame: home rides the head — sim/gloves.ts.)
+  const home = rows[0].handHead;
+  const dist0 = rows.map(r => Math.hypot(r.handHead.x - home.x, r.handHead.y - home.y, r.handHead.z - home.z));
   const max = Math.max(...dist0), iMax = dist0.indexOf(max);
   const firstAt = (from, to, test) => { for (let i = from; i !== to; i += Math.sign(to - from)) if (test(dist0[i])) return i; return -1; };
   const up10 = firstAt(0, iMax, d => d >= 0.1 * max), up90 = firstAt(0, iMax + 1, d => d >= 0.9 * max);
@@ -166,6 +172,9 @@ export function keyReport(punch, hand, bodyLevel, dist, c = cfg) {
   const loadRow = rows.find(r => r.t === Math.max(0, hitTick - 6));
   return {
     out: out ? `${out.type.replace('punch', '')}${out.part ? ':' + out.part : ''}` : 'none', hitTick, gap: atHit ? atHit.headGap : NaN,
+    // Fist to aim on the hit tick: glove surface to the surface of the part it was thrown at (head, or body capsule).
+    aimGap: atHit ? (bodyLevel && punch !== 'uppercut' ? atHit.bodyGap : atHit.headGap) : NaN,
+    impulse: out?.impulse ? Math.hypot(out.impulse.x, out.impulse.y, out.impulse.z) : 0,
     // Chain groups: pelvis, spine (chest on pelvis), shoulder girdle (clavicle on chest), hand speed.
     peaks: { pelvis: peakT('wPelvis'), spine: peakT('wSpine'), shoulder: peakT('wClav'), hand: peakT('vHand') },
     maxW: { pelvis: Math.max(...live.map(r => r.wPelvis)), spine: Math.max(...live.map(r => r.wSpine)), chest: Math.max(...live.map(r => r.wChest)), shoulder: Math.max(...live.map(r => r.wShoulder)), elbow: Math.max(...live.map(r => r.wElbow)), hand: Math.max(...live.map(r => r.vHand)) },
@@ -177,15 +186,54 @@ export function keyReport(punch, hand, bodyLevel, dist, c = cfg) {
   };
 }
 
+/** The distances (m, 0.40–1.40 by 2.5 cm) from which this punch lands, first event only: { lo, hi } or null. */
+export function landBand(punch, hand, bodyLevel, c = cfg) {
+  const x = punch === 'hook' || punch === 'uppercut' ? (hand === 'lead' ? -1 : 1) : 0;
+  const hold = bodyLevel ? { level: true } : {};
+  let lo = null, hi = null;
+  for (let k = 0; k <= 40; k++) {
+    const d = 0.4 + k * 0.025;
+    let s = sim.createState([ROSTER[0], ROSTER[1]], c, 1);
+    s.fighters[0].pos = { x: -d / 2, z: 0 }; s.fighters[1].pos = { x: d / 2, z: 0 };
+    for (let i = 0; i < 30; i++) s = sim.step(s, [inp(hold), inp()], c).state;
+    let ev = null;
+    for (let t = 0; t < 40 && !ev; t++) {
+      const r = sim.step(s, [inp({ ...hold, ...(t === 0 ? { [punch]: true, move: { x, y: 0 } } : {}) }), inp()], c); s = r.state;
+      ev = r.events.find(e => e.side === 0 && /^punch(Land|Whiff|Block)$/.test(e.type));
+    }
+    if (ev?.type === 'punchLand') { if (lo === null) lo = d; hi = d; }
+  }
+  return lo === null ? null : { lo, hi };
+}
+/** The cases the 1.4 checks run: per punch × hand × level, MID = the centre of the LEGACY landing band, IN = 0.55 m. */
+export function keyCases(c = cfg) {
+  const legacy = { ...c, punchKeysOn: false };
+  const out = [];
+  for (const [punch, hand] of [['jab', 'lead'], ['cross', 'rear'], ['hook', 'lead'], ['hook', 'rear'], ['uppercut', 'lead'], ['uppercut', 'rear']]) for (const bodyLevel of [false, true]) {
+    const b = landBand(punch, hand, bodyLevel, legacy);
+    const mid = b ? Math.round((b.lo + b.hi) / 2 / 0.025) * 0.025 : 0.84;
+    out.push({ punch, hand, bodyLevel, band: b, mid, inside: Math.min(0.55, mid - 0.1) });
+  }
+  return out;
+}
+
 // (Imported by skel_test for keyReport: the CLI below runs only when this file is the script.)
 const MAIN = (process.argv[1] ?? '').endsWith('skel_probe.mjs');
 if (MAIN && args.includes('--keys')) {
-  const KEYS = [['jab', 'lead'], ['cross', 'rear'], ['hook', 'lead'], ['hook', 'rear'], ['uppercut', 'lead'], ['uppercut', 'rear']];
-  for (const [punch, hand] of KEYS) for (const bodyLevel of [false, true]) for (const [rn, d] of [['mid', 0.84], ['in', 0.55]]) {
+  const bands = args.includes('--bands');
+  for (const kc of keyCases(cfg)) {
+    const { punch, hand, bodyLevel } = kc;
+    if (bands) {
+      const kb = landBand(punch, hand, bodyLevel, cfg), lb = kc.band;
+      console.log(`${(punch + ' ' + hand + (bodyLevel ? ' body' : '')).padEnd(20)} band legacy ${lb ? `${lb.lo.toFixed(3)}–${lb.hi.toFixed(3)}` : 'none'}  keys ${kb ? `${kb.lo.toFixed(3)}–${kb.hi.toFixed(3)}` : 'none'}`);
+      continue;
+    }
+    for (const [rn, d] of [['mid', kc.mid], ['in', kc.inside]]) {
     const r = keyReport(punch, hand, bodyLevel, d);
     const p = r.peaks, w = r.maxW;
     const order = p.pelvis <= p.spine && p.spine <= p.shoulder && p.shoulder <= p.hand ? 'ok' : 'NO';
-    console.log(`${(punch + ' ' + hand + (bodyLevel ? ' body' : '')).padEnd(20)} ${rn.padEnd(3)} ${r.out.padEnd(13)} t${r.hitTick} gap ${(r.gap * 100).toFixed(1).padStart(5)}cm | peaks p${p.pelvis} s${p.spine} sh${p.shoulder} h${p.hand} ${order} | max°/tick pel ${w.pelvis.toFixed(1)} sp ${w.spine.toFixed(1)} chest ${w.chest.toFixed(1)} sh ${w.shoulder.toFixed(1)} elb ${w.elbow.toFixed(1)} hand ${w.hand.toFixed(1)}cm | rise ${r.rise} fall ${r.fall} | other ${(r.otherDev * 100).toFixed(1)}cm | shTravel ${r.shoulderTravel.toFixed(0)}° chest ${r.chestTravel.toFixed(0)}° | lat ${(r.latRise * 100).toFixed(1)}cm | flex ${r.flexMax.toFixed(1)}° drop ${(r.drop * 100).toFixed(1)}cm | clamped ${Object.entries(r.clampNames).map(([k, n]) => `${k}×${n}`).join(' ') || '-'}`);
+    console.log(`${(punch + ' ' + hand + (bodyLevel ? ' body' : '')).padEnd(20)} ${rn.padEnd(3)} ${d.toFixed(3)} ${r.out.padEnd(13)} t${r.hitTick} aim ${(r.aimGap * 100).toFixed(1).padStart(5)}cm imp ${r.impulse.toFixed(0)} | peaks p${p.pelvis} s${p.spine} sh${p.shoulder} h${p.hand} ${order} | max°/tick pel ${w.pelvis.toFixed(1)} sp ${w.spine.toFixed(1)} chest ${w.chest.toFixed(1)} sh ${w.shoulder.toFixed(1)} elb ${w.elbow.toFixed(1)} hand ${w.hand.toFixed(1)}cm | rise ${r.rise} fall ${r.fall} | other ${(r.otherDev * 100).toFixed(1)}cm | shTravel ${r.shoulderTravel.toFixed(0)}° chest ${r.chestTravel.toFixed(0)}° | lat ${(r.latRise * 100).toFixed(1)}cm | flex ${r.flexMax.toFixed(1)}° drop ${(r.drop * 100).toFixed(1)}cm | clamped ${Object.entries(r.clampNames).map(([k, n]) => `${k}×${n}`).join(' ') || '-'}`);
+    }
   }
   process.exit(0);
 }
