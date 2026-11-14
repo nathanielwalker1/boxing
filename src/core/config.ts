@@ -1823,6 +1823,12 @@ export const SCHEMA = {
   kdFoldTilt:        num(70, 40, 90, 1, 'knockdown fall', 'folded fall: the trunk\'s final tilt forward over the knees, degrees'),
   kdHookTurn:        num(40, 0, 90, 1, 'knockdown fall', 'hook fall: how far round toward the back the side fall line is turned, degrees (0 = straight sideways)'),
   kdSeatShare:       num(0.7, 0.3, 1, 0.05, 'knockdown fall', 'the pelvis tips this share of the trunk\'s tilt (the rest is the spine arching back over the seat)'),
+  kdElbowAt:         num(0.3, 0.05, 0.5, 0.01, 'knockdown fall', 'get-up from the back: how far through the get-up (0 lying .. 1 up) he is on an elbow, rolled to a side'),
+  kdKneeAt:          num(0.55, 0.2, 0.7, 0.01, 'knockdown fall', 'get-up: how far through it he is on his hands and one knee (reached at the sim\'s "knee" time)'),
+  kdRiseAt:          num(0.7, 0.5, 0.9, 0.01, 'knockdown fall', 'get-up: how far through it he is up on his lead foot with the trunk nearly upright (the sim\'s rise starts here; then the stand and the guard)'),
+  kdArmRate:         num(5.5, 2, 12, 0.5, 'knockdown fall', 'the most any arm joint turns in one tick through a fall or get-up, degrees (the arms carry over from tick to tick; this keeps an elbow flip from ever showing as a snap)'),
+  kdSway:          num(0.025, 0, 0.08, 0.005, 'knockdown fall', 'a heavy knockdown only: sideways sway of the pelvis as he stands, m (a flash knockdown has none)'),
+  kdStep:            num(0.12, 0, 0.3, 0.01, 'knockdown fall', 'a heavy knockdown only: the half step of the lead foot as he comes up, m'),
   ...poseEntries(),
 } satisfies Record<string, Entry>;
 
