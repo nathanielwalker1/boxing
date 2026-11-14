@@ -24,7 +24,7 @@ function trace(type, c, { blocked = true, x = 0, dist = 0.8 } = {}) {
     tr.push({
       g: d.gloves.map(g => g.pos.x - d.pos.x),                    // his gloves relative to his feet, along the axis (his body is shoved too; this is the glove in his guard)
       gp: d.gloves.map(g => ({ ...g.pos })), h: { ...d.headBox }, hx: d.headBox.x - d.pos.x,
-      fx: a.gloves[fi].pos.x, fp: { ...a.gloves[fi].pos }, gr: a.body.gloveR,
+      fx: a.gloves[fi].pos.x, fp: { ...a.gloves[fi].pos }, gr: a.body.gloveR, off: d.gloves.map(g => ({ y: a.gloves[fi].pos.y - g.pos.y, z: a.gloves[fi].pos.z - g.pos.z })),
     });
   });
   const ev = r.evs.find(e => e.side === 0 && (e.type === 'punchBlock' || e.type === 'punchLand'));
@@ -48,14 +48,18 @@ function trace(type, c, { blocked = true, x = 0, dist = 0.8 } = {}) {
       inside = Math.max(inside, 2 * q.gr - q.gr * c.contactSquash - 0.01 - gd[ng]);   // how far in past two glove radii less the leather give (contactSquash), and 1 cm
     }
   }
+  // The catch: over the contact window (the block tick and 3 after) the closest the fist comes to either guard glove, across (z) and up/down (y).
+  let catchZ = Infinity, catchY = Infinity;
+  if (ev) for (let i = ev.tick; i <= ev.tick + 3; i++) for (const o of tr[i].off) if (Math.hypot(o.y, o.z) < Math.hypot(catchY === Infinity ? 9 : catchY, catchZ === Infinity ? 9 : catchZ)) { catchZ = Math.abs(o.z); catchY = Math.abs(o.y); }
   // Never inside his own head: the closest any of his gloves' centres gets to the head centre, over the whole trace.
   let minGap = Infinity;
   tr.forEach(t => t.gp.forEach(p => { minGap = Math.min(minGap, Math.hypot(p.x - t.h.x, p.y - t.h.y, p.z - t.h.z) - t.h.r); }));
-  return { ev, knock, back, rock, away, behind, inside, minGap, tr };
+  return { ev, knock, back, rock, away, behind, inside, minGap, catchZ, catchY, tr };
 }
 
 console.log('\n=== 1. The guard glove is driven back and springs home ===');
 const cross = trace('cross', on), jab = trace('jab', on), hook = trace('hook', on, { x: 1 });
+const hookL = trace('hook', on, { x: -1 }), crossNoCatch = trace('cross', { ...on, blockFeelCatchOn: false });
 const crossOff = trace('cross', off), jabOff = trace('jab', off), hookOff = trace('hook', off, { x: 1 });
 {
   check(`all three are blocked (${cross.ev?.type}, ${jab.ev?.type}, ${hook.ev?.type})`, [cross, jab, hook].every(t => t.ev?.type === 'punchBlock'));
@@ -79,6 +83,13 @@ console.log('\n=== 3. The fist stops on the glove and bounces back ===');
   check(`it has backed 3 cm off the glove within 6 ticks of the block: cross ${cross.away} (off ${crossOff.away}), hook ${hook.away} (off ${hookOff.away}), jab ${jab.away}`, [cross, hook, jab].every(r => r.away >= 0 && r.away <= 6));
 }
 
+console.log('\n=== 3b. The guard meets the punch ===');
+{
+  check(`a blocked cross is caught on a glove: across ${cm(cross.catchZ)} cm, up/down ${cm(cross.catchY)} cm at contact (limits 4 and 5)`, cross.catchZ < 0.04 && cross.catchY < 0.05);
+  check(`a blocked lead hook is met at the side of the head: across ${cm(hookL.catchZ)} cm, up/down ${cm(hookL.catchY)} cm`, hookL.catchZ < 0.04 && hookL.catchY < 0.05);
+  check(`with the catch off the cross is not on a glove: across ${cm(crossNoCatch.catchZ)} cm, up/down ${cm(crossNoCatch.catchY)} cm`, crossNoCatch.catchZ >= 0.04 || crossNoCatch.catchY >= 0.05);
+}
+
 console.log('\n=== 4. Never inside his own head ===');
 {
   const min = Math.min(cross.minGap, jab.minGap, hook.minGap);
@@ -92,6 +103,31 @@ console.log('\n=== 5. Toggle off = the old fight ===');
   check('with blockFeelV2 false the new keys change nothing (identical trace and event)', same);
   const base = trace('cross', { ...off, guardHolesV2: false }), noHoles = trace('cross', { ...on, guardHolesV2: false });
   check('with guardHolesV2 off the block is as it was, blockFeelV2 or not', JSON.stringify(base.tr) === JSON.stringify(noHoles.tr));
+}
+
+console.log('\n=== 6. The catch changes glove positions, not outcomes ===');
+{
+  // A seeded 30 s exchange: side 0 throws a mixed bag every ~0.3-0.5 s, side 1 holds the block in bursts and throws now and then.
+  const exchange = c => {
+    let seed = 12345; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const kinds = ['jab', 'cross', 'hook', 'uppercut'];
+    const plan = Array.from({ length: 1800 }, () => ({ a: rnd(), b: rnd(), c: rnd(), d: rnd(), e: rnd() }));
+    const r = run(fresh(c, 0.8, 20), 1800, (i, st) => {
+      const q = plan[i];
+      if (i % 24 === 0) { const f0 = st.fighters[0]; st.fighters[1].pos = { x: f0.pos.x + 0.8, z: f0.pos.z }; st.fighters[1].stagger = { x: 0, z: 0 }; }   // (back to 0.8 m each exchange so it keeps meeting the guard)
+      const s0 = i % 24 === 0 ? inp({ [kinds[Math.floor(q.a * 4)]]: true, move: { x: q.b < 0.5 ? -1 : 1, y: 0 } }) : NONE;
+      const s1 = Math.floor(i / 240) % 4 !== 3 ? BLOCK : (i % 40 === 0 ? inp({ [kinds[Math.floor(q.c * 2)]]: true }) : NONE);
+      return [s0, s1];
+    }, c);
+    return r.evs.filter(e => ['punchLand', 'punchBlock', 'perfectBlock', 'punchWhiff'].includes(e.type)).map(e => [e.tick, e.type, e.side, e.punch, e.part ?? '', e.through ? 1 : 0].join(':'));
+  };
+  const withCatch = exchange(on), without = exchange({ ...on, blockFeelCatchOn: false });
+  const tail = e => e.split(':').slice(1).join(':'), tk = e => Number(e.split(':')[0]);
+  const diff = withCatch.filter((e, i) => without[i] === undefined || tail(e) !== tail(without[i])).length + Math.abs(withCatch.length - without.length);
+  const late = withCatch.filter((e, i) => without[i] !== undefined && tk(e) !== tk(without[i])).map((e, i) => e + ' vs ' + tk(without[withCatch.indexOf(e)]));
+  const blocks = withCatch.filter(e => e.includes(':punchBlock:')).length;
+  check(`30 s seeded exchange (${withCatch.length} outcomes, ${blocks} blocks): the same outcomes in the same order with the catch on and off (${diff} differ; ${late.length} land on a different tick: ${late.join(", ") || "none"})`, diff === 0 && late.length <= 2 && withCatch.length > 20);
+  if (diff) { const i = withCatch.findIndex((e, j) => e !== without[j]); console.log('  first difference:', withCatch[i], 'vs', without[i]); }
 }
 
 done();
