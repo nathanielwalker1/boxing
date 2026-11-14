@@ -23,6 +23,7 @@ import { Hud } from './ui/hud';
 import { InputManager, wantsTouch } from './ui/input';
 import { CombatAudio } from './ui/audio';
 import { ReadOverlay } from './ui/read';
+import { readWindowScale, slowMoAfter } from './ui/slowmo';
 import { TelemetryOverlay, type TelemetryProbe } from './ui/telemetry';
 
 declare global {
@@ -416,7 +417,8 @@ function loop(nowMs: number): void {
   // (Polish phase: the slow motion waits for the sim's hit-stop to end. The freeze is counted in sim ticks, so slowing
   // the ticks stretched it — a 130 ms freeze under 0.3× was ~375 ms of a still picture.)
   const frozen = cfg.showSlowAfterStop && next.hitStop > 0;
-  const slow = Math.min(slowMo.t > 0 && !frozen ? slowMo.scale : 1, read.timeScale);
+  // hitStopV2 (anim 2.4): no read-window slow motion in live play (knockdowns and replays keep theirs).
+  const slow = Math.min(slowMo.t > 0 && !frozen ? slowMo.scale : 1, readWindowScale(cfg, read.timeScale));
   if (!frozen) slowMo.t = Math.max(0, slowMo.t - dt);
   const sdt = dt * slow;
 
@@ -441,14 +443,10 @@ function loop(nowMs: number): void {
     bus.emit(frameEvents);
     stage.handleEvents(frameEvents);
     // A counter, a rock, a combination's finisher: a beat of slow motion each. They never stack — the slowest wins.
-    const slowTo = (t: number, scale: number): void => { if (t > 0 && (slowMo.t <= 0 || scale <= slowMo.scale)) slowMo = { t, scale }; };
-    for (const e of frameEvents) {
-      if (e.type === 'counter') slowTo(cfg.readCounterSlowMoSeconds, cfg.readCounterSlowMo);
-      else if (e.type === 'rocked') slowTo(cfg.readRockedSlowMoSeconds, cfg.readRockedSlowMo);
-      else if (e.type === 'punchLand' && e.finisher === true && cfg.showFinisherOn) slowTo(cfg.showFinisherSlowMoSeconds, cfg.showFinisherSlowMo);
-    }
+    // hitStopV2: a counter, a rock and a finisher get their weight from the sim's hit-stop, not from slow motion
+    // (the 'counter' event is the hook the sound / crowd / reaction layers use); ui/slowmo.ts is the rule.
+    slowMo = slowMoAfter(slowMo, frameEvents, cfg);
     if (frameEvents.some(e => e.type === 'knockdown')) {
-      slowMo = { t: cfg.knockdownSlowMoSeconds, scale: cfg.knockdownSlowMo };
       if (flow && flow.wantsReplay && cfg.flowReplayOn) replayDue = true;
     }
   }

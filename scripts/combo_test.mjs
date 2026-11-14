@@ -19,6 +19,7 @@ const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT } = core;
 // ratingsOn / stylesOn off (overhaul phase 2): this file pins the reference fighters' numbers and margins as they were before
 // ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
 const cfg = { ...({ ...createConfig(), ratingsOn: false, stylesOn: false }), healthDamagePerImpulse: 0, staminaPunchCost: 0, whiffRecoveryMult: 1 };
+cfg.hitStopV2 = false;   // anim 2.4: this file asserts the old seconds-based freezes / 5% clock, so it pins hitStopV2 off (hitstop_test.mjs covers V2)
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();

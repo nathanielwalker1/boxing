@@ -44,6 +44,15 @@ export function addHitStop(s: SimState, seconds: number, cfg: Config, tier: 0 | 
   s.stopUsed = used + grant;
 }
 
+/**
+ * hitStopV2: ask for a stop of `ticks` sim ticks (the longest request wins, no budget). Capped at hitStopTicksCap unless
+ * `exempt` (a knockdown / the fight-ending shot). The stop is then `ticks` stopped ticks after this one (step() in index.ts).
+ */
+export function addHitStopTicks(s: SimState, ticks: number, cfg: Config, exempt = false): void {
+  const t = exempt ? ticks : Math.min(ticks, cfg.hitStopTicksCap);
+  if (t > 0) s.hitStop = Math.max(s.hitStop, t * SIM_DT);
+}
+
 /** The bucket refills in REAL time (once a tick), whether or not the sim is frozen. */
 export function stepHitStopBudget(s: SimState, cfg: Config): void {
   const used = s.stopUsed ?? 0;

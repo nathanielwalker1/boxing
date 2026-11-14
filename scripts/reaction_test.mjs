@@ -8,6 +8,7 @@ const { createConfig, ROSTER, NULL_INPUT, cloneInput, SIM_DT, frameOf, localToWo
 // ratings and guard shapes did anything — both un-rated, both in the high guard. ratings_test / styles_test cover those.
 // skelOn false (anim Phase 1.1): this file pins the reaction springs' point maths (headBox = rest + offsets exactly); on the skeleton those points are fit targets. skel_test §4 has the skeleton's counterparts.
 const cfg = ({ ...createConfig(), ratingsOn: false, stylesOn: false, skelOn: false });
+cfg.hitStopV2 = false;   // anim 2.4: this file asserts the old seconds-based freezes / 5% clock, so it pins hitStopV2 off (hitstop_test.mjs covers V2)
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const NONE = inp();

@@ -11,7 +11,7 @@
  * its own ledger (resources.ts) with its own hurt state (stun.ts).
  */
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
-import { atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
+import { SIM_DT, atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
 import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist } from './state';
 import { applyReaction, hitBody } from './reaction';
@@ -23,7 +23,7 @@ import { VARIANTS, aimAtPress, pickVariant } from './variants';
 import { ESCAPE_AT, addHop, guardOf, hurtMods } from './footing';
 import { rated } from './ratings';
 import { gradeHit, punchReach } from './grade';
-import { addHitStop, applyKnock, followStep, hitNerf, hitZone, openHitWindow, seededUnit, throwWeight, typeWeight } from './flow';
+import { addHitStop, addHitStopTicks, applyKnock, followStep, hitNerf, hitZone, openHitWindow, seededUnit, throwWeight, typeWeight } from './flow';
 
 const DEG = Math.PI / 180;
 /** The pose unwind (poseSettleRate is the twist's, rad/s): the lean and the crouch come home in proportion. Shape. */
@@ -157,7 +157,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
  * feintCommit cancels the punch — it rewinds home fast (advancePunch), most
  * of its stamina comes back, and the guard is up the moment the fist is home.
  */
-export function stepActions(f: FighterState, side: Side, input: Readonly<FrameInput>, cfg: Config, dt: number, events: SimEvent[], opp: FighterState | null = null): void {
+export function stepActions(f: FighterState, side: Side, input: Readonly<FrameInput>, cfg: Config, dt: number, events: SimEvent[], opp: FighterState | null = null, inStop = false): void {
   const mask = punchMask(input);
   const pressed = fastestOf(mask & ~prevPunchMask(f));
   setPrevPunchMask(f, mask);
@@ -187,7 +187,7 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
 
   if (input.block || f.down) { setPunchBuffer(f, { ...EMPTY_BUFFER }); return; }
 
-  const open = canStartPunch(f, cfg);
+  const open = !inStop && canStartPunch(f, cfg);   // hitStopV2: nothing starts inside a stop; the press waits in the buffer
   if (pressed !== null) {
     if (open) { startPunch(f, opp, side, pressed, input.move.x, input.move.y, cfg, events); buf.mask = 0; buf.mask2 = 0; buf.t = 0; }
     else if (cfg.punchBuffer > 0) {
@@ -490,7 +490,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
         // that opens the counter — and the attacker falls into the space:
         // a slipOverreach lunge on the stagger channel, so you SEE them go
         // past your ear, off balance, into the counter window.
-        addHitStop(s, cfg.slipDodgeHitStop, cfg, 2);
+        if (cfg.hitStopV2) addHitStopTicks(s, cfg.hitStopTicksSlip, cfg);
+        else addHitStop(s, cfg.slipDodgeHitStop, cfg, 2);
         if (cfg.slipOverreach > 0) {
           const vel = cfg.slipOverreach * cfg.staggerDecay;   // a burst that covers slipOverreach metres as it decays
           a.stagger.x += afr.fwd.x * vel;
@@ -738,19 +739,33 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   });
   if (perfect) {
     applyPunish(a, cfg.perfectBlockPunishVuln, cfg.perfectBlockPunishDuration, PUNISH_BLOCK);
-    addHitStop(s, cfg.perfectBlockHitStop, cfg);
+    if (cfg.hitStopV2) addHitStopTicks(s, cfg.hitStopTicksBlocked, cfg);
+    else addHitStop(s, cfg.perfectBlockHitStop, cfg);
     // Deflected: the arm hangs out there for the window (overhaul).
     setWhiffMult(a, Math.max(whiffMult(a), cfg.perfectBlockRecoverMult));
   } else {
     takeHit(s, target, mag, blocked, cfg, events, part, light, type === 'jab');
     // Hit-stop by grade: a glancing land barely registers, a clean one scales with its power, a flush one holds.
+    // hitStopV2 (anim 2.4): a frame count from the config table instead — see the keys; a counter is the heavier stop.
+    const g2 = !cfg.gradesOn ? 'clean' : grade;
+    const body2 = part === 'body';
+    const ticksV2 = blocked ? cfg.hitStopTicksBlocked
+      : (body2 ? (g2 === 'glancing' ? cfg.hitStopTicksBodyGlancing : g2 === 'flush' ? cfg.hitStopTicksBodyFlush : cfg.hitStopTicksBody)
+        : (g2 === 'glancing' ? cfg.hitStopTicksGlancing : g2 === 'flush' ? cfg.hitStopTicksFlush : cfg.hitStopTicksClean))
+      + (counter && !blocked ? cfg.hitStopTicksCounterBonus : 0);
+    if (cfg.hitStopV2) {
+      // A knockdown by health (takeHit above) is the fight's moment: exempt from the cap, keeps its stop.
+      if (events.some(e => e.type === 'knockdown' && e.side === target)) addHitStop(s, cfg.stunHitStop, cfg, 1);
+      else addHitStopTicks(s, ticksV2, cfg);
+    }
     const stop = blocked || !cfg.gradesOn || grade === 'clean' ? clamp(cfg.hitStopBase * power, 0, cfg.hitStopMax)
       : grade === 'glancing' ? cfg.hitStopGlancing : cfg.hitStopFlush;
     // Polish phase: inside a running combination the freeze is short and the long one is saved for the finisher; all of it is paid from the budget (flow.ts).
     const want = stop * (!blocked && combo >= 2 && !finisher ? cfg.comboHitStopScale : 1) * (cfg.hitStopBudgetOn && type === 'jab' && (blocked || grade === 'clean') ? cfg.hitStopJabScale : 1)
       + (counter ? targetVuln * cfg.counterHitStopBonus : 0);
     // The big moments are never cut: the finisher, and a counter off a slip (the read Nate asked for, 2026-09-18).
-    if (finisher) addHitStop(s, Math.max(want, cfg.comboFinisherHitStop), cfg, 1);
+    if (cfg.hitStopV2) { /* granted above, in ticks */ }
+    else if (finisher) addHitStop(s, Math.max(want, cfg.comboFinisherHitStop), cfg, 1);
     else addHitStop(s, want, cfg, counter && !blocked ? 2 : 0);
     // The guard meter emptied: the hands are knocked apart.
     if (d.block && cfg.guardWearOn && d.guardHp <= 0 && !d.down) {
@@ -769,7 +784,13 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
       // …and the punch that ENDS a clean combination counts for more toward it: hurt is what a finished combination earns.
       if (cfg.hurtRatesOn && finisher) stunMag *= cfg.comboFinisherStun;
       applyStun(s, target, side, type, stunMag, cfg, events, counter);
-      if (events.length > n) addHitStop(s, cfg.stunHitStop, cfg, 1);   // a rock or a knockdown: a big moment
+      if (events.length > n) {
+        // A rock or a knockdown: a big moment. hitStopV2: a plain rock is a few extra ticks under the cap; a knockdown
+        // (and with it the fight-ending shot) is exempt and keeps its full stop.
+        if (!cfg.hitStopV2) addHitStop(s, cfg.stunHitStop, cfg, 1);
+        else if (events.slice(n).some(e => e.type === 'knockdown')) addHitStop(s, cfg.stunHitStop, cfg, 1);
+        else addHitStopTicks(s, Math.round(s.hitStop / SIM_DT) + cfg.hitStopTicksRock, cfg);
+      }
     }
     // The body (overhaul): a clean body shot can wind him; a liver shot lights the fuse.
     if (!blocked && part === 'body' && grade !== 'glancing' && !d.down) {

@@ -74,7 +74,10 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   // Hit-stop: the whole sim advances at the scaled rate; the stop itself
   // counts down in real ticks (CONTRACT addition 2026-09-02).
   const dt = s.hitStop > 0 ? SIM_DT * cfg.hitStopScale : SIM_DT;
-  s.hitStop = Math.max(0, s.hitStop - SIM_DT);
+  // hitStopV2 (anim 2.4): a stop of N ticks is exactly N stopped ticks (the float residue is snapped to 0), and a press
+  // during it is held in the buffer instead of starting a punch whose clock would crawl at hitStopScale.
+  const stopped = s.hitStop > 0;
+  s.hitStop = cfg.hitStopV2 && s.hitStop - SIM_DT < 1e-6 ? 0 : Math.max(0, s.hitStop - SIM_DT);
 
   if (s.tick === 0) startRound(s, 0, cfg, events);
   const fighting = s.round.phase === 'fighting';
@@ -95,7 +98,7 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     const o = s.fighters[e.side === 0 ? 1 : 0];
     if (v2dist(s.fighters[e.side].pos, o.pos) <= cfg.pivotRange) o.turned = Math.max(o.turned, cfg.pivotTurnLag);
   }
-  for (const side of SIDES) stepActions(s.fighters[side], side, ins[side], cfg, dt, events, s.fighters[side === 0 ? 1 : 0]);
+  for (const side of SIDES) stepActions(s.fighters[side], side, ins[side], cfg, dt, events, s.fighters[side === 0 ? 1 : 0], cfg.hitStopV2 && stopped);
   if (fighting) stepClinch(s, ins, reqs, cfg, dt, events);
   for (const side of SIDES) stepStamina(s.fighters[side], cfg, dt);
   // Footing: level, range and posture, flat-footed, ropes, the angle, fatigue — derived before anything moves.
