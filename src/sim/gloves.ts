@@ -245,7 +245,12 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
         const out = rp.hand[i]!.out, home0 = 1 - out;
         const g0 = keyedHandTarget(kf, guardPose(cfg, f.body, f.stance, cfg.stylesOn ? f.guardShape : 'high', false).hand[i]!, sideL, null, fr.fwd, 0);
         const off = { x: (home.x - g0.x) * home0, y: (home.y - g0.y) * home0 + laneLift(f, other, cfg) * cfg.punchAimTrack * out, z: (home.z - g0.z) * home0 };
-        t = keyedHandTarget(kf, rp.hand[i]!, sideL, aimPoint(f, other, cfg), fr.fwd, 0, off);
+        const ap = aimPoint(f, other, cfg);
+        t = keyedHandTarget(kf, rp.hand[i]!, sideL, ap, fr.fwd, 0, off);
+        // A HOOK's height goes all the way to this man's jaw as the hand goes out (its arc stays in the chest frame):
+        // the plane tilts to his head — the elbow rises with it — instead of a short man's hook landing on a tall
+        // man's body (heights_test).
+        if (f.punch.type === 'hook' && !VARIANTS[f.punch.variant]?.body) t.y += (ap.y + rp.hand[i]!.aU - t.y) * rp.hand[i]!.out;
         const sh = kf.p[i === 0 ? SKJ.upper0 : SKJ.upper1]!;
         const reach = (f.body.upperArm + f.body.forearm) * cfg.poseReachMax;
         const dx = t.x - sh.x, dy = t.y - sh.y, dz = t.z - sh.z, dl = Math.hypot(dx, dy, dz);
