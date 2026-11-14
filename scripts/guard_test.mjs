@@ -15,6 +15,7 @@ const k = await kit();
 // (Polish phase B, deliberate: guardMeterOn off — this file pins the guard meter's own numbers (guardWearPerImpulse, guardRegen,
 // guardRegenDelay, hooks-to-break); the phase-B scales on them are pinned in hurt_test. Set on the kit's config so every helper sees it.)
 k.cfg.guardMeterOn = false;
+k.cfg.guardHolesV2 = false;   // (this file pins the one-guard numbers: hooks-to-break, a fresh guard blocking a body jab; the holes are in guard_holes_test)
 const { cfg, sim, inp, NONE, T, fresh, run, of, first, mag, SIM_DT } = k;
 const MID = 0.79;
 const quiet = { ...cfg, staminaBlockDrain: 0, staminaRegen: 0, healthRegen: 0 };

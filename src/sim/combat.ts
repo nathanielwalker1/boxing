@@ -13,7 +13,7 @@
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { SIM_DT, atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist } from './state';
+import { guardPress, setGuardPress, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist } from './state';
 import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -372,7 +372,7 @@ function missed(a: FighterState, cfg: Config, whiff: boolean, type: PunchType = 
  * attacker has taken. An uppercut comes up between the elbows; the high
  * guard only half covers the body; a worn guard (guardHp) covers less.
  */
-function guardCover(d: FighterState, base: PunchType, part: BodyPart, dirX: number, dirZ: number, cfg: Config): number {
+export function guardCover(d: FighterState, base: PunchType, part: BodyPart, dirX: number, dirZ: number, cfg: Config): number {
   let cover = 1;
   if (cfg.guardShapeOn) {
     // Phase 2: the numbers are the guard SHAPE's when styles are on (core/styles.ts GUARDS; `high` equals the config
@@ -387,7 +387,16 @@ function guardCover(d: FighterState, base: PunchType, part: BodyPart, dirX: numb
     else if (part === 'body') cover *= g ? g.bodyCover : cfg.guardBodyCover;
     else if (g) cover *= g.headCover;
     // aiHumanV2 guard hole: a hook to the head comes round a held guard more than a straight does.
-    if (cfg.aiHumanV2 && base === 'hook' && part !== 'body') cover *= cfg.guardHookCover;
+    const shape = cfg.stylesOn ? d.guardShape : 'high';
+    const tight = shape === 'shell' || shape === 'peekaboo';
+    if (cfg.guardHolesV2) {
+      // Guard holes: a hook comes round anything that is not closed round the head; an uppercut splits a tight guard up the
+      // middle; a body shot gets under a guard held high (level modifier up = elbows down); pressure wears the cover.
+      if (base === 'hook' && part !== 'body' && !tight) cover *= cfg.guardHolesHookCover;
+      if (base === 'uppercut' && tight) cover *= cfg.guardHolesUppercutTight;
+      if (base !== 'uppercut' && part === 'body' && shape !== 'shell') cover *= lerp(cfg.guardHolesBodyHigh, 1, clamp(d.level, 0, 1));
+      cover *= Math.max(cfg.guardHolesCoverFloor, 1 - cfg.guardHolesWearPerBlock * guardPress(d));
+    } else if (cfg.aiHumanV2 && base === 'hook' && part !== 'body') cover *= cfg.guardHookCover;
     // A block raised from a low guard takes a beat to get there.
     if (g && g.raise > 0) cover *= clamp(d.blockT / g.raise, 0, 1);
   }
@@ -735,10 +744,23 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // The hold (polish phase): inside a clean combination most of the knockback waits for its last punch (flow.ts).
   applyKnock(a, d, impulse.x / d.body.massKg * stumble, impulse.z / d.body.massKg * stumble, combo, finisher, !blocked && grade !== 'glancing', cfg);
   applyReaction(d, type, dir, mag, cfg, {
-    scale: !spread ? 1 : grade === 'glancing' ? cfg.gradeReactGlancing : grade === 'flush' ? cfg.gradeReactFlush : 1,
+    scale: blocked && !perfect && cfg.guardHolesV2 ? cfg.guardHolesBlockReact : !spread ? 1 : grade === 'glancing' ? cfg.gradeReactGlancing : grade === 'flush' ? cfg.gradeReactFlush : 1,
     neck: !spread ? 1 : finisher ? cfg.gradeNeckFinisher : grade === 'flush' ? cfg.gradeNeckFlush : 1,
     vary: blocked ? 0 : vary * cfg.reactionVary, vary2: blocked ? 0 : seededUnit(s.seed, s.tick, side + 7) * cfg.reactionVary,
   });
+  if (cfg.guardHolesV2 && d.block && guarded) {
+    // Guard holes: every punch on a held guard (blocked or through) wears the cover for the next; a perfect one is free.
+    if (!perfect) setGuardPress(d, guardPress(d) + 1);
+    if (blocked && !perfect) setWhiffMult(a, Math.max(whiffMult(a), cfg.guardHolesRebound));   // rebound: the arm comes off the gloves slower
+    // A WELL-TIMED block (raised inside the last guardHolesTimedTicks before the hit): the thrower is rocked and the
+    // counter window the slip opens opens for the blocker (counter event on his landing, as for a slip).
+    if (blocked && d.blockT <= cfg.guardHolesTimedTicks * SIM_DT + 1e-9) {
+      applyPunish(a, cfg.slipPunishVuln, cfg.slipPunishDuration, PUNISH_SLIP);
+      a.stagger.x -= dirX * cfg.guardHolesTimedStagger * cfg.staggerDecay;
+      a.stagger.z -= dirZ * cfg.guardHolesTimedStagger * cfg.staggerDecay;
+      setWhiffMult(a, Math.max(whiffMult(a), cfg.guardHolesTimedHang));
+    }
+  }
   if (perfect) {
     applyPunish(a, cfg.perfectBlockPunishVuln, cfg.perfectBlockPunishDuration, PUNISH_BLOCK);
     if (cfg.hitStopV2) addHitStopTicks(s, cfg.hitStopTicksBlocked, cfg);

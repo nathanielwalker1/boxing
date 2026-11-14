@@ -166,6 +166,9 @@ const HIST_REACT_VARY = 40;   // −1..1: the seeded variation of the reaction i
 const HIST_GETUP_COUNT = 41;  // the count he was rolled to rise on (for the knockdown's kind)
 const HIST_HURT_AFTER = 42;   // seconds left of the raised stun bar after a hurt state ended
 const HIST_PRESS_DIST = 43;   // Phase 1.4 (punch keys only): centre-to-centre distance at the press of the punch in flight, m
+const HIST_GUARD_PRESS = 44;  // guardHolesV2: blocked punches taken lately (decays; each one wears the guard's cover for the next)
+export function guardPress(f: FighterState): number { return f.moveHist[HIST_GUARD_PRESS] ?? 0; }
+export function setGuardPress(f: FighterState, n: number): void { f.moveHist[HIST_GUARD_PRESS] = n; }
 export function pressDist(f: FighterState): number { return f.moveHist[HIST_PRESS_DIST] ?? 0.84; }
 export function setPressDist(f: FighterState, d: number): void { f.moveHist[HIST_PRESS_DIST] = d; }
 export function hurtAfter(f: FighterState): number { return f.moveHist[HIST_HURT_AFTER] ?? 0; }

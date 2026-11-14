@@ -33,7 +33,7 @@ import { stepClinch } from './clinch';
 import { stepHitStopBudget, stepHold } from './flow';
 
 export { healthCap, PUNISH_SLIP, punishSource } from './state';
-export { canStartPunch } from './combat';
+export { canStartPunch, guardCover } from './combat';
 export { stunThreshold, bodyThreshold, hurtLevel } from './stun';
 export { VARIANTS, VARIANT_NAMES, pickVariant } from './variants';
 export { stanceDrop, rangeBand, bodyWear, angleExposure } from './footing';
