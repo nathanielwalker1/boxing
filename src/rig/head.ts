@@ -100,6 +100,8 @@ export function headShape(c: Ctx): HeadShape {
   const fat = Math.max(0, c.m.bodyFat);
   const row = [0, 0, 0, 0];
   const wide = 1 + 0.07 * hm.width + 0.04 * fat;
+  const ff = c.cfg.rigFaceForm;   // pass 2: the big forms are pushed so they read at play distance
+
   const point = (th: number, y: number, out: THREE.Vector3, lift = 0): void => {
     sampleKeys(SKULL_KEYS, SKULL_VALS, y, row);
     const cf = Math.cos(th), sn = Math.sin(th);
@@ -107,7 +109,7 @@ export function headShape(c: Ctx): HeadShape {
     const W = row[0]! * wide * (1 + lower * (0.13 * hm.jaw + 0.1 * fat));
     const F = row[1]! + (y < -0.6 ? 0.07 * hm.chin * bump((y + 0.84) / 0.3) : 0);
     const B = row[2]!;
-    const n = row[3]! + lower * 0.25 * Math.max(0, hm.jaw);
+    const n = row[3]! + lower * (0.25 * Math.max(0, hm.jaw) + 0.5 * (ff - 1));   // squarer jaw and chin
     // A row spans x from −B to F about its own centre: under the cheekbones the back of the row
     // comes forward (B shrinks, then goes negative), so the jaw rows close under the face and the neck takes over behind.
     const cx = (F - B) / 2, a = (F + B) / 2;
@@ -117,13 +119,13 @@ export function headShape(c: Ctx): HeadShape {
     let h = 0;                                            // radial relief, head radii
     // Brow ridge and the sockets under it.
     // Phase 1.3: a heavier brow ridge, deeper sockets, a firmer cheekbone and a jawline that runs from the corner to the chin.
-    h += front * (0.05 + 0.04 * hm.brow) * bump((y - FACE.browY) / 0.1) * bump(ath / 1.15);
-    h -= front * 0.09 * bump((ath - FACE.eyeTh) / 0.3) * bump((y - FACE.eyeY) / 0.13);
+    h += front * ff * (0.05 + 0.04 * hm.brow) * bump((y - FACE.browY) / 0.12) * bump(ath / 1.15);
+    h -= front * ff * 0.09 * bump((ath - FACE.eyeTh) / 0.3) * bump((y - FACE.eyeY) / 0.13);
     h -= front * 0.035 * bump(ath / 0.16) * bump((y - 0.2) / 0.12);                      // the nasion, between the eyes
     // Cheekbones, the hollow under them, the jaw corner and the line of the jaw.
-    h += 0.045 * (1 + 0.5 * hm.width) * bump((ath - 0.95) / 0.5) * bump((y + 0.03) / 0.16);
+    h += ff * 0.045 * (1 + 0.5 * hm.width) * bump((ath - 0.95) / 0.5) * bump((y + 0.03) / 0.16);
     h -= 0.04 * (1 - fat) * bump((ath - 0.85) / 0.45) * bump((y + 0.36) / 0.2);
-    h += (0.04 + 0.05 * hm.jaw) * bump((ath - 1.45) / 0.5) * bump((y + 0.55) / 0.22);
+    h += ff * (0.04 + 0.05 * hm.jaw) * bump((ath - 1.45) / 0.5) * bump((y + 0.55) / 0.22);
     h += (0.02 + 0.02 * hm.jaw) * (1 - fat) * bump((ath - 1.0) / 0.5) * bump((y + 0.8) / 0.1);
     // Lips, the groove between them, the chin.
     const mouthW = bump(ath / (FACE.mouthHalfTh * 1.25));
@@ -132,7 +134,7 @@ export function headShape(c: Ctx): HeadShape {
     h -= front * 0.02 * mouthW * bump((y - FACE.mouthY) / 0.03);
     h -= front * 0.025 * bump(ath / 0.4) * bump((y + 0.67) / 0.07);                      // under the lower lip
     h -= front * 0.014 * bump(ath / 0.07) * bump((y - (FACE.mouthY + 0.17)) / 0.08);     // the philtrum
-    h += front * (0.035 + 0.04 * hm.chin) * bump(ath / 0.42) * bump((y + 0.84) / 0.14);
+    h += front * ff * (0.035 + 0.04 * hm.chin) * bump(ath / 0.42) * bump((y + 0.84) / 0.14);
     // Temples.
     h -= 0.02 * bump((ath - 1.15) / 0.4) * bump((y - 0.36) / 0.2);
     const r = Math.hypot(x, z);
@@ -142,7 +144,7 @@ export function headShape(c: Ctx): HeadShape {
     const ns = 1 + 0.35 * hm.nose;
     const t = (FACE.eyeY + 0.03 - y) / (FACE.eyeY + 0.03 - FACE.noseTipY);                // 0 at the bridge → 1 at the tip
     if (t > -0.2 && y > FACE.noseBaseY - 0.06) {
-      const along = y >= FACE.noseTipY ? 0.05 + 0.21 * Math.pow(Math.max(0, Math.min(1, t)), 1.25) : 0.26 * smooth01((y - (FACE.noseBaseY - 0.05)) / (FACE.noseTipY - FACE.noseBaseY + 0.05));
+      const along = y >= FACE.noseTipY ? (0.05 + 0.21 * Math.pow(Math.max(0, Math.min(1, t)), 1.25)) * (0.75 + 0.25 * ff) : 0.26 * smooth01((y - (FACE.noseBaseY - 0.05)) / (FACE.noseTipY - FACE.noseBaseY + 0.05));
       // A ridge, not a plane: narrow at the bridge, a sharpened cross-section, wider at the wings.
       const width = 0.07 + 0.12 * Math.pow(Math.max(0, Math.min(1, t)), 1.5) * ns;
       x += ns * along * Math.pow(bump(ath / (width * 2.6)), 1.8) * smooth01((t + 0.2) / 0.2);

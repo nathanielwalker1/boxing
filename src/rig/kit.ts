@@ -184,7 +184,9 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
       const y = ys[r]!;
       const band = y >= top - bandH;
       const sag = smooth01((top - bandH - y) / (R * 0.8));
-      const lift = outfit ? 0.02 : band ? gap * 0.9 : gap * 0.6 + 0.04 * sag;
+      // Cloth hangs off the hips at the sides and front; behind, it follows the buttock (no bag): the sag fades out round the back.
+      const rear = smooth01((Math.cos((0.5 - j / cols) * TAU) + 0.7) / 0.9);
+      const lift = outfit ? 0.02 : band ? gap * 0.9 : gap * 0.6 + 0.022 * sag * rear;
       torso.point(y, (0.5 - j / cols) * TAU, out, lift);
       if (band && !outfit) { const edge = bump((y - (top - bandH / 2)) / (bandH * 0.62)); out.x *= 1 + 0.012 * edge; out.z *= 1 + 0.012 * edge; }
       if (!outfit && y < blendTop) {

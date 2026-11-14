@@ -44,7 +44,7 @@ export function rigGeomKey(spec: FighterSpec, body: BodyDims, cfg: Config): stri
     cfg.rigMorphMuscleLimb, cfg.rigMorphFatBelly, cfg.rigMorphNeckR, cfg.rigAoStrength, cfg.rigHandScale, cfg.rigJointBlend, cfg.rigQuality,
     // anim Phase 1.1: the skeleton changes the bones (a hierarchy) and the skin weights.
     // anim Phase 1.2 / 1.3.
-    cfg.rigNeckBase, cfg.rigHipBlend, cfg.rigTrunkGap, cfg.rigRefBelly, cfg.rigRefArm, cfg.rigRefTrouser,
+    cfg.rigNeckBase, cfg.rigLatFlare, cfg.rigGluteDepth, cfg.rigFaceForm, cfg.rigHipBlend, cfg.rigTrunkGap, cfg.rigRefBelly, cfg.rigRefArm, cfg.rigRefTrouser,
     cfg.skelOn, cfg.skelSpine1At, cfg.skelSpine2At, cfg.skelChestAt, cfg.skelNeckBase, cfg.skelHeadPivot, cfg.skelClavicleInset, cfg.skelSkinBlend,
   ].join('|');
 }

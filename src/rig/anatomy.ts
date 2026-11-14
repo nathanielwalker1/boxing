@@ -81,28 +81,30 @@ export function torsoShape(c: Ctx): TorsoShape {
   const trap = 1 + 0.35 * m.muscle + 0.9 * Math.max(0, m.neck) * cfg.rigMorphNeckR;
   const neckTopY = b.headY - b.headR * 0.42;
   const nb = cfg.rigNeckBase;
+  const glute = cfg.rigGluteDepth;   // the buttocks stand out behind the pelvis
   const neck0 = sy + cl * nb;
 
+  // The trapezius slope: half-width a fraction f of the way from the shoulder tip to the neck base (straight, plus a bulge for a heavy trap).
+  const trapW = (f: number): number => { const w0 = yokeHalf * 0.9, wN = nr * 1.14; return w0 + (wN - w0) * f + 0.02 * (Math.min(1.4, trap) - 1) * Math.sin(Math.PI * f); };
   // Stations: y, half-width, front depth, back depth, squareness.
   const st: number[][] = [
     [hy - R * 0.62, 0, 0, 0, 2],
     [hy - R * 0.5, pelvisHalf * 0.5, R * 0.36, R * 0.42, 2.1],
-    [hy - R * 0.25, pelvisHalf * 0.86, R * 0.6, R * 0.72, 2.3],
-    [hy + sp * 0.05, pelvisHalf, R * 0.68, R * 0.8, 2.4],
-    [hy + sp * 0.36, (pelvisHalf * 0.6 + waistHalf * 0.4), waistF * 0.98, waistB * 1.02, 2.35],
-    [hy + sp * 0.64, waistHalf, waistF, waistB, 2.25],
+    [hy - R * 0.25, pelvisHalf * 0.86, R * 0.6, R * 0.72 * glute, 2.3],
+    [hy + sp * 0.05, pelvisHalf, R * 0.68, R * 0.8 * glute, 2.4],
+    [hy + sp * 0.36, (pelvisHalf * 0.6 + waistHalf * 0.4), waistF * 0.98, waistB * 0.9, 2.35],   // the lumbar curve: the back goes IN here seen from the side
+    [hy + sp * 0.64, waistHalf, waistF, waistB * 0.94, 2.25],
     [hy + sp * 1.0, waistHalf * 0.5 + chestHalf * 0.5, waistF * 0.45 + chestF * 0.55, waistB * 0.4 + chestB * 0.6, 2.35],
     [sy - cl * 0.52, chestHalf * 0.985, chestF * 0.95, chestB * 0.98, 2.5],
     [sy - cl * 0.3, chestHalf, chestF, chestB, 2.6],
     // The yoke reaches the shoulder joints, so the inner half of each deltoid sits inside it; it rounds over
     // (lower squareness) and the trapezius slopes from the corner up into the neck.
-    [sy - cl * 0.1, yokeHalf * 1.0, chestF * 0.88, chestB * 1.0, 2.7],
-    [sy + cl * 0.035, yokeHalf * 1.0, chestF * 0.7, chestB * 0.92, 2.4],
-    // Phase 1.2: the trapezius is a long line from the shoulder tip up into the neck (a real boxer's slopes about 25°), and the neck leaves it
-    // low, so a visible neck stands between the ridge and the jaw. The stations are fractions of the way from the yoke's top to the neck base.
-    // (Linear down the slope, no shelf: an annulus of near-constant height between the yoke and the neck read as a collar.)
-    [sy + cl * (0.035 + (nb - 0.035) * 0.38), Math.max(nr * 2.2, yokeHalf * 0.74 * Math.min(1.15, trap)), Math.max(chestF * 0.5, nr * 1.35), chestB * 0.84, 2.4],
-    [sy + cl * (0.035 + (nb - 0.035) * 0.7), Math.max(nr * 1.65, yokeHalf * 0.5 * Math.min(1.25, trap)), nr * 1.25, nr * 1.5 * Math.min(1.2, trap), 2.2],
+    [sy - cl * 0.06, yokeHalf * 1.0, chestF * 0.88, chestB * 1.0, 2.7],
+    // Pass 2 (silhouette): no shelf, no square corner. The outline runs from the shoulder tip (rounded, squareness 2.15) up the trapezius to the neck
+    // in a straight slope (about 24°, a touch fuller with a heavy trap), the deltoid cap then sits OUTSIDE and slightly below it.
+    [sy + cl * 0.08, yokeHalf * 0.9, chestF * 0.74, chestB * 0.95, 2.15],
+    [sy + cl * 0.08 + cl * (nb - 0.08) * 0.38, trapW(0.38), Math.max(chestF * 0.5, nr * 1.4), chestB * 0.84, 2.2],
+    [sy + cl * 0.08 + cl * (nb - 0.08) * 0.72, trapW(0.72), nr * 1.25, nr * 1.5 * Math.min(1.2, trap), 2.15],
     [neck0, nr * 1.14, nr * 1.08, nr * 1.2, 2.1],
     [(neck0 + neckTopY) / 2, nr, nr * 0.95, nr * 1.02, 2],
     [neckTopY, nr * 1.02, nr * 0.98, nr * 1.05, 2],
@@ -125,8 +127,8 @@ export function torsoShape(c: Ctx): TorsoShape {
     if (front > 0) {
       // Pecs: a slab each side, sharper along its lower edge; the sternum between them.
       const py = y - pecY;
-      const pec = bump((az - chestHalf * 0.47) / (chestHalf * 0.6)) * bump(py / (py > 0 ? cl * 0.27 : cl * 0.16));
-      h += front * def * R * 0.15 * pec;
+      const pec = bump((az - chestHalf * 0.47) / (chestHalf * 0.6)) * (py > 0 ? bump(py / (cl * 0.27)) : Math.pow(bump(py / (cl * 0.13)), 0.55));   // a shelf: it ends in a line above the ribs
+      h += front * def * R * 0.19 * pec;
       h -= front * def * R * 0.045 * bump(az / (chestHalf * 0.16)) * bump((y - (sy - cl * 0.27)) / (cl * 0.24));
       // Abs: three rows either side of the linea alba.
       for (const ay of absY) h += front * def * R * 0.085 * bump((az - waistHalf * 0.21) / (waistHalf * 0.24)) * bump((y - ay) / (sp * 0.15));
@@ -135,6 +137,8 @@ export function torsoShape(c: Ctx): TorsoShape {
       h += front * fat * R * cfg.rigMorphFatBelly * bump(az / (waistHalf * 1.7)) * bump((y - (hy + sp * 0.5)) / (sp * 0.95));
     }
     if (side > 0) {
+      // The lats flare out from under the armpit down to the waist (seen from the front and the back).
+      h += side * def * R * cfg.rigLatFlare * bump((y - (sy - cl * 0.62)) / (cl * 0.5));
       // Obliques over the hip, and the love handle fat adds.
       h += side * (def * R * 0.03 + fat * R * 0.16) * bump((y - (hy + sp * 0.42)) / (sp * 0.4));
       // Serratus: three small ridges under the armpit.
@@ -220,11 +224,18 @@ export function buildTorso(c: Ctx, shape: TorsoShape): void {
   addGrid(c.g, {
     rows: ys.length, cols, wrap: true,
     // u = 0.5 is the front (θ = 0), the seam runs down the spine; u grows toward the fighter's LEFT, so paint reads the right way round from in front.
-    point: (i, j, out) => shape.point(ys[i]!, (0.5 - j / cols) * TAU, out, outfit ? 0.006 : 0),
+    point: (i, j, out) => {
+      const y = ys[i]!, b = c.body;
+      // The referee's shirt (pass 2): a standing collar round the neck, and the shirt blousing over the belt (it hangs off the belly, it does not cling).
+      const inflate = !outfit ? 0 : 0.008 + 0.012 * bump((y - (b.shoulderY + b.chestLen * c.cfg.rigNeckBase + 0.012)) / 0.03) + 0.022 * bump((y - (b.hipY + b.spineLen * 0.5)) / (b.spineLen * 0.55));
+      shape.point(y, (0.5 - j / cols) * TAU, out, inflate);
+    },
     weights: p => shape.weights(p),
     rect: c.rect('torso'),
     kind: outfit ? KIND.cloth : KIND.skin,
     uv: (i, j) => [j / cols, 1 - (ys[i]! - shape.yBottom) / (shape.yTop - shape.yBottom)],
+    // The concave turn from the chest up the trapezius into the neck is dark from curvature alone and read as a collar line: lift it back (pass 2).
+    tint: p => { const t = 1 + 0.16 * smooth01((p.y - c.body.shoulderY) / (c.body.chestLen * 0.1)) * (1 - smooth01((p.y - shape.neckTopY + 0.04) / 0.04)); return [t, t, t]; },
     ao: outfit ? c.cfg.rigAoStrength * 0.4 : c.cfg.rigAoStrength,
   });
 }
@@ -257,9 +268,9 @@ function hingeWeights(s: number, sj: number, w: number, upper: number, helper: n
 
 /** The arm loft's extent down from the shoulder joint: top of the deltoid cap → the wrist (the painter maps v across it). */
 export function armSpan(c: Ctx): { s0: number; s1: number } {
-  const delt = c.cfg.rigDeltoid * (1 + 0.08 * c.m.muscle);
+  const delt = c.cfg.rigDeltoid * (1 + 0.08 * c.m.muscle) * (c.spec.outfit ? 0.78 : 1);
   // The referee's hands are bare: the forearm runs to the wrist. A glove's cuff hides the rest.
-  return { s0: -c.d.upperArmR * delt * 0.55, s1: c.body.upperArm + c.body.forearm - c.body.gloveR * (c.spec.outfit ? c.cfg.rigHandScale * 0.9 : 0.6) };
+  return { s0: -c.d.upperArmR * delt * 0.5, s1: c.body.upperArm + c.body.forearm - c.body.gloveR * (c.spec.outfit ? c.cfg.rigHandScale * 0.9 : 0.6) };
 }
 
 export function buildArm(c: Ctx, i: number, torso: TorsoShape): void {
@@ -268,32 +279,37 @@ export function buildArm(c: Ctx, i: number, torso: TorsoShape): void {
   const J = c.bind[bones.upper]!;
   const L1 = b.upperArm, L2 = b.forearm, R1 = d.upperArmR, R2 = d.forearmR;
   const def = muscleDef(c);
-  const delt = cfg.rigDeltoid * (1 + 0.08 * c.m.muscle);
+  const delt = cfg.rigDeltoid * (1 + 0.08 * c.m.muscle) * (c.spec.outfit ? 0.78 : 1);   // (the referee has no deltoid under a shirt)
   const wristS = armSpan(c).s1;
   const tp = 1 - 0.16 * Math.max(0, c.m.bodyFat) - 0.05 * Math.max(0, c.m.muscle);
   const st: number[][] = [
-    // The cap is low and broad (a deltoid, not a ball): it tops out just above the joint and its inner half is inside the torso's yoke.
-    // Phase 2: the cap's crown is pulled IN under the yoke and kept low, so with the arm hanging the top of the
-    // shoulder is the torso's trapezius running out over it — the seam is under the arm, not an epaulette on top.
-    [-R1 * delt * 0.55, 0, 0, 0, -R1 * 0.3],
-    [-R1 * delt * 0.5, R1 * delt * 0.5, R1 * delt * 0.52, 0, -R1 * 0.26],
-    [-R1 * delt * 0.32, R1 * delt * 0.84, R1 * delt * 0.84, 0, -R1 * 0.12],
-    [R1 * 0.2, R1 * delt, R1 * delt * 1.0, 0, R1 * 0.03],
-    [L1 * 0.26, R1 * delt * 0.97, R1 * delt * 0.97, 0, R1 * 0.04],
-    [L1 * 0.46, R1 * 1.07, R1 * 1.0, R1 * 0.02, R1 * 0.02],
-    [L1 * 0.66, R1 * 1.04, R1 * 0.93, R1 * 0.02, 0],
+    // Pass 2 (silhouette). Station = [s, rx front/back, rz lateral, cx, cz]. The deltoid cap sits OUTSIDE the joint axis (cz > 0) and is the widest
+    // thing on the body from the front; below it a deltoid-insertion notch, then the biceps / triceps belly (thickest about 40 to 50 % down), a
+    // narrow bony elbow (deep front to back, wide at the epicondyles), the brachioradialis swelling just below it, and a forearm that tapers to the wrist.
+    // The cap is a SLOPED dome (radius grows as the 0.6 power of the depth from its crown, and its centre moves outward as it goes down), so seen from the
+    // front the outline falls from the trapezius over the deltoid in a curve; a lens-shaped cap (flat top, vertical edge) read as an epaulette.
+    [-R1 * delt * 0.5, 0, 0, 0, 0],
+    [-R1 * delt * 0.45, R1 * delt * 0.25, R1 * delt * 0.27, 0, R1 * 0.02],
+    [-R1 * delt * 0.375, R1 * delt * 0.43, R1 * delt * 0.46, 0, R1 * 0.06],
+    [-R1 * delt * 0.25, R1 * delt * 0.66, R1 * delt * 0.7, 0, R1 * 0.11],
+    [-R1 * delt * 0.125, R1 * delt * 0.84, R1 * delt * 0.9, 0, R1 * 0.14],
+    [R1 * 0.2, R1 * delt, R1 * delt * 1.05, 0, R1 * 0.13],
+    [L1 * 0.24, R1 * delt * 0.96, R1 * delt * 0.99, 0, R1 * 0.08],
+    [L1 * 0.36, R1 * 0.9, R1 * 0.88, R1 * 0.01, R1 * 0.02],
+    [L1 * 0.5, R1 * 1.1, R1 * 0.98, R1 * 0.03, 0],
+    [L1 * 0.68, R1 * 1.03, R1 * 0.92, R1 * 0.02, 0],
     // A heavy arm still has an elbow and a wrist: fat sits on the upper arm, the taper below it is kept (tp).
-    [L1 * 0.86, R1 * 0.9 * tp, R1 * 0.86 * tp, 0, 0],
-    [L1, R1 * 0.8 * tp * tp, R1 * 0.85 * tp * tp, 0, 0],
-    [L1 + L2 * 0.14, R2 * 0.94 * tp, R2 * 1.05 * tp, R2 * 0.04, 0],
-    [L1 + L2 * 0.3, R2 * 0.92 * tp, R2 * 1.0 * tp, R2 * 0.03, 0],
-    [L1 + L2 * 0.46, R2 * 0.74 * tp * tp, R2 * 0.8 * tp * tp, 0, 0],
-    [wristS - (wristS - L1) * 0.12, R2 * 0.54 * tp * tp, R2 * 0.62 * tp * tp, 0, 0],
-    [wristS, R2 * 0.5 * tp * tp, R2 * 0.6 * tp * tp, 0, 0],
+    [L1 * 0.86, R1 * 0.84 * tp, R1 * 0.8 * tp, 0, 0],
+    [L1, R1 * 0.7 * tp * tp, R1 * 0.82 * tp * tp, 0, 0],
+    [L1 + L2 * 0.12, R2 * 1.06 * tp, R2 * 1.14 * tp, R2 * 0.04, 0],
+    [L1 + L2 * 0.3, R2 * 1.0 * tp, R2 * 1.04 * tp, R2 * 0.03, 0],
+    [L1 + L2 * 0.5, R2 * 0.78 * tp * tp, R2 * 0.82 * tp * tp, 0, 0],
+    [wristS - (wristS - L1) * 0.12, R2 * 0.6 * tp * tp, R2 * 0.66 * tp * tp, 0, 0],
+    [wristS, R2 * 0.56 * tp * tp, R2 * 0.62 * tp * tp, 0, 0],
   ];
   for (let k = 1; k < st.length; k++) if (st[k]![0]! < st[k - 1]![0]! + 0.003) st[k]![0] = st[k - 1]![0]! + 0.003;
   const keys = st.map(s => s[0]!), vals = st.map(s => s.slice(1));
-  const counts = [1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1];
+  const counts = [1, 1, 2, 2, 2, 2, 3, 2, 3, 3, 4, 4, 3, 3, 3, 1];
   const ss = rowParams(keys, counts, c.low);
   const bumps: LimbBump[] = [
     { s: L1 * 0.62, ss: L1 * 0.3, phi: 0.1, sphi: 1.25, amp: 0.14 * def },                // biceps
@@ -306,12 +322,16 @@ export function buildArm(c: Ctx, i: number, torso: TorsoShape): void {
   ];
   const cols = c.low ? 10 : 16;
   const row = [0, 0, 0, 0];
+  const outfit = !!c.spec.outfit;
+  const span = armSpan(c);
+  const sleeveEnd = L1 - 0.09 * (span.s1 - span.s0);   // where the painted sleeve ends (paint.ts)
   const wj = R1 * cfg.rigJointBlend;
   addGrid(c.g, {
     rows: ss.length, cols, wrap: true, mirror: c.lat[i]! < 0,
     point: (r, j, out) => {
       // φ = 0 is the front of the arm (u = 0.25), u = 0.5 the outside; the seam runs down the inside (medial).
       limbPoint(keys, vals, bumps, ss[r]!, (j / cols) * TAU - Math.PI / 2, row, out);
+      if (outfit && ss[r]! > 0) { const sl = ss[r]!; const k = sl < sleeveEnd - 0.014 ? 1.14 : sl < sleeveEnd ? 1.22 : 1; out.x = row[2]! + (out.x - row[2]!) * k; out.z = row[3]! + (out.z - row[3]!) * k; }
       out.x += J.x; out.y += J.y; out.z += Math.abs(J.z);
     },
     weights: p => {
@@ -332,6 +352,8 @@ export function buildArm(c: Ctx, i: number, torso: TorsoShape): void {
     },
     rect: c.rect(c.lat[i]! < 0 ? 'armL' : 'armR'),
     kind: KIND.skin,
+    // The referee: a short sleeve (cloth) ending in a cuff, bare arm below it.
+    kindAt: p => (outfit && (J.y - p.y) < sleeveEnd ? KIND.cloth : KIND.skin),
     uv: (r, j) => [j / cols, (ss[r]! - keys[0]!) / (keys[keys.length - 1]! - keys[0]!)],
     tint: p => {
       // Elbows run a little redder and darker.
@@ -352,15 +374,18 @@ export function legStations(c: Ctx): { keys: number[]; vals: number[][] } {
     [-R3 * 0.9, 0, 0, 0, 0],
     [-R3 * 0.78, R3 * 0.55, R3 * 0.52, 0, 0],
     [-R3 * 0.35, R3 * 1.02 * top, R3 * 0.98 * top, 0, 0],
-    [L3 * 0.12, R3 * 1.17 * top, R3 * 1.1 * top, 0, R3 * 0.02],
-    [L3 * 0.45, R3 * 1.07, R3 * 0.99, R3 * 0.03, R3 * 0.02],
-    [L3 * 0.78, R3 * 0.85, R3 * 0.8, R3 * 0.02, 0],
-    [L3, R3 * 0.72, R3 * 0.7, R3 * 0.02, 0],
-    [L3 + L4 * 0.1, R4 * 0.88, R4 * 0.88, 0, 0],
-    [L3 + L4 * 0.3, R4 * 1.0, R4 * 0.96, -R4 * 0.17, 0],
-    [L3 + L4 * 0.55, R4 * 0.72, R4 * 0.68, -R4 * 0.07, 0],
-    [L3 + L4 * 0.8, R4 * 0.52, R4 * 0.49, 0, 0],
-    [L3 + L4, R4 * 0.5, R4 * 0.48, 0, 0],
+    // Pass 2: quadriceps mass at the front and OUTSIDE, thickest in the upper third; a narrower, blockier knee (wide, shallow); the calf belly high on the
+    // back of the shin (upper 40 %) and a thin ankle.
+    [L3 * 0.12, R3 * 1.17 * top, R3 * 1.16 * top, 0, R3 * 0.03],
+    [L3 * 0.3, R3 * 1.14, R3 * 1.2, R3 * 0.02, R3 * 0.05],
+    [L3 * 0.5, R3 * 1.02, R3 * 1.06, R3 * 0.03, R3 * 0.03],
+    [L3 * 0.78, R3 * 0.82, R3 * 0.84, R3 * 0.02, 0],
+    [L3, R3 * 0.64, R3 * 0.72, R3 * 0.02, 0],
+    [L3 + L4 * 0.1, R4 * 0.84, R4 * 0.9, 0, 0],
+    [L3 + L4 * 0.28, R4 * 1.04, R4 * 0.98, -R4 * 0.2, 0],
+    [L3 + L4 * 0.5, R4 * 0.72, R4 * 0.66, -R4 * 0.08, 0],
+    [L3 + L4 * 0.8, R4 * 0.5, R4 * 0.48, 0, 0],
+    [L3 + L4, R4 * 0.44, R4 * 0.44, 0, 0],
   ];
   return { keys: st.map(s => s[0]!), vals: st.map(s => s.slice(1)) };
 }
@@ -412,7 +437,7 @@ export function buildLeg(c: Ctx, i: number): void {
   const L3 = b.thigh, R3 = d.thighR;
   const outfit = !!c.spec.outfit;
   const { keys, vals } = outfit ? trouserStations(c) : legStations(c);
-  const counts = [1, 2, 2, 4, 4, 3, 3, 3, 4, 3, 2];
+  const counts = [1, 2, 2, 3, 3, 3, 3, 3, 3, 4, 3, 2];
   const ss = rowParams(keys, counts, c.low);
   const bumps: LimbBump[] = outfit ? [] : legBumps(c);
   const cols = c.low ? 10 : 16;

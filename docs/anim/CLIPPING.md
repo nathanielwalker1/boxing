@@ -5,28 +5,28 @@ Entries are the number of EXPOSED must-cover skin vertices (fail above 40). The 
 
 | pose | red (short) | boiler (classic) | raffle (belt) | alambre (long) | monsoon (skirt) | grandad (split) |
 |---|---:|---:|---:|---:|---:|---:|
-| guard (high) | 2 | 2 | 2 | 0 | 1 | 1 |
-| block | 2 | 2 | 0 | 0 | 0 | 0 |
-| jab, full reach | 2 | 2 | 3 | 0 | 0 | 0 |
-| cross, full reach | 0 | 1 | 0 | 0 | 0 | 1 |
-| hook, lead, full | 0 | 1 | 1 | 0 | 0 | 1 |
-| hook, rear, full | 0 | 2 | 0 | 0 | 1 | 1 |
-| uppercut, lead, full | 0 | 1 | 0 | 0 | 1 | 0 |
-| uppercut, rear, full | 0 | 1 | 0 | 0 | 0 | 0 |
-| deep crouch | 2 | 2 | 1 | 0 | 1 | 0 |
-| torso twisted | 0 | 5 | 2 | 0 | 1 | 0 |
-| arms overhead | 2 | 2 | 2 | 0 | 1 | 0 |
-| slip left | 2 | 3 | 9 | 3 | 3 | 1 |
-| slip right | 4 | 2 | 19 | 0 | 3 | 2 |
-| roll | 2 | 2 | 1 | 1 | 1 | 0 |
-| wide step | 0 | 1 | 1 | 3 | 2 | 2 |
-| mid-step | 2 | 2 | 2 | 1 | 1 | 1 |
-| knee (falling) | 2 | 3 | 5 | 2 | 6 | 3 |
-| on the back / prone | 2 | 4 | 16 | 0 | 4 | 4 |
-| down, arms out | 2 | 1 | 5 | 1 | 4 | 3 |
-| hands and knees | 2 | 2 | 5 | 1 | 4 | 2 |
-| seated | 2 | 5 | 16 | 0 | 4 | 5 |
-| getting up | 2 | 2 | 2 | 1 | 5 | 1 |
-| must-cover vertices | 793 | 784 | 909 | 934 | 804 | 795 |
+| guard (high) | 0 | 4 | 1 | 0 | 0 | 0 |
+| block | 0 | 8 | 3 | 0 | 1 | 2 |
+| jab, full reach | 0 | 14 | 6 | 0 | 1 | 1 |
+| cross, full reach | 1 | 14 | 2 | 0 | 0 | 0 |
+| hook, lead, full | 0 | 3 | 0 | 0 | 0 | 0 |
+| hook, rear, full | 1 | 7 | 1 | 0 | 0 | 0 |
+| uppercut, lead, full | 0 | 1 | 0 | 0 | 0 | 1 |
+| uppercut, rear, full | 0 | 3 | 1 | 0 | 0 | 0 |
+| deep crouch | 0 | 11 | 4 | 1 | 1 | 2 |
+| torso twisted | 0 | 6 | 3 | 0 | 0 | 0 |
+| arms overhead | 0 | 30 | 2 | 0 | 0 | 1 |
+| slip left | 0 | 7 | 10 | 1 | 1 | 1 |
+| slip right | 1 | 5 | 15 | 0 | 3 | 1 |
+| roll | 0 | 7 | 4 | 0 | 0 | 2 |
+| wide step | 0 | 0 | 3 | 1 | 3 | 2 |
+| mid-step | 0 | 6 | 5 | 1 | 1 | 2 |
+| knee (falling) | 1 | 7 | 9 | 0 | 4 | 5 |
+| on the back / prone | 0 | 27 | 11 | 1 | 3 | 7 |
+| down, arms out | 0 | 25 | 5 | 1 | 2 | 4 |
+| hands and knees | 0 | 28 | 10 | 1 | 1 | 3 |
+| seated | 1 | 5 | 17 | 0 | 4 | 7 |
+| getting up | 1 | 3 | 2 | 2 | 0 | 0 |
+| must-cover vertices | 859 | 817 | 952 | 979 | 843 | 860 |
 
-Worst: raffle (belt) in "slip right": 19 vertices.
+Worst: boiler (classic) in "arms overhead": 30 vertices.

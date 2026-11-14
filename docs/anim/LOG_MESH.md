@@ -141,3 +141,16 @@ a static snapshot server (port 5196: HEAD's sim and `rig/index.ts` plus this wor
   - Not verified in the real driver: a deep knee bend and a 45° torso twist (bare mesh only), `grimace` and `slack` (no driver yet).
 - Not done: a T or A pose through the override hooks (not reachable; the arms-hung portrait stands in); skin removal under the trunks (kept on
   purpose); a helper-bone volume loss measure at 90 to 140° elbow flexion beyond looking (none seen).
+
+## 8. Pass 2: silhouette (shape only; no BodyDims, headsTall or sim number touched)
+
+Evidence `docs/anim/p1_2/after2` (guard / hang x four views for red, boiler, referee; bare red poses), `docs/anim/CLIPPING.md` re-run. Levers are profile tables and config keys:
+`rigDeltoid` 1.17 to 1.3, `rigNeckBase` 0.15 to 0.2, new `rigLatFlare`, `rigGluteDepth`, `rigFaceForm`. Arm contact radii (`rigUpperArmR`, `rigForearmR`) untouched.
+1. Shoulders: the yoke tip is rounded (squareness 2.15) and the trapezius is a straight slope (about 18 degrees; heavier traps bulge) into the neck; the deltoid is a SLOPED dome centred outside the joint axis (a lens-shaped cap read as an epaulette). Partly: from the front a faint horizontal crease remains where chest meets trapezius (curvature AO, lightened by a vertex tint).
+2. Arms: insertion notch, belly at 50 percent, bony elbow, brachioradialis swell below it, forearm tapering to 56 percent at the wrist. Got.
+3. Torso: pectoral shelf (steep lower edge), lat flare at the sides, lumbar curve (back goes in at the waist), glute depth. Partly: the V is mostly hidden by the arms.
+4. Legs: quads thickest in the upper third and wider outside, a narrower blocky knee, calf belly at 28 percent of the shin, thin ankle. Radii not raised (the calf is already 46 cm round against 38 real). Got.
+5. Trunks at the buttock: cloth sag fades out round the back, glute depth in the torso. Partly.
+6. Referee: standing collar, shirt blousing over the belt, short cloth sleeves with cuffs, smaller deltoid. Got; the placket is painted only.
+7. Face: `rigFaceForm` 1.35 scales brow shelf, sockets, cheekbones, jaw and chin; jaw and chin squarer; nose bridge projects more in profile. Partly: reads in portrait, still soft at play distance; ears still petals.
+Regression to watch: arms raised overhead with no clavicle motion leaves the deltoid crown on the chest (bare mesh only; the driver's clavicle should cover it). Clip worst cell is boiler, arms overhead, 30 exposed (was 19 at raffle slip right).
