@@ -780,6 +780,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     neck: (!spread ? 1 : finisher ? cfg.gradeNeckFinisher : grade === 'flush' ? cfg.gradeNeckFlush : 1)
       * (cfg.counterFeelV2 && counter && !blocked ? cfg.counterReactionOver : 1),   // counterFeelV2: the head travels further on a counter
     vary: blocked ? 0 : vary * cfg.reactionVary, vary2: blocked ? 0 : seededUnit(s.seed, s.tick, side + 7) * cfg.reactionVary,
+    part,   // hitChainV2: a body shot folds the torso instead of snapping the head
   });
   if (cfg.guardHolesV2 && d.block && guarded) {
     // Guard holes: every punch on a held guard (blocked or through) wears the cover for the next; a perfect one is free.

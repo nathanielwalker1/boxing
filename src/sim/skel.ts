@@ -19,7 +19,9 @@ import {
   clavicleTarget, fitArm, fitLeg, fitTorso, fk, frameOf, handLateralSign, localToWorld, qAxisAngle, qMul, qRot, restPose, rootQuat,
   skelDef, skelLimits, torsoShapes, SKJ, clampPose,
   applyKeyedTorso, keyedClavicleTarget, keyedPose, poseScale, swivelPole, type KeyedInput, type RPose,
+  poseQ, setPoseQ, qFromRotVec,
 } from '../core';
+import { chainAngles, chainOn } from './reaction';
 import { PUNCHES, whiffPhases } from './punches';
 import { VARIANTS } from './variants';
 import { pressDist } from './state';
@@ -125,6 +127,9 @@ export function fitSimTorso(f: FighterState, cfg: Config): void {
   });
   // The key layer: pelvis travel and tilt, spine, head over the turned base; feet published for the rig's planter.
   if (rp) applyKeyedTorso(def, pose, rp, cfg, f.stance, true);
+  // hitChainV2: the hit reaction, additive in joint space on top of the fitted pose, then clamped (before the legs, so
+  // a pelvis turn is re-planted by the leg IK: the feet stay where they stood).
+  if (chainOn(cfg)) applyHitChain(f, cfg, def, pose, lim);
   // Legs: the sim has no feet yet (Phase 2.3); the skeleton's stand at the rig's stance spots so the pose is whole
   // (keyed: plus the key's step, the pivot on the ball of the foot and the heel lift).
   const fr = frameOf(f.yaw), lead = handLateralSign('lead', f.stance);
@@ -155,6 +160,23 @@ export function fitSimTorso(f: FighterState, cfg: Config): void {
   f.headBox.x = t.head.x; f.headBox.y = t.head.y; f.headBox.z = t.head.z;
   f.bodyBox.a.x = t.hips.x; f.bodyBox.a.y = t.hips.y; f.bodyBox.a.z = t.hips.z;
   f.bodyBox.b.x = t.shoulders.x; f.bodyBox.b.y = t.shoulders.y; f.bodyBox.b.z = t.shoulders.z;
+}
+
+/** Spine group split, lumbar / low thoracic / chest (sums to 1). Shape of the bend, not a tunable. */
+const CHAIN_SPINE_SPLIT: readonly [number, number][] = [[SKJ.spine1, 0.25], [SKJ.spine2, 0.35], [SKJ.chest, 0.4]];
+
+/** The hit chain (reaction.ts kickChain / stepChain) posted onto the joints: q ← q · rot(share × group angles), then clampPose. */
+function applyHitChain(f: FighterState, cfg: Config, def: ReturnType<typeof skelDef>, pose: NonNullable<FighterState['skel']>, lim: ReturnType<typeof skelLimits>): void {
+  const hd = chainAngles(f, 0), sp = chainAngles(f, 1), pv = chainAngles(f, 2);
+  if (!hd.some(v => v !== 0) && !sp.some(v => v !== 0) && !pv.some(v => v !== 0)) return;
+  const add = (j: number, a: readonly number[], w: number): void => {
+    setPoseQ(pose, j, qMul(poseQ(pose, j), qFromRotVec({ x: a[0]! * w, y: a[1]! * w, z: a[2]! * w })));
+  };
+  add(SKJ.pelvis, pv, 1);
+  for (const [j, w] of CHAIN_SPINE_SPLIT) add(j, sp, w);
+  add(SKJ.neck, hd, cfg.hitChainNeckShare);
+  add(SKJ.head, hd, 1 - cfg.hitChainNeckShare);
+  clampPose(def, pose, lim);
 }
 
 /** What the last arm fit did, per side and arm (scripts/skel_probe.mjs reads it; output only, never read by the sim). */
