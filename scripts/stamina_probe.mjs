@@ -80,10 +80,10 @@ export function costs(c = cfg, quiet = false) {
  * of the rest; the partner throws `his` punches a minute back, of which the fighter blocks `guard` (holding the
  * guard for about half a second round each) and takes the rest; he walks the rest of the time.
  */
-export function pace({ ppm = 32, miss = 0.25, blocked = 0.3, his = 24, guard = 0.6, heavy = 0.4, holdGuard = false, c = cfg, label = '' } = {}, quiet = false) {
+export function pace({ ppm = 32, miss = 0.25, blocked = 0.3, his = 24, guard = 0.6, heavy = 0.4, holdGuard = false, power = false, c = cfg, label = '' } = {}, quiet = false) {
   const cc = { ...c, roundSeconds: 60, roundCount: 3, healthDamagePerImpulse: 0, stunBase: 0, bodyHurtOn: false, liverOn: false, guardWearOn: false };
   let s = k.sim.createState(k.specs, cc, 7);
-  const stat = { ticks: 0, sum: 0, tired: 0, gassed: 0, min: 1, thrown: 0, taken: 0, blockedByMe: 0, rounds: [], blockTicks: 0, landed: 0, whiffed: 0 };
+  const stat = { ticks: 0, sum: 0, tired: 0, gassed: 0, min: 1, thrown: 0, taken: 0, blockedByMe: 0, rounds: [], blockTicks: 0, landed: 0, whiffed: 0, snaps: [], gassedAt: null };
   // Deterministic schedules: every action is placed on a beat (no rng).
   const beat = Math.round(3600 / ppm * 2.5);            // one burst of ~2.5 punches every `beat` ticks
   const hisBeat = Math.round(3600 / his);
@@ -99,7 +99,7 @@ export function pace({ ppm = 32, miss = 0.25, blocked = 0.3, his = 24, guard = 0
       let hisIn = inp();
       if (t % hisBeat === 0) { m++; const hv = Math.floor(m * heavy) !== Math.floor((m - 1) * heavy); hisIn = inp({ [hv ? (m % 2 ? 'cross' : 'hook') : 'jab']: true }); if (Math.floor(m * guard) !== Math.floor((m - 1) * guard)) guardUntil = t + 30; }
       // The partner blocks `blocked` of my bursts.
-      if (t % beat === 0) { n++; const far = Math.floor(n * miss) !== Math.floor((n - 1) * miss); queue = (n % 2 ? ['jab', 'cross', 'hook'] : ['jab', 'cross']).map((p, j) => ({ p, at: t + 4 + j * 9, far })); }
+      if (t % beat === 0) { n++; const far = Math.floor(n * miss) !== Math.floor((n - 1) * miss); queue = (power ? (n % 2 ? ['cross', 'hook', 'cross'] : ['hook', 'cross']) : n % 2 ? ['jab', 'cross', 'hook'] : ['jab', 'cross']).map((p, j) => ({ p, at: t + 4 + j * 9, far })); }
       const partnerBlocks = Math.floor(n * blocked) !== Math.floor((n - 1) * blocked) && queue.some(q => q.at >= t - 20);
       if (partnerBlocks && hisIn.jab + hisIn.cross + hisIn.hook === 0) hisIn = inp({ block: true });
       const q = queue.find(x => x.at === t);
@@ -119,13 +119,15 @@ export function pace({ ppm = 32, miss = 0.25, blocked = 0.3, his = 24, guard = 0
         if (e.type === 'roundEnd') stat.rounds.push({ end: s.fighters[0].stamina, cap: s.fighters[0].staminaCap });
       }
       const f = s.fighters[0];
+      if (s.round.index === 0 && t > 0 && t % 900 === 0) stat.snaps.push(f.stamina);   // the tank at 15, 30, 45 s of round one
+      if (f.stamina < cc.lowStamina && s.round.index === 0 && stat.gassedAt === null) stat.gassedAt = t / 60;
       stat.ticks++; stat.sum += f.stamina; stat.min = Math.min(stat.min, f.stamina);
       if (f.fatigue > 0) stat.tired++;
       if (f.stamina < cc.lowStamina) stat.gassed++;
       if (f.block) stat.blockTicks++;
     } else { s = k.sim.step(s, [NONE, NONE], cc).state; }
   }
-  const out = { ppm: stat.thrown / (stat.ticks / 3600), avg: stat.sum / stat.ticks, tired: stat.tired / stat.ticks, gassed: stat.gassed / stat.ticks, min: stat.min, rounds: stat.rounds, taken: stat.taken, blockedByMe: stat.blockedByMe, guard: stat.blockTicks / stat.ticks, landed: stat.landed, whiffed: stat.whiffed, thrown: stat.thrown };
+  const out = { ppm: stat.thrown / (stat.ticks / 3600), avg: stat.sum / stat.ticks, tired: stat.tired / stat.ticks, gassed: stat.gassed / stat.ticks, min: stat.min, rounds: stat.rounds, taken: stat.taken, blockedByMe: stat.blockedByMe, guard: stat.blockTicks / stat.ticks, landed: stat.landed, whiffed: stat.whiffed, thrown: stat.thrown, snaps: stat.snaps, gassedAt: stat.gassedAt };
   if (!quiet) console.log(`  ${label.padEnd(44)} ${out.ppm.toFixed(0).padStart(3)} thrown/min (${stat.landed} landed, ${stat.whiffed} missed) · takes ${stat.taken}, blocks ${stat.blockedByMe} · guard up ${pct(out.guard)}% · avg tank ${pct(out.avg)}% · tired ${pct(out.tired)}% of the time · gassed ${pct(out.gassed)}% · lowest ${pct(out.min)}% · end of rounds ${out.rounds.map(r => `${pct(r.end)}/${pct(r.cap)}`).join('  ')} (tank/ceiling)`);
   return out;
 }
