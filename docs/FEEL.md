@@ -582,6 +582,22 @@ one rocked and one winded; the state is there).
 - Head (the new part): the multiplier alone showed little in the head (the neck clamp binds a hard hit either way; measured counter 1.4x plain at the slip-cross scenario, 0.228 vs 0.161 m). With `counterFeelV2` the neck clamp is x `counterReactionOver` (1.35) on a counter land, so the head travels further.
 - Sound: `counterThud` (low, long tail, `counterThudGain`, trailing `counterThudDelay`) under the existing counter sting and weight, scaled by landed power. Crowd: a short `crowdRoar` swell `counterSwellDelay` (0.25 s) after, `counterRockSwell` (1.5x) bigger when the same batch rocked him. No slow motion, text or flash. `counterFeelV2` false = the old fight exactly. Test: scripts/counter_feel_test.mjs.
 
+## Stamina budget (staminaV2, 2026-11-14; measured in Node, NOT felt)
+
+Measured before: at 50 punches a minute the tank never dropped under 99% in a round, because wind came back at 35% of the tank a second the moment a glove was home. Now (scripted paces of `stamina_probe.pace`, one 60 s round, tank % at 15 / 30 / 45 / 60 s; test `scripts/stamina_budget_test.mjs`, table in `anim_measure.mjs` C.4):
+
+| pace | before (staminaV2 off) | now |
+| --- | --- | --- |
+| sensible: 50 a minute, mixed, half landing, being worked on | 99 / 99 / 99 / 99 | 89 / 80 / 75 / 63 |
+| spamming: 110 a minute, power shots | 86 / 88 / 37 / 77 (never gassed) | 26 / 6 / 2 / 6, gassed at 14 s |
+| defensive: guard up, 8 a minute | 99 / 99 / 99 / 99 | 93 / 96 / 96 / 91 |
+
+- Keys (all 'polish: stamina', every one ignored with `staminaV2` false): `staminaV2ThrowMult` 0.6 (x the cost of a throw; below 1 because the cost now stays paid), `staminaV2WhiffMult` 0.6 (x the extra cost of a miss), `staminaV2BlockedThrow` 0.5 (a punch stopped on the guard costs its thrower this share of a miss on top), `staminaV2RegenMult` 0.25 (x `staminaRegen`, so about 9% of the tank a second open and 3.5% behind a guard), `staminaV2ThrowDelay` 1.0 s (every throw holds the wind back this long, so a busy fighter gets none and a fighter who stops for 3-4 s gets 35 points back), `staminaV2BodyMult` 2 (a body shot drains the target twice as much, on top of `staminaBodyHitMult`).
+- Costs (cross): land 0.4%, blocked 4.4%, missed 4.9%; hook 0.7 / 5.1 / 5.7. The ceiling already drops with misses (`whiffCapLoss`) and body wear (`bodyStaminaCapLoss`); the between-round rest (`betweenRoundStaminaRestore` 0.6 of what is missing) was left as is.
+- Spamming gasses at 14 s, faster than the 20-25 s aimed for: any spammer who keeps pressing gets no wind back, and the opponent's returns count too. The knife edge is the regen delay: raise `staminaV2ThrowDelay` and the sensible pace collapses, lower `staminaV2RegenMult` the same.
+- A gassed fighter shows in the body with what already exists (all reachable now that the tank can fall): `fatigue` below `fatigueFrom` 0.6 (slower punches, hands hang by `tiredGuardDroop`, `punchSlow`), the gassed wind-up below `lowStamina` (`lowStaminaCockMult` 2.5), legs (`moveTiredScale`), and the rig reads breathing, an open mouth and sweat from fatigue (src/rig/reads.ts) and loses its bounce (`rigRhythmTired`). No text or flash was added.
+- `stamina_test.mjs` now pins the polish-phase economy with `staminaV2` false; `drills_test.mjs` stamina-guard allows what is left in the tank after twenty seconds of shots on the guard to be over 10% (was over 60%).
+
 ## Open
 
 - Overhaul (2026-11-11): everything in "Overhaul feel specs" is sim-side and

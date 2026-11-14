@@ -96,6 +96,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // (Polish phase: also out of a pose still unwinding after a feint or a stuff — the hands are free, the body is not home yet.)
   setChainCarry(f, { on: chained || (cfg.carryFadeOn && (f.torsoTwist !== 0 || f.lean.fwd !== 0)), twist: f.torsoTwist, fwd: f.lean.fwd, lat: f.lean.lat, crouch: f.crouch });
   f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost * throwWeight(type, cfg) * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg));   // (polish phase: by the punch's weight)
+  if (cfg.staminaV2) setRegenDelay(f, Math.max(regenDelay(f), cfg.staminaV2ThrowDelay));   // staminaV2: the wind does not come back until a breath after the last punch, so a busy fighter never gets it back
   f.punch = {
     ...idlePunch(hand), type, phase: 'cock', variant,
     tell: (ph.cock * cock + ph.extend) * slow, timeMult: slow,
@@ -359,7 +360,7 @@ function missed(a: FighterState, cfg: Config, whiff: boolean, type: PunchType = 
   if (whiff && cfg.whiffCostOn) {
     // (Polish phase: by the punch's weight — a missed jab is a small thing, a missed hook is what gasses you.)
     const w = cfg.staminaPolishOn && cfg.staminaWhiffByWeight ? typeWeight(type, cfg) : 1;
-    a.stamina = Math.max(0, a.stamina - cfg.staminaWhiffCost * w * rated(a, 'stamina', -cfg.ratingStaminaCost, cfg));
+    a.stamina = Math.max(0, a.stamina - cfg.staminaWhiffCost * w * (cfg.staminaV2 ? cfg.staminaV2WhiffMult : 1) * rated(a, 'stamina', -cfg.ratingStaminaCost, cfg));
     a.wear += cfg.whiffCapLoss * w;
     if (cfg.staminaPolishOn) setRegenDelay(a, Math.max(regenDelay(a), cfg.staminaWhiffDelay * typeWeight(type, cfg)));   // a miss is a held breath
   }
@@ -664,7 +665,11 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     }
     combo = a.combo;
     if (finisher) { a.combo = 0; a.comboT = 0; }   // the next clean land starts a new count
-  } else missed(a, cfg, false);
+  } else {
+    missed(a, cfg, false);
+    // staminaV2: a punch the guard stopped wasted its arm: a share of a miss on top of the throw (more than a land, less than a whiff)
+    if (cfg.staminaV2 && cfg.whiffCostOn) a.stamina = Math.max(0, a.stamina - cfg.staminaWhiffCost * typeWeight(type, cfg) * cfg.staminaV2BlockedThrow * rated(a, 'stamina', -cfg.ratingStaminaCost, cfg));
+  }
   if (type === 'jab' && cfg.jabImpulseCap > 0) mag = Math.min(mag, cfg.jabImpulseCap);   // …and again after the grade and the combination
 
   const power = mag / cfg.punchImpulseBase;

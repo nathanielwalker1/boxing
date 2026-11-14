@@ -44,7 +44,7 @@ export function stepStamina(f: FighterState, cfg: Config, dt: number): void {
   setHealthRegenDelay(f, hDelay);
   if (f.down) return;
   // (The stamina rating: the guard costs less to hold and wind comes back faster.)
-  const regen = cfg.staminaRegen * rated(f, 'stamina', cfg.ratingStaminaRegen, cfg) * dt;
+  const regen = cfg.staminaRegen * (cfg.staminaV2 ? cfg.staminaV2RegenMult : 1) * rated(f, 'stamina', cfg.ratingStaminaRegen, cfg) * dt;
   if (cfg.staminaPolishOn) {
     // Polish phase, item 6: the guard is nearly free to hold and wind comes back behind it (slower); it comes back, slower
     // still, while a punch that touched something is on its way home. A miss, or being hit, is still a held breath.
@@ -69,7 +69,7 @@ export function takeHit(s: SimState, target: Side, mag: number, blocked: boolean
   // (Polish phase, item 6: on the GUARD a light shot costs next to nothing and does not pause the wind; a heavy one costs the arms something.)
   const polish = cfg.staminaPolishOn && blocked;
   const onGuard = !polish ? 1 : noHealth ? cfg.staminaBlockedLight : cfg.staminaBlockedHeavy;
-  d.stamina = Math.max(0, d.stamina - mag * cfg.staminaHitCost * (blocked ? cfg.staminaBlockedHitMult : 1) * (body ? cfg.staminaBodyHitMult : 1) * onGuard);
+  d.stamina = Math.max(0, d.stamina - mag * cfg.staminaHitCost * (blocked ? cfg.staminaBlockedHitMult : 1) * (body ? cfg.staminaBodyHitMult * (cfg.staminaV2 ? cfg.staminaV2BodyMult : 1) : 1) * onGuard);
   // (Phase 2: a light shot — a jab — pauses the wind for only a fraction of that. At the full pause a man jabbing
   // twice a second held the other's stamina at zero for the whole fight.)
   setRegenDelay(d, Math.max(regenDelay(d), cfg.staminaRegenDelay * (light ? cfg.staminaRegenDelayLight : 1) * (!polish ? 1 : noHealth ? 0 : cfg.staminaBlockedDelay)));
