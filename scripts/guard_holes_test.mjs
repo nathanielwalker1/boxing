@@ -9,7 +9,7 @@ import { check, near, done } from './check.js';
 
 const k = await kit();
 const { cfg, sim, inp, NONE, fresh, run, mag } = k;
-const quiet = { ...cfg, stylesOn: true, staminaBlockDrain: 0, staminaRegen: 0, healthRegen: 0, guardMeterOn: false, guardHolesV2: true, blockFeelV2: false };   // (blockFeelV2 tones the block's head rock down and brings the fist home sooner on purpose: block_feel_test.mjs holds that; this file pins guardHolesV2's own numbers)
+const quiet = { ...cfg, stylesOn: true, staminaBlockDrain: 0, staminaRegen: 0, healthRegen: 0, guardMeterOn: false, guardHolesV2: true };
 const off = { ...quiet, guardHolesV2: false };
 const BLOCK = inp({ block: true });
 const MID = 0.79;
@@ -82,7 +82,8 @@ console.log('\n=== 5. A block feels like something ===');
 {
   const peakHead = r => { let m = 0; return { r, get: () => m, track: s => { const h = s.fighters[1].reaction.head; m = Math.max(m, Math.hypot(h.vx, h.vz)); } }; };
   const run1 = (type, d, c, x = 0) => { const s = fresh(c, d, 20); const t = peakHead(); const r = run(s, 40, i => [inp({ [type]: i === 0, move: { x: i === 0 ? x : 0, y: 0 } }), BLOCK], c, st => t.track(st)); return { head: t.get(), stam: 1 - r.s.fighters[1].stamina, rb: r.evs.some(e => e.type === 'punchBlock') }; };
-  const hookOn = run1('hook', 0.72, quiet, 1), hookOff = run1('hook', 0.72, off, 1), jabOn = run1('jab', MID, quiet), crossOn = run1('cross', MID, quiet), jabOff = run1('jab', MID, off);
+  const hookOn = run1('hook', 0.72, { ...quiet, blockFeelV2: false }, 1), hookOff = run1('hook', 0.72, off, 1), jabOn = run1('jab', MID, quiet), crossOn = run1('cross', MID, quiet), jabOff = run1('jab', MID, off);
+  // (Pure old-motion geometry, so pinned: blockFeelV2 deliberately turns the head's peak speed down to a small rock behind the gloves; block_feel_test.mjs holds that.)
   check(`a blocked hook moves the head (${hookOn.head.toFixed(3)} vs ${hookOff.head.toFixed(3)} holes off)`, hookOn.head > hookOff.head * 1.5);
   check(`a blocked jab moves it less than a hook (${jabOn.head.toFixed(3)} vs ${hookOn.head.toFixed(3)})`, jabOn.head < hookOn.head * 0.6);
   check(`stamina: a blocked cross ${(crossOn.stam * 100).toFixed(2)}% vs a blocked jab ${(jabOn.stam * 100).toFixed(2)}%`, crossOn.stam > jabOn.stam * 3 && jabOn.stam < 0.01);

@@ -389,7 +389,10 @@ function blockFeel(a: FighterState, d: FighterState, at: Vec3, dirX: number, dir
   const p = a.punch;
   if (p.type !== null && cfg.blockFeelFistSkip > 0) {
     const total = whiffPhases(a, PUNCHES[p.type].phases(cfg)).total;
-    p.progress = Math.min(1, p.progress + cfg.blockFeelFistSkip / Math.max(1e-6, total));
+    const p0 = p.progress, p1 = Math.min(0.98, p0 + cfg.blockFeelFistSkip / Math.max(1e-6, total));
+    p.progress = p1;
+    // The skip brings the fist off the glove sooner; it must not hand the thrower the time back (the rebound is the block's frame cost: guardHolesRebound) — the rest of the recovery stretches so it ends when it would have.
+    setWhiffMult(a, whiffMult(a) * (1 - p0) / (1 - p1));
   }
 }
 
@@ -782,7 +785,6 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // Guard holes: every punch on a held guard (blocked or through) wears the cover for the next; a perfect one is free.
     if (!perfect) setGuardPress(d, guardPress(d) + 1);
     if (blocked && !perfect) setWhiffMult(a, Math.max(whiffMult(a), cfg.guardHolesRebound));   // rebound: the arm comes off the gloves slower
-    if (blocked && !perfect && cfg.blockFeelV2) blockFeel(a, d, at, dirX, dirZ, rawPower, cfg);
     // A WELL-TIMED block (raised inside the last guardHolesTimedTicks before the hit): the thrower is rocked and the
     // counter window the slip opens opens for the blocker (counter event on his landing, as for a slip).
     // (A SKILL, not an accident of reaction time: the seeded roll against the blocker's timedSkill — 1 for a human, set by the AI per difficulty.)
@@ -792,6 +794,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
       a.stagger.z -= dirZ * cfg.guardHolesTimedStagger * cfg.staggerDecay;
       setWhiffMult(a, Math.max(whiffMult(a), cfg.guardHolesTimedHang));
     }
+    if (blocked && !perfect && cfg.blockFeelV2) blockFeel(a, d, at, dirX, dirZ, rawPower, cfg);
   }
   if (perfect) {
     applyPunish(a, cfg.perfectBlockPunishVuln, cfg.perfectBlockPunishDuration, PUNISH_BLOCK);

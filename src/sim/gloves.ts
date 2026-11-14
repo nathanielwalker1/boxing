@@ -358,7 +358,27 @@ export function clampGloves(f: FighterState, other: FighterState, cfg: Config): 
   const sink = f.body.gloveR * cfg.contactSquash;
   const upperR = other.body.bodyR * cfg.rigUpperArmR;
   const hb = hitBody(other, cfg);
-  for (const g of f.gloves) {
+  const fr = frameOf(f.yaw);
+  for (let gi = 0; gi < f.gloves.length; gi++) {
+    const g = f.gloves[gi]!;
+    // blockFeelV2: a punching fist stops on the OUTER surface of a held guard glove — pushed back along its own line,
+    // not out sideways (the sphere push below slid it under the glove and onto the face, measured).
+    if (cfg.blockFeelV2 && cfg.guardHolesV2 && other.block && f.punch.type !== null && (f.punch.hand === 'lead') === (gi === 0)) {
+      const minD = f.body.gloveR + other.body.gloveR - sink;
+      for (const og of other.gloves) {
+        const dx = g.pos.x - og.pos.x, dy = g.pos.y - og.pos.y, dz = g.pos.z - og.pos.z;
+        const ax = dx * fr.fwd.x + dz * fr.fwd.z;   // along the punch: negative = in front of his glove
+        const lx = dx - ax * fr.fwd.x, lz = dz - ax * fr.fwd.z, l2 = lx * lx + dy * dy + lz * lz;
+        if (l2 >= minD * minD) continue;
+        const need = sqrt(minD * minD - l2);
+        if (ax > -need && ax < need) {   // inside his glove's sphere (in front of its centre or just past it, having come up from under)
+          const back = Math.min(cfg.blockFeelStopStep, ax + need);   // …walked back a few cm a pass, not snapped
+          g.pos.x -= fr.fwd.x * back; g.pos.z -= fr.fwd.z * back;
+          const vf = g.vel.x * fr.fwd.x + g.vel.z * fr.fwd.z;
+          if (vf > 0) { g.vel.x -= vf * fr.fwd.x; g.vel.z -= vf * fr.fwd.z; }
+        }
+      }
+    }
     // Head and body overlap at the chin, so a push out of one can land in
     // the other; a few passes settle it (measured: one pass left 4–5 cm).
     for (let pass = 0; pass < CLAMP_PASSES; pass++) {
