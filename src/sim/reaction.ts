@@ -184,7 +184,9 @@ function stepChain(f: FighterState, cfg: Config, dt: number): void {
       const b = HIST_CHAIN + g * 6 + a * 2;
       let x = h[b] ?? 0, v = h[b + 1] ?? 0;
       for (let i = 0; i < n; i++) { v += (-w * w * x - 2 * z * w * v) * sdt; x += v * sdt; }
-      if (Math.abs(x) < 1e-7 && Math.abs(v) < 1e-5) { x = 0; v = 0; }
+      // Home exactly: under 1e-5 rad and 1e-4 rad/s (thousandths of a degree) it is zero, so a settled man carries no
+      // residue into the next exchange (the pelvis group's slow tail left ~1e-6 for over a second, measured).
+      if (Math.abs(x) < 1e-5 && Math.abs(v) < 1e-4) { x = 0; v = 0; }
       h[b] = x; h[b + 1] = v;
     }
   }
