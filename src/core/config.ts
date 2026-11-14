@@ -150,7 +150,10 @@ const POSE_DEFAULTS: Record<string, Record<string, number>> = {
   //  contact. (Measured: swivel 20 — elbow at the ribs — put 57° of travel through the shoulder joint, 55 put 28–36°;
   //  70 gives lead 25° / rear 28° against a 32° / 63° chest turn: skel_test ≤ 30 and less than the chest. The wind-up
   //  hand is 13 cm off its guard spot, was 25.)
-  hookL_load: { pelYaw: -10, spTwist: -6, weight: -0.08, hCF: 0.12, hCU: 0.0, hCL: 0.12, hSwivel: 70, hPron: 30 },
+  // (Swivel 32, was 70 (2026-11-14, Nate's coordinator: "the low elbow wins"): at 70 the lead elbow sat at ear height
+  //  and the forearm lay beside the head — from the play camera an arm wrapped behind it. The elbow now starts down by
+  //  the ribs and lifts to the contact key's 40 on the PELVIS clock (core/poses.ts keyedPose), spread over the swing.)
+  hookL_load: { pelYaw: -10, spTwist: -6, weight: -0.08, hCF: 0.12, hCU: 0.0, hCL: 0.12, hSwivel: 32, hPron: 30 },
   // (This figure's chin sits ~20 cm above its shoulder line — the head is big — so the hook fist is at chin height and
   // the elbow lifts toward it; "forearm level at shoulder height" would hit the neck.)
   // (hAim 0.4, was 0.25 (2026-11-14): at 0.25 a short man's lead hook stayed at his own chin height inside 0.7 m — alambre
@@ -159,11 +162,14 @@ const POSE_DEFAULTS: Record<string, Record<string, number>> = {
   // (hAim 0.8 (2026-11-14, both hooks): at 0.4 the chest-frame spot carried the fist PAST his head inside — at 0.55 m it
   //  arrived 30 cm beyond the head centre and 12 cm low, a glancing shovel hook at 0.865 power (punch_test), its speed
   //  peaking after contact. At 0.8 it lands on the cheek, clean, 1.442 (legacy 1.442), fastest on the contact tick.)
-  hookL_contact: { pelYaw: 17, spTwist: 10, spFlex: 2, hdPitch: 4, clPro: 12, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.38, hAim: 0.8, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.04, foPivot: 10, weight: -0.05 },
-  hookL_follow: { pelYaw: 21, spTwist: 12, spFlex: 2, hdPitch: 4, clPro: 13, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.3, hAim: 0.1, hSwivel: 85, hPron: 50, fpPivot: 64, fpHeel: 0.04, foPivot: 11, weight: -0.05 },
-  hookR_load: { pelYaw: -10, spTwist: -6, weight: 0.08, hCF: 0.12, hCU: -0.01, hCL: 0.12, hSwivel: 70, hPron: 30 },
-  hookR_contact: { pelYaw: 45, spTwist: 28, spFlex: 2, hdPitch: 4, clPro: 15, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.3, hAim: 0.8, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.05, foPivot: 10, weight: -0.15 },
-  hookR_follow: { pelYaw: 49, spTwist: 30, spFlex: 2, hdPitch: 4, clPro: 16, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.22, hAim: 0.1, hSwivel: 85, hPron: 50, fpPivot: 64, fpHeel: 0.05, foPivot: 11, weight: -0.15 },
+  // (Contact / follow swivel 40 lead, 45 rear (rear load 40), were 85 / 70 (2026-11-14): the fist arrives at the jaw,
+  //  ~20 cm above the shoulder line on this figure, so a level forearm put the elbow 14–18 cm OVER the shoulder. The
+  //  elbow now stays within shoulder height + 5 cm on every tick (skel_test); the forearm angles up to the jaw.)
+  hookL_contact: { pelYaw: 17, spTwist: 10, spFlex: 2, hdPitch: 4, clPro: 12, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.38, hAim: 0.8, hSwivel: 40, hPron: 50, fpPivot: 60, fpHeel: 0.04, foPivot: 10, weight: -0.05 },
+  hookL_follow: { pelYaw: 21, spTwist: 12, spFlex: 2, hdPitch: 4, clPro: 13, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.3, hAim: 0.1, hSwivel: 40, hPron: 50, fpPivot: 64, fpHeel: 0.04, foPivot: 11, weight: -0.05 },
+  hookR_load: { pelYaw: -10, spTwist: -6, weight: 0.08, hCF: 0.12, hCU: -0.01, hCL: 0.12, hSwivel: 40, hPron: 30 },
+  hookR_contact: { pelYaw: 45, spTwist: 28, spFlex: 2, hdPitch: 4, clPro: 15, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.3, hAim: 0.8, hSwivel: 45, hPron: 50, fpPivot: 60, fpHeel: 0.05, foPivot: 10, weight: -0.15 },
+  hookR_follow: { pelYaw: 49, spTwist: 30, spFlex: 2, hdPitch: 4, clPro: 16, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.22, hAim: 0.1, hSwivel: 45, hPron: 50, fpPivot: 64, fpHeel: 0.05, foPivot: 11, weight: -0.15 },
   // UPPERCUT: the knees dip first, the punching shoulder drops, the hand to the short ribs, palm toward me; then the
   // legs drive up and the fist rises through the centre line under the chin, elbow under the fist.
   // (The uppercut's dip is the sim's crouch, in the base body: gameplay, the head box ducks with it. The keys add none.)

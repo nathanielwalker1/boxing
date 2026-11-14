@@ -144,6 +144,16 @@ export function keyReport(punch, hand, bodyLevel, dist, c = cfg) {
         if (nx * fw.x + nz * fw.z < 0) { nx = -nx; nz = -nz; }
         return -((hw.x - (s0.x + s1.x) / 2) * nx + (hw.z - (s0.z + s1.z) / 2) * nz);
       })(),
+      // The punching elbow: above its shoulder (m), and behind the plane of his two shoulder joints (m; − = in front).
+      elbowUp: k.p[a.fore].y - k.p[a.upper].y,
+      elbowBehind: (() => {
+        const s0 = k.p[skelArm(0).upper], s1 = k.p[skelArm(1).upper], fw = qRot(Rc, { x: 1, y: 0, z: 0 }), e = k.p[a.fore];
+        let nx = -(s1.z - s0.z), nz = s1.x - s0.x; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+        if (nx * fw.x + nz * fw.z < 0) { nx = -nx; nz = -nz; }
+        return -((e.x - (s0.x + s1.x) / 2) * nx + (e.z - (s0.z + s1.z) / 2) * nz);
+      })(),
+      // The upper arm's direction in the chest frame (shoulder → elbow): its horizontal part is the arm's swing across.
+      armDir: (() => { const p = local(k.p[a.upper]), q = local(k.p[a.fore]); return { x: q.x - p.x, y: q.y - p.y, z: q.z - p.z }; })(),
       headGap: v3dist(hw, o.headBox) - o.headBox.r - f.body.gloveR,
       bodyGap: v3dist(hw, core.closestOnSegment(o.bodyBox.a, o.bodyBox.b, hw)) - o.bodyBox.r - f.body.gloveR,
     };
@@ -187,6 +197,9 @@ export function keyReport(punch, hand, bodyLevel, dist, c = cfg) {
     maxW: { pelvis: Math.max(...live.map(r => r.wPelvis)), spine: Math.max(...live.map(r => r.wSpine)), chest: Math.max(...live.map(r => r.wChest)), shoulder: Math.max(...live.map(r => r.wShoulder)), elbow: Math.max(...live.map(r => r.wElbow)), hand: Math.max(...live.map(r => r.vHand)) },
     rise: up90 - up10, fall: dn10 < 0 ? 99 : dn10 - dn90, otherDev,
     behindMax: Math.max(...live.map(r => r.behind)),
+    elbowUpMax: Math.max(...live.map(r => r.elbowUp)), elbowBehindMax: Math.max(...live.map(r => r.elbowBehind)),
+    // Horizontal swing of the upper arm relative to the chest, load → hit, degrees (the lift up / down left out).
+    armYawTravel: atHit && loadRow ? Math.abs(Math.atan2(atHit.armDir.z, atHit.armDir.x) - Math.atan2(loadRow.armDir.z, loadRow.armDir.x)) * DEG : NaN,
     // The wind-up: how far the punching hand gets from its guard spot (head-relative) before the drive starts, m.
     loadDev: Math.max(0, ...live.filter(r => r.t <= hitTick - driveTicks).map(r => Math.hypot(r.handHead.x - home.x, r.handHead.y - home.y, r.handHead.z - home.z))),
     shoulderTravel: atHit && loadRow ? ang(loadRow.shRel, atHit.shRel) : NaN, chestTravel: atHit && loadRow ? ang(loadRow.chest, atHit.chest) : NaN,

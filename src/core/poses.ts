@@ -123,7 +123,7 @@ export function punchKey(cfg: Config, body: BodyDims, stance: Stance, guard: RPo
 type Group = 'feet' | 'pelvis' | 'spine' | 'shoulder' | 'hand';
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 /** Blend `a` → `b` with a per-group weight. */
-function blend(a: RPose, b: RPose, w: Record<Group, number>): RPose {
+function blend(a: RPose, b: RPose, w: Record<Group, number>, swivelW?: number): RPose {
   const r = cloneR(a);
   const wf = w.feet, wp = w.pelvis, ws = w.spine, wc = w.shoulder, wh = w.hand;
   r.weight = lerp(a.weight, b.weight, wf);
@@ -132,7 +132,7 @@ function blend(a: RPose, b: RPose, w: Record<Group, number>): RPose {
     r.foot[i] = { stepF: lerp(fa.stepF, fb.stepF, wf), stepL: lerp(fa.stepL, fb.stepL, wf), pivot: lerp(fa.pivot, fb.pivot, wf), heel: lerp(fa.heel, fb.heel, wf) };
     r.clPro[i] = lerp(a.clPro[i]!, b.clPro[i]!, wc); r.clElev[i] = lerp(a.clElev[i]!, b.clElev[i]!, wc);
     const ha = a.hand[i]!, hb = b.hand[i]!;
-    r.hand[i] = { cF: lerp(ha.cF, hb.cF, wh), cU: lerp(ha.cU, hb.cU, wh), cL: lerp(ha.cL, hb.cL, wh), aF: lerp(ha.aF, hb.aF, wh), aU: lerp(ha.aU, hb.aU, wh), aL: lerp(ha.aL, hb.aL, wh), aim: lerp(ha.aim, hb.aim, wh), swivel: lerp(ha.swivel, hb.swivel, wh), pron: lerp(ha.pron, hb.pron, wh), out: lerp(ha.out, hb.out, wh) };
+    r.hand[i] = { cF: lerp(ha.cF, hb.cF, wh), cU: lerp(ha.cU, hb.cU, wh), cL: lerp(ha.cL, hb.cL, wh), aF: lerp(ha.aF, hb.aF, wh), aU: lerp(ha.aU, hb.aU, wh), aL: lerp(ha.aL, hb.aL, wh), aim: lerp(ha.aim, hb.aim, wh), swivel: lerp(ha.swivel, hb.swivel, swivelW ?? wh), pron: lerp(ha.pron, hb.pron, wh), out: lerp(ha.out, hb.out, wh) };
   }
   r.pelYaw = lerp(a.pelYaw, b.pelYaw, wp); r.pelPitch = lerp(a.pelPitch, b.pelPitch, wp); r.pelRoll = lerp(a.pelRoll, b.pelRoll, wp);
   r.pelFwd = lerp(a.pelFwd, b.pelFwd, wp); r.pelUp = lerp(a.pelUp, b.pelUp, wp); r.pelLat = lerp(a.pelLat, b.pelLat, wp);
@@ -176,7 +176,12 @@ export function keyedPose(inp: KeyedInput): RPose {
   const tF = tC + Math.max(ck.hold, c(cfg, `punchk_${pp}_followMin`)) * ck.recover;
   const tE = ck.total;
   if (e <= tL) return blend(guard, L, all(smooth(e / Math.max(1e-6, tL))));
-  if (e <= tC) return blend(L, C, driveWeights(cfg, pp, tL, e, tC));
+  if (e <= tC) {
+    const w = driveWeights(cfg, pp, tL, e, tC);
+    // A hook's elbow lifts as the hips unwind (the pelvis group's clock), spread over the swing — on the hand's clock
+    // it snapped up from the ribs in the last ticks.
+    return blend(L, C, w, punch.type === 'hook' && punch.hand === 'lead' ? w.pelvis : undefined);
+  }
   if (e <= tF) return blend(C, F, all(smooth((e - tC) / Math.max(1e-6, tF - tC))));
   // Recovery: the hand is home in no more time than its drive took (ease-out); the body settles over the rest.
   const handOut = Math.max(1e-6, tC - tL - Math.min((tC - tL) * 0.9, c(cfg, `punchk_${pp}_dHand`)));
