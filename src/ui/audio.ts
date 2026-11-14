@@ -133,7 +133,10 @@ export class CombatAudio {
     // headless check with no gesture at all must stay silent, not warn.
     this.installUnlock();
     // Outcomes → sounds. A counter is a sting ON TOP of the punch's own impact.
-    bus.on('punchLand', e => { this.play(e.part === 'body' ? 'impactBody' : PUNCH_CLASS[e.punch], e.power); if (e.counter) this.play('counter'); });
+    bus.on('punchLand', e => {
+      this.play(e.part === 'body' ? 'impactBody' : PUNCH_CLASS[e.punch], e.power);
+      if (e.counter) { this.play('counter'); if (this.cfg.counterFeelV2) this.counterFeel(e.power); }
+    });
     bus.on('punchBlock', () => this.play('impactBlocked'));
     bus.on('perfectBlock', () => this.play('impactBlocked', 1.3));
     bus.on('punchWhiff', () => this.play('whiff'));
@@ -163,9 +166,38 @@ export class CombatAudio {
     for (const ev of ['pointerdown', 'touchstart', 'keydown']) window.addEventListener(ev, unlock);
   }
 
-  /** Play one logical sound; `power` scales the gain a little (a hard hit is louder). Jitter is random on purpose: audio is not sim. */
-  play(name: string, power = 1): void {
-    const recipe = RECIPES[name];
+  /**
+   * A counter lands (counterFeelV2): a low thud with a long tail under the
+   * impact, and the crowd reacting a beat later. Both scale with the landed
+   * power; a counter that ROCKS the target (power ≥ counterRockPower) gets a
+   * bigger, longer swell. Recipes are built from config so the tuning panel
+   * moves them live.
+   */
+  private counterFeel(power: number): void {
+    const c = this.cfg;
+    const thud: Recipe = {
+      gain: 0.6,
+      layers: [
+        { type: 'tone', gain: c.counterThudGain, attack: 0.002, decay: c.counterThudDecay, wave: 'sine', freq: c.counterThudFreq, freqEnd: c.counterThudFreq / 3 },
+        { type: 'noise', gain: 0.5 * c.counterThudGain, attack: 0.002, decay: c.counterTailDecay, filter: { type: 'lowpass', freq: 420, q: 0.7 } },
+      ],
+    };
+    this.play('counterThud', power, thud);
+    const rocks = power >= c.counterRockPower;
+    const m = rocks ? c.counterRockCrowdMult : 1;
+    const crowd: Recipe = {
+      gain: 0.5 * m,
+      layers: [
+        { type: 'noise', gain: c.counterCrowdGain, attack: c.counterCrowdAttack, decay: c.counterCrowdDecay * m, filter: { type: 'bandpass', freq: 700, freqEnd: 1100, q: 0.6 } },
+        { type: 'noise', gain: 0.5 * c.counterCrowdGain, attack: c.counterCrowdAttack * 1.5, decay: c.counterCrowdDecay * m * 1.2, filter: { type: 'lowpass', freq: 400, q: 0.5 } },
+      ],
+    };
+    this.play(rocks ? 'crowdRock' : 'crowdSwell', 1, crowd);
+  }
+
+  /** Play one logical sound; `power` scales the gain a little (a hard hit is louder). Jitter is random on purpose: audio is not sim. `recipeOverride` is for sounds built from config at play time. */
+  play(name: string, power = 1, recipeOverride?: Recipe): void {
+    const recipe = recipeOverride ?? RECIPES[name];
     if (!recipe) return;
     const c = this.cfg;
     const pitch = 1 + (Math.random() * 2 - 1) * c.audioPitchJitter;

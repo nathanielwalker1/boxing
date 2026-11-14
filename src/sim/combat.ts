@@ -6,10 +6,10 @@
 import type { Config, FighterState, FrameInput, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult } from './state';import { applyReaction } from './reaction';
+import { EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult } from './state';import { applyReaction } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
-import { applyPunish } from './vulnerability';
+import { applyPunish, isCounterLanding } from './vulnerability';
 
 /** Two pressed on the same tick: the faster punch wins. */
 function fastestOf(mask: number): PunchType | null {
@@ -394,7 +394,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // someone mid-punch or after a perfect block still hits harder; it is not
   // called a counter.
   const targetVuln = d.vuln;
-  const counter = targetVuln > 0 && d.counterWindow > 0 && punishSource(d) === PUNISH_SLIP;
+  const counter = isCounterLanding(d);
   mag *= 1 + targetVuln * cfg.counterImpulseBonus;
 
   // Perfect block: a guard younger than perfectBlockWindow at the impact —

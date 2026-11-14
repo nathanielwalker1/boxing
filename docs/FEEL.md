@@ -234,6 +234,33 @@ pull, dip), not the drawing.
   Not done: Fight Night's dazed state on the countered fighter (a
   mechanic — ask).
 
+### Counters (definition, 2026-11-14; `scripts/counter_feel_test.mjs`)
+
+- **What qualifies** (`isCounterLanding`, `src/sim/vulnerability.ts`, used by
+  `src/sim/combat.ts`): a punch lands on a target who is exposed this tick
+  (`vuln > 0`) AND is inside the punish window a SLIP opened. The window is
+  `slipPunishDuration` 0.7 s = 42 ticks of SIM time from the slip (it does not
+  drain during the slip's own `slipDodgeHitStop`, so ~50 wall ticks). Not a
+  counter: a perfect block's window (`perfectBlockPunishDuration`), the target's
+  own mid-punch exposure, a guard (blocked hits never count).
+- **Multipliers:** impulse (so damage, stagger and reaction) x
+  `1 + vuln x counterImpulseBonus` (0.9; slip pins vuln at `slipPunishVuln` 1,
+  so 1.9x). Hit-stop + `vuln x counterHitStopBonus` (0.05 s = 3 ticks). The
+  bonus applies to ANY exposed landing; only the slip's is called a counter.
+- **The flag:** `punchLand.counter` (plus the `counter` event).
+- **Presentation (`counterFeelV2`, default true, group `counterfeel`,
+  `src/ui/audio.ts` only — no slow-mo, text or flash):** a low sine thud with a
+  longer tail (0.42 s vs the heavy hit's 0.24 s) and a noise body under the
+  existing sting, scaled by landed power; a crowd swell (band-passed noise, slow
+  attack, long fall) a beat after the land, 1.8x louder and longer when power >=
+  `counterRockPower` (1.6). Off = the old sting only. The sim is identical
+  either way (test pins JSON equality).
+- **Body, measured (counter cross vs same cross cold):** impulse 517 vs 272 N s
+  (1.90x); torso reaction peak 0.296 vs 0.155 (1.92x); head reaction peak
+  0.163 vs 0.161 (1.01x). The head sits at its offset clamp
+  (`reactionMaxOffset`) in both, so the counter reads in the torso and the
+  stagger, not extra head travel. Not changed (a mechanic/clamp question).
+
 **AI** (`src/ai/index.ts`)
 - Footwork modes on a seeded timer: press / probe (1.05 m) / circle / hold /
   reset (1.3 m after 40% of throws or a solid hit). Steer on the *perceived*

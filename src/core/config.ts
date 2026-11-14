@@ -91,6 +91,18 @@ export const SCHEMA = {
   audioPitchJitter: num(0.05, 0, 0.3, 0.01, 'audio', '± pitch per play, so a four-jab burst is not one sample stamped four times', 'audioPitchJitter'),
   audioVolumeJitter: num(0.10, 0, 0.5, 0.01, 'audio', '± volume per play', 'audioVolumeJitter'),
 
+  // ── counter feel (UI, src/ui/audio.ts) — a counter lands in sound, crowd and the hit body only: no slow-mo, no text, no flash ──
+  counterFeelV2:    bool(true, 'counterfeel', 'master toggle for everything in this group: the counter\'s low thud + longer tail and the crowd swell. Off = the counter sounds exactly as before (sting on the impact). The counter\'s impulse bonus and hit-stop are sim and live in the counter group'),
+  counterThudGain:  num(1.0, 0, 3, 0.05, 'counterfeel', 'gain of the counter\'s low thud layer (a sine drop, scaled up with the landed power)'),
+  counterThudFreq:  num(95, 30, 300, 5, 'counterfeel', 'start pitch of the thud, Hz; it falls to a third of this over its decay'),
+  counterThudDecay: num(0.42, 0.1, 1.2, 0.01, 'counterfeel', 'the thud\'s tail, s — a plain heavy hit rings ~0.24 s, so a counter hangs longer'),
+  counterTailDecay: num(0.3, 0.05, 1, 0.01, 'counterfeel', 'tail of the low-passed noise body under the thud, s (a plain hit: 0.14 s)'),
+  counterCrowdGain: num(0.55, 0, 3, 0.05, 'counterfeel', 'gain of the crowd\'s reaction swell on a counter land (filtered noise, slow attack, long fall)'),
+  counterCrowdAttack: num(0.07, 0.01, 0.4, 0.005, 'counterfeel', 'crowd swell rise time, s — a crowd takes a beat to react'),
+  counterCrowdDecay: num(0.9, 0.2, 3, 0.05, 'counterfeel', 'crowd swell fall time, s'),
+  counterRockPower: num(1.6, 0, 6, 0.05, 'counterfeel', 'landed power (impulse / punchImpulseBase) at or above which the counter ROCKS the target: the crowd swell is counterRockCrowdMult louder and longer'),
+  counterRockCrowdMult: num(1.8, 1, 4, 0.05, 'counterfeel', 'crowd swell gain and fall time multiplier on a counter that rocks'),
+
   // ── light (RENDER) ──
   keyIntensity:     num(6, 0, 20, 0.1, 'light', 'key spot over the ring'),
   keyHeight:        num(6, 3, 12, 0.1, 'light', 'key spot height, m'),
