@@ -11,3 +11,4 @@ export * from './arms';
 export * from './styles';
 export * from './skeleton';
 export * from './skelFit';
+export * from './poses';

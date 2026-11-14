@@ -307,7 +307,8 @@ function slipPeak(x, y, sp = specs) {
 {
   // Arms in an exchange on the skeleton (arms_test §2 is pinned): every pairing at 0.75 m, the deepest arm-into-arm entry.
   const TYPES = ['jab', 'cross', 'hook', 'uppercut'];
-  const C = { ...T0, healthDamagePerImpulse: 0, staminaPunchCost: 0 };
+  const exchange = keysOn => {
+  const C = { ...T0, healthDamagePerImpulse: 0, staminaPunchCost: 0, punchKeysOn: keysOn };
   let ff = -1, fg = -1;
   for (const pa of TYPES) for (const pb of TYPES) {
     let s = freshAt(0.75, C);
@@ -322,9 +323,67 @@ function slipPeak(x, y, sp = specs) {
       }
     }
   }
+  return { ff, fg };
+  };
   const give = body0.gloveR * cfg.contactSquash;
   // Looser than arms_test's give + 1.5 cm, on purpose and logged (LOG_SKELETON.md): the arm fit pulls an out-of-reach glove back after the contacts.
-  check(`exchange (skeleton, 16 pairings @0.75 m): forearm-into-forearm ${cm(ff)} cm, glove-into-forearm ${cm(fg)} cm (give ${cm(give)}); bound give + 4 cm`, ff <= give + 0.04 && fg <= give + 0.04);
+  const X0 = exchange(false);
+  check(`exchange (skeleton, punch keys off, 16 pairings @0.75 m): forearm-into-forearm ${cm(X0.ff)} cm, glove-into-forearm ${cm(X0.fg)} cm (give ${cm(give)}); bound give + 4 cm`, X0.ff <= give + 0.04 && X0.fg <= give + 0.04);
+  // With punch keys, same bound (it was 13.3 cm until the punching target was held inside the arm's reach).
+  const X1 = exchange(true);
+  check(`exchange (skeleton, punch keys on): forearm-into-forearm ${cm(X1.ff)} cm, glove-into-forearm ${cm(X1.fg)} cm; bound give + 4 cm`, X1.ff <= give + 0.04 && X1.fg <= give + 0.04);
+}
+
+// ── Punch keys (anim Phase 1.4, punchKeysOn): every punch × hand × level at mid (0.84 m) and inside (0.55 m) ──
+// Measured by scripts/skel_probe.mjs keyReport (the same numbers `--keys` prints; LOG_PUNCHES.md has the table).
+{
+  const { keyReport } = await import('./skel_probe.mjs');
+  const KEYS = [['jab', 'lead'], ['cross', 'rear'], ['hook', 'lead'], ['hook', 'rear'], ['uppercut', 'lead'], ['uppercut', 'rear']];
+  const fails = { land: [], reach: [], order: [], ret: [], other: [], hookSh: [], upLat: [], flex: [], drop: [], clamp: [] };
+  let clampTicks = 0;
+  for (const [punch, hand] of KEYS) for (const bodyLevel of [false, true]) for (const [rn, d] of [['mid', 0.84], ['in', 0.55]]) {
+    const r = keyReport(punch, hand, bodyLevel, d, { ...cfg, punchKeysOn: true });
+    const name = `${punch} ${hand}${bodyLevel ? ' body' : ''} ${rn}`;
+    // (A body uppercut is a head shot by design — VARIANTS: the rising fist goes under the guard to the chin.)
+    const part = bodyLevel && punch !== 'uppercut' ? 'body' : 'head';
+    if (r.out !== `Land:${part}`) fails.land.push(`${name} ${r.out}`);
+    // Fist on the target on the hit-test tick. Head shots: glove surface within 5 cm of the head's. PINNED: the cross at
+    // mid sits 13 cm short — his body capsule's inflated top stands in front of the face and the cut stops the glove
+    // there (legacy measures 14.4 cm on the same tick); bound 16 cm, counterpart = it lands (Land:head above).
+    const reachMax = punch === 'cross' && rn === 'mid' && !bodyLevel ? 0.16 : 0.05;
+    if (part === 'head' && !(r.gap <= reachMax)) fails.reach.push(`${name} ${cm(r.gap)}`);
+    const p = r.peaks;
+    // (One tick of slack hand-vs-shoulder: a peak is resolved to the tick, 16.7 ms; the rear body uppercut's hand
+    //  peaks one tick before the clavicle.)
+    const ordered = p.pelvis <= p.spine && p.spine <= p.shoulder && p.shoulder <= p.hand + 1;
+    // Chain order at mid range for every punch. PINNED inside: a short hook / uppercut's fist has its fastest tick in the
+    // load (the arm folds into the short shape); the drive still runs pelvis → spine → shoulder (checked on all).
+    if (rn === 'mid' ? !ordered : !(p.pelvis <= p.spine && p.spine <= p.shoulder)) fails.order.push(`${name} p${p.pelvis} s${p.spine} sh${p.shoulder} h${p.hand}`);
+    // Retraction no slower than extension (fall 99 = not back inside the window: a body shot inside that stays on him).
+    // (One tick of slack: the body jab rises in 2 ticks and falls in 3.)
+    if (rn === 'mid' && !(r.fall <= r.rise + 1)) fails.ret.push(`${name} rise ${r.rise} fall ${r.fall}`);
+    if (punch === 'jab' && !(r.otherDev <= 0.05)) fails.other.push(`${name} ${cm(r.otherDev)}`);
+    // Hook: the arm is fixed in the chest's frame — the shoulder joint travels little; the turn carries the fist.
+    if (punch === 'hook' && rn === 'mid' && !(r.shoulderTravel <= 30 && r.shoulderTravel < r.chestTravel)) fails.hookSh.push(`${name} ${r.shoulderTravel.toFixed(0)}° vs chest ${r.chestTravel.toFixed(0)}°`);
+    if (punch === 'uppercut' && !(r.latRise <= 0.12)) fails.upLat.push(`${name} ${cm(r.latRise)}`);
+    if (!(r.flexMax <= cfg.poseBodyFlexMax + 0.1)) fails.flex.push(`${name} ${r.flexMax.toFixed(1)}°`);
+    if (bodyLevel && punch !== 'uppercut' && !(r.drop >= 0.01)) fails.drop.push(`${name} ${cm(r.drop)}`);
+    clampTicks += r.clamped.length;
+    // Upper-body joints clamped: none at mid except the cross (PINNED, ≤ 4 ticks: the lead arm held against the turn
+    // touches its swing cone and the punching shoulder its twist stop — logged); inside ≤ 3 ticks (forearm folds).
+    const cMax = rn === 'mid' ? (punch === 'cross' ? 4 : 0) : 3;
+    if (r.clamped.length > cMax) fails.clamp.push(`${name} ${Object.entries(r.clampNames).map(([k, n]) => `${k}×${n}`).join(' ')}`);
+  }
+  const msg = k => fails[k].slice(0, 4).join('; ');
+  check('punch keys: every punch × hand × level lands where it is aimed, mid and inside', fails.land.length === 0, msg('land'));
+  check('…the fist reaches the target on the hit-test tick (head shots within 5 cm; cross at mid pinned 16 cm)', fails.reach.length === 0, msg('reach'));
+  check('…the chain peaks in order pelvis → spine → shoulder → hand (inside: through the shoulder)', fails.order.length === 0, msg('order'));
+  check('…the fist comes back no slower than it went (mid)', fails.ret.length === 0, msg('ret'));
+  check('…the rear glove stays within 5 cm of its guard spot through the jab', fails.other.length === 0, msg('other'));
+  check('…a hook\'s shoulder joint travels ≤ 30° and less than the chest turns', fails.hookSh.length === 0, msg('hookSh'));
+  check('…an uppercut\'s fist rises within 12 cm of the centre plane', fails.upLat.length === 0, msg('upLat'));
+  check(`…spine flexion stays under poseBodyFlexMax (${cfg.poseBodyFlexMax}°); body shots drop the pelvis (knees, not waist)`, fails.flex.length === 0 && fails.drop.length === 0, msg('flex') + msg('drop'));
+  check(`…upper-body joints on their limits: ${clampTicks} ticks over the 24 cases (cross at mid ≤ 4, inside ≤ 3, else none)`, fails.clamp.length === 0, msg('clamp'));
 }
 
 done();

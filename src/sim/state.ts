@@ -165,6 +165,9 @@ const HIST_NECK = 39;         // multiplier on the neck clamp for the reaction i
 const HIST_REACT_VARY = 40;   // −1..1: the seeded variation of the reaction in progress
 const HIST_GETUP_COUNT = 41;  // the count he was rolled to rise on (for the knockdown's kind)
 const HIST_HURT_AFTER = 42;   // seconds left of the raised stun bar after a hurt state ended
+const HIST_PRESS_DIST = 43;   // Phase 1.4 (punch keys only): centre-to-centre distance at the press of the punch in flight, m
+export function pressDist(f: FighterState): number { return f.moveHist[HIST_PRESS_DIST] ?? 0.84; }
+export function setPressDist(f: FighterState, d: number): void { f.moveHist[HIST_PRESS_DIST] = d; }
 export function hurtAfter(f: FighterState): number { return f.moveHist[HIST_HURT_AFTER] ?? 0; }
 export function setHurtAfter(f: FighterState, t: number): void { f.moveHist[HIST_HURT_AFTER] = t; }
 export function getUpCount(f: FighterState): number { return f.moveHist[HIST_GETUP_COUNT] ?? 0; }
@@ -241,6 +244,7 @@ export function cloneFighter(f: FighterState): FighterState {
     arms: [{ shoulder: v3c(f.arms[0].shoulder), elbow: v3c(f.arms[0].elbow) }, { shoulder: v3c(f.arms[1].shoulder), elbow: v3c(f.arms[1].elbow) }],
     // The skeleton (anim Phase 1.1): only present while cfg.skelOn has fitted one; absent, the state is as before.
     ...(f.skel ? { skel: { root: f.skel.root.slice(), q: f.skel.q.slice() } } : {}),
+    ...(f.footKey ? { footKey: f.footKey.slice() } : {}),
   };
 }
 

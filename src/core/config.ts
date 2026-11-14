@@ -34,6 +34,179 @@ export const RING_SIZE = 6.1;
 export const RING_HALF = RING_SIZE / 2;
 export const APRON_W = 0.9;
 
+// ── Punch key poses (anim Phase 1.4, core/poses.ts; docs/anim/LOG_PUNCHES.md) ──────────────────────────────────
+// Authored in named anatomical channels for an ORTHODOX fighter of POSE_REF_HEIGHT and mirrored for southpaw.
+// Every channel of every key is a config key `pose_<key>_<channel>` (generated below: one table, one comment per
+// channel), bound in the tuning panel under 'pose: <punch>'.
+//   GUARD (`pose_guard_*`) is ABSOLUTE: angles from the square stance, lead / rear hands in the CHEST frame.
+//   Punch keys (`pose_<punch>_<load|contact|follow>_*`) are DELTAS from the guard, in PUNCHING-SIDE convention: a
+//   positive turn brings the punching side's hip / shoulder FORWARD; lateral + is outward on the punching side.
+// Hand targets: `hC*` = a delta from the guard hand in the CHEST frame; `hA*` = an offset from the AIM point (the
+// opponent's standing chin, or his body lane) in the fighter's frame; `hAim` blends 0 (chest) … 1 (aim).
+
+/** The stature the key metres are authored for (m): body-relative offsets scale by heightM / this. */
+export const POSE_REF_HEIGHT = 1.8;
+
+/** Channel → [unit, meaning]. Units: deg, m, w (0..1 weight). */
+const POSE_CHANNELS: Record<string, readonly [string, string]> = {
+  pelYaw: ['deg', 'pelvis turn (guard: + = rear hip forward; punch keys: + = the punching side\'s hip forward)'],
+  pelPitch: ['deg', 'pelvis tilt, + = forward'],
+  pelRoll: ['deg', 'pelvis roll, + = the punching (guard: rear) side drops'],
+  pelFwd: ['m', 'pelvis travel forward from the stance, at the reference height'],
+  pelUp: ['m', 'pelvis height change (− = the knees bend), at the reference height'],
+  pelLat: ['m', 'pelvis travel sideways, + = toward the punching (guard: rear) side'],
+  spTwist: ['deg', 'spine turn on top of the pelvis (shared over the three spinal joints), + = the punching (guard: rear) shoulder forward'],
+  spFlex: ['deg', 'spine flexion (bend forward), + = forward'],
+  spSide: ['deg', 'spine side-bend, + = the punching (guard: rear) shoulder drops'],
+  hdYaw: ['deg', 'head turn relative to the chest, + = toward the punching (guard: rear) side'],
+  hdPitch: ['deg', 'head nod, + = chin down (tucked)'],
+  hdRoll: ['deg', 'head tilt, + = toward the punching (guard: rear) side'],
+  hdLook: ['w', 'how much of the chest\'s turn the head undoes, so the eyes stay on the opponent'],
+  clPro: ['deg', 'punching-side clavicle protraction (the shoulder rolls forward)'],
+  clElev: ['deg', 'punching-side clavicle elevation (the shoulder lifts, covering the chin)'],
+  hCF: ['m', 'punching hand, chest frame: forward (delta from its guard spot)'],
+  hCU: ['m', 'punching hand, chest frame: up (delta from its guard spot)'],
+  hCL: ['m', 'punching hand, chest frame: outward (delta from its guard spot)'],
+  hAF: ['m', 'punching hand, from the aim point: forward (along the line to him)'],
+  hAU: ['m', 'punching hand, from the aim point: up'],
+  hAL: ['m', 'punching hand, from the aim point: outward on the punching side'],
+  hAim: ['w', 'punching hand target: 0 = the chest-frame spot, 1 = the aim-point spot'],
+  hSwivel: ['deg', 'punching elbow swivel about the shoulder→hand axis, 0 = hanging straight down, + = out (delta from the guard)'],
+  hPron: ['deg', 'punching forearm pronation, + = palm turning down (delta from the guard)'],
+  fpStepF: ['m', 'punching-side foot: step forward'],
+  fpStepL: ['m', 'punching-side foot: step outward'],
+  fpPivot: ['deg', 'punching-side foot: turn on the ball of the foot, + = with the drive (heel out)'],
+  fpHeel: ['m', 'punching-side foot: heel lift'],
+  foStepF: ['m', 'other foot: step forward'],
+  foStepL: ['m', 'other foot: step outward'],
+  foPivot: ['deg', 'other foot: turn on the ball, + = with the drive'],
+  foHeel: ['m', 'other foot: heel lift'],
+  weight: ['w', 'weight on the REAR foot (delta from the guard\'s)'],
+};
+/** The guard: absolute. Lead / rear hand and clavicle channels per hand. */
+const GUARD_CHANNELS: Record<string, readonly [string, string]> = {
+  pelYaw: ['deg', 'pelvis blade, + = rear hip forward (− = the rear hip held back: bladed)'],
+  pelUp: ['m', 'pelvis height change from the stance (soft knees)'],
+  spTwist: ['deg', 'spine turn on the pelvis, + = rear shoulder forward'],
+  spFlex: ['deg', 'spine flexion, + = forward'],
+  hdPitch: ['deg', 'chin tuck, + = down'],
+  hdLook: ['w', 'how much of the chest\'s turn the head undoes (eyes on him)'],
+  clProL: ['deg', 'lead clavicle protraction'], clElevL: ['deg', 'lead clavicle elevation'],
+  clProR: ['deg', 'rear clavicle protraction'], clElevR: ['deg', 'rear clavicle elevation'],
+  leadF: ['m', 'lead glove, chest frame (from the chest joint, mid ribcage): forward'],
+  leadU: ['m', 'lead glove, chest frame: up'], leadL: ['m', 'lead glove, chest frame: outward on the lead side'],
+  leadSwivel: ['deg', 'lead elbow swivel, 0 = straight down, − = in toward the ribs'], leadPron: ['deg', 'lead forearm pronation'],
+  rearF: ['m', 'rear glove, chest frame: forward'], rearU: ['m', 'rear glove, chest frame: up'], rearL: ['m', 'rear glove, chest frame: outward on the rear side'],
+  rearSwivel: ['deg', 'rear elbow swivel, − = in'], rearPron: ['deg', 'rear forearm pronation'],
+  weight: ['w', 'weight on the rear foot'],
+  rearHeel: ['m', 'rear heel off the canvas (on the ball of the rear foot); flat, the bladed stance\'s rear ankle sat on its dorsiflexion stop'],
+};
+const GUARD_SHAPES = ['high', 'shell', 'peekaboo', 'long', 'low'] as const;
+/** Per guard shape (core/styles GUARDS): the hands, chest frame, absolute. high = the guard above. */
+const GUARD_SHAPE_CH = ['leadF', 'leadU', 'leadL', 'rearF', 'rearU', 'rearL'] as const;
+
+/**
+ * Starting values (Phase 1.4 brief; tuned against film, LOG_PUNCHES.md). Anything not listed is 0. Times in
+ * `punchk_*`: loadAt = fraction of the cock phase at which the load key is reached; dSpine / dShoulder / dHand = how
+ * long after the drive starts (s) that group starts (pelvis and feet start first); followMin = the shortest hold,
+ * as a fraction of the recovery, over which the follow-through key is reached; bodyDrop = the pelvis drop of the
+ * BODY version (m, the knees). Keys: jab (lead), cross (rear), hookL / hookR, upperL / upperR.
+ */
+const POSE_DEFAULTS: Record<string, Record<string, number>> = {
+  guard: {
+    pelYaw: -35, pelUp: -0.03, spTwist: 12, spFlex: 8, hdPitch: 10, hdLook: 0.85,
+    clProL: 5, clElevL: 3, clProR: 0, clElevR: 0,
+    leadF: 0.3, leadU: 0.37, leadL: 0.02, leadSwivel: -12, leadPron: 25,
+    rearF: 0.15, rearU: 0.39, rearL: 0.1, rearSwivel: -12, rearPron: 25,
+    weight: 0.5, rearHeel: 0.03,
+  },
+  guard_shell: { leadF: 0.2, leadU: 0.08, leadL: 0.02, rearF: 0.15, rearU: 0.39, rearL: 0.06 },
+  guard_peekaboo: { leadF: 0.2, leadU: 0.39, leadL: -0.04, rearF: 0.17, rearU: 0.39, rearL: 0.0 },
+  guard_long: { leadF: 0.42, leadU: 0.3, leadL: 0.02, rearF: 0.15, rearU: 0.37, rearL: 0.1 },
+  guard_low: { leadF: 0.28, leadU: 0.18, leadL: 0.06, rearF: 0.2, rearU: 0.22, rearL: 0.12 },
+  // JAB (lead): almost no load; the lead shoulder rolls up over the chin; elbow last; the knuckles turn level.
+  jab_load: { pelYaw: -3, spTwist: -2, weight: 0.03 },
+  jab_contact: { pelYaw: 7, pelFwd: 0.02, spTwist: 12, spFlex: 2, hdPitch: 4, clPro: 15, clElev: 8, hAim: 1, hSwivel: 8, hPron: 55, fpStepF: 0.03, weight: -0.05 },
+  jab_follow: { pelYaw: 8, pelFwd: 0.02, spTwist: 14, spFlex: 2, hdPitch: 4, clPro: 16, clElev: 8, hAim: 1, hAF: 0.02, hSwivel: 8, hPron: 55, fpStepF: 0.03, weight: -0.05 },
+  // CROSS (rear): a little coil, weight back; then the rear foot pivots and the heel lifts, hips through ~55°, travel forward.
+  cross_load: { pelYaw: -5, pelUp: -0.01, spTwist: -3, weight: 0.1, hCF: -0.02 },
+  cross_contact: { pelYaw: 55, pelFwd: 0.04, spTwist: 28, spFlex: 4, hdPitch: 5, clPro: 20, clElev: 6, hAim: 1, hSwivel: 10, hPron: 55, fpPivot: 45, fpHeel: 0.05, foPivot: 10, weight: -0.2 },
+  cross_follow: { pelYaw: 58, pelFwd: 0.045, spTwist: 29, spFlex: 4, hdPitch: 5, clPro: 21, clElev: 6, hAim: 1, hAF: 0.02, hSwivel: 10, hPron: 55, fpPivot: 47, fpHeel: 0.05, foPivot: 11, weight: -0.2 },
+  // HOOK: load onto the punching leg with a small coil away, the elbow lifting; drive = the punching foot pivots,
+  // hips ~30–50, spine ~20–30; the hand is held in the CHEST frame, elbow at shoulder height, so the turn carries it.
+  // (Geometry, 1.8 m: at contact the chest is turned ~50° and the fist sits ~0.57 m from the chest joint at 45° to the
+  // punching side IN THE CHEST FRAME — which is straight ahead in the world — elbow ~105°, out at shoulder height.)
+  // (The load already carries the arm in its hook shape — elbow up and out, hand near its contact spot in the chest
+  // frame — so through the drive the TURN carries the fist: the shoulder joint travelled 80° when the arm swung out late.)
+  hookL_load: { pelYaw: -12, spTwist: -8, weight: -0.08, clElev: 8, hCF: 0.06, hCU: 0.0, hCL: 0.3, hSwivel: 75, hPron: 30 },
+  // (This figure's chin sits ~20 cm above its shoulder line — the head is big — so the hook fist is at chin height and
+  // the elbow lifts toward it; "forearm level at shoulder height" would hit the neck.)
+  hookL_contact: { pelYaw: 17, spTwist: 10, spFlex: 2, hdPitch: 4, clPro: 12, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.38, hAim: 0.25, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.04, foPivot: 10, weight: -0.05 },
+  hookL_follow: { pelYaw: 21, spTwist: 12, spFlex: 2, hdPitch: 4, clPro: 13, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.3, hAim: 0.1, hSwivel: 85, hPron: 50, fpPivot: 64, fpHeel: 0.04, foPivot: 11, weight: -0.05 },
+  hookR_load: { pelYaw: -10, spTwist: -6, weight: 0.08, clElev: 8, hCF: 0.18, hCU: -0.01, hCL: 0.22, hSwivel: 75, hPron: 30 },
+  hookR_contact: { pelYaw: 45, spTwist: 28, spFlex: 2, hdPitch: 4, clPro: 15, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.3, hAim: 0.25, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.05, foPivot: 10, weight: -0.15 },
+  hookR_follow: { pelYaw: 49, spTwist: 30, spFlex: 2, hdPitch: 4, clPro: 16, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.22, hAim: 0.1, hSwivel: 85, hPron: 50, fpPivot: 64, fpHeel: 0.05, foPivot: 11, weight: -0.15 },
+  // UPPERCUT: the knees dip first, the punching shoulder drops, the hand to the short ribs, palm toward me; then the
+  // legs drive up and the fist rises through the centre line under the chin, elbow under the fist.
+  // (The uppercut's dip is the sim's crouch, in the base body: gameplay, the head box ducks with it. The keys add none.)
+  upperL_load: { pelYaw: -8, pelUp: 0, spTwist: -5, spSide: 5, weight: -0.05, hCU: -0.22, hCL: 0.0, hSwivel: -20, hPron: -70 },
+  upperL_contact: { pelYaw: 10, pelUp: 0, spTwist: 6, spFlex: -3, hdPitch: 4, clPro: 12, clElev: 4, hCF: 0.12, hCU: -0.05, hCL: 0.05, hAim: 0.85, hAU: -0.04, hSwivel: -10, hPron: -70, fpPivot: 25, fpHeel: 0.03, weight: -0.05 },
+  upperL_follow: { pelYaw: 12, pelUp: 0.02, spTwist: 8, spFlex: -3, hdPitch: 4, clPro: 12, clElev: 5, hCF: 0.12, hCU: 0.0, hCL: -0.25, hAim: 0.85, hAU: 0.0, hSwivel: -10, hPron: -70, fpPivot: 27, fpHeel: 0.03, weight: -0.05 },
+  upperR_load: { pelYaw: -8, pelUp: 0, spTwist: -5, spSide: 5, weight: 0.08, hCU: -0.22, hCL: -0.04, hSwivel: -20, hPron: -70 },
+  upperR_contact: { pelYaw: 30, pelUp: 0, spTwist: 18, spFlex: -3, hdPitch: 4, clPro: 15, clElev: 4, hCF: 0.14, hCU: -0.02, hCL: -0.12, hAim: 0.6, hAU: -0.04, hSwivel: -10, hPron: -70, fpPivot: 35, fpHeel: 0.04, weight: -0.15 },
+  upperR_follow: { pelYaw: 33, pelUp: 0.02, spTwist: 20, spFlex: -3, hdPitch: 4, clPro: 15, clElev: 5, hCF: 0.14, hCU: 0.03, hCL: -0.12, hAim: 0.6, hAU: 0.0, hSwivel: -10, hPron: -70, fpPivot: 37, fpHeel: 0.04, weight: -0.15 },
+};
+const PUNCH_TIMING: Record<string, Record<string, number>> = {
+  // bodyDrop is ON TOP of the level input, which already takes the hips down levelDrop (26 cm) through the knees.
+  jab: { loadAt: 0.5, dSpine: 0.01, dShoulder: 0.02, dHand: 0.03, followMin: 0.25, bodyDrop: 0.02 },
+  cross: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.03, dHand: 0.04, followMin: 0.25, bodyDrop: 0.02 },
+  hookL: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.035, dHand: 0.05, followMin: 0.3, bodyDrop: 0.02 },
+  hookR: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.035, dHand: 0.05, followMin: 0.3, bodyDrop: 0.02 },
+  upperL: { loadAt: 0.6, dSpine: 0.02, dShoulder: 0.035, dHand: 0.045, followMin: 0.25, bodyDrop: 0.02 },
+  upperR: { loadAt: 0.6, dSpine: 0.02, dShoulder: 0.035, dHand: 0.045, followMin: 0.25, bodyDrop: 0.02 },
+};
+const TIMING_DESC: Record<string, string> = {
+  loadAt: 'fraction of the cock phase at which the load key is reached',
+  dSpine: 'drive: the spine starts this long after the pelvis and feet, s',
+  dShoulder: 'drive: the clavicle and shoulder start this long after the pelvis, s',
+  dHand: 'drive: the hand (elbow extension) starts this long after the pelvis, s — it still arrives on the hit-test tick',
+  followMin: 'the follow-through key is reached over at least this fraction of the recovery (the hold, or this on a miss)',
+  bodyDrop: 'BODY version: the pelvis drops this far (the knees), m at the reference height',
+};
+export const POSE_PUNCHES = ['jab', 'cross', 'hookL', 'hookR', 'upperL', 'upperR'] as const;
+export const POSE_KEY_NAMES = ['load', 'contact', 'follow'] as const;
+
+function poseRange(unit: string, value: number): [number, number, number] {
+  return unit === 'deg' ? [Math.min(-120, value), Math.max(120, value), 1] : unit === 'w' ? [Math.min(-1, value), Math.max(1, value), 0.01] : [Math.min(-0.6, value), Math.max(0.6, value), 0.005];
+}
+/** Every key-pose channel as a config entry (generated from the tables above, one comment each). */
+function poseEntries(): Record<`pose_${string}` | `punchk_${string}`, NumEntry> {
+  const out: Record<string, NumEntry> = {};
+  for (const [ch, [unit, what]] of Object.entries(GUARD_CHANNELS)) {
+    const v = POSE_DEFAULTS.guard![ch] ?? 0;
+    const [lo, hi, st] = poseRange(unit, v);
+    out[`pose_guard_${ch}`] = num(v, lo, hi, st, 'pose: guard', `GUARD (absolute): ${what}${unit === 'deg' ? ', degrees' : unit === 'm' ? ', m at the reference height' : ''}`);
+  }
+  for (const shape of GUARD_SHAPES) {
+    if (shape === 'high') continue;
+    for (const ch of GUARD_SHAPE_CH) {
+      const v = POSE_DEFAULTS[`guard_${shape}`]?.[ch] ?? POSE_DEFAULTS.guard![ch] ?? 0;
+      out[`pose_guard_${shape}_${ch}`] = num(v, -0.6, 0.8, 0.005, 'pose: guard', `GUARD, ${shape} style: ${GUARD_CHANNELS[ch]![1]}, m (none above the brow)`);
+    }
+  }
+  for (const p of POSE_PUNCHES) {
+    for (const [k, v] of Object.entries(PUNCH_TIMING[p]!)) out[`punchk_${p}_${k}`] = num(v, 0, k === 'bodyDrop' ? 0.3 : 1, k === 'bodyDrop' || k.startsWith('d') ? 0.005 : 0.01, `pose: ${p}`, `${p}: ${TIMING_DESC[k]}`);
+    for (const key of POSE_KEY_NAMES) {
+      for (const [ch, [unit, what]] of Object.entries(POSE_CHANNELS)) {
+        const v = POSE_DEFAULTS[`${p}_${key}`]?.[ch] ?? 0;
+        const [lo, hi, st] = poseRange(unit, v);
+        out[`pose_${p}_${key}_${ch}`] = num(v, lo, hi, st, `pose: ${p}`, `${p} ${key.toUpperCase()} key: ${what}${unit === 'deg' ? ', degrees' : unit === 'm' ? ', m' : ''} (delta from the guard)`);
+      }
+    }
+  }
+  return out as Record<`pose_${string}` | `punchk_${string}`, NumEntry>;
+}
+
 // ── The schema ────────────────────────────────────────────────────────────────
 // Group order here is the panel's folder order. Keep groups contiguous.
 
@@ -1422,6 +1595,9 @@ export const SCHEMA = {
   skelNeckTwistShare:      num(0.5, 0, 1, 0.01, 'skeleton', 'of the head\'s turn relative to the chest, the neck takes this share and the head joint the rest'),
   skelClavicleInset:       num(0.25, 0.05, 0.6, 0.01, 'skeleton', 'the clavicle\'s inner end (sternoclavicular joint) sits this × shoulderW / 2 from the midline; the bone runs from there to the shoulder joint'),
   skelIkStraightDeg:       num(3, 0, 15, 0.5, 'skeleton', 'two-bone IK keeps an elbow or knee at least this bent: a dead-straight limb flips its bend plane (SOURCES §8). Reach lost: under 0.1 %'),
+  skelPoleTwist:           num(0.5, 0, 1, 0.05, 'skeleton', 'sim arm fit: the elbow pole (built in the fighter\'s floor frame by core/arms.ts) is turned this fraction of the torso twist, toward the chest\'s frame. MEASURED (skel_probe, lead hook t16–22): 0 = the legacy elbow 21 cm out in the floor frame, 55° behind the 66°-turned shoulders: the shoulder sits on its cone 8 ticks and the hook whiffs; 1 = the elbow crosses the midline 13 cm and drops 10 cm under the glove, forearm vertical across the face (Nate: "dislocated"); 0.5 = elbow 10 cm outside, 6 cm below the shoulder, no clamp, lands'),
+  skelGuardFlareFree:      num(0.3, -1, 0.6, 0.01, 'skeleton', 'sim arm fit: a glove up to this far above its shoulder does not flare the elbow, m (the guard holds the gloves at the face, 15–25 cm above the shoulder line: the legacy flare winged the idle elbows up). Above it the flare rises as before. −1 = the legacy flare exactly'),
+  skelClearBlend:          num(0.04, 0.005, 0.15, 0.005, 'skeleton', 'sim arm fit: the elbow pole blends from the punch pole to the torso-clearance pole (elbow out and down) as the punch pole\'s elbow comes within ± this of the clearance, m. core/arms.ts snapped between them in one tick (the elbow jumped); with skelOn it is continuous'),
   skelSkinBlend:           num(0.12, 0.02, 0.125, 0.005, 'skeleton', 'torso skin blends between neighbouring spine bones over ± this × (hips → shoulder line) around each spinal joint (≤ 0.125 or the zones overlap)'),
   skelLumbarFlex:          num(30, 0, 60, 1, 'skeleton', 'lumbar joint (spine1): flexion (bend forward), degrees. Lumbar total ≈ 60 (SOURCES §9), split with spine2'),
   skelLumbarExt:           num(15, 0, 40, 1, 'skeleton', 'lumbar joint: extension (bend back), degrees. Lumbar total 20–25'),
@@ -1430,9 +1606,6 @@ export const SCHEMA = {
   skelSpineFlex:           num(25, 0, 60, 1, 'skeleton', 'low thoracic joint (spine2): flexion, degrees'),
   skelSpineExt:            num(12, 0, 40, 1, 'skeleton', 'low thoracic joint: extension, degrees'),
   skelSpineLat:            num(18, 0, 40, 1, 'skeleton', 'low thoracic joint: lateral bend each side, degrees (thoracolumbar side bend is 50–60 clinically; a slip leans the shoulders 0.7 × 33 cm, which needs ≈ 47° of arc)'),
-  skelPoleTwist:           num(0.5, 0, 1, 0.05, 'skeleton', 'sim arm fit: the elbow pole (built in the fighter\'s floor frame by core/arms.ts) is turned this fraction of the torso twist, toward the chest\'s frame. MEASURED (skel_probe, lead hook t16–22): 0 = the legacy elbow 21 cm out in the floor frame, 55° behind the 66°-turned shoulders: the shoulder sits on its cone 8 ticks and the hook whiffs; 1 = the elbow crosses the midline 13 cm and drops 10 cm under the glove, forearm vertical across the face (Nate: "dislocated"); 0.5 = elbow 10 cm outside, 6 cm below the shoulder, no clamp, lands'),
-  skelGuardFlareFree:      num(0.3, -1, 0.6, 0.01, 'skeleton', 'sim arm fit: a glove up to this far above its shoulder does not flare the elbow, m (the guard holds the gloves at the face, 15–25 cm above the shoulder line: the legacy flare winged the idle elbows up). Above it the flare rises as before. −1 = the legacy flare exactly'),
-  skelClearBlend:          num(0.04, 0.005, 0.15, 0.005, 'skeleton', 'sim arm fit: the elbow pole blends from the punch pole to the torso-clearance pole (elbow out and down) as the punch pole\'s elbow comes within ± this of the clearance, m. core/arms.ts snapped between them in one tick (the elbow jumped); with skelOn it is continuous'),
   skelSpineRot:            num(15, 0, 40, 1, 'skeleton', 'low thoracic joint: axial rotation each side, degrees (thoracic total 30–40, split with the chest joint)'),
   skelChestFlex:           num(20, 0, 60, 1, 'skeleton', 'chest joint: flexion, degrees'),
   skelChestExt:            num(10, 0, 40, 1, 'skeleton', 'chest joint: extension, degrees (the ribcage barely extends)'),
@@ -1471,10 +1644,37 @@ export const SCHEMA = {
   skelHipAdd:              num(30, 0, 45, 1, 'skeleton', 'hip: adduction (thigh across), degrees. Clinical 30'),
   skelHipRot:              num(45, 0, 70, 1, 'skeleton', 'hip: internal / external rotation each way, degrees. Clinical 45 / 45'),
   skelKneeFlex:            num(150, 90, 165, 1, 'skeleton', 'knee: flexion, degrees. A hinge: no hyperextension, no side bend, no twist. Clinical 135–150'),
-  skelAnkleDorsi:          num(35, 0, 50, 1, 'skeleton', 'ankle: dorsiflexion (shin over the toes), degrees. Clinical 20–30 non-weight-bearing; a loaded lunge with the knee bent reaches 35–45, and the rear leg of a boxing stance stands there (at 25 the rear foot sat on its stop 99 % of a fight)'),
+  skelAnkleDorsi:          num(40, 0, 50, 1, 'skeleton', 'ankle: dorsiflexion (shin over the toes), degrees. Clinical 20–30 non-weight-bearing; a loaded lunge with the knee bent reaches 35–45, and the rear leg of a boxing stance stands there (at 25 the rear foot sat on its stop 99 % of a fight)'),
   skelAnklePlantar:        num(50, 0, 70, 1, 'skeleton', 'ankle: plantarflexion (toes down, heel up), degrees. Clinical 40–50'),
-  skelAnkleInv:            num(20, 0, 40, 1, 'skeleton', 'ankle: inversion / eversion each way, degrees'),
+  skelAnkleInv:            num(25, 0, 40, 1, 'skeleton', 'ankle: inversion / eversion each way, degrees (clinical inversion 30–35, eversion 15–20). At 20 the bladed stance\'s rear foot — toes out, shin leaning in over it — sat on the cone every tick (Phase 1.4, measured 14° inversion with 25° dorsiflexion)'),
   skelAnkleRot:            num(30, 0, 50, 1, 'skeleton', 'ankle / foot: turn of the foot about the shin each way, degrees (subtalar plus the knee\'s small free rotation)'),
+
+  // ── Punch key poses (anim Phase 1.4; the channels are generated: see POSE_DEFAULTS above) ──
+  // (Default OFF for now, Phase 1.4: the keyed fist path changes where punches land — reach, height, guard spots —
+  // and ~10 gameplay tests move with it; whether the keys may reshape gameplay is an open decision. LOG_PUNCHES.md.)
+  punchKeysOn:             bool(false, 'pose', 'PUNCHES AS KEY POSES (needs skelOn): the guard and every punch are authored key poses in joint space (core/poses.ts), timed down the body by the kinetic chain (feet and pelvis first, the hand last, the fist on the existing hit-test tick); the gloves chase the keyed hand. The gameplay scalars (lean, twist, crouch: force, exposure) are computed as before. Off = the legacy punch motion'),
+  poseWeightTravel:        num(0.5, 0, 1, 0.05, 'pose', 'a key\'s weight shift moves the pelvis this fraction of the way between the feet (weight 0.3 rear = 20 % of the stance forward of centre × this)'),
+  poseOffhandSwivel:       num(0, -60, 60, 1, 'pose', 'the NON-punching elbow\'s swivel through a punch\'s contact and follow keys, degrees (the guard\'s −12 "in" held while the chest turned 80° under it put the lead shoulder on its stop)'),
+  poseOffhandHold:         num(0.45, 0, 1, 0.05, 'pose', 'the NON-punching glove is turned back this fraction of the punch\'s added body turn, so it stays near the face while the chest turns under it (1 = held exactly where it was: the lead arm then had to reach across an 80° turn and sat on the shoulder\'s stops; 0 = it swings with the chest, 32 cm off the cheek on a cross)'),
+  poseKneeFollow:          num(0.5, 0, 1, 0.05, 'pose', 'keyed legs (sim): the knee points this fraction of the way from its foot toward the pelvis\'s facing (0 = over the toes: with the hips turned 55° in a cross the lead hip sat on its rotation stop)'),
+  poseReachMax:            num(0.99, 0.9, 1, 0.005, 'pose', 'the keyed punching hand\'s target is held inside this × (upper arm + forearm) from the shoulder, so the contacts settle a glove the arm can actually hold'),
+  poseReachMin:            num(0.55, 0.3, 0.9, 0.01, 'pose', 'the reach hold on the keyed punching hand never pulls it closer to the shoulder than this × the arm (closer, the forearm folded onto its elbow stop)'),
+  poseHandEase:            num(1.6, 1, 3, 0.1, 'pose', 'the hand eases IN to contact as progress ^ this (1 = constant speed; 2 = twice the average at arrival — the cross\'s elbow hit 76°/tick on its last tick at 2)'),
+  poseRangeNear:           num(0.55, 0.3, 1, 0.01, 'pose', 'range absorption: at or inside this centre-to-centre distance at the press, a punch gets only its minimum body drive (m)'),
+  poseRangeFar:            num(0.8, 0.4, 1.5, 0.01, 'pose', 'range absorption: at or beyond this distance a punch gets its full keyed turn and travel (m)'),
+  poseRangeStraightMin:    num(0.3, 0, 1, 0.05, 'pose', 'range absorption: the share of its turn / travel a jab or cross keeps when smothered inside (it arrives bent; a full drive put the shoulder into his face)'),
+  poseRangeCurvedMin:      num(0.7, 0, 1, 0.05, 'pose', 'range absorption: the share a hook or uppercut keeps inside — they keep their shape by turning'),
+  poseBodyFlexMax:         num(12, 0, 30, 1, 'pose', 'BODY punches: the spine flexes at most this far, degrees — the level change is the knees, not the waist'),
+  poseBlockSpFlex:         num(5, 0, 20, 1, 'pose', 'block: extra spine flexion over the guard (hunched into it), degrees'),
+  poseBlockChin:           num(6, 0, 20, 1, 'pose', 'block: extra chin tuck, degrees'),
+  poseBlockLeadF:          num(0.18, 0, 0.5, 0.005, 'pose', 'block: lead glove, chest frame forward, m at the reference height'),
+  poseBlockLeadU:          num(0.43, 0, 0.6, 0.005, 'pose', 'block: lead glove, chest frame up, m'),
+  poseBlockLeadL:          num(0.03, -0.2, 0.3, 0.005, 'pose', 'block: lead glove, chest frame outward, m'),
+  poseBlockRearF:          num(0.14, 0, 0.5, 0.005, 'pose', 'block: rear glove, chest frame forward, m'),
+  poseBlockRearU:          num(0.43, 0, 0.6, 0.005, 'pose', 'block: rear glove, chest frame up, m'),
+  poseBlockRearL:          num(0.07, -0.2, 0.3, 0.005, 'pose', 'block: rear glove, chest frame outward, m'),
+  poseBlockSwivel:         num(-18, -60, 30, 1, 'pose', 'block: both elbows swivel this far (− = in, against the ribs), degrees, over the guard\'s'),
+  ...poseEntries(),
 } satisfies Record<string, Entry>;
 
 export type Schema = typeof SCHEMA;

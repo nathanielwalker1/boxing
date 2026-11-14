@@ -19,6 +19,8 @@ import { hurtLevel } from './stun';
 import { VARIANTS } from './variants';
 import { hurtMods, stanceDrop } from './footing';
 import { hitBody } from './reaction';
+import { aimPoint, keyedOn, simKeyedPose } from './skel';
+import { fk, keyedHandTarget, skelDef, SKJ } from '../core';
 
 const HANDS: [Hand, Hand] = ['lead', 'rear'];
 /**
@@ -78,8 +80,14 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterSta
   // Rocked: the resting guard sags by stunGuardDrop × how rocked (sim/stun.ts) — the chin is open.
   // Overhaul: it also hangs by guardDroop (fatigue, body wear, winded) and, through a guard break, is knocked down and apart.
   const broken = f.guardBroken > 0 ? cfg.guardBreakDrop : 0;
-  const sag = (f.hurt > 0 && f.hurtKind !== 'body' ? cfg.stunGuardDrop * hurtLevel(f) * hurtMods(f, cfg).guard : 0) + f.guardDroop + broken;   // (× the kind of rocked: reaching = further, covering up = not at all — polish phase)
+  const sag = guardSag(f, cfg);
   return { pose: sag > 0 ? { fwd: g.fwd, up: g.up - sag, lat: g.lat + Math.sign(g.lat) * broken * 0.5 } : g, kMul: 1, contact: null, guard: true };
+}
+
+/** How far the resting guard hangs: rocked, droop (fatigue, wear, winded), a broken guard. */
+function guardSag(f: FighterState, cfg: Config): number {
+  const broken = f.guardBroken > 0 ? cfg.guardBreakDrop : 0;
+  return (f.hurt > 0 && f.hurtKind !== 'body' ? cfg.stunGuardDrop * hurtLevel(f) * hurtMods(f, cfg).guard : 0) + f.guardDroop + broken;   // (× the kind of rocked: reaching = further, covering up = not at all — polish phase)
 }
 
 /**
@@ -139,14 +147,17 @@ function insideOther(p: Vec3, other: FighterState, gloveR: number, sink: number,
  * body (the fist is entering sideways), the target is left alone and the
  * position clamp does the rest. Sampled then bisected.
  */
-function cutTarget(from: Vec3, t: Vec3, fwd: { x: number; z: number }, other: FighterState, gloveR: number, sink: number, hb: FighterState['bodyBox']): Vec3 {
+function cutTarget(from: Vec3, t: Vec3, fwd: { x: number; z: number }, other: FighterState, gloveR: number, sink: number, hb: FighterState['bodyBox'], endpointOnly = false): Vec3 {
   // "Blocked": the target is inside the other fighter, or the path from the
   // fist to it passes through them (a jab's spring covers 30 cm a tick, and
   // a target BEHIND the head is outside it — the fist tunnelled). The path
   // test allows TUNNEL_TOL deeper than the endpoint, so a fist sliding along
   // a curved surface (its chord dips a few mm) is not held back.
+  // (Phase 1.4: a KEYED punching hand's path is authored, not a spring's — only its endpoint is cut; cut on the path
+  // from a fist out to the side, a cross stopped 13 cm short of the face with the elbow still bent 110°: measured.)
   const blocked = (p: Vec3): boolean => {
     if (insideOther(p, other, gloveR, sink, hb)) return true;
+    if (endpointOnly) return false;
     for (let i = 1; i < CONTACT_SAMPLES; i++) {
       const u = i / CONTACT_SAMPLES;
       if (insideOther({ x: from.x + (p.x - from.x) * u, y: from.y + (p.y - from.y) * u, z: from.z + (p.z - from.z) * u }, other, gloveR, sink + TUNNEL_TOL, hb)) return true;
@@ -184,9 +195,20 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
   const fr = frameOf(f.yaw);
   const solid = cfg.contactSolid > 0;
   const sink = f.body.gloveR * cfg.contactSquash;
+  // Phase 1.4, punch keys: the hands go to the KEYED spots — the chest-frame spot on the fitted skeleton (so they ride
+  // the body through a slip, a dip, a hit), blended toward the aim point by the key. The clinch keeps its own.
+  const keyed = keyedOn(cfg) && !!f.skel && !(cfg.clinchV2 && clinchAmount(f, cfg) > 0);
+  const rp = keyed ? simKeyedPose(f, cfg) : null;
+  const kf = keyed ? fk(skelDef(f.body, f.stance, cfg), f.skel!) : null;
   for (let i = 0; i < 2; i++) {
     const hand = HANDS[i]!;
-    const { pose, kMul, contact, guard } = targetLocal(f, hand, cfg, other);
+    const tl = targetLocal(f, hand, cfg, other);
+    const { pose, contact, guard } = tl;
+    // Keyed: the punching hand keeps the punch's stiffness home too — the KEY times the retraction (no slower than the
+    // drive); the legacy soft recovery spring floated it back over twice that. Exposure reads the punch clock, not the glove.
+    const kMul = keyed && f.punch.type !== null && f.punch.hand === hand ? cfg.chainPunchK : tl.kMul;
+    let t: Vec3;
+    {
     const bob = sin(time * TAU * cfg.chainBobHz + BOB_PHASE_HAND[i]! + BOB_PHASE_SIDE[side]!) * cfg.chainBobAmp;
     // The hands ride the body down through a crouch (guard and punch alike).
     // The guard also rides the shoulders sideways through a slip; a punching
@@ -196,12 +218,35 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     // …and forward with the weight transfer (the shoulders move; computeBoxes
     // moves the body by the same shift), back with a pull.
     const fwd = pose.fwd + f.lean.fwd * cfg.punchLeanShift - (guard ? slipBack(f) * cfg.slipShoulderFrac : 0);
-    let t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, fwd, pose.up + bob - stanceDrop(f, cfg), lat);
+    t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, fwd, pose.up + bob - stanceDrop(f, cfg), lat);
     // The gloves ride the torso's reaction offset, so they travel with the body.
     if (!contact) { t.x += f.reaction.torso.x; t.y += f.reaction.torso.y; t.z += f.reaction.torso.z; }
+    }
+    // Punch keys: the PUNCHING hand goes where its key puts it; the guard hands keep the legacy targets (each style's
+    // guard spot is gameplay — exposure, what a glove covers — and styles_test pins it). The keyed target is held no
+    // further from the shoulder than the legacy target, nor past poseReachMax of the arm: reach is gameplay too (the
+    // keys aimed at the head landed punches the legacy whiffs — punch_test), and an out-of-reach glove settled by the
+    // contacts was pulled back by the arm fit into the other man's forearm (measured).
+    if (rp && kf && !(f.punch.type !== null && f.punch.hand === hand)) {
+      // (The guard hands keyed too, held at the face against the punch's turn: with the legacy spots instead the rear
+      // glove drifted 9 cm through the jab and the lead forearm folded onto its stop through the cross — measured.
+      // That moves the style guard spots: styles_test passes only with the keys off; LOG_PUNCHES.md.)
+      const counter = f.punch.type !== null ? (rp.pelYaw + rp.spTwist - rp.yawRef) * cfg.poseOffhandHold : 0;
+      t = keyedHandTarget(kf, rp.hand[i]!, handLateralSign(hand, f.stance), null, fr.fwd, counter);
+      if (guard) t.y -= guardSag(f, cfg);
+    } else if (rp && kf) {
+      const legacy = t;
+      t = keyedHandTarget(kf, rp.hand[i]!, handLateralSign(hand, f.stance), aimPoint(f, other, cfg), fr.fwd, 0);
+      const sh = kf.p[i === 0 ? SKJ.upper0 : SKJ.upper1]!;
+      const arm = f.body.upperArm + f.body.forearm;
+      // (Floored at poseReachMin of the arm: held closer, the forearm folded onto its stop — measured.)
+      const reach = Math.max(arm * cfg.poseReachMin, Math.min(arm * cfg.poseReachMax, Math.hypot(legacy.x - sh.x, legacy.y - sh.y, legacy.z - sh.z)));
+      const dx = t.x - sh.x, dy = t.y - sh.y, dz = t.z - sh.z, dl = Math.hypot(dx, dy, dz);
+      if (dl > reach) { const s = reach / dl; t = { x: sh.x + dx * s, y: sh.y + dy * s, z: sh.z + dz * s }; }
+    }
     const g = f.gloves[i]!;
     const free = t;
-    if (solid) t = cutTarget(g.pos, t, fr.fwd, other, f.body.gloveR, sink, hitBody(other, cfg));
+    if (solid) t = cutTarget(g.pos, t, fr.fwd, other, f.body.gloveR, sink, hitBody(other, cfg), keyed && f.punch.type !== null && f.punch.hand === hand);
     // Remember whether the other fighter's head or body clipped this target:
     // the hit test reads it (a fist stopped on a pinned guard hand is only
     // "absorbed" if the punch was going to arrive).
@@ -211,16 +256,21 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     let k = cfg.chainK * (i === 1 ? cfg.chainRearK : 1);
     let c = cfg.chainC * (i === 1 ? cfg.chainRearC : 1);
     if (kMul !== 1) { k *= kMul; c *= sqrt(kMul); }
-    springs(f)[i] = { k, c };
+    // Phase 1.4: the keyed PUNCHING glove is kinematic — it is where its key puts it this tick (a spring chasing a hand
+    // that is fastest at arrival lagged it 13–18 cm short of the face on the hit tick: measured). The contacts below
+    // still stop it on a body and push it off a guard.
+    const kin = keyed && f.punch.type !== null && f.punch.hand === hand;
+    springs(f)[i] = { k, c, kin, sx: g.pos.x, sy: g.pos.y, sz: g.pos.z };
   }
   void dt;
 }
 
 /** Per-fighter spring constants for this tick, set by stepGloves and read by integrateGloves. Scratch, not state. */
-const SPRINGS = new WeakMap<FighterState, [{ k: number; c: number }, { k: number; c: number }]>();
-function springs(f: FighterState): [{ k: number; c: number }, { k: number; c: number }] {
+interface GloveDrive { k: number; c: number; kin: boolean; sx: number; sy: number; sz: number }
+const SPRINGS = new WeakMap<FighterState, [GloveDrive, GloveDrive]>();
+function springs(f: FighterState): [GloveDrive, GloveDrive] {
   let s = SPRINGS.get(f);
-  if (!s) { s = [{ k: 0, c: 0 }, { k: 0, c: 0 }]; SPRINGS.set(f, s); }
+  if (!s) { s = [{ k: 0, c: 0, kin: false, sx: 0, sy: 0, sz: 0 }, { k: 0, c: 0, kin: false, sx: 0, sy: 0, sz: 0 }]; SPRINGS.set(f, s); }
   return s;
 }
 
@@ -238,7 +288,15 @@ export function integrateGloves(a: FighterState, b: FighterState, cfg: Config, d
     for (const f of [a, b]) {
       const sp = springs(f);
       for (let i = 0; i < 2; i++) {
-        const g = f.gloves[i]!, t = g.target, { k, c } = sp[i]!;
+        const g = f.gloves[i]!, t = g.target, { k, c, kin, sx, sy, sz } = sp[i]!;
+        if (kin) {
+          // Along the line from where it started the tick to its key target, a sub-step at a time.
+          const u = (n + 1) / CHAIN_SUBSTEPS;
+          const nx = sx + (t.x - sx) * u, ny = sy + (t.y - sy) * u, nz = sz + (t.z - sz) * u;
+          g.vel.x = (nx - g.pos.x) / h; g.vel.y = (ny - g.pos.y) / h; g.vel.z = (nz - g.pos.z) / h;
+          g.pos.x = nx; g.pos.y = ny; g.pos.z = nz;
+          continue;
+        }
         g.vel.x += (k * (t.x - g.pos.x) - c * g.vel.x) * h;
         g.vel.y += (k * (t.y - g.pos.y) - c * g.vel.y) * h;
         g.vel.z += (k * (t.z - g.pos.z) - c * g.vel.z) * h;

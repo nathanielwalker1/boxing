@@ -378,6 +378,12 @@ export interface FighterState {
    * Absent with skelOn off (and on states built outside the sim: the referee, fixtures).
    */
   skel?: SkelPose;
+  /**
+   * The keyed feet (anim Phase 1.4, cfg.punchKeysOn): per foot, lead then rear — step forward (m), step outward (m),
+   * pivot about the ball (rad, about +y), heel lift (m) — then the weight on the rear foot (0..1). The rig's foot
+   * planter obeys it. Absent without punch keys.
+   */
+  footKey?: number[];
 }
 
 export interface ArmJoints { shoulder: Vec3; elbow: Vec3 }

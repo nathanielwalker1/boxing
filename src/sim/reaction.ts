@@ -115,13 +115,16 @@ export function computeBoxes(f: FighterState, cfg: Config): void {
   // and a lateral slip (slipCrouch — the whole body goes under the punch,
   // not just the head; 2026-09-19). The hips carry it, so the knees bend.
   // Overhaul: the held level, the inside posture and the buckle are in stanceDrop — real height.
+  // (Phase 1.4, punch keys: the punch's lean shift is the key pose's travel — the base body leaves it out. The dip
+  // stays here: it is gameplay — the head box ducks with it (timing_test) — and the keys add no dip of their own.)
+  const keyed = cfg.skelOn && cfg.punchKeysOn;
   const c = stanceDrop(f, cfg) + r.sink.x + (f.slip.dir === -1 || f.slip.dir === 1 ? cfg.slipCrouch * slipShape(f, cfg) : 0);
   // The weight transfer moves the BODY, not just the drawing (2026-09-16):
   // head and shoulders go forward by lean.fwd × punchLeanShift (back through
   // the load), the hips by half. So a punch reaches further and the head is
   // out over the front knee where a counter can find it; the rig draws on
   // these boxes, so hit geometry stays drawn geometry.
-  const shift = f.lean.fwd * cfg.punchLeanShift;
+  const shift = keyed ? 0 : f.lean.fwd * cfg.punchLeanShift;
   // Slip: a lateral slip dips the head as it goes (slipDip); a pull (dir 2)
   // takes the head straight back. Both bend at the waist: shoulders by
   // slipShoulderFrac of the head's move, hips not at all.
