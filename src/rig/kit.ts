@@ -150,7 +150,7 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
     for (let i = 0; i < 2; i++) {
       const pts: number[] = [];
       for (let k = 0; k < NP; k++) {
-        legSurf(i, s, (k / NP) * TAU, gap, p);
+        legSurf(i, s, (k / NP) * TAU, gap * 1.6, p);   // the panel stands a little further out than the tubes that grow out of it
         pts.push(p.x, mirrorOf(i) ? -p.z : p.z);
       }
       out.push(pts);
@@ -186,7 +186,7 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
       const sag = smooth01((top - bandH - y) / (R * 0.8));
       // Cloth hangs off the hips at the sides and front; behind, it follows the buttock (no bag): the sag fades out round the back.
       const rear = smooth01((Math.cos((0.5 - j / cols) * TAU) + 0.7) / 0.9);
-      const lift = outfit ? 0.02 : band ? gap * 0.9 : gap * 0.6 + 0.022 * sag * rear;
+      const lift = outfit ? 0.02 : band ? gap * 0.9 : gap * 1.0 + 0.016 * sag * rear;
       torso.point(y, (0.5 - j / cols) * TAU, out, lift);
       if (band && !outfit) { const edge = bump((y - (top - bandH / 2)) / (bandH * 0.62)); out.x *= 1 + 0.012 * edge; out.z *= 1 + 0.012 * edge; }
       if (!outfit && y < blendTop) {
@@ -240,7 +240,7 @@ export function buildTrunks(c: Ctx, torso: TorsoShape): void {
     const J = c.bind[bones.thigh]!;
     const mirror = c.lat[i]! < 0;
     const lc = c.low ? 12 : 16;
-    const s0 = sRim;   // starts where the panel's rim is: the rim is the outline of these top rings
+    const s0 = sRim - 0.025;   // overlaps the panel by 2.5 cm (hidden inside it), so no slit can open at the seam   // starts where the panel's rim is: the rim is the outline of these top rings
     const sKeys = [s0, s0 + (len - s0) * 0.3, s0 + (len - s0) * 0.7, len];
     const ss = rowParams(sKeys, [2, 3, 3], c.low);
     const hemAt = (phi: number): number => cut === 'split' ? 1 - 0.42 * bump((phi - Math.PI / 2) / 0.75) : 1;

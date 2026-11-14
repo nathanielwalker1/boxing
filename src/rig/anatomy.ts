@@ -148,7 +148,10 @@ export function torsoShape(c: Ctx): TorsoShape {
       // Spine groove with the erectors either side; lats; the shoulder blades under the traps.
       h -= back * (0.6 + 0.4 * def) * R * 0.06 * bump(az / (waistHalf * 0.2)) * bump((y - (hy + sp * 0.9)) / (sp * 1.1));
       h += back * def * R * 0.03 * bump((az - waistHalf * 0.3) / (waistHalf * 0.3)) * bump((y - (hy + sp * 0.55)) / (sp * 0.6));
-      h += back * def * R * 0.075 * bump((az - chestHalf * 0.8) / (chestHalf * 0.5)) * bump((y - (sy - cl * 0.5)) / (cl * 0.42));
+      h += back * def * R * 0.11 * bump((az - chestHalf * 0.8) / (chestHalf * 0.5)) * bump((y - (sy - cl * 0.5)) / (cl * 0.42));   // lats (stronger: they read from behind)
+      // The trapezius from behind: a diamond of mass from the neck out to the shoulder tips and down between the blades.
+      h += back * (0.5 + 0.5 * def) * R * 0.1 * bump((az - chestHalf * 0.38) / (chestHalf * 0.42)) * bump((y - (sy + cl * 0.02)) / (cl * 0.2));
+      h += back * (0.5 + 0.5 * def) * R * 0.05 * bump(az / (chestHalf * 0.22)) * bump((y - (sy - cl * 0.22)) / (cl * 0.22));
       h += back * def * R * 0.055 * bump((az - chestHalf * 0.5) / (chestHalf * 0.42)) * bump((y - (sy - cl * 0.16)) / (cl * 0.2));
     }
     return h;
@@ -227,7 +230,7 @@ export function buildTorso(c: Ctx, shape: TorsoShape): void {
     point: (i, j, out) => {
       const y = ys[i]!, b = c.body;
       // The referee's shirt (pass 2): a standing collar round the neck, and the shirt blousing over the belt (it hangs off the belly, it does not cling).
-      const inflate = !outfit ? 0 : 0.008 + 0.012 * bump((y - (b.shoulderY + b.chestLen * c.cfg.rigNeckBase + 0.012)) / 0.03) + 0.022 * bump((y - (b.hipY + b.spineLen * 0.5)) / (b.spineLen * 0.55));
+      const inflate = !outfit ? 0 : 0.008 + 0.012 * bump((y - (b.shoulderY + b.chestLen * c.cfg.rigNeckBase + 0.012)) / 0.03) + 0.022 * bump((y - (b.hipY + b.spineLen * 0.72)) / (b.spineLen * 0.42));
       shape.point(y, (0.5 - j / cols) * TAU, out, inflate);
     },
     weights: p => shape.weights(p),

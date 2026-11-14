@@ -2,7 +2,7 @@
  * mesh_view.mjs — the fighter mesh alone, bind pose or a hand-set extreme pose, on its own canvas (anim Phase 1.2).
  *
  *   PORT=5195 node scripts/mesh_view.mjs <outDir> <id[,id…]> [pose[,pose…]] [view[,view…]]
- *   poses : bind elbow140 overhead across crouch twist45 head60 hookL, and face_calm face_wince face_mouthOpen face_grimace face_slack face_swellL (head close-ups)
+ *   poses : hang (= bind) guard bind elbow140 overhead across crouch twist45 head60 hookL, and face_calm face_wince face_mouthOpen face_grimace face_slack face_swellL (head close-ups)
  *   views : front 34 side back (default: front side back)
  *   ids   : any roster id, or `referee`
  *
@@ -78,6 +78,8 @@ for (const id of ids) {
     };
     const apply = pose => {
       bones.forEach((b, k) => { b.position.copy(rest[k].p); b.quaternion.copy(rest[k].q); });
+      // hang = the bind (arms down). guard = both fists up at the face, a little crouch.
+      if (pose === 'guard') { bones[B.hips].position.y -= body.hipY * 0.03; arm(0, R(Z, 55), R(Z, 125)); arm(1, R(Z, 45), R(Z, 130)); set(B.spine, R(Z, 6)); set(B.chest, R(Z, 4)); }
       if (pose === 'elbow140') { arm(0, R(Z, 40), R(Z, 140)); arm(1, R(Z, 20), R(Z, 100)); }
       if (pose === 'overhead') { arm(0, R(Z, 170)); arm(1, R(Z, 150), R(Z, 20)); }
       // across: the arm swung forward and then in over the chest (rotation about the vertical axis, inward on each side), elbows bent
