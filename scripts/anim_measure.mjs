@@ -436,15 +436,6 @@ async function sectionC() {
     ['HARD PACE, all missed, no shots taken', staminaBudget({ gapTicks: 15, restTicks: 0, miss: 1, hitEvery: 1e9 })],
   ];
   for (const [n, r] of sc) console.log(row(n, r.thrown, r.taken, r.tiredAt === null ? 'never' : f1(r.tiredAt), r.gassedAt === null ? 'never' : f1(r.gassedAt), r.floorAt === null ? 'not in 90 s' : f1(r.floorAt), pct(r.min), r.tank.join(' '), pct(r.cap)));
-
-  // C.4 (2026-11-14): the budget of one 60 s round at three paces, staminaV2 off (as it was) and on, from stamina_probe.pace().
-  console.log('\n### C.4 Budget of a 60 s round (scripted paces, stamina_probe.pace): tank % at 15 / 30 / 45 / 60 s; staminaV2 off, then on\n');
-  head('pace', 'staminaV2', 'tank at 15 / 30 / 45 / 60 s', 'gassed (<25%) at', 'thrown a minute');
-  const paces = { 'sensible: 50 a minute, mixed, half landing': { ppm: 50, miss: 0.5, his: 24, holdGuard: true }, 'spamming: 110 a minute, power shots': { ppm: 110, miss: 0.4, his: 24, power: true, heavy: 0.4 }, 'defensive: guard up, 8 a minute': { ppm: 8, miss: 0.25, his: 40, guard: 1, heavy: 0.5, holdGuard: true } };
-  for (const [n, o] of Object.entries(paces)) for (const on of [false, true]) {
-    const r = sp.pace({ ...o, c: { ...cfg, staminaV2: on } }, true);
-    console.log(row(n, on ? 'on' : 'off', [...r.snaps.slice(0, 3), r.rounds[0].end].map(x => Math.round(x * 100)).join(' / '), r.gassedAt === null ? 'never' : f1(r.gassedAt) + ' s', Math.round(r.ppm)));
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────

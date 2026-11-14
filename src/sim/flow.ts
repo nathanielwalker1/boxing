@@ -141,7 +141,7 @@ export function hitNerf(f: FighterState, cfg: Config): number {
 /** What a punch of this type costs to throw, as a multiple of staminaPunchCost (1 with the polish rules off). */
 export function throwWeight(type: PunchType, cfg: Config): number {
   if (!cfg.staminaPolishOn) return 1;
-  return cfg.staminaThrowScale * typeWeight(type, cfg) * (cfg.staminaV2 ? cfg.staminaV2ThrowMult : 1);
+  return cfg.staminaThrowScale * typeWeight(type, cfg);
 }
 /** The punch's own weight against a cross's. */
 export function typeWeight(type: PunchType, cfg: Config): number {
