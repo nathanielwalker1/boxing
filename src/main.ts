@@ -29,7 +29,7 @@ import { TelemetryOverlay, type TelemetryProbe } from './ui/telemetry';
 declare global {
   interface Window {
     __telemetry: TelemetryProbe;
-    __tick: { frames: number; simTicks: number; gameTime: number; ready: boolean };
+    __tick: { frames: number; simTicks: number; gameTime: number; ready: boolean; scale: number };
     __cfg: Config;
     __sim: {
       state: () => SimState;
@@ -326,7 +326,7 @@ window.__camDist = () => stage.dollyDistance;
 window.__camEl = () => stage.elevation;
 
 // ── Loop: fixed-step accumulator (CONTRACT §3), render every rAF ──────────────
-window.__tick = { frames: 0, simTicks: 0, gameTime: 0, ready: false };
+window.__tick = { frames: 0, simTicks: 0, gameTime: 0, ready: false, scale: 1 };
 let lastMs = 0;
 let slowMo = { t: 0, scale: 1 };   // wall seconds of slow motion left, and its rate (knockdown, counter, rocked)
 let referee: Referee | null = null;
@@ -419,6 +419,7 @@ function loop(nowMs: number): void {
   const frozen = cfg.showSlowAfterStop && next.hitStop > 0;
   // hitStopV2 (anim 2.4): no read-window slow motion in live play (knockdowns and replays keep theirs).
   const slow = Math.min(slowMo.t > 0 && !frozen ? slowMo.scale : 1, readWindowScale(cfg, read.timeScale));
+  window.__tick.scale = slow;   // the time scale the host applied this frame (tests read it instead of timing the wall clock)
   if (!frozen) slowMo.t = Math.max(0, slowMo.t - dt);
   const sdt = dt * slow;
 

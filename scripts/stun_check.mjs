@@ -40,7 +40,7 @@ const read = () => page.evaluate(() => window.__read());
 await page.evaluate(() => { window.__cfg.hurtRatesOn = false; window.__sim.place(0.79); window.__sim.state().fighters[1].health = 0.05; window.__sim.script(0, [{ cross: true }]); });
 // Headless frames are long (up to the 0.25 s clamp each), so everything is read in ONE evaluate right after the wait.
 await until(page, () => window.__read().log.includes('rocked1'), undefined, { label: 'the dummy rocked', timeout: 8000 });
-const d1 = await page.evaluate(() => ({ hurt: window.__sim.state().fighters[1].hurt, ghost: document.querySelector('#hud .side.r .ghost').style.transform, fill: document.querySelector('#hud .side.r .fill').style.transform, wall: performance.now(), game: window.__tick.gameTime }));
+const d1 = await page.evaluate(() => ({ hurt: window.__sim.state().fighters[1].hurt, ghost: document.querySelector('#hud .side.r .ghost').style.transform, fill: document.querySelector('#hud .side.r .fill').style.transform, wall: performance.now(), game: window.__tick.gameTime, scale: window.__tick.scale }));
 await frames(page, 2);
 const t1 = await page.evaluate(() => ({ wall: performance.now(), game: window.__tick.gameTime }));
 const rate = (t1.game - d1.game) / ((t1.wall - d1.wall) / 1000);
@@ -48,7 +48,8 @@ check(`the dummy is rocked (hurt ${d1.hurt.toFixed(2)} s)`, d1.hurt > 0);
 // hitStopV2 (anim 2.4, default on): a rock gets its weight from the sim's hit-stop, NOT from slow motion in live play.
 // The old assertion (rate < 0.85) held only with hitStopV2 off; what is left below 1.0 here is the hit-stop itself.
 const v2 = await page.evaluate(() => window.__cfg.hitStopV2);
-check(v2 ? `…and live play is NOT in slow motion for the beat (game/wall ${rate.toFixed(2)}, only the hit-stop)` : `…and the scene is in slow motion for the beat (game/wall ${rate.toFixed(2)})`, v2 ? rate > 0.85 : rate < 0.85);
+// V2 reads the scale the host applied (window.__tick.scale): timing game against wall clock failed under a loaded machine.
+check(v2 ? `…and live play is NOT in slow motion for the beat (host time scale ${d1.scale}, game/wall ${rate.toFixed(2)} for reference)` : `…and the scene is in slow motion for the beat (game/wall ${rate.toFixed(2)})`, v2 ? d1.scale === 1 : rate < 0.85);
 check(`the health just lost stays lit as a ghost (${d1.ghost} vs ${d1.fill})`, d1.ghost !== d1.fill);
 await shot('dummy');
 

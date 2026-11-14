@@ -46,9 +46,17 @@ const exchange = (crossAt) => page.evaluate(({ crossAt }) => {
 // (anim 2.4: with hitStopV2 there is no 0.6x slow motion in the window, so the browser polls in real time; the counter is
 // pressed later in the 0.7 s window so the window is still open when this samples it.)
 await exchange(30);
-const slipped = await until(page, () => window.__read().log.includes('slip0'), undefined, { label: 'the slip', timeout: 8000 }).then(() => true, () => false);
-const p1 = await probe();
-const w1 = await oppWindow();
+// The window state is captured INSIDE the page on the frame the rim is warm: sampling it from Node afterwards lost the
+// race under a loaded machine (the 0.7 s window had already closed by the time the second round trip ran).
+const slipped = await until(page, () => {
+  const r = window.__read();
+  if (!r.log.includes('slip0') || !(r.glow[1] > 0.3)) return false;
+  window.__readSnap = { read: JSON.parse(JSON.stringify(r)), win: window.__sim.state().fighters[1].counterWindow };
+  return true;
+}, undefined, { label: 'the slip and the warm rim', timeout: 8000 }).then(() => true, () => false);
+const snap = await page.evaluate(() => window.__readSnap ?? null);
+const p1 = snap ? snap.read : await probe();
+const w1 = snap ? snap.win : await oppWindow();
 check('the flick takes the dummy\'s jab away', slipped, `log ${JSON.stringify(p1.log)}`);
 check(`the counter window is open on the dummy (${w1.toFixed(2)} s) and ITS rim warms (glow ${p1.glow[1].toFixed(2)}), not the player's (${p1.glow[0].toFixed(2)})`, w1 > 0 && p1.glow[1] > 0.3 && p1.glow[0] === 0);
 check('nothing is drawn on the screen: no overlay elements', await page.evaluate(() => !document.getElementById('read-flash') && !document.getElementById('read-glow') && !document.getElementById('read-tag')));
