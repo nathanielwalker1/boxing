@@ -747,7 +747,7 @@ export const SCHEMA = {
   aiHumanMissEasy:  num(0.4, 0, 1, 0.01, 'ai', 'aiHumanV2, easy: the same chance'),
   aiHumanHoldMed:   num(0.3, 0.05, 2, 0.05, 'ai', 'aiHumanV2, medium: seconds the reactive guard stays up once raised (aiBlockWindow is 0.45 and applies to hard)'),
   aiHumanHoldEasy:  num(0.25, 0.05, 2, 0.05, 'ai', 'aiHumanV2, easy: the same'),
-  aiHumanTempoMed:  num(2.6, 0.5, 4, 0.05, 'ai', 'aiHumanV2, medium: x the gaps between its attacks, on top of the difficulty tempo (holds its punches per minute near a human pace)'),
+  aiHumanTempoMed:  num(3.6, 0.5, 4, 0.05, 'ai', 'aiHumanV2, medium: x the gaps between its attacks, on top of the difficulty tempo (holds its punches per minute near a human pace)'),
   aiHumanTempoEasy: num(1.5, 0.5, 4, 0.05, 'ai', 'aiHumanV2, easy: the same'),
   aiHumanCounterMed: num(0.5, 0, 1.5, 0.05, 'ai', 'aiHumanV2, medium: x its counter chance (holds the counter rate near 12-18% of punches that hit it)'),
   aiHumanCounterEasy: num(0.5, 0, 1.5, 0.05, 'ai', 'aiHumanV2, easy: the same'),
