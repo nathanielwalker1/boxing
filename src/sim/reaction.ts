@@ -9,7 +9,7 @@
  * `snap` multiplier still rides on top of every level, as in v1.
  */
 import type { Config, FighterState, PunchType, Vec3 } from '../core';
-import { clamp, frameOf, localToWorld, stepSpring1, stepSpring3 } from '../core';
+import { clamp, frameOf, localToWorld, stepSpring1, stepSpring3, SIM_DT } from '../core';
 import { PUNCHES } from './punches';
 import { neckMult, reactionSnap, setNeckMult, setReactionSnap } from './state';
 import { slipBack, slipHeadDip, slipLateral, slipShape } from './slip';
@@ -22,7 +22,7 @@ import { fitSimTorso, keyedFor } from './skel';
  * defender's frame, becomes a yaw whip of the head and shoulders — a hook
  * turns the head round, a straight barely does.
  */
-export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: number, cfg: Config, opt: { scale?: number; neck?: number; vary?: number; vary2?: number } = {}): void {
+export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: number, cfg: Config, opt: { scale?: number; neck?: number; vary?: number; vary2?: number; part?: 'head' | 'body' } = {}): void {
   const def = PUNCHES[type];
   if (!def) return;
   // Polish phase: `scale` = the grade's own size on top of the impulse (glancing less, flush more); `neck` = how much
@@ -34,6 +34,17 @@ export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: 
   const s = { ...s0, back: s0.back * (1 + va), lift: s0.lift * (1 - va), spin: s0.spin * (1 - va), twist: s0.twist * (1 + vb), torso: s0.torso * (1 - vb * 0.5) };
   setNeckMult(f, opt.neck ?? 1);
   mag *= sc;
+  if (chainOn(cfg)) {
+    // hitChainV2: the hit goes down the skeleton as joint angles (kickChain); the legacy head / torso / tilt / spin
+    // springs are not kicked. The legs still give (sink): that is the pelvis dropping, not the head flying.
+    const dsink = mag * cfg.reactionSinkScale;
+    f.reaction.sink.v += dsink;
+    f.reaction.sink.x += dsink * cfg.reactionImpactPose;
+    clampReaction(f.reaction, cfg, neckMult(f));
+    kickChain(f, type, opt.part === 'body', dir, mag, (opt.neck ?? 1) * (1 + va * 0.5), cfg);
+    setReactionSnap(f, s.snap);
+    return;
+  }
   const v = mag * cfg.reactionForceScale;
   const r = f.reaction;
   const fr = frameOf(f.yaw);
@@ -87,7 +98,89 @@ function clampReaction(r: FighterState['reaction'], cfg: Config, neck = 1): void
   r.sink.x = clamp(r.sink.x, -cfg.reactionSinkMax * 0.3, cfg.reactionSinkMax);   // the legs give down; a little spring back up
 }
 
+// ── hitChainV2: the hit as joint angles (anim Phase 1.5) ──────────────────────────────────────────────────────────
+// Three groups — 0 head (neck + head), 1 spine (lumbar, low thoracic, chest), 2 pelvis — each a damped oscillator per
+// axis [lateral (x), yaw (y), extension (z); the joints' own frame, + ext = back, + lat = toward his right, + yaw = face
+// to his left]. A hit kicks each group's RATE; the groups peak in order because each has its own period
+// (hitChainHeadPeak < SpinePeak < PelvisPeak), and all return with hitChainZeta. Stored in moveHist slots 50–67
+// (angle, rate) so the state clones and stays deterministic; absent slots read 0 and are never written with the toggle off.
+const HIST_CHAIN = 50;
+export const chainOn = (cfg: Config): boolean => cfg.skelOn && cfg.hitChainV2;
+const DEG = Math.PI / 180;
+
+/** ω (rad/s) of a group that peaks `ticks` after a kick, and its peak angle per unit kick rate (s). */
+function chainShape(cfg: Config, g: number): { w: number; peakPerRate: number } {
+  const ticks = g === 0 ? cfg.hitChainHeadPeak : g === 1 ? cfg.hitChainSpinePeak : cfg.hitChainPelvisPeak;
+  const z = Math.min(0.98, cfg.hitChainZeta), sq = Math.sqrt(1 - z * z);
+  const tp = ticks * SIM_DT, phase = Math.atan2(sq, z);
+  const w = phase / (sq * tp);
+  return { w, peakPerRate: Math.exp(-z * w * tp) * Math.sin(phase) / (w * sq) };
+}
+
+/** The current angles [lat, yaw, ext] (rad) of group g (0 head, 1 spine, 2 pelvis). */
+export function chainAngles(f: FighterState, g: number): [number, number, number] {
+  const h = f.moveHist, b = HIST_CHAIN + g * 6;
+  return [h[b] ?? 0, h[b + 2] ?? 0, h[b + 4] ?? 0];
+}
+
+function kickChain(f: FighterState, type: PunchType, body: boolean, dir: Vec3, mag: number, neck: number, cfg: Config): void {
+  const fr = frameOf(f.yaw);
+  const fwd = dir.x * fr.fwd.x + dir.z * fr.fwd.z;           // − = pushed back
+  const side = dir.x * fr.right.x + dir.z * fr.right.z;      // + = pushed toward his right (hit on his left)
+  const back = clamp(-fwd, 0, 1), hs = clamp(side * 2, -1, 1);
+  const k = Math.min(mag / Math.max(1e-6, cfg.hitChainRefImpulse), cfg.hitChainMaxScale) * neck * DEG;
+  let head: [number, number, number], spine: [number, number, number];
+  if (body) {
+    const hook = type === 'hook';
+    // The torso folds round the fist: spine flexion, a liver hook bends him sideways TOWARD the hit side, the head dips.
+    spine = [-cfg.hitChainBodyLat * hs * (hook ? 1 : 0.3), 0, -cfg.hitChainBodyFold];
+    head = [0, 0, -cfg.hitChainBodyHeadDip];
+  } else if (type === 'hook') {
+    // The head turns away from the glove and tips with it; the shoulders roll after it about the vertical.
+    head = [cfg.hitChainHookLat * hs, -cfg.hitChainHookYaw * hs, cfg.hitChainStraightNeck * 0.2 * back];
+    spine = [cfg.hitChainHookLat * 0.4 * hs, -cfg.hitChainHookSpineYaw * hs, cfg.hitChainStraightSpine * 0.2 * back];
+  } else if (type === 'uppercut') {
+    head = [0, 0, cfg.hitChainUpperNeck];
+    spine = [0, 0, cfg.hitChainUpperSpine];
+  } else {
+    // A straight snaps the head back (neck extension); a little of any sideways push tips it.
+    head = [cfg.hitChainHookLat * 0.3 * hs, 0, cfg.hitChainStraightNeck * back];
+    spine = [0, 0, cfg.hitChainStraightSpine * back];
+  }
+  const groups = [head, spine, spine.map(v => v * cfg.hitChainPelvis)];
+  const h = f.moveHist;
+  for (let g = 0; g < 3; g++) {
+    const { peakPerRate } = chainShape(cfg, g);
+    for (let a = 0; a < 3; a++) {
+      const b = HIST_CHAIN + g * 6 + a * 2;
+      h[b] = h[b] ?? 0;
+      h[b + 1] = (h[b + 1] ?? 0) + groups[g]![a]! * k / peakPerRate;
+    }
+  }
+  // The impact pose: one tick of the swing at once, so the hit-stop's frozen frames show the impact (as the legacy
+  // reactionImpactPose did for the springs).
+  stepChain(f, cfg, SIM_DT);
+}
+
+/** Advance the chain one tick (4 semi-implicit substeps; no-op until a hit has written the slots). */
+function stepChain(f: FighterState, cfg: Config, dt: number): void {
+  const h = f.moveHist;
+  if (h[HIST_CHAIN] === undefined) return;
+  const n = 4, sdt = dt / n, z = Math.min(0.98, cfg.hitChainZeta);
+  for (let g = 0; g < 3; g++) {
+    const { w } = chainShape(cfg, g);
+    for (let a = 0; a < 3; a++) {
+      const b = HIST_CHAIN + g * 6 + a * 2;
+      let x = h[b] ?? 0, v = h[b + 1] ?? 0;
+      for (let i = 0; i < n; i++) { v += (-w * w * x - 2 * z * w * v) * sdt; x += v * sdt; }
+      if (Math.abs(x) < 1e-7 && Math.abs(v) < 1e-5) { x = 0; v = 0; }
+      h[b] = x; h[b + 1] = v;
+    }
+  }
+}
+
 export function stepReaction(f: FighterState, cfg: Config, dt: number): void {
+  if (chainOn(cfg)) stepChain(f, cfg, dt);
   const snap = reactionSnap(f);
   const r = f.reaction;
   stepSpring3(r.head, 0, 0, 0, cfg.reactionHeadK * snap, cfg.reactionHeadC, dt);
