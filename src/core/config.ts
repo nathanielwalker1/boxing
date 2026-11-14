@@ -143,7 +143,14 @@ const POSE_DEFAULTS: Record<string, Record<string, number>> = {
   // punching side IN THE CHEST FRAME — which is straight ahead in the world — elbow ~105°, out at shoulder height.)
   // (The load already carries the arm in its hook shape — elbow up and out, hand near its contact spot in the chest
   // frame — so through the drive the TURN carries the fist: the shoulder joint travelled 80° when the arm swung out late.)
-  hookL_load: { pelYaw: -12, spTwist: -8, weight: -0.08, clElev: 8, hCF: 0.06, hCU: 0.0, hCL: 0.3, hSwivel: 75, hPron: 30 },
+  // (Load rewritten 2026-11-14 — "the elbow is dislocated": with hCL 0.3 out and a 20° coil the lead glove wound up
+  //  BEHIND his own head, elbow flared at ear height (film, docs/anim/p_hook). Now the glove barely leaves the guard —
+  //  12 cm forward, 12 cm out, in front of the lead cheek — the coil is ~16°, the weight goes onto the punching foot and
+  //  the elbow starts a little lower (swivel 70) and lifts to the contact key's 85 through the drive, forearm level at
+  //  contact. (Measured: swivel 20 — elbow at the ribs — put 57° of travel through the shoulder joint, 55 put 28–36°;
+  //  70 gives lead 25° / rear 28° against a 32° / 63° chest turn: skel_test ≤ 30 and less than the chest. The wind-up
+  //  hand is 13 cm off its guard spot, was 25.)
+  hookL_load: { pelYaw: -10, spTwist: -6, weight: -0.08, hCF: 0.12, hCU: 0.0, hCL: 0.12, hSwivel: 70, hPron: 30 },
   // (This figure's chin sits ~20 cm above its shoulder line — the head is big — so the hook fist is at chin height and
   // the elbow lifts toward it; "forearm level at shoulder height" would hit the neck.)
   // (hAim 0.4, was 0.25 (2026-11-14): at 0.25 a short man's lead hook stayed at his own chin height inside 0.7 m — alambre
@@ -154,7 +161,7 @@ const POSE_DEFAULTS: Record<string, Record<string, number>> = {
   //  peaking after contact. At 0.8 it lands on the cheek, clean, 1.442 (legacy 1.442), fastest on the contact tick.)
   hookL_contact: { pelYaw: 17, spTwist: 10, spFlex: 2, hdPitch: 4, clPro: 12, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.38, hAim: 0.8, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.04, foPivot: 10, weight: -0.05 },
   hookL_follow: { pelYaw: 21, spTwist: 12, spFlex: 2, hdPitch: 4, clPro: 13, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.3, hAim: 0.1, hSwivel: 85, hPron: 50, fpPivot: 64, fpHeel: 0.04, foPivot: 11, weight: -0.05 },
-  hookR_load: { pelYaw: -10, spTwist: -6, weight: 0.08, clElev: 8, hCF: 0.18, hCU: -0.01, hCL: 0.22, hSwivel: 75, hPron: 30 },
+  hookR_load: { pelYaw: -10, spTwist: -6, weight: 0.08, hCF: 0.12, hCU: -0.01, hCL: 0.12, hSwivel: 70, hPron: 30 },
   hookR_contact: { pelYaw: 45, spTwist: 28, spFlex: 2, hdPitch: 4, clPro: 15, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.3, hAim: 0.8, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.05, foPivot: 10, weight: -0.15 },
   hookR_follow: { pelYaw: 49, spTwist: 30, spFlex: 2, hdPitch: 4, clPro: 16, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.22, hAim: 0.1, hSwivel: 85, hPron: 50, fpPivot: 64, fpHeel: 0.05, foPivot: 11, weight: -0.15 },
   // UPPERCUT: the knees dip first, the punching shoulder drops, the hand to the short ribs, palm toward me; then the
@@ -1730,12 +1737,10 @@ export const SCHEMA = {
   punchKeysCross:          bool(true, 'pose', 'punch keys for the cross (needs punchKeysOn)'),
   // (Hook keys, 2026-11-13: with the hook's height tracking his jaw, heights fails 1 pair of 49 (alambre→raffle lands
   //  on the body at 0.675 m), danger's liver body hook arrives at 328 N·s (fuse not lit) and ai_tools' turtle draws 0–0.)
-  // (2026-11-14, with the body hook's elbow drop (punchk_hook*_bodySwivel / bodyContactU) and hook contact hAim 0.8:
-  //  keys-on, heights, danger, punch, ai_tools, arms and config all pass. ONE red: skel_test's lead hook shoulder joint
-  //  travels 33° at mid (limit 30). More hip / spine turn (pelYaw 25, spTwist 14) raised the chest turn to 44° and left
-  //  the shoulder at 33: the travel is the arm's path from the wide load, not the turn. The load also looks wrong on film:
-  //  the lead glove winds up behind his own head (load hCL 0.3 on top of the guard, turned back by the coil).)
-  punchKeysHook:           bool(false, 'pose', 'punch keys for the hooks (needs punchKeysOn) — off: fails game rules yet, see LOG_PUNCHES.md'),
+  // (Hook ON 2026-11-14: the body hook's elbow drop (punchk_hook*_bodySwivel / bodyContactU), contact hAim 0.8 and the
+  //  rewritten wind-up (the glove stays in front of the cheek). Heights, the liver hook, the turtle, the shovel hook,
+  //  the loaded counter and the hook geometry checks in skel_test all pass with it.)
+  punchKeysHook:           bool(true, 'pose', 'punch keys for the hooks (needs punchKeysOn) — off: fails game rules yet, see LOG_PUNCHES.md'),
   punchKeysUppercut:       bool(true, 'pose', 'punch keys for the uppercuts (needs punchKeysOn)'),
   punchKeysOn:             bool(true, 'pose', 'PUNCHES AS KEY POSES (needs skelOn): the guard and every punch are authored key poses in joint space (core/poses.ts), timed down the body by the kinetic chain (feet and pelvis first, the hand last, the fist on the existing hit-test tick); the gloves chase the keyed hand. The gameplay scalars (lean, twist, crouch: force, exposure) are computed as before. Off = the legacy punch motion'),
   poseWeightTravel:        num(0.5, 0, 1, 0.05, 'pose', 'a key\'s weight shift moves the pelvis this fraction of the way between the feet (weight 0.3 rear = 20 % of the stance forward of centre × this)'),
