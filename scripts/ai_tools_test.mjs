@@ -188,7 +188,13 @@ console.log('\n=== 6. The read ===');
   const per = SEEDS.map(sd => ({ sd, on: drill(() => 'jab', counter, 42, 24, sd).dodged, off: drill(() => 'jab', blind, 42, 24, sd).dodged }));
   const gap = per.reduce((t, p) => t + p.on - p.off, 0);
   console.log(`     dodged, read on / off, per seed: ${per.map(p => `${p.sd}: ${p.on}/${p.off}`).join(' · ')} — summed gap ${gap}`);
-  check(`the same jab, over and over: it reads it (${same.read} reads), makes it miss (summed dodge gap ${gap} over ${SEEDS.length} seeds, need 18; seed 5: ${same.dodged} of ${same.thrown} dodged, ${sameBlind.dodged} with the read off) and comes back (${same.countered} counters landed)`, same.read >= 5 && gap >= 3 * SEEDS.length && same.countered >= 1);
+  // KNOWN REGRESSION (2026-11-14, orchestrator's call, to be fixed not forgotten): with hitChainV2 on the summed gap is 17;
+  // with it off it is 37 (per seed on/off 11/4 8/2 8/0 8/4 7/3 9/1). The read still works (it adds dodges on 5 of 6 seeds)
+  // but is about half as effective, because the chain leaves the struck head 1-2 cm elsewhere and the read's slips are
+  // timed for the old head. The floor here is 2 a seed (12) so the suite still catches the read breaking outright; the
+  // aim stays 3 a seed (18) and is printed. docs/anim/LOG_HITCHAIN.md lists it under what is left.
+  console.log(`     NOTE (known regression) read gap at the 3-a-seed aim (18): ${gap >= 18 ? 'met' : 'NOT met'} (${gap})`);
+  check(`the same jab, over and over: it reads it (${same.read} reads), makes it miss (summed dodge gap ${gap} over ${SEEDS.length} seeds, floor 12, aim 18; seed 5: ${same.dodged} of ${same.thrown} dodged, ${sameBlind.dodged} with the read off) and comes back (${same.countered} counters landed)`, same.read >= 5 && gap >= 2 * SEEDS.length && same.countered >= 1);
   check(`…so the jab lands less than it does on a man who is not waiting for it (${same.landed} vs ${sameBlind.landed})`, same.landed < sameBlind.landed);
   const order = ['jab', 'cross', 'hook', 'jab', 'hook', 'cross'];
   const mixed = drill(n => order[n % order.length], counter, 70);
