@@ -143,14 +143,33 @@ const POSE_DEFAULTS: Record<string, Record<string, number>> = {
   // punching side IN THE CHEST FRAME — which is straight ahead in the world — elbow ~105°, out at shoulder height.)
   // (The load already carries the arm in its hook shape — elbow up and out, hand near its contact spot in the chest
   // frame — so through the drive the TURN carries the fist: the shoulder joint travelled 80° when the arm swung out late.)
-  hookL_load: { pelYaw: -12, spTwist: -8, weight: -0.08, clElev: 8, hCF: 0.06, hCU: 0.0, hCL: 0.3, hSwivel: 75, hPron: 30 },
+  // (Load rewritten 2026-11-14 — "the elbow is dislocated": with hCL 0.3 out and a 20° coil the lead glove wound up
+  //  BEHIND his own head, elbow flared at ear height (film, docs/anim/p_hook). Now the glove barely leaves the guard —
+  //  12 cm forward, 12 cm out, in front of the lead cheek — the coil is ~16°, the weight goes onto the punching foot and
+  //  the elbow starts a little lower (swivel 70) and lifts to the contact key's 85 through the drive, forearm level at
+  //  contact. (Measured: swivel 20 — elbow at the ribs — put 57° of travel through the shoulder joint, 55 put 28–36°;
+  //  70 gives lead 25° / rear 28° against a 32° / 63° chest turn: skel_test ≤ 30 and less than the chest. The wind-up
+  //  hand is 13 cm off its guard spot, was 25.)
+  // (Swivel 32, was 70 (2026-11-14, Nate's coordinator: "the low elbow wins"): at 70 the lead elbow sat at ear height
+  //  and the forearm lay beside the head — from the play camera an arm wrapped behind it. The elbow now starts down by
+  //  the ribs and lifts to the contact key's 40 on the PELVIS clock (core/poses.ts keyedPose), spread over the swing.)
+  hookL_load: { pelYaw: -10, spTwist: -6, weight: -0.08, hCF: 0.12, hCU: 0.0, hCL: 0.12, hSwivel: 32, hPron: 30 },
   // (This figure's chin sits ~20 cm above its shoulder line — the head is big — so the hook fist is at chin height and
   // the elbow lifts toward it; "forearm level at shoulder height" would hit the neck.)
-  hookL_contact: { pelYaw: 17, spTwist: 10, spFlex: 2, hdPitch: 4, clPro: 12, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.38, hAim: 0.25, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.04, foPivot: 10, weight: -0.05 },
-  hookL_follow: { pelYaw: 21, spTwist: 12, spFlex: 2, hdPitch: 4, clPro: 13, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.3, hAim: 0.1, hSwivel: 85, hPron: 50, fpPivot: 64, fpHeel: 0.04, foPivot: 11, weight: -0.05 },
-  hookR_load: { pelYaw: -10, spTwist: -6, weight: 0.08, clElev: 8, hCF: 0.18, hCU: -0.01, hCL: 0.22, hSwivel: 75, hPron: 30 },
-  hookR_contact: { pelYaw: 45, spTwist: 28, spFlex: 2, hdPitch: 4, clPro: 15, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.3, hAim: 0.25, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.05, foPivot: 10, weight: -0.15 },
-  hookR_follow: { pelYaw: 49, spTwist: 30, spFlex: 2, hdPitch: 4, clPro: 16, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.22, hAim: 0.1, hSwivel: 85, hPron: 50, fpPivot: 64, fpHeel: 0.05, foPivot: 11, weight: -0.15 },
+  // (hAim 0.4, was 0.25 (2026-11-14): at 0.25 a short man's lead hook stayed at his own chin height inside 0.7 m — alambre
+  //  1.71 m on raffle 1.88 m: the fist at 1.36 m, the jaw at 1.60, a body land at 0.675 and 0.6 m (heights_test). At 0.4
+  //  it lands on the head from 0.825 to 0.675 m.)
+  // (hAim 0.8 (2026-11-14, both hooks): at 0.4 the chest-frame spot carried the fist PAST his head inside — at 0.55 m it
+  //  arrived 30 cm beyond the head centre and 12 cm low, a glancing shovel hook at 0.865 power (punch_test), its speed
+  //  peaking after contact. At 0.8 it lands on the cheek, clean, 1.442 (legacy 1.442), fastest on the contact tick.)
+  // (Contact / follow swivel 40 lead, 45 rear (rear load 40), were 85 / 70 (2026-11-14): the fist arrives at the jaw,
+  //  ~20 cm above the shoulder line on this figure, so a level forearm put the elbow 14–18 cm OVER the shoulder. The
+  //  elbow now stays within shoulder height + 5 cm on every tick (skel_test); the forearm angles up to the jaw.)
+  hookL_contact: { pelYaw: 17, spTwist: 10, spFlex: 2, hdPitch: 4, clPro: 12, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.38, hAim: 0.8, hSwivel: 40, hPron: 50, fpPivot: 60, fpHeel: 0.04, foPivot: 10, weight: -0.05 },
+  hookL_follow: { pelYaw: 21, spTwist: 12, spFlex: 2, hdPitch: 4, clPro: 13, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.3, hAim: 0.1, hSwivel: 40, hPron: 50, fpPivot: 64, fpHeel: 0.04, foPivot: 11, weight: -0.05 },
+  hookR_load: { pelYaw: -10, spTwist: -6, weight: 0.08, hCF: 0.12, hCU: -0.01, hCL: 0.12, hSwivel: 40, hPron: 30 },
+  hookR_contact: { pelYaw: 45, spTwist: 28, spFlex: 2, hdPitch: 4, clPro: 15, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.3, hAim: 0.8, hSwivel: 45, hPron: 50, fpPivot: 60, fpHeel: 0.05, foPivot: 10, weight: -0.15 },
+  hookR_follow: { pelYaw: 49, spTwist: 30, spFlex: 2, hdPitch: 4, clPro: 16, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.22, hAim: 0.1, hSwivel: 45, hPron: 50, fpPivot: 64, fpHeel: 0.05, foPivot: 11, weight: -0.15 },
   // UPPERCUT: the knees dip first, the punching shoulder drops, the hand to the short ribs, palm toward me; then the
   // legs drive up and the fist rises through the centre line under the chin, elbow under the fist.
   // (The uppercut's dip is the sim's crouch, in the base body: gameplay, the head box ducks with it. The keys add none.)
@@ -170,8 +189,12 @@ const PUNCH_TIMING: Record<string, Record<string, number>> = {
   // chin a little to the hand's side, the hooks on the jaw, the uppercuts under the chin (on the centre line here).
   jab: { loadAt: 0.5, dSpine: 0.01, dShoulder: 0.02, dHand: 0.03, followMin: 0.25, bodyDrop: 0.02, reach: 1.505, aimU: -0.064, aimL: 0.061, bodyAimU: 0.087, bodyAimL: 0.063, bodyLoadU: -0.15 },
   cross: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.03, dHand: 0.04, followMin: 0.25, bodyDrop: 0.02, reach: 1.579, aimU: -0.043, aimL: 0.056, bodyAimU: 0.104, bodyAimL: 0.056, bodyLoadU: -0.15 },
-  hookL: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.035, dHand: 0.05, followMin: 0.3, bodyDrop: 0.02, reach: 1.263, aimU: -0.097, aimL: -0.034, bodyAimU: 0.067, bodyAimL: -0.062, bodyLoadU: -0.12 },
-  hookR: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.035, dHand: 0.05, followMin: 0.3, bodyDrop: 0.02, reach: 1.263, aimU: -0.080, aimL: -0.035, bodyAimU: 0.077, bodyAimL: -0.055, bodyLoadU: -0.12 },
+  // bodyContactU / bodySwivel (hooks only, 2026-11-14): the BODY hook drops its elbow — the fist comes in under his
+  // guard with the forearm angled up, not level at shoulder height. With the head hook's elbow (swivel 85, level with
+  // the fist at y ≈ 1.3 m) the lead body hook's forearm met his rear elbow on every distance from 0.72 m: a 'through'
+  // land at 274 N·s vs 391 clean (measured; danger_test's liver rule). −0.1 / −25 lands clean at 0.6, 0.72 and 0.79 m.
+  hookL: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.035, dHand: 0.05, followMin: 0.3, bodyDrop: 0.02, reach: 1.263, aimU: -0.097, aimL: -0.034, bodyAimU: 0.067, bodyAimL: -0.062, bodyLoadU: -0.12, bodyContactU: -0.1, bodySwivel: -25 },
+  hookR: { loadAt: 0.55, dSpine: 0.02, dShoulder: 0.035, dHand: 0.05, followMin: 0.3, bodyDrop: 0.02, reach: 1.263, aimU: -0.080, aimL: -0.035, bodyAimU: 0.077, bodyAimL: -0.055, bodyLoadU: -0.12, bodyContactU: -0.1, bodySwivel: -25 },
   upperL: { loadAt: 0.6, dSpine: 0.02, dShoulder: 0.035, dHand: 0.045, followMin: 0.25, bodyDrop: 0.02, reach: 0.985, aimU: -0.06, aimL: 0, bodyAimU: -0.06, bodyAimL: 0, bodyLoadU: 0 },
   upperR: { loadAt: 0.6, dSpine: 0.02, dShoulder: 0.035, dHand: 0.045, followMin: 0.25, bodyDrop: 0.02, reach: 0.985, aimU: -0.05, aimL: 0, bodyAimU: -0.05, bodyAimL: 0, bodyLoadU: 0 },
 };
@@ -188,6 +211,8 @@ const TIMING_DESC: Record<string, string> = {
   bodyAimU: 'AIM, body version: above the middle of his body lane, m',
   bodyAimL: 'AIM, body version: toward the punching hand\'s side, m',
   bodyLoadU: 'BODY version: the hand drops this far in the wind-up (chest frame, m at the reference height), so the drive comes in under his elbows',
+  bodyContactU: 'BODY version (hooks): the hand sits this far lower at contact and follow-through (chest frame, m at the reference height)',
+  bodySwivel: 'BODY version (hooks): the elbow swivels this far from the head version\'s through the whole punch, degrees (− = the elbow drops toward the ribs)',
 };
 export const POSE_PUNCHES = ['jab', 'cross', 'hookL', 'hookR', 'upperL', 'upperR'] as const;
 export const POSE_KEY_NAMES = ['load', 'contact', 'follow'] as const;
@@ -211,7 +236,7 @@ function poseEntries(): Record<`pose_${string}` | `punchk_${string}`, NumEntry> 
     }
   }
   for (const p of POSE_PUNCHES) {
-    for (const [k, v] of Object.entries(PUNCH_TIMING[p]!)) out[`punchk_${p}_${k}`] = num(v, k.toLowerCase().includes('aim') || k === 'bodyLoadU' ? -0.3 : 0, k === 'bodyDrop' ? 0.3 : k === 'reach' ? 2.5 : 1, k === 'bodyDrop' || k.startsWith('d') ? 0.005 : 0.01, `pose: ${p}`, `${p}: ${TIMING_DESC[k]}`);
+    for (const [k, v] of Object.entries(PUNCH_TIMING[p]!)) out[`punchk_${p}_${k}`] = num(v, k === 'bodySwivel' ? -90 : k.toLowerCase().includes('aim') || k === 'bodyLoadU' || k === 'bodyContactU' ? -0.3 : 0, k === 'bodyDrop' ? 0.3 : k === 'reach' ? 2.5 : k === 'bodySwivel' ? 90 : 1, k === 'bodyDrop' || k.startsWith('d') ? 0.005 : 0.01, `pose: ${p}`, `${p}: ${TIMING_DESC[k]}`);
     for (const key of POSE_KEY_NAMES) {
       for (const [ch, [unit, what]] of Object.entries(POSE_CHANNELS)) {
         const v = POSE_DEFAULTS[`${p}_${key}`]?.[ch] ?? 0;
@@ -1718,7 +1743,10 @@ export const SCHEMA = {
   punchKeysCross:          bool(true, 'pose', 'punch keys for the cross (needs punchKeysOn)'),
   // (Hook keys, 2026-11-13: with the hook's height tracking his jaw, heights fails 1 pair of 49 (alambre→raffle lands
   //  on the body at 0.675 m), danger's liver body hook arrives at 328 N·s (fuse not lit) and ai_tools' turtle draws 0–0.)
-  punchKeysHook:           bool(false, 'pose', 'punch keys for the hooks (needs punchKeysOn) — off: fails game rules yet, see LOG_PUNCHES.md'),
+  // (Hook ON 2026-11-14: the body hook's elbow drop (punchk_hook*_bodySwivel / bodyContactU), contact hAim 0.8 and the
+  //  rewritten wind-up (the glove stays in front of the cheek). Heights, the liver hook, the turtle, the shovel hook,
+  //  the loaded counter and the hook geometry checks in skel_test all pass with it.)
+  punchKeysHook:           bool(true, 'pose', 'punch keys for the hooks (needs punchKeysOn) — off: fails game rules yet, see LOG_PUNCHES.md'),
   punchKeysUppercut:       bool(true, 'pose', 'punch keys for the uppercuts (needs punchKeysOn)'),
   punchKeysOn:             bool(true, 'pose', 'PUNCHES AS KEY POSES (needs skelOn): the guard and every punch are authored key poses in joint space (core/poses.ts), timed down the body by the kinetic chain (feet and pelvis first, the hand last, the fist on the existing hit-test tick); the gloves chase the keyed hand. The gameplay scalars (lean, twist, crouch: force, exposure) are computed as before. Off = the legacy punch motion'),
   poseWeightTravel:        num(0.5, 0, 1, 0.05, 'pose', 'a key\'s weight shift moves the pelvis this fraction of the way between the feet (weight 0.3 rear = 20 % of the stance forward of centre × this)'),
