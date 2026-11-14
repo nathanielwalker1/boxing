@@ -1033,12 +1033,16 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // Legs: feet planted in world space, stepped when the body walks away.
     // The leader is updated first so it wins when both feet are due.
     const moving = vSpd > 1e-3;
+    const keyFeet = c.skelOn && c.punchKeysOn && !!next.footKey && fallK < 0.5;
     for (const i of leader === 0 ? [0, 1] : [1, 0]) {
       const s = latSign[i]!;
       // Stance from stanceParams (one place: a style table can drive it). A step jab's lead foot steps with the punch.
-      const jabStep = cp.on && pt === 'jab' && next.punch.variant === 'jab' ? cp.push * c.rigJabStep : 0;   // V2: the jab steps off the lead foot
-      const restFwd = i === 0 ? st.fwd + reads.leadStep + jabStep : -st.back;
-      const restLat = s * st.lat;
+      // Punch keys (cfg.punchKeysOn): the sim's foot channels replace the rig's own punch step — [stepF, stepL, pivot, heel] per foot.
+      const fk = keyFeet ? next.footKey! : null;
+      const jabStep = fk ? 0 : cp.on && pt === 'jab' && next.punch.variant === 'jab' ? cp.push * c.rigJabStep : 0;   // V2: the jab steps off the lead foot
+      const keyStepF = fk ? fk[i * 4]! : 0, keyStepL = fk ? fk[i * 4 + 1]! : 0;
+      const restFwd = (i === 0 ? st.fwd + reads.leadStep + jabStep : -st.back) + keyStepF;
+      const restLat = s * (st.lat + keyStepL);
       const footYawLocal = leadSign * (i === 0 ? c.rigLeadFootYawDeg : c.rigRearFootYawDeg) * DEG;
       const w = localToWorld(pos, frame, restFwd + hipSway.x, 0, restLat);
       footRest.x = w.x; footRest.z = w.z; footRest.y = 0; footRest.rotY = -yaw + footYawLocal;
@@ -1068,7 +1072,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       } else if (i === 0 && reads.followStep && !feet[0].stepping && Math.hypot(footDesired.x - feet[0].out.x, footDesired.z - feet[0].out.z) > 0.04) {
         // rigComboV2: the sim's follow step carries the attacker in — the LEAD foot goes first, at once, not when the planter gets round to it.
         stepStyle.role = 'lead'; stepStyle.lateral = false; feet[0].stepNow(footDesired, c);
-      } else if (i === 0 && reads.leadStep + jabStep > 0.02 && !feet[0].stepping) {
+      } else if (i === 0 && reads.leadStep + jabStep + keyStepF > 0.02 && !feet[0].stepping) {
         const fd = Math.hypot(footDesired.x - feet[0].out.x, footDesired.z - feet[0].out.z);
         if (fd > 0.05) { stepStyle.role = 'lead'; stepStyle.lateral = false; feet[0].stepNow(footDesired, c); } else feet[i]!.update(footDesired, footRest, stepStyle, dt, c, feet[1 - i]!);
       } else feet[i]!.update(footDesired, footRest, stepStyle, dt, c, feet[1 - i]!);
@@ -1082,7 +1086,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       const hookFoot = hookAmt * ((next.punch.hand === 'lead') === (i === 0) ? 1 : 0);
       const pivot = cp.on ? (i === pushFoot ? c.rigPunchFootPivot * (pt === 'jab' ? c.rigChainJabHeel : 1) : c.rigChainOffFootPivot)
         : i === 0 ? lerp(c.rigPunchLeadFootPivot, c.rigPunchFootPivot, hookFoot) : c.rigPunchFootPivot;
-      const pivotYaw = hipYawS * pivot;
+      // (Keyed: the sim's pivot channel, radians in the fighter's frame; still about the ball, below.)
+      const pivotYaw = keyFeet ? next.footKey![i * 4 + 2]! : hipYawS * pivot;
       const yawL = fp.rotY + yaw + pivotYaw;
       // The pivot is on the BALL of the foot, not the ankle: the heel swings
       // round the ball, so the ankle moves along an arc (2026-09-16). +x is the
@@ -1101,7 +1106,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       //   and both heels up through a hop or a rising punch.
       // V2 chain: the pushing foot's heel comes up WITH the hip drive (foot first), not with the forward lean (which peaks with the fist).
       const punchLift = cp.on ? c.rigPunchHeelLift * cp.push * (i === pushFoot ? (pt === 'jab' ? c.rigChainJabHeel : 1) : 0) : c.rigPunchHeelLift * Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean) * liftW;
-      const lift = Math.max(punchLift * reads.heelScale, (i === 1 ? reads.heelRear * rhythm : 0), reads.heelBoth) * (1 - fallK);
+      const keyLift = keyFeet ? next.footKey![i * 4 + 3]! : punchLift * reads.heelScale;
+      const lift = Math.max(keyLift, (i === 1 ? reads.heelRear * rhythm : 0), reads.heelBoth) * (1 - fallK);
       ankle.y += body.bootH + lift;
 
       hipJ[i]!.set(0, 0, s * d.hipJ).applyQuaternion(qHips).add(H);
