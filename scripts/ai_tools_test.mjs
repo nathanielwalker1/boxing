@@ -19,7 +19,7 @@ import * as masher from './bots/masher.mjs';
 
 const k = await kit();
 const { cfg, sim, ai, specs, SIM_DT } = k;
-const fast = { ...cfg, roundCount: 2, roundSeconds: 20, betweenRoundSeconds: 3 };
+const fast = { ...cfg, aiHumanV2: false, guardHookCover: 1, roundCount: 2, roundSeconds: 20, betweenRoundSeconds: 3 };
 
 function fight(bot, seed, c = fast, style = null) {
   let s = sim.createState(specs, c, seed);

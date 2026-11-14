@@ -386,6 +386,8 @@ function guardCover(d: FighterState, base: PunchType, part: BodyPart, dirX: numb
     if (base === 'uppercut') cover *= g ? g.uppercutCover : cfg.guardUppercutCover;
     else if (part === 'body') cover *= g ? g.bodyCover : cfg.guardBodyCover;
     else if (g) cover *= g.headCover;
+    // aiHumanV2 guard hole: a hook to the head comes round a held guard more than a straight does.
+    if (cfg.aiHumanV2 && base === 'hook' && part !== 'body') cover *= cfg.guardHookCover;
     // A block raised from a low guard takes a beat to get there.
     if (g && g.raise > 0) cover *= clamp(d.blockT / g.raise, 0, 1);
   }
