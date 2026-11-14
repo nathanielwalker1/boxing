@@ -41,7 +41,7 @@ export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: 
     f.reaction.sink.v += dsink;
     f.reaction.sink.x += dsink * cfg.reactionImpactPose;
     clampReaction(f.reaction, cfg, neckMult(f));
-    kickChain(f, type, opt.part === 'body', dir, mag, (opt.neck ?? 1) * (1 + va * 0.5), cfg);
+    kickChain(f, type, opt.part === 'body', dir, mag / (sc || 1), sc * (opt.neck ?? 1) * (1 + va * 0.5), cfg);
     setReactionSnap(f, s.snap);
     return;
   }
@@ -128,7 +128,11 @@ function kickChain(f: FighterState, type: PunchType, body: boolean, dir: Vec3, m
   const fwd = dir.x * fr.fwd.x + dir.z * fr.fwd.z;           // − = pushed back
   const side = dir.x * fr.right.x + dir.z * fr.right.z;      // + = pushed toward his right (hit on his left)
   const back = clamp(-fwd, 0, 1), hs = clamp(side * 2, -1, 1);
-  const k = Math.min(mag / Math.max(1e-6, cfg.hitChainRefImpulse), cfg.hitChainMaxScale) * neck * DEG;
+  // Size from the landed impulse (before the grade scale) over a floor: a jab barely moves the joints, a cross snaps
+  // them; `neck` here carries the grade's scale (glancing less, flush more) times the neck multiplier (flush, finisher,
+  // counter), so a flush or counter shot goes further, up to the cap and the joint limits.
+  const size = clamp((mag - cfg.hitChainFloorImpulse) / Math.max(1e-6, cfg.hitChainRefImpulse - cfg.hitChainFloorImpulse), 0, cfg.hitChainMaxScale);
+  const k = size * neck * DEG;
   let head: [number, number, number], spine: [number, number, number];
   if (body) {
     const hook = type === 'hook';

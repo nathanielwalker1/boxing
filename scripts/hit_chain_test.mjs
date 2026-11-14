@@ -99,7 +99,7 @@ function table(label, ms) {
   for (const m of ms) {
     if (!m.pk) { console.log(`  ${m.cs.name.padEnd(17)} (no land: ${m.hit.events.find(e => e.side === 0 && /punch/.test(e.type))?.type ?? 'none'})`); continue; }
     const p = m.pk, at = m.after[m.tPeak - 1];
-    console.log(`  ${m.cs.name.padEnd(17)} ${String(m.hit.land.part).padEnd(5)} ${cm(p.head).padStart(5)} ${cm(p.root).padStart(5)} ${cm(p.joint).padStart(7)} ${cm(p.spine).padStart(6)} ${cm(p.neckD).padStart(5)} | ${dg(at.aSpine).padStart(6)} ${dg(at.aHead).padStart(6)} ${dg(at.aPel).padStart(7)} | ${String(m.tPeak).padStart(6)} ${String(m.tHead).padStart(4)} ${String(m.tSpine).padStart(5)} ${String(m.tPel).padStart(6)} | ${dg(m.maxYaw)}`);
+    console.log(`  ${m.cs.name.padEnd(17)} ${String(m.hit.land.part).padEnd(5)} ${cm(p.head).padStart(5)} ${cm(p.root).padStart(5)} ${cm(p.joint).padStart(7)} ${cm(p.spine).padStart(6)} ${cm(p.neckD).padStart(5)} | ${dg(at.aSpine).padStart(6)} ${dg(at.aHead).padStart(6)} ${dg(at.aPel).padStart(7)} | ${String(m.tPeak).padStart(6)} ${String(m.tHead).padStart(4)} ${String(m.tSpine).padStart(5)} ${String(m.tPel).padStart(6)} | ${dg(m.maxYaw)} | imp ${Math.hypot(m.hit.land.impulse.x, m.hit.land.impulse.y, m.hit.land.impulse.z).toFixed(1)} ${m.hit.land.grade}`);
   }
 }
 
@@ -120,6 +120,35 @@ for (const m of onM) if (m.L >= 0) check(`${m.cs.name}: the head group peaks fir
   check(`lead hook turns the head ≥ 15° (${dg(by(onM, 'lead hook head').maxYaw)}°); the cross < 8° (${dg(m.maxYaw)}°)`, by(onM, 'lead hook head').maxYaw >= 15 * DEG && m.maxYaw < 8 * DEG);
   const b = by(onM, 'cross body');
   check(`body cross: the spine flexes forward (${dg(b.minSpineExt)}°) and the neck does not extend (${dg(b.maxNeckExt)}°)`, b.minSpineExt < -5 * DEG && b.maxNeckExt < 2 * DEG);
+}
+{
+  const j = by(onM, 'cross head'), jb = by(onM, 'jab head'), u = by(onM, 'rear upper head');
+  check(`clean jab: head travel ${cm(jb.pk.head)} cm in total (about 8–12), under half a clean cross's ${cm(j.pk.head)} cm`, jb.pk.head < j.pk.head / 2 && jb.pk.head >= 0.06 && jb.pk.head <= 0.13);
+  check(`uppercut (${u.hit.land.grade}) joint travel between the jab's and the cross's by impulse: ${cm(jb.pk.joint)} < ${cm(u.pk.joint)} < ${cm(j.pk.joint)} cm`, jb.pk.joint < u.pk.joint && u.pk.joint < j.pk.joint);
+}
+// ── Counter (counterFeelV2 on the skeleton): the same cross as a slip counter throws the head further than a plain one ──
+{
+  const MID = 0.79;
+  const freshM = () => { let s = sim.createState(specs, ON, 1); s.fighters[0].pos = { x: -MID / 2, z: 0 }; s.fighters[1].pos = { x: MID / 2, z: 0 }; for (let i = 0; i < 30; i++) s = sim.step(s, [inp(), inp()], ON).state; return s; };
+  let L = 0;
+  { let s = freshM(); for (let i = 0; i < 40 && !L; i++) { const r = sim.step(s, [inp({ jab: i === 0 }), inp()], ON); s = r.state; if (r.events.some(e => e.type === 'punchLand')) L = i; } }
+  const ctrl = []; { let s = freshM(); for (let i = 0; i < 40; i++) { s = sim.step(s, [inp({ jab: i === 0 }), inp()], ON).state; ctrl.push({ ...s.fighters[1].pos }); } }
+  const sc = counter => {
+    let s = freshM(); const d0 = s.fighters[0], def = skelDef(d0.body, d0.stance, ON);
+    let peak = 0, land = null; const start = L - 8, release = start + 3, at = L + 3;
+    for (let i = 0; i < 90; i++) {
+      const r = sim.step(s, [counter ? inp({ jab: i === 0 }) : inp(), inp({ cross: i === at, move: { x: counter && i >= start && i < release ? -1 : 0, y: 0 } })], ON); s = r.state;
+      if (counter && i >= start && i <= release + 1) { s.fighters[1].pos = { ...ctrl[i] }; s.fighters[1].vel = { x: 0, z: 0 }; }
+      const e = r.events.find(e => e.type === 'punchLand' && e.side === 1); if (e) land = e;
+      const k = fk(def, s.fighters[0].skel), h = skelHeadCentre(def, k), p = k.p[SKJ.pelvis];
+      if (land) peak = Math.max(peak, Math.hypot(h.x - p.x, h.z - p.z));   // head off the pelvis, horizontal (the joints' share)
+      else peak = 0;
+    }
+    return { peak, land };
+  };
+  const rest = (() => { const s = freshM(), d = s.fighters[0], def = skelDef(d.body, d.stance, ON), k = fk(def, d.skel), h = skelHeadCentre(def, k), p = k.p[SKJ.pelvis]; return Math.hypot(h.x - p.x, h.z - p.z); })();
+  const c = sc(true), p = sc(false);
+  check(`counter (skeleton, chain on): a counter cross moves the head off the hips further than a plain one — ${cm(c.peak - rest)} vs ${cm(p.peak - rest)} cm (counter ${c.land?.counter}, plain ${p.land?.counter})`, c.land?.counter === true && p.land?.counter === false && c.peak - rest > (p.peak - rest) * 1.15);
 }
 // ── Limits ──
 check('every joint within its limits on every tick of every case (on and off)', [...onM, ...offM].every(m => m.hit.limitsOk), [...onM, ...offM].filter(m => !m.hit.limitsOk).map(m => `${m.cs.name} ${m.hit.worstJoint}`).join(' '));
