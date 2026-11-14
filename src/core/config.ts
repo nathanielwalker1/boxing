@@ -149,10 +149,13 @@ const POSE_DEFAULTS: Record<string, Record<string, number>> = {
   // (hAim 0.4, was 0.25 (2026-11-14): at 0.25 a short man's lead hook stayed at his own chin height inside 0.7 m — alambre
   //  1.71 m on raffle 1.88 m: the fist at 1.36 m, the jaw at 1.60, a body land at 0.675 and 0.6 m (heights_test). At 0.4
   //  it lands on the head from 0.825 to 0.675 m.)
-  hookL_contact: { pelYaw: 17, spTwist: 10, spFlex: 2, hdPitch: 4, clPro: 12, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.38, hAim: 0.4, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.04, foPivot: 10, weight: -0.05 },
+  // (hAim 0.8 (2026-11-14, both hooks): at 0.4 the chest-frame spot carried the fist PAST his head inside — at 0.55 m it
+  //  arrived 30 cm beyond the head centre and 12 cm low, a glancing shovel hook at 0.865 power (punch_test), its speed
+  //  peaking after contact. At 0.8 it lands on the cheek, clean, 1.442 (legacy 1.442), fastest on the contact tick.)
+  hookL_contact: { pelYaw: 17, spTwist: 10, spFlex: 2, hdPitch: 4, clPro: 12, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.38, hAim: 0.8, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.04, foPivot: 10, weight: -0.05 },
   hookL_follow: { pelYaw: 21, spTwist: 12, spFlex: 2, hdPitch: 4, clPro: 13, clElev: 12, hCF: 0.1, hCU: 0.0, hCL: 0.3, hAim: 0.1, hSwivel: 85, hPron: 50, fpPivot: 64, fpHeel: 0.04, foPivot: 11, weight: -0.05 },
   hookR_load: { pelYaw: -10, spTwist: -6, weight: 0.08, clElev: 8, hCF: 0.18, hCU: -0.01, hCL: 0.22, hSwivel: 75, hPron: 30 },
-  hookR_contact: { pelYaw: 45, spTwist: 28, spFlex: 2, hdPitch: 4, clPro: 15, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.3, hAim: 0.25, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.05, foPivot: 10, weight: -0.15 },
+  hookR_contact: { pelYaw: 45, spTwist: 28, spFlex: 2, hdPitch: 4, clPro: 15, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.3, hAim: 0.8, hSwivel: 85, hPron: 50, fpPivot: 60, fpHeel: 0.05, foPivot: 10, weight: -0.15 },
   hookR_follow: { pelYaw: 49, spTwist: 30, spFlex: 2, hdPitch: 4, clPro: 16, clElev: 12, hCF: 0.25, hCU: -0.01, hCL: 0.22, hAim: 0.1, hSwivel: 85, hPron: 50, fpPivot: 64, fpHeel: 0.05, foPivot: 11, weight: -0.15 },
   // UPPERCUT: the knees dip first, the punching shoulder drops, the hand to the short ribs, palm toward me; then the
   // legs drive up and the fist rises through the centre line under the chin, elbow under the fist.
@@ -1727,10 +1730,11 @@ export const SCHEMA = {
   punchKeysCross:          bool(true, 'pose', 'punch keys for the cross (needs punchKeysOn)'),
   // (Hook keys, 2026-11-13: with the hook's height tracking his jaw, heights fails 1 pair of 49 (alambre→raffle lands
   //  on the body at 0.675 m), danger's liver body hook arrives at 328 N·s (fuse not lit) and ai_tools' turtle draws 0–0.)
-  // (2026-11-14, with the body hook's elbow drop (punchk_hook*_bodySwivel / bodyContactU) and hookL hAim 0.4: heights,
-  //  the liver (469 N·s, lit) and ai_tools all pass keys-on. Still red keys-on: punch_test's shovel hook at 0.7 m (0.865
-  //  vs 1.602 power), danger 4b's loaded slip-counter lead hook (921 N·s, does not floor a worn man), skel_test's hook
-  //  reach on the hit tick (lead inside 2.4) and hook shoulder travel (lead mid 33° vs chest 36°; rear mid 39°).)
+  // (2026-11-14, with the body hook's elbow drop (punchk_hook*_bodySwivel / bodyContactU) and hook contact hAim 0.8:
+  //  keys-on, heights, danger, punch, ai_tools, arms and config all pass. ONE red: skel_test's lead hook shoulder joint
+  //  travels 33° at mid (limit 30). More hip / spine turn (pelYaw 25, spTwist 14) raised the chest turn to 44° and left
+  //  the shoulder at 33: the travel is the arm's path from the wide load, not the turn. The load also looks wrong on film:
+  //  the lead glove winds up behind his own head (load hCL 0.3 on top of the guard, turned back by the coil).)
   punchKeysHook:           bool(false, 'pose', 'punch keys for the hooks (needs punchKeysOn) — off: fails game rules yet, see LOG_PUNCHES.md'),
   punchKeysUppercut:       bool(true, 'pose', 'punch keys for the uppercuts (needs punchKeysOn)'),
   punchKeysOn:             bool(true, 'pose', 'PUNCHES AS KEY POSES (needs skelOn): the guard and every punch are authored key poses in joint space (core/poses.ts), timed down the body by the kinetic chain (feet and pelvis first, the hand last, the fist on the existing hit-test tick); the gloves chase the keyed hand. The gameplay scalars (lean, twist, crouch: force, exposure) are computed as before. Off = the legacy punch motion'),
