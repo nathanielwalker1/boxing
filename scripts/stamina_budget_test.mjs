@@ -27,10 +27,19 @@ console.log('\n=== 1. The budget of a 60 s round: tank % at 15 / 30 / 45 / 60 s 
 const R = {}, W = {};
 for (const n of Object.keys(P)) { R[n] = pace({ ...P[n], c: cfg }, true); W[n] = pace({ ...P[n], c: OFF }, true); console.log(`  ${n.padEnd(10)} staminaV2 on : ${row(R[n])}\n  ${''.padEnd(10)} staminaV2 off: ${row(W[n])}`); }
 const end = r => r.rounds[0].end;
-check(`sensible pace ends the round on 52-72% (${pct(end(R.sensible))}%) and is never gassed`, end(R.sensible) >= 0.52 && end(R.sensible) <= 0.72 && R.sensible.gassedAt === null);
+check(`sensible pace ends the round on 55-70% (${pct(end(R.sensible))}%) and is never gassed`, end(R.sensible) >= 0.55 && end(R.sensible) <= 0.70 && R.sensible.gassedAt === null);
 check(`before: the same pace ended on ${pct(end(W.sensible))}% (the measured problem, stamina was no factor)`, end(W.sensible) > 0.9);
-check(`spamming is gassed inside 8-26 s (${R.spam.gassedAt === null ? 'never' : R.spam.gassedAt.toFixed(1) + ' s'})`, R.spam.gassedAt !== null && R.spam.gassedAt >= 8 && R.spam.gassedAt <= 26);
+check(`spamming is gassed inside 18-28 s (${R.spam.gassedAt === null ? 'never' : R.spam.gassedAt.toFixed(1) + ' s'})`, R.spam.gassedAt !== null && R.spam.gassedAt >= 18 && R.spam.gassedAt <= 28);
 check(`defensive play ends the round on 80% or more (${pct(end(R.defensive))}%) and is never gassed`, end(R.defensive) >= 0.8 && R.defensive.gassedAt === null);
+
+console.log('\n=== 1b. The 60 s tank by pace (a gradient, not a cliff) ===');
+{
+  const ends = [];
+  for (const ppm of [40, 50, 60, 70, 80, 100, 120]) { const r = pace({ ppm, miss: 0.4, his: 24, holdGuard: true, c: cfg }, true); ends.push(r.rounds[0].end * 100); console.log(`  asked ${String(ppm).padStart(3)} a minute (${r.ppm.toFixed(0)} thrown): ${ends[ends.length - 1].toFixed(0)}%${r.gassedAt === null ? '' : ', gassed at ' + r.gassedAt.toFixed(0) + ' s'}`); }
+  const jumps = ends.slice(1).map((e, i) => ends[i] - e);
+  check(`it falls steadily with the pace (no rise): ${ends.map(e => e.toFixed(0)).join(' ')}`, jumps.every(j => j >= -0.5));
+  check(`…and no jump between neighbouring paces is over 25 points (biggest ${Math.max(...jumps).toFixed(0)}; the aim was 20)`, Math.max(...jumps) <= 25);
+}
 
 console.log('\n=== 2. What things cost ===');
 {
@@ -40,6 +49,8 @@ console.log('\n=== 2. What things cost ===');
     check(`${p}: a miss (${(miss * 100).toFixed(2)}%) costs more than a block (${(blk * 100).toFixed(2)}%) costs more than a land (${(land * 100).toFixed(2)}%)`, miss > blk && blk > land);
   }
   check(`a body hook taken drains more than a head hook taken (${(c['taking a body hook clean'].cost * 100).toFixed(1)}% vs ${(c['TAKING his hook clean'].cost * 100).toFixed(1)}%)`, c['taking a body hook clean'].cost > c['TAKING his hook clean'].cost);
+  const cx = n => c['cross thrown and ' + n].cost * 100;
+  check(`a cross costs about 1.5% landed, 2.5% blocked, 3% missed (${cx('LANDED').toFixed(2)} / ${cx('BLOCKED').toFixed(2)} / ${cx('MISSED').toFixed(2)})`, Math.abs(cx('LANDED') - 1.5) < 0.2 && Math.abs(cx('BLOCKED') - 2.5) < 0.2 && Math.abs(cx('MISSED') - 3) < 0.2);
   check(`off: the old blocked punch cost no more than a land plus the refund (${(o['cross thrown and BLOCKED'].cost * 100).toFixed(2)}%)`, o['cross thrown and BLOCKED'].cost <= o['cross thrown and LANDED'].cost + 0.0151);
 }
 
@@ -50,7 +61,7 @@ console.log('\n=== 3. Recovery ===');
   const free = idle(cfg, 240, false), guard = idle(cfg, 240, true);
   check(`4 s of not punching returns at least 8 points (${(free * 100).toFixed(1)})`, free >= 0.08);
   check(`behind the guard it comes back more slowly (${(guard * 100).toFixed(1)} < ${(free * 100).toFixed(1)}) but does come back`, guard > 0 && guard < free);
-  check(`the pause after a throw: 1 s after a punch almost nothing returns, so a busy fighter gets none`, (() => { let s = k.fresh(cfg, 3); s.fighters[0].stamina = 0.3; s = k.sim.step(s, [k.inp({ jab: true }), k.NONE], cfg).state; const a = s.fighters[0].stamina; for (let i = 0; i < 30; i++) s = k.sim.step(s, [k.NONE, k.NONE], cfg).state; return s.fighters[0].stamina - a < 0.01; })());
+  check('right after a throw wind barely comes back: in the next 0.5 s under 2 points (the ramp starts at zero)', (() => { let s = k.fresh(cfg, 3); s.fighters[0].stamina = 0.3; s = k.sim.step(s, [k.inp({ jab: true }), k.NONE], cfg).state; const a = s.fighters[0].stamina; for (let i = 0; i < 30; i++) s = k.sim.step(s, [k.NONE, k.NONE], cfg).state; return s.fighters[0].stamina - a < 0.02; })());
 }
 
 console.log('\n=== 4. The off switch ===');

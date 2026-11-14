@@ -658,7 +658,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
       a.combo = (a.comboT > 0 ? a.combo : 0) + 1;
       a.comboT = cfg.comboWindow;
       if (cfg.comboBuildOn) mag *= 1 + Math.min(cfg.comboBuildMax, cfg.comboBuildStep * (a.combo - 1));
-      if (cfg.whiffCostOn) a.stamina = Math.min(1, a.stamina + cfg.staminaLandRefund);
+      if (cfg.whiffCostOn) a.stamina = Math.min(1, a.stamina + (cfg.staminaV2 ? cfg.staminaV2LandRefund : cfg.staminaLandRefund));
       // The finisher (polish phase): the power punch that lands third or later is the combination's last and biggest moment.
       finisher = cfg.comboFinisherOn && type !== 'jab' && a.combo >= cfg.comboFinisherAt;
       if (finisher) mag *= cfg.comboFinisherPower;

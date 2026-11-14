@@ -18,6 +18,8 @@
  * and helpers: push(...ticks), flick(x, y), doubleTap(x, y), lowThen(press, x), combo([...presses], gap).
  */
 export const REACT = 11;   // ticks of reaction: 0.18 s
+export const EASE_MARGIN = 0.1;    // a bot eases off below lowStamina + this
+export const EASE_RECOVER = 0.2;   // …and goes back to work once it is this much above that line
 
 export function makeBot(k, seed, policy) {
   const { core, inp } = k;
@@ -48,6 +50,11 @@ export function makeBot(k, seed, policy) {
       b.t += 1;
       if (s.round.phase !== 'fighting' || s.fighters[0].down) { b.q.length = 0; return inp(); }
       if (b.q.length) return inp(b.q.shift());
+      // The shared stamina rule (staminaV2): a player who is nearly gassed does not open a new combination; he covers up until the wind is back.
+      const wind = s.fighters[0].stamina, low = k.cfg.lowStamina + EASE_MARGIN;
+      if (wind < low) b.easing = true; else if (wind >= low + EASE_RECOVER) b.easing = false;
+      // (He gives ground, so the wind comes back at the open rate, and covers up only while a punch of his is on its way.)
+      if (b.easing) return inp({ block: b.seenPunch.type !== null && dist(s) < 1.4, move: { x: 0, y: dist(s) < 1.5 ? -1 : 0 } });
       return inp(policy(b, s) ?? {});
     },
   };

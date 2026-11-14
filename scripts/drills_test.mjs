@@ -116,7 +116,7 @@ for (const drill of DRILLS) {
   }
   if (drill.id === 'stamina-guard') {
     const p = played.s.fighters[0];
-    check(`twenty seconds behind the guard (fifteen of jabs, five of heavy shots) leaves ${Math.round(p.stamina * 100)}% in the tank (staminaV2: the shell is a cost now, it was over 60%; it still must not empty him)`, p.stamina > 0.1);
+    check(`twenty seconds behind the guard (fifteen of jabs, five of heavy shots) leaves ${Math.round(p.stamina * 100)}% in the tank (staminaV2: the shell is a real cost now, 47% where it was over 60%; it must still leave him over 40%)`, p.stamina > 0.4);
   }
   if (drill.id === 'survive') {
     const taken = r => r.events.filter(e => e.type === 'punchLand' && e.side === 1).length;
