@@ -1710,7 +1710,9 @@ export const SCHEMA = {
   // Hook OFF: on the keys a short man's head hook still lands on a taller man's body (heights_test) and the lead body
   // hook is too light to light the liver (danger_test: 328 N·s) — LOG_PUNCHES.md.
   punchKeysJab:            bool(true, 'pose', 'punch keys for the jab (needs punchKeysOn)'),
-  punchKeysCross:          bool(false, 'pose', 'punch keys for the cross (needs punchKeysOn)'),
+  punchKeysCross:          bool(true, 'pose', 'punch keys for the cross (needs punchKeysOn)'),
+  // (Hook keys, 2026-11-13: with the hook's height tracking his jaw, heights fails 1 pair of 49 (alambre→raffle lands
+  //  on the body at 0.675 m), danger's liver body hook arrives at 328 N·s (fuse not lit) and ai_tools' turtle draws 0–0.)
   punchKeysHook:           bool(false, 'pose', 'punch keys for the hooks (needs punchKeysOn) — off: fails game rules yet, see LOG_PUNCHES.md'),
   punchKeysUppercut:       bool(true, 'pose', 'punch keys for the uppercuts (needs punchKeysOn)'),
   punchKeysOn:             bool(true, 'pose', 'PUNCHES AS KEY POSES (needs skelOn): the guard and every punch are authored key poses in joint space (core/poses.ts), timed down the body by the kinetic chain (feet and pelvis first, the hand last, the fist on the existing hit-test tick); the gloves chase the keyed hand. The gameplay scalars (lean, twist, crouch: force, exposure) are computed as before. Off = the legacy punch motion'),
