@@ -243,6 +243,11 @@ const POWER: readonly PunchType[] = ['cross', 'hook', 'uppercut'];
 const weightOf = (t: PunchType, st: StyleParams): number =>
   t === 'jab' ? st.jabWeight : t === 'cross' ? st.crossWeight : t === 'hook' ? st.hookWeight : st.uppercutWeight;
 /** Weighted pick among `types`; all weights 0 = the first. */
+/** The reaction time for one block / counter decision: a draw from the human range (aiHumanV2, seeded) or the fixed style reaction. */
+function humanReaction(a: AiState, st: StyleParams): number {
+  return st.reactMax > 0 ? rngRange(a.rngT, st.reactMin, st.reactMax) : st.reaction;
+}
+
 function pickPunch(rng: RngState, st: StyleParams, types: readonly PunchType[] = TYPES): PunchType {
   const total = types.reduce((s, t) => s + Math.max(0, weightOf(t, st)), 0);
   if (total <= 0) return types[0]!;
@@ -633,7 +638,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // peak is gone before a human reaction lands; a whiffed hook and a slipped
   // punch are not. That is the point.
   const oppExposed = opp.vuln >= st.counterVuln && !opp.down;
-  if (oppExposed && !a.oppExposed && a.counterReact === 0 && rngChance(a.rng, st.counterChance)) a.counterReact = Math.max(st.reaction, 1e-6);
+  if (oppExposed && !a.oppExposed && a.counterReact === 0 && rngChance(a.rng, st.counterChance)) a.counterReact = Math.max(humanReaction(a, st), 1e-6);
   a.oppExposed = oppExposed;
   if (a.counterReact > 0) {
     a.counterReact = Math.max(0, a.counterReact - dt);
@@ -727,12 +732,12 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // person. Zero = the tick after, as before.
   if (a.blockTimer > 0) a.blockTimer = Math.max(0, a.blockTimer - dt);
   if (oppStarted && a.blockReact === 0 && a.blockTimer === 0 && dist <= st.engageStraight) {
-    a.blockReact = Math.max(st.reaction, 1e-6);
+    a.blockReact = Math.max(humanReaction(a, st), 1e-6);
   }
   if (a.blockReact > 0) {
     a.blockReact = Math.max(0, a.blockReact - dt);
     // (Inside range it defends at insideBlock; against a rush, always; and difficulty makes it miss some.)
-    const defend = (wild ? 1 : inside ? Math.max(st.blockChance, st.insideBlock) : st.blockChance) * sure;
+    const defend = (wild ? 1 : inside ? Math.max(st.blockChance, st.insideBlock) : st.blockChance) * sure * (1 - st.missChance);
     if (a.blockReact === 0 && !punching && a.blockTimer === 0 && rngChance(a.rng, defend)) {
       a.blockTimer = st.blockWindow;
       // Overhaul: a share of the punches it has decided to defend it takes

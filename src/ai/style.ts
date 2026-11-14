@@ -119,6 +119,10 @@ export interface StyleParams {
   mistake: number;
   /** Odds that, set and in range, it does not pull the trigger this time and waits a beat instead — difficulty (phase 3). */
   hesitate: number;
+  /** aiHumanV2: block / counter reaction drawn from [reactMin, reactMax] s per decision (0 = fixed `reaction`). */
+  reactMin: number; reactMax: number;
+  /** aiHumanV2: chance per incoming punch that it does not defend it (wrong level / not seen). */
+  missChance: number;
   /**
    * THE READ (phase 4): a punch he has started more than readAfter times lately (fading over ~6 s) is one it is
    * waiting for. When he starts it again, at readChance, it moves on readReaction × its reaction time — a pull (at
@@ -183,7 +187,7 @@ export function defaultStyle(cfg: Config): StyleParams {
     tell: 'none', tellRate: 0,
     hurtSwing: 0,
     tiredTempo: 1.3, tiredClinchRate: 0,
-    mistake: 0, hesitate: 0,
+    mistake: 0, hesitate: 0, reactMin: 0, reactMax: 0, missChance: 0,
     readAfter: NEVER, readChance: 0, readReaction: 0.2, pullShare: 0.5, slipCounter: 0.8,
     guard: 'high',
   };
@@ -346,7 +350,21 @@ export function withDifficulty(st: StyleParams, d: Difficulty): StyleParams {
 /** The style table: a full StyleParams for a style id, at a difficulty (0 easy, 1 medium, 2 hard; default cfg.aiDifficulty). */
 export function styleParams(id: AiStyle, cfg: Config, difficulty: number = cfg.aiDifficulty): StyleParams {
   const d = DIFFICULTY[Math.max(0, Math.min(2, Math.round(difficulty)))]!;
-  return withDifficulty({ ...defaultStyle({ ...cfg, aiToolsOn: true }), ...STYLE_OVERRIDES[id] }, d);
+  const st = withDifficulty({ ...defaultStyle({ ...cfg, aiToolsOn: true }), ...STYLE_OVERRIDES[id] }, d);
+  if (!cfg.aiHumanV2) return st;
+  // aiHumanV2: per-difficulty human layer. Hard (index 2) keeps today's reaction, hold and tempo.
+  const i = Math.max(0, Math.min(2, Math.round(difficulty)));
+  const pick = (a: number, b: number, c: number): number => (i === 0 ? a : i === 1 ? b : c);
+  const out: StyleParams = {
+    ...st,
+    reactMin: pick(cfg.aiHumanReactMinEasy, cfg.aiHumanReactMinMed, 0), reactMax: pick(cfg.aiHumanReactMaxEasy, cfg.aiHumanReactMaxMed, 0),
+    missChance: pick(cfg.aiHumanMissEasy, cfg.aiHumanMissMed, 0),
+    attackDelayMin: st.attackDelayMin * pick(cfg.aiHumanTempoEasy, cfg.aiHumanTempoMed, 1),
+    attackDelayMax: st.attackDelayMax * pick(cfg.aiHumanTempoEasy, cfg.aiHumanTempoMed, 1),
+    counterChance: st.counterChance * pick(cfg.aiHumanCounterEasy, cfg.aiHumanCounterMed, 1),
+    blockWindow: i === 2 ? st.blockWindow : pick(cfg.aiHumanHoldEasy, cfg.aiHumanHoldMed, 0),
+  };
+  return out;
 }
 
 /**
