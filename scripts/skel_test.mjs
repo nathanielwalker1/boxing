@@ -351,7 +351,7 @@ function slipPeak(x, y, sp = specs) {
     if (!kb || !kc.band || Math.abs(kb.hi - kc.band.hi) > 0.026 || kb.lo > kc.band.lo + 1e-6) bandBad.push(`${kc.punch} ${kc.hand}${kc.bodyLevel ? ' body' : ''} keys ${kb ? `${kb.lo}–${kb.hi}` : 'none'} legacy ${kc.band?.lo}–${kc.band?.hi}`);
   }
   check('punch keys: every punch lands over the same distance band as the legacy motion (far edge within 2.5 cm)', bandBad.length === 0, bandBad.slice(0, 4).join('; '));
-  const fails = { land: [], reach: [], order: [], ret: [], other: [], hookSh: [], upLat: [], flex: [], drop: [], clamp: [] };
+  const fails = { land: [], reach: [], order: [], ret: [], other: [], hookSh: [], hookBack: [], upLat: [], flex: [], drop: [], clamp: [] };
   let clampTicks = 0;
   for (const kc of cases) for (const [rn, d] of [['mid', kc.mid], ['in', kc.inside]]) {
     const { punch, hand, bodyLevel } = kc;
@@ -382,7 +382,17 @@ function slipPeak(x, y, sp = specs) {
     // PINNED: 8 cm (measured 7.4 cm on the inside jab; 5 cm is the target).
     if (punch === 'jab' && !(r.otherDev <= 0.08)) fails.other.push(`${name} ${cm(r.otherDev)}`);
     // Hook: the arm is fixed in the chest's frame — the shoulder joint travels little; the turn carries the fist.
-    if (punch === 'hook' && rn === 'mid' && !(r.shoulderTravel <= 30 && r.shoulderTravel < r.chestTravel)) fails.hookSh.push(`${name} ${r.shoulderTravel.toFixed(0)}° vs chest ${r.chestTravel.toFixed(0)}°`);
+    // (2026-11-14: only the HORIZONTAL swing of the upper arm relative to the chest is limited — the check is there so
+    //  the TURN comes from the hips and spine. The elbow lifting from the ribs to shoulder height is free: measured as
+    //  whole-joint travel, a low-elbow wind-up read 57°.)
+    if (punch === 'hook' && rn === 'mid' && !(r.armYawTravel <= 30 && r.armYawTravel < r.chestTravel)) fails.hookSh.push(`${name} ${r.armYawTravel.toFixed(0)}° vs chest ${r.chestTravel.toFixed(0)}°`);
+    // Hook wind-up (2026-11-14, the "dislocated elbow"): the punching hand is never behind the plane of his own shoulders.
+    // …and the wind-up keeps it within 15 cm of its guard spot (the old load took it 30 cm out, round behind his head).
+    //  (Head hooks: the body version drops the hand bodyLoadU, 12 cm, on purpose — measured 20 cm off.)
+    // …and the punching ELBOW is never above its shoulder + 5 cm, nor behind his shoulder plane by more than 5 cm (the
+    //  forearm lying beside the head read as an arm wrapped behind it — film, 2026-11-14).
+    if (punch === 'hook' && !(r.elbowUpMax <= 0.05 && r.elbowBehindMax <= 0.05)) fails.hookBack.push(`${name} elbow ${cm(r.elbowUpMax)} cm over the shoulder, ${cm(r.elbowBehindMax)} cm behind`);
+    if (punch === 'hook' && !(r.behindMax <= 0 && (bodyLevel || r.loadDev <= 0.15))) fails.hookBack.push(`${name} ${cm(r.behindMax)} cm behind, ${cm(r.loadDev)} cm off guard in the load`);
     if (punch === 'uppercut' && !(r.latRise <= 0.12)) fails.upLat.push(`${name} ${cm(r.latRise)}`);
     if (!(r.flexMax <= cfg.poseBodyFlexMax + 0.1)) fails.flex.push(`${name} ${r.flexMax.toFixed(1)}°`);
     if (bodyLevel && punch !== 'uppercut' && !(r.drop >= 0.01)) fails.drop.push(`${name} ${cm(r.drop)}`);
@@ -400,7 +410,8 @@ function slipPeak(x, y, sp = specs) {
   check('…the chain peaks in order pelvis → spine → shoulder → hand (inside: through the shoulder)', fails.order.length === 0, msg('order'));
   check('…the fist comes back no slower than it went (mid)', fails.ret.length === 0, msg('ret'));
   check('…the rear glove stays within 5 cm of its guard spot through the jab', fails.other.length === 0, msg('other'));
-  check('…a hook\'s shoulder joint travels ≤ 30° and less than the chest turns', fails.hookSh.length === 0, msg('hookSh'));
+  check('…a hook\'s upper arm swings across ≤ 30° (horizontal, relative to the chest) and less than the chest turns', fails.hookSh.length === 0, msg('hookSh'));
+  check('…a hook\'s punching hand never goes behind the plane of his own shoulders, and winds up within 15 cm of its guard spot; the elbow stays under shoulder + 5 cm and no more than 5 cm behind that plane', fails.hookBack.length === 0, msg('hookBack'));
   check('…an uppercut\'s fist rises within 12 cm of the centre plane', fails.upLat.length === 0, msg('upLat'));
   check(`…spine flexion stays under poseBodyFlexMax (${cfg.poseBodyFlexMax}°); body shots drop the pelvis (knees, not waist)`, fails.flex.length === 0 && fails.drop.length === 0, msg('flex') + msg('drop'));
   check(`…upper-body joints on their limits: ${clampTicks} ticks over the 24 cases (cross at mid ≤ 4, inside ≤ 3, else none)`, fails.clamp.length === 0, msg('clamp'));

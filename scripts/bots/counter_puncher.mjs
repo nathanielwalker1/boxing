@@ -27,7 +27,8 @@ export function create(k, seed, cfg) {
       for (let i = 0; i < 5; i++) b.push({});
       if (x < 0 && d < 0.84) b.push({ hook: true, move: { x: -1, y: 0 } });
       else b.push({ cross: true, move: { x: 0, y: d > 0.9 ? 1 : 0 } });
-      b.push({}, {}, {}, { jab: true });
+      // Then close the gap the counter opened (the hit man is knocked back) and follow with the jab.
+      b.push({ move: { x: 0, y: d > 0.8 ? 1 : 0 } }, { move: { x: 0, y: d > 0.8 ? 1 : 0 } }, {}, { jab: true });
       return;
     }
     // He is exposed (whiffed, or in a punish window) and in reach: take it.
