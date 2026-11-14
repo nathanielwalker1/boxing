@@ -153,11 +153,11 @@ console.log('\n=== 5. Styles and difficulty ===');
 console.log('\n=== 6. The read ===');
 {
   // A player who holds mid range and throws one punch every `gap` ticks, chosen by `pick(n)`. AI = the counter style.
-  const drill = (pick, style, gap = 42, secs = 24) => {
+  const drill = (pick, style, gap = 42, secs = 24, seed = 5) => {
     // (No damage and no rocking: without that the counters it lands floor the player in a few seconds and the drill is over.)
     const c = { ...fast, roundCount: 1, roundSeconds: secs + 2, healthDamagePerImpulse: 0, stunBase: 0 };
-    let s = sim.createState(specs, c, 5);
-    let a = ai.createAi(1, 5, c, style);
+    let s = sim.createState(specs, c, seed);
+    let a = ai.createAi(1, seed, c, style);
     const out = { dodged: 0, landed: 0, thrown: 0, countered: 0, read: 0 };
     let n = 0, wait = 0;
     for (let i = 0; i < Math.round(secs / SIM_DT) && s.round.phase === 'fighting'; i++) {
@@ -182,7 +182,13 @@ console.log('\n=== 6. The read ===');
   const still = { intercept: 0, attackDelayMin: 30, attackDelayMax: 30, resetChance: 0, hitResetChance: 0, giveGroundChance: 0, hurtClinch: 0, insideClinch: 0, crowdClinch: 0, crowdPush: 0, pushOffRate: 0, burstChance: 0, blockCounter: 0, approachSlip: 0, feintChance: 0 };
   const counter = { ...ai.styleParams('counter', fast, 2), ...still }, blind = { ...counter, readChance: 0 };
   const same = drill(() => 'jab', counter), sameBlind = drill(() => 'jab', blind);
-  check(`the same jab, over and over: it reads it (${same.read} reads), makes it miss (${same.dodged} of ${same.thrown} dodged; ${sameBlind.dodged} with the read off) and comes back (${same.countered} counters landed)`, same.read >= 5 && same.dodged >= sameBlind.dodged + 3 && same.countered >= 1);
+  // The dodge gap over SIX seeds (one 24 s seed is chaotic: hitChainV2's 1-2 cm head difference on lands re-times the
+  // drill from tick ~500 and moved the read-off dodges 4 → 7 on seed 5): at least 3 a seed on average (18 summed).
+  const SEEDS = [5, 6, 7, 8, 9, 10];
+  const per = SEEDS.map(sd => ({ sd, on: drill(() => 'jab', counter, 42, 24, sd).dodged, off: drill(() => 'jab', blind, 42, 24, sd).dodged }));
+  const gap = per.reduce((t, p) => t + p.on - p.off, 0);
+  console.log(`     dodged, read on / off, per seed: ${per.map(p => `${p.sd}: ${p.on}/${p.off}`).join(' · ')} — summed gap ${gap}`);
+  check(`the same jab, over and over: it reads it (${same.read} reads), makes it miss (summed dodge gap ${gap} over ${SEEDS.length} seeds, need 18; seed 5: ${same.dodged} of ${same.thrown} dodged, ${sameBlind.dodged} with the read off) and comes back (${same.countered} counters landed)`, same.read >= 5 && gap >= 3 * SEEDS.length && same.countered >= 1);
   check(`…so the jab lands less than it does on a man who is not waiting for it (${same.landed} vs ${sameBlind.landed})`, same.landed < sameBlind.landed);
   const order = ['jab', 'cross', 'hook', 'jab', 'hook', 'cross'];
   const mixed = drill(n => order[n % order.length], counter, 70);
