@@ -239,6 +239,14 @@ export const RECIPES: Record<string, Recipe> = {
       { type: 'noise', gain: 0.5, attack: 0.001, decay: 0.06, filter: { type: 'bandpass', freq: 2700, q: 1.6 } },
     ],
   },
+  // counterFeelV2: a low thud with a long tail, trailing the impact — the counter's weight, felt rather than heard as a sting.
+  counterThud: {
+    gain: 0.7,
+    layers: [
+      { type: 'tone', gain: 1.0, attack: 0.006, decay: 0.8, wave: 'sine', freq: 68, freqEnd: 24, sub: true },
+      { type: 'noise', gain: 0.45, attack: 0.008, decay: 0.45, filter: { type: 'lowpass', freq: 180, q: 0.8 } },
+    ],
+  },
   // The liver: a sick, wet low thud — lower and longer than any body shot, with a mid "give".
   liverThud: {
     gain: 0.75,

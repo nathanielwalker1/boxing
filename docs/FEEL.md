@@ -573,6 +573,15 @@ should cost nothing and the hooks something. **hurt** — the different ways
 he goes should read as different in the body (they do not yet: the rig draws
 one rocked and one winded; the state is there).
 
+## Counters (counterFeelV2)
+
+- The rule (`isCounterLanding`, src/sim/vulnerability.ts, called from combat.ts): the target is exposed (`vuln > 0`), his `counterWindow > 0`, and the window's source is a SLIP (a well-timed block opens a slip-type window too). A perfect block, a man caught mid-punch, rocked or guard-broken is exposed, not countered. Slip-only is Nate's call (2026-09-22); do not widen it.
+- The window: `slipPunishDuration` = 0.7 s = 42 ticks at 60 Hz (pinned at `slipPunishVuln` 1). The `punchLand` event carries `counter`; a `counter` event follows.
+- Multiplier: impulse x (1 + vuln x `counterImpulseBonus` 0.9), about 1.9x at full exposure; other exposure uses `exposedImpulseBonus` 0.45.
+- Hit-stop bonus: +`hitStopTicksCounterBonus` 3 ticks (hitStopV2), or `counterHitStopBonus` 0.05 s x vuln when hitStopV2 is off.
+- Head (the new part): the multiplier alone showed little in the head (the neck clamp binds a hard hit either way; measured counter 1.4x plain at the slip-cross scenario, 0.228 vs 0.161 m). With `counterFeelV2` the neck clamp is x `counterReactionOver` (1.35) on a counter land, so the head travels further.
+- Sound: `counterThud` (low, long tail, `counterThudGain`, trailing `counterThudDelay`) under the existing counter sting and weight, scaled by landed power. Crowd: a short `crowdRoar` swell `counterSwellDelay` (0.25 s) after, `counterRockSwell` (1.5x) bigger when the same batch rocked him. No slow motion, text or flash. `counterFeelV2` false = the old fight exactly. Test: scripts/counter_feel_test.mjs.
+
 ## Open
 
 - Overhaul (2026-11-11): everything in "Overhaul feel specs" is sim-side and

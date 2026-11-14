@@ -13,11 +13,11 @@
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { SIM_DT, atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist } from './state';
+import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist } from './state';
 import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
-import { applyPunish } from './vulnerability';
+import { applyPunish, isCounterLanding } from './vulnerability';
 import { applyBodyHurt, applyStun, stunPunchLocked } from './stun';
 import { VARIANTS, aimAtPress, pickVariant } from './variants';
 import { ESCAPE_AT, addHop, guardOf, hurtMods } from './footing';
@@ -605,7 +605,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // someone mid-punch or after a perfect block still hits harder; it is not
   // called a counter.
   const targetVuln = d.vuln;
-  const counter = targetVuln > 0 && d.counterWindow > 0 && punishSource(d) === PUNISH_SLIP;
+  const counter = isCounterLanding(d, targetVuln);
   // (Phase 4: the full bonus is the COUNTER's. A man merely caught mid-punch, rocked, or with his guard broken is
   // exposed at exposedImpulseBonus — a trade hurts more than a clean shot on a set man, but it is not a counter.
   // MEASURED at one bonus for both: in an inside exchange both men are always mid-punch, every shot landed at up to
@@ -746,7 +746,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   applyKnock(a, d, impulse.x / d.body.massKg * stumble, impulse.z / d.body.massKg * stumble, combo, finisher, !blocked && grade !== 'glancing', cfg);
   applyReaction(d, type, dir, mag, cfg, {
     scale: blocked && !perfect && cfg.guardHolesV2 ? cfg.guardHolesBlockReact : !spread ? 1 : grade === 'glancing' ? cfg.gradeReactGlancing : grade === 'flush' ? cfg.gradeReactFlush : 1,
-    neck: !spread ? 1 : finisher ? cfg.gradeNeckFinisher : grade === 'flush' ? cfg.gradeNeckFlush : 1,
+    neck: (!spread ? 1 : finisher ? cfg.gradeNeckFinisher : grade === 'flush' ? cfg.gradeNeckFlush : 1)
+      * (cfg.counterFeelV2 && counter && !blocked ? cfg.counterReactionOver : 1),   // counterFeelV2: the head travels further on a counter
     vary: blocked ? 0 : vary * cfg.reactionVary, vary2: blocked ? 0 : seededUnit(s.seed, s.tick, side + 7) * cfg.reactionVary,
   });
   if (cfg.guardHolesV2 && d.block && guarded) {

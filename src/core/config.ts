@@ -1742,6 +1742,14 @@ export const SCHEMA = {
   poseBlockRearU:          num(0.43, 0, 0.6, 0.005, 'pose', 'block: rear glove, chest frame up, m'),
   poseBlockRearL:          num(0.07, -0.2, 0.3, 0.005, 'pose', 'block: rear glove, chest frame outward, m'),
   poseBlockSwivel:         num(-18, -60, 30, 1, 'pose', 'block: both elbows swivel this far (− = in, against the ribs), degrees, over the guard\'s'),
+  // ── Counter feel (counterFeelV2): a counter you can tell landed, with no slow motion, text or flash ──
+  counterFeelV2:      bool(true, 'counter feel', 'a COUNTER landing (slip-window only, see docs/FEEL.md "Counters") reads in sound, the crowd and the struck man\'s head: a low thud with a long tail under the impact, a crowd swell a beat after (bigger when it rocks him), and a head that may travel counterReactionOver times past the neck clamp. Off = exactly the old fight (sim and sound)'),
+  counterReactionOver: num(1.35, 1, 2, 0.05, 'counter feel', 'counterFeelV2: how far past the normal head (neck) clamp a counter may throw the head, × reactionMaxNeck. Measured: the same cross as a counter moved the head only 1.4× a plain land because the clamp bound it; this lets the head visibly go further'),
+  counterThudGain:    num(1, 0, 3, 0.05, 'counter feel', 'counterFeelV2 (sound): level of the low counterThud layer under the impact, × landed power'),
+  counterThudDelay:   num(0.02, 0, 0.2, 0.005, 'counter feel', 'counterFeelV2 (sound): seconds the thud trails the impact, so it reads as weight arriving after the contact'),
+  counterSwellDelay:  num(0.25, 0, 0.8, 0.01, 'counter feel', 'counterFeelV2 (crowd): seconds after the counter before the swell, a beat after the hit'),
+  counterSwellGain:   num(0.8, 0, 3, 0.05, 'counter feel', 'counterFeelV2 (crowd): level of the swell'),
+  counterRockSwell:   num(1.5, 1, 3, 0.05, 'counter feel', 'counterFeelV2 (crowd): the swell is this many times bigger when the counter rocks him'),
   ...poseEntries(),
 } satisfies Record<string, Entry>;
 

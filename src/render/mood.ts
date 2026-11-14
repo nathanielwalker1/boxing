@@ -141,7 +141,8 @@ export class CrowdMood {
           else if (grade === 'clean') this.emit(e.part === 'body' ? 'body' : 'land', Math.min(1.5, e.power) * 0.5);
           break;
         }
-        case 'counter': this.add(c.exciteCounter); this.emit('counter'); break;
+        // counterFeelV2: strength 1.2 when this same batch also rocked him (voicesForReaction reads > 1 as "bigger swell").
+        case 'counter': this.add(c.exciteCounter); this.emit('counter', c.counterFeelV2 && events.some(r => r.type === 'rocked' && r.by === e.side && r.side === e.target) ? 1.2 : 1); break;
         case 'rocked':
           this.add(c.exciteRocked); this.hurtT = Math.max(this.hurtT, e.seconds);
           this.emit('rocked');

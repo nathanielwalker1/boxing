@@ -39,6 +39,12 @@ export function duckForEvent(e: SimEvent, c: Config): { depth: number; hold: num
   return { depth: c.audioFlushDuck, hold: c.audioFlushDuckSeconds * (fin ? 1.5 : 1) };
 }
 
+/** counterFeelV2: the low thud with the long tail under a counter's impact, scaled by the landed power. */
+function counterThud(out: VoiceReq[], power: number, c: Config, delay: number): void {
+  if (!c.counterFeelV2 || c.counterThudGain <= 0) return;
+  out.push({ name: 'counterThud', power, level: c.counterThudGain, delay: delay + c.counterThudDelay });
+}
+
 /** A landed punch with the tiers pushed apart (showSoundTiersOn). The overhaul's version is the `else` in voicesForEvent. */
 function landVoices(x: Partial<Extract<SimEvent, { type: 'punchLand' }>> & { power: number; punch: PunchType }, c: Config): VoiceReq[] {
   const out: VoiceReq[] = [];
@@ -93,7 +99,7 @@ function landVoices(x: Partial<Extract<SimEvent, { type: 'punchLand' }>> & { pow
       const kk = Math.min(combo, 6) - 2;
       out.push({ name: 'comboRise', level: level * (0.45 + 0.18 * kk), pitch: 1 + c.audioComboStep * kk, delay });
     }
-    if (x.counter) { out.push({ name: 'counter', delay }); out.push({ name: 'counterWeight', power: x.power, delay }); }
+    if (x.counter) { out.push({ name: 'counter', delay }); out.push({ name: 'counterWeight', power: x.power, delay }); counterThud(out, x.power, c, delay); }
   }
   if (seed !== undefined) out.forEach((r, i) => { r.seed = frac(seed + i * 0.137); });
   return out;
@@ -148,7 +154,7 @@ export function voicesForEvent(e: SimEvent, c: Config, player = 0, mem?: VoiceMe
         const k = Math.min(combo, 6) - 2;
         out.push({ name: 'comboRise', power: 0.7 + 0.3 * k, pitch: 1 + c.audioComboStep * k, delay });
       }
-      if (x.counter) { out.push({ name: 'counter', delay }); out.push({ name: 'counterWeight', power: x.power, delay }); }
+      if (x.counter) { out.push({ name: 'counter', delay }); out.push({ name: 'counterWeight', power: x.power, delay }); counterThud(out, x.power, c, delay); }
       break;
     }
     case 'punchBlock': {
@@ -244,7 +250,12 @@ export function voicesForReaction(r: Reaction, c?: Config): VoiceReq[] {
     case 'bodyHurt': return [{ name: 'crowdOooh', power: s }];
     case 'nearMiss': return [{ name: 'crowdGasp', power: s }];
     case 'ole': return [{ name: 'crowdOle', power: s, pitch: 0.9 + 0.12 * s }];
-    case 'counter': return [{ name: 'crowdCheer', power: 1.4 * s }, { name: 'crowdRoar', power: s, delay: 0.1 }];
+    case 'counter': {
+      const base: VoiceReq[] = [{ name: 'crowdCheer', power: 1.4 * s }, { name: 'crowdRoar', power: s, delay: 0.1 }];
+      // counterFeelV2: a short swell a beat after the hit; the mood sends strength > 1 when the counter rocked him.
+      if (c && c.counterFeelV2 && c.counterSwellGain > 0) base.push({ name: 'crowdRoar', power: s, length: 0.6, level: c.counterSwellGain * (s > 1 ? c.counterRockSwell : 1), delay: c.counterSwellDelay });
+      return base;
+    }
     case 'guardBreak': return [{ name: 'crowdCheer', power: s }];
     case 'rocked': return [{ name: 'crowdRoar', power: s }];
     case 'knockdown': return [{ name: 'crowdEruption', power: s }];
