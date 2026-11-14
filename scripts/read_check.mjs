@@ -43,7 +43,9 @@ const exchange = (crossAt) => page.evaluate(({ crossAt }) => {
 }, { crossAt });
 
 // ── 1. The slip and the window ───────────────────────────────────────────────
-await exchange(12);
+// (anim 2.4: with hitStopV2 there is no 0.6x slow motion in the window, so the browser polls in real time; the counter is
+// pressed later in the 0.7 s window so the window is still open when this samples it.)
+await exchange(30);
 const slipped = await until(page, () => window.__read().log.includes('slip0'), undefined, { label: 'the slip', timeout: 8000 }).then(() => true, () => false);
 const p1 = await probe();
 const w1 = await oppWindow();

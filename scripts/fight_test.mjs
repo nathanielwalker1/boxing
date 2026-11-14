@@ -139,11 +139,13 @@ const heavy = { ...cfg, healthDamagePerImpulse: 1, roundSeconds: 20 };
 const TICK = T(cfg.countTickSeconds);
 {
   const trace = [];
-  const { evs } = run(fresh(MID, heavy), 12 * TICK + 20, i => [inp({ jab: i === 0 }), NONE], (st, i) => trace.push({ i, ph: st.round.phase, n: st.round.count, clock: st.round.clock, down: st.fighters[1].down }), heavy);
+  const { evs } = run(fresh(MID, heavy), 12 * TICK + 20, i => [inp({ jab: i === 0 }), NONE], (st, i) => trace.push({ i, ph: st.round.phase, n: st.round.count, clock: st.round.clock, down: st.fighters[1].down, hs: st.hitStop }), heavy);
+  // anim 2.4: the knockdown shot keeps its (cap-exempt) freeze and the count runs on sim time, so the referee's count starts when that freeze ends.
+  const FZ = r => Math.round(r.hs * 60);
   const kd = of(evs, 'knockdown')[0], gu = of(evs, 'getUp')[0], ticks = of(evs, 'countTick');
   check('the count starts at the knockdown', kd && trace[kd.tick].ph === 'count' && trace[kd.tick].n === 0);
   // The knockdown punch's hit-stop slows the first count by a couple of ticks (the count runs on sim time, as everything does); the spacing is what is exact.
-  check(`countTick events come every countTickSeconds (${TICK} ticks), numbered from 1`, ticks.length > 0 && ticks.every((t, k) => t.n === k + 1 && t.side === 1 && (k === 0 ? t.tick - kd.tick >= TICK && t.tick - kd.tick <= TICK + 4 : Math.abs(t.tick - ticks[k - 1].tick - TICK) <= 1)), ticks.map(t => `${t.n}@${t.tick}`).join(' '));
+  check(`countTick events come every countTickSeconds (${TICK} ticks), numbered from 1`, ticks.length > 0 && ticks.every((t, k) => t.n === k + 1 && t.side === 1 && (k === 0 ? t.tick - kd.tick - FZ(trace[kd.tick]) >= TICK && t.tick - kd.tick - FZ(trace[kd.tick]) <= TICK + 4 : Math.abs(t.tick - ticks[k - 1].tick - TICK) <= 1)), ticks.map(t => `${t.n}@${t.tick}`).join(' '));
   check('round.count follows the referee', ticks.every(t => trace[t.tick].n === t.n));
   const chin = ROSTER[1].chin / 100;
   const expect = cfg.getUpCountWorst + (cfg.getUpCountBest - cfg.getUpCountWorst) * chin;
@@ -157,9 +159,10 @@ const TICK = T(cfg.countTickSeconds);
   const noJitter = { ...heavy, getUpJitter: 0 };
   const riseAt = chin => {
     const sp = [ROSTER[0], { ...ROSTER[1], chin }];
-    const { evs } = run(fresh(MID, noJitter, sp), 12 * TICK + 20, i => [inp({ jab: i === 0 }), NONE], null, noJitter);
+    let fz = 0;
+    const { evs } = run(fresh(MID, noJitter, sp), 12 * TICK + 20, i => [inp({ jab: i === 0 }), NONE], (st, i, ev) => { if (ev.some(e => e.type === 'knockdown')) fz = Math.round(st.hitStop * 60); }, noJitter);
     const kd = of(evs, 'knockdown')[0], gu = of(evs, 'getUp')[0];
-    return { count: gu ? (gu.tick - kd.tick) / TICK : null, ko: of(evs, 'ko')[0], ticks: of(evs, 'countTick').length };
+    return { count: gu ? (gu.tick - kd.tick - fz) / TICK : null, ko: of(evs, 'ko')[0], ticks: of(evs, 'countTick').length };
   };
   const iron = riseAt(100), glass = riseAt(0), mid = riseAt(50);
   check(`chin 100 rises on ${cfg.getUpCountBest}`, iron.count !== null && Math.abs(iron.count - cfg.getUpCountBest) <= 1.5 / TICK + 0.05, `${iron.count}`);

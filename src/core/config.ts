@@ -211,7 +211,7 @@ function poseEntries(): Record<`pose_${string}` | `punchk_${string}`, NumEntry> 
     }
   }
   for (const p of POSE_PUNCHES) {
-    for (const [k, v] of Object.entries(PUNCH_TIMING[p]!)) out[`punchk_${p}_${k}`] = num(v, k.toLowerCase().includes('aim') ? -0.3 : 0, k === 'bodyDrop' ? 0.3 : k === 'reach' ? 2.5 : 1, k === 'bodyDrop' || k.startsWith('d') ? 0.005 : 0.01, `pose: ${p}`, `${p}: ${TIMING_DESC[k]}`);
+    for (const [k, v] of Object.entries(PUNCH_TIMING[p]!)) out[`punchk_${p}_${k}`] = num(v, k.toLowerCase().includes('aim') || k === 'bodyLoadU' ? -0.3 : 0, k === 'bodyDrop' ? 0.3 : k === 'reach' ? 2.5 : 1, k === 'bodyDrop' || k.startsWith('d') ? 0.005 : 0.01, `pose: ${p}`, `${p}: ${TIMING_DESC[k]}`);
     for (const key of POSE_KEY_NAMES) {
       for (const [ch, [unit, what]] of Object.entries(POSE_CHANNELS)) {
         const v = POSE_DEFAULTS[`${p}_${key}`]?.[ch] ?? 0;
@@ -1423,19 +1423,19 @@ export const SCHEMA = {
   hitStopBudgetWindow: num(1.6, 0.25, 6, 0.05, 'polish: flow', 'seconds for an empty bucket to refill (0.13 s over 1.6 s = 8% of a sustained exchange frozen by ordinary lands; MEASURED before: 13% on average, 45% of the worst second)'),
   hitStopMin:         num(0.017, 0, 0.1, 0.001, 'polish: flow', 'a land always gets at least this much freeze, s, whatever the budget says (one tick: the impact pose is seen)'),
   // ── Anim 2.4: short frame-based hit-stop in place of slow motion (hitStopV2) ──
-  hitStopV2:          bool(true, 'hitstop', 'ANIM 2.4 (Nate: slow-mo after counters "reads as lag or a bug"): hit-stop is a short frame count per hit grade (the hitStopTicks* table, 60 Hz ticks) and input is never dropped or slowed during it — a press is buffered and fires on the first tick after the stop at full speed; and live play has NO slow motion on counters, slips, rocks, finishers or clean hits (the host read-window / counter / rocked / finisher slow-mo and the slip freeze are off). Slow motion stays for knockdowns and replays. Off = exactly the old behaviour (seconds-based stops with the budget, the 5% clock, all the host slow motion) for A/B'),
-  hitStopTicksGlancing: int(1, 0, 10, 'hitstop', 'hitStopV2: stop on a GLANCING land to the head, in sim ticks (60 Hz)'),
-  hitStopTicksClean:    int(3, 0, 10, 'hitstop', 'hitStopV2: stop on a CLEAN land to the head, ticks'),
-  hitStopTicksFlush:    int(5, 0, 10, 'hitstop', 'hitStopV2: stop on a FLUSH land to the head, ticks'),
-  hitStopTicksBodyGlancing: int(1, 0, 10, 'hitstop', 'hitStopV2: stop on a glancing BODY hit, ticks'),
-  hitStopTicksBody:     int(2, 0, 10, 'hitstop', 'hitStopV2: stop on a clean BODY hit, ticks (lighter than the head: the body takes it, the head snaps)'),
-  hitStopTicksBodyFlush: int(4, 0, 10, 'hitstop', 'hitStopV2: stop on a flush BODY hit, ticks'),
-  hitStopTicksBlocked:  int(2, 0, 10, 'hitstop', 'hitStopV2: stop on a punch the guard took (and on a perfect block), ticks'),
-  hitStopTicksCounterBonus: int(3, 0, 10, 'hitstop', 'hitStopV2: ticks ADDED to a counter (a land inside a slip window, not blocked) — the counter is the heavier stop; the sim raises the existing counter event the sound / crowd / reaction layers hook'),
-  hitStopTicksSlip:     int(0, 0, 10, 'hitstop', 'hitStopV2: stop when a punch is SLIPPED, ticks (0: the slip freeze and the read window are gone from live play — the old 0.12 s)'),
-  hitStopTicksRock:     int(3, 0, 10, 'hitstop', 'hitStopV2: ticks ADDED on a rocking shot that is not a knockdown'),
-  hitStopTicksCap:      int(10, 1, 30, 'hitstop', 'hitStopV2: ceiling on any live-play stop, ticks. A knockdown and the fight-ending shot are exempt (they keep stunHitStop and the host knockdown slow motion)'),
-  hitStopDefenderShake: num(0, 0, 0.03, 0.001, 'hitstop', 'hitStopV2 (render, Sakurai): amplitude in metres of a small deterministic jitter of the STRUCK fighter\'s head during the stop. 0 = off (default)'),
+  hitStopV2:          bool(true, 'polish: flow', 'ANIM 2.4 (Nate: slow-mo after counters "reads as lag or a bug"): hit-stop is a short frame count per hit grade (the hitStopTicks* table, 60 Hz ticks) and input is never dropped or slowed during it — a press is buffered and fires on the first tick after the stop at full speed; and live play has NO slow motion on counters, slips, rocks, finishers or clean hits (the host read-window / counter / rocked / finisher slow-mo and the slip freeze are off). Slow motion stays for knockdowns and replays. Off = exactly the old behaviour (seconds-based stops with the budget, the 5% clock, all the host slow motion) for A/B'),
+  hitStopTicksGlancing: int(1, 0, 10, 'polish: flow', 'hitStopV2: stop on a GLANCING land to the head, in sim ticks (60 Hz)'),
+  hitStopTicksClean:    int(3, 0, 10, 'polish: flow', 'hitStopV2: stop on a CLEAN land to the head, ticks'),
+  hitStopTicksFlush:    int(5, 0, 10, 'polish: flow', 'hitStopV2: stop on a FLUSH land to the head, ticks'),
+  hitStopTicksBodyGlancing: int(1, 0, 10, 'polish: flow', 'hitStopV2: stop on a glancing BODY hit, ticks'),
+  hitStopTicksBody:     int(2, 0, 10, 'polish: flow', 'hitStopV2: stop on a clean BODY hit, ticks (lighter than the head: the body takes it, the head snaps)'),
+  hitStopTicksBodyFlush: int(4, 0, 10, 'polish: flow', 'hitStopV2: stop on a flush BODY hit, ticks'),
+  hitStopTicksBlocked:  int(2, 0, 10, 'polish: flow', 'hitStopV2: stop on a punch the guard took (and on a perfect block), ticks'),
+  hitStopTicksCounterBonus: int(3, 0, 10, 'polish: flow', 'hitStopV2: ticks ADDED to a counter (a land inside a slip window, not blocked) — the counter is the heavier stop; the sim raises the existing counter event the sound / crowd / reaction layers hook'),
+  hitStopTicksSlip:     int(0, 0, 10, 'polish: flow', 'hitStopV2: stop when a punch is SLIPPED, ticks (0: the slip freeze and the read window are gone from live play — the old 0.12 s)'),
+  hitStopTicksRock:     int(3, 0, 10, 'polish: flow', 'hitStopV2: ticks ADDED on a rocking shot that is not a knockdown'),
+  hitStopTicksCap:      int(10, 1, 30, 'polish: flow', 'hitStopV2: ceiling on any live-play stop, ticks. A knockdown and the fight-ending shot are exempt (they keep stunHitStop and the host knockdown slow motion)'),
+  hitStopDefenderShake: num(0, 0, 0.03, 0.001, 'polish: flow', 'hitStopV2 (render, Sakurai): amplitude in metres of a small deterministic jitter of the STRUCK fighter\'s head during the stop. 0 = off (default)'),
   carryFadeOn:        bool(true, 'polish: flow', 'a chained punch that is feinted or stuffed keeps the body pose it had carried over from the punch before while its fist rewinds, and the body then unwinds at poseSettleRate once the hands are free. MEASURED without it: the torso snapped 80° and the lean 0.4 in ONE tick when such a punch got home or was hit (the wind-up had blended out of the last punch\'s turn, and the turn was dropped at once) — 19 times in 200 s of busy exchanges'),
   poseSettleRate:     num(9, 2, 40, 0.5, 'polish: flow', 'how fast a body pose left behind by a rewound punch unwinds, rad/s of torso twist (the lean and the crouch in proportion). 9 = 80° in about 150 ms'),
   hitNerfOn:          bool(true, 'polish: flow', 'BEING HIT NERFS, IT DOES NOT LOCK (Nate: "I should still be able to throw if I get hit, although my punch should feel and look nerfed"). A landed punch opens a short hit window on the man it hit; a punch he starts inside it — or already has in flight — is slower, shorter and weaker by PunchState.nerf. Only a FLUSH shot EARLY in a wind-up stuffs a punch; block stun and the jab stop hold the hands for at most hitLockMax. MEASURED before: a jab that touched a wind-up anywhere in its first 70% killed the punch and held the hands 133–183 ms; block stun 100–233 ms; the jab stop 283 ms; rocked 650 ms. Off = the old interrupt and locks'),
