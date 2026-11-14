@@ -13,7 +13,7 @@
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { SIM_DT, atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { guardPress, setGuardPress, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist } from './state';
+import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, punishSource, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist } from './state';
 import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -159,6 +159,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
  */
 export function stepActions(f: FighterState, side: Side, input: Readonly<FrameInput>, cfg: Config, dt: number, events: SimEvent[], opp: FighterState | null = null, inStop = false): void {
   const mask = punchMask(input);
+  setTimedSkill(f, input.timedSkill ?? 1);
   const pressed = fastestOf(mask & ~prevPunchMask(f));
   setPrevPunchMask(f, mask);
 
@@ -754,7 +755,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     if (blocked && !perfect) setWhiffMult(a, Math.max(whiffMult(a), cfg.guardHolesRebound));   // rebound: the arm comes off the gloves slower
     // A WELL-TIMED block (raised inside the last guardHolesTimedTicks before the hit): the thrower is rocked and the
     // counter window the slip opens opens for the blocker (counter event on his landing, as for a slip).
-    if (blocked && d.blockT <= cfg.guardHolesTimedTicks * SIM_DT + 1e-9) {
+    // (A SKILL, not an accident of reaction time: the seeded roll against the blocker's timedSkill — 1 for a human, set by the AI per difficulty.)
+    if (blocked && d.blockT <= cfg.guardHolesTimedTicks * SIM_DT + 1e-9 && seededUnit(s.seed, s.tick, target + 11) < timedSkill(d)) {
       applyPunish(a, cfg.slipPunishVuln, cfg.slipPunishDuration, PUNISH_SLIP);
       a.stagger.x -= dirX * cfg.guardHolesTimedStagger * cfg.staggerDecay;
       a.stagger.z -= dirZ * cfg.guardHolesTimedStagger * cfg.staggerDecay;

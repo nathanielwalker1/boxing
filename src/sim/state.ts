@@ -169,6 +169,9 @@ const HIST_PRESS_DIST = 43;   // Phase 1.4 (punch keys only): centre-to-centre d
 const HIST_GUARD_PRESS = 44;  // guardHolesV2: blocked punches taken lately (decays; each one wears the guard's cover for the next)
 export function guardPress(f: FighterState): number { return f.moveHist[HIST_GUARD_PRESS] ?? 0; }
 export function setGuardPress(f: FighterState, n: number): void { f.moveHist[HIST_GUARD_PRESS] = n; }
+const HIST_TIMED_SKILL = 45;  // guardHolesV2: the timed-block skill 0..1 last fed by the fighter's input (absent = 1, a human)
+export function timedSkill(f: FighterState): number { return f.moveHist[HIST_TIMED_SKILL] ?? 1; }
+export function setTimedSkill(f: FighterState, v: number): void { f.moveHist[HIST_TIMED_SKILL] = v; }
 export function pressDist(f: FighterState): number { return f.moveHist[HIST_PRESS_DIST] ?? 0.84; }
 export function setPressDist(f: FighterState, d: number): void { f.moveHist[HIST_PRESS_DIST] = d; }
 export function hurtAfter(f: FighterState): number { return f.moveHist[HIST_HURT_AFTER] ?? 0; }

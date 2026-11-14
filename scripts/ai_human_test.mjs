@@ -99,11 +99,10 @@ check('medium does not block jabs clearly more than hooks (within 0.08; the jab-
 check('medium AI punches per minute near a human pace (<= 60)', jab[1].ppm <= 60, `${jab[1].ppm.toFixed(1)}`);
 // With guardHolesV2 on, a block rocks the thrower and slows his arm (sim), so the AI's replies land on him and the
 // "answered" share reads ~30% whatever the AI does; the AI-owned rate is measured with that sim effect off.
-const noHoles = study(1, 'jab', { ...k.cfg, guardHolesV2: false });
-console.log(`  medium counter, all on ${(jab[1].counter * 100).toFixed(1)}%, guardHolesV2 off ${(noHoles.counter * 100).toFixed(1)}%`);
-check('medium counter rate 8-20% of punches that hit it (guardHolesV2 off: the AI\'s own replies)', noHoles.counter >= 0.08 && noHoles.counter <= 0.20, `${noHoles.counter.toFixed(3)}`);
+// (Everything on, the shipped default: guardHolesV2's timed block is a skill the AI rolls at aiTimedBlock*, its wear and rebound are tuned so replies stay human.)
+check('medium counter rate 8-20% of punches that hit it (all on)', jab[1].counter >= 0.08 && jab[1].counter <= 0.20, `${jab[1].counter.toFixed(3)}`);
 check('easy throws less than medium, all on', jab[0].ppm <= jab[1].ppm + 1);
-check('easy answers no more than medium (guardHolesV2 off)', study(0, 'jab', { ...k.cfg, guardHolesV2: false }).counter <= noHoles.counter + 0.02);
+check('easy answers no more than medium (all on)', jab[0].counter <= jab[1].counter + 0.02);
 
 // Bots' win rate against each difficulty (legitimate plans only).
 const legit = BOTS.filter(b => b.legit);

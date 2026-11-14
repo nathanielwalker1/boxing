@@ -372,6 +372,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   const st = a.style ?? defaultStyle(cfg);
   const tools = cfg.aiToolsOn || a.style !== null;
   const input = cloneInput(NULL_INPUT);
+  input.timedSkill = [cfg.aiTimedBlockEasy, cfg.aiTimedBlockMed, cfg.aiTimedBlockHard][Math.max(0, Math.min(2, Math.round(cfg.aiDifficulty)))]!;   // guardHolesV2: a well-timed block is a skill
   const me = s.fighters[a.side];
   const opp = s.fighters[a.side === 0 ? 1 : 0];
   // The same clock sim.step will use for this tick (hit-stop scales it).

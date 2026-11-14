@@ -30,6 +30,8 @@ export interface FrameInput {
   block: boolean;
   /** The level modifier (overhaul 2026-11-11, the ONE new input): held = drop the level (knees bend, head comes down); punches thrown while it is held go to the body or come up from underneath. A level, like block. */
   level: boolean;
+  /** guardHolesV2: this fighter's timed-block skill 0..1 (absent = 1, a human). The AI sets it from its difficulty; the sim rolls it when a block qualifies as well-timed. */
+  timedSkill?: number;
 }
 
 export const NULL_INPUT: Readonly<FrameInput> = Object.freeze({
@@ -38,7 +40,7 @@ export const NULL_INPUT: Readonly<FrameInput> = Object.freeze({
 });
 
 export function cloneInput(i: Readonly<FrameInput>): FrameInput {
-  return { move: { x: i.move.x, y: i.move.y }, jab: i.jab, cross: i.cross, hook: i.hook, uppercut: i.uppercut, block: i.block, level: i.level ?? false };
+  return { move: { x: i.move.x, y: i.move.y }, jab: i.jab, cross: i.cross, hook: i.hook, uppercut: i.uppercut, block: i.block, level: i.level ?? false, ...(i.timedSkill !== undefined ? { timedSkill: i.timedSkill } : {}) };
 }
 
 // ── Fighter definition (CONTRACT §5) ──────────────────────────────────────────
