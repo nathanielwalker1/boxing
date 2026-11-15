@@ -29,6 +29,7 @@ import { JOINT_BONE, armBones, legBones } from './skeleton';
 import { SkelDebugView } from './debug';
 import { Reads, stanceParams } from './reads';
 import { Spray } from './spray';
+import { Rhythm } from './rhythm';
 import { installRigReplay, type ReplayFeed } from './replay';
 import { createRigMaterial, outlineMaterial, setGlow, updateMaterials, type RigMaterial } from './materials';
 import { solveTwoBone, type TwoBone } from './ik';
@@ -227,6 +228,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const chainOut = { hipYaw: 0, hipY: 0, hipLat: 0, footYaw: [0, 0], heel: [0, 0], kneeIn: [0, 0] };   // what was drawn last frame, for probe.chain()
   const hipYaw = spring1(0);     // hips follow a fraction of the sim's torso twist (stiffest link, so they lead)
   const feet = [new FootPlanter(), new FootPlanter()] as const;
+  const rhy = new Rhythm(side);   // rhythmV2: the drawn idle life (rig/rhythm.ts); drawn only, nothing here reaches the sim
   const squashHead = new Squash();
   const squashTorso = new Squash();
   const squashGlove = [new Squash(), new Squash()] as const;
@@ -631,25 +633,43 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const beat = beatPh + side * 1.3;
     // stanceV2: the whole idle life × stanceLife (at 1 it was there but too small to read at 5 m).
     const life = c.stanceV2 ? c.stanceLife : 1;
-    const rDip = st.bounceAmp * (0.5 - 0.5 * Math.cos(beat)) * rhythm * life;        // hips drop on the beat, feet planted → knees
-    const rLat = c.rigRhythmSway * Math.sin(beat / 2) * rhythm * life;                  // weight foot to foot, every other beat
-    const rFwd = c.rigRhythmFwd * Math.sin(beat / 2 + 1.1) * rhythm * life;             // and a little rock front / back
-    const rHeadY = -c.rigRhythmBob * (0.5 - 0.5 * Math.cos(beat - 0.5)) * c.rigRhythmHead * rhythm * life;   // head follows, a little late
-    const rHeadZ = c.rigRhythmSway * Math.sin(beat / 2 - 0.5) * c.rigRhythmHead * rhythm * life;
-    const rRoll = c.rigRhythmRoll * DEG * Math.sin(beat / 2 - 0.25) * rhythm;    // chest rolls over the loaded foot
+    let rDip = st.bounceAmp * (0.5 - 0.5 * Math.cos(beat)) * rhythm * life;        // hips drop on the beat, feet planted → knees
+    let rLat = c.rigRhythmSway * Math.sin(beat / 2) * rhythm * life;                  // weight foot to foot, every other beat
+    let rFwd = c.rigRhythmFwd * Math.sin(beat / 2 + 1.1) * rhythm * life;             // and a little rock front / back
+    let rHeadY = -c.rigRhythmBob * (0.5 - 0.5 * Math.cos(beat - 0.5)) * c.rigRhythmHead * rhythm * life;   // head follows, a little late
+    let rHeadZ = c.rigRhythmSway * Math.sin(beat / 2 - 0.5) * c.rigRhythmHead * rhythm * life;
+    let rRoll = c.rigRhythmRoll * DEG * Math.sin(beat / 2 - 0.25) * rhythm;    // chest rolls over the loaded foot
+    // rhythmV2 (rig/rhythm.ts) replaces all of the above with the lagged, irregular, styled version; posture on top.
+    let pSink = 0, pBack = 0;
+    if (c.rhythmV2) {
+      const q = Math.max(0, Math.min(1, rhythm * (1 - c.rhythmHurtQuiet * hurt)));
+      const mv = Math.min(1, Math.hypot(next.vel.x, next.vel.z) / Math.max(1e-6, c.moveSpeed));
+      const idleFeet = mv < 0.02 && !busy && !next.down && next.pivot.dir === 0 && reads.airborne === 0 && !reads.followStep && !feet[0].stepping && !feet[1].stepping && reads.leadStep < 0.01;
+      // The human's fighter (side 0) gets the out-boxer / neutral preset; the other man his own style.
+      rhy.update(dt, c, side === 0 || !c.stylesOn ? 'outboxer' : next.styleId, q, mv, idleFeet, frame.fwd.x, frame.fwd.z, frame.right.x, frame.right.z, leadSign, reads.breathAmp / Math.max(1e-6, c.rigBreathAmp), breathPh);
+      rDip = -rhy.hip.y; rFwd = rhy.hip.x; rLat = rhy.hip.z;
+      rHeadY = rhy.head.y; rHeadZ = rhy.head.z;
+      rRoll = rhy.rock * c.rigRhythmRoll * DEG * q;
+      pSink = rhy.sink; pBack = rhy.backX;
+    }
     // Head off the centre line: a slow asymmetric weave of the upper body
     // (head full, shoulders 0.6), on top of the beat, gated the same way.
     const wPh = tIdle * c.rigWeaveHz * Math.PI * 2 + side * 2.7;
-    const weaveZ = c.rigWeaveAmp * (Math.sin(wPh) + 0.35 * Math.sin(wPh * 1.7 + 0.8)) * rhythm * life;
-    const weaveX = c.rigWeaveFwd * Math.sin(wPh * 0.5 + 1.9) * rhythm * life;
+    let weaveZ = c.rigWeaveAmp * (Math.sin(wPh) + 0.35 * Math.sin(wPh * 1.7 + 0.8)) * rhythm * life;
+    let weaveX = c.rigWeaveFwd * Math.sin(wPh * 0.5 + 1.9) * rhythm * life;
+    if (c.rhythmV2) { weaveZ = 0; weaveX = rhy.head.x; }
     headL.y += rHeadY;
     headL.z += rHeadZ + weaveZ;
     headL.x += weaveX;
+    if (c.rhythmV2) { headL.x += c.rhythmHeadFwd; headL.y -= c.rhythmHeadDown + 0.3 * pSink; }   // the leaning posture: chin forward and down of the sim's head sphere
     // stanceV2: what the shoulders and gloves ride (poseSkeleton) — with skelOn they were pinned to the sim's, so the
     // bounce moved the hips and head under arms that held still. The upper body's share of the beat and weave, the
     // shoulders lifting on the breath, and per hand a pump on the beat (lead and rear alternate) and a slow drift.
-    idleRide.ok = c.stanceV2 && c.stanceArmsRide > 0;
-    if (idleRide.ok) {
+    idleRide.ok = c.rhythmV2 || (c.stanceV2 && c.stanceArmsRide > 0);
+    if (c.rhythmV2) {
+      idleRide.sh.set(rhy.shoulder.x, rhy.shoulder.y, rhy.shoulder.z);
+      for (let i = 0; i < 2; i++) idleRide.gl[i]!.set(rhy.glove[i]!.x, rhy.glove[i]!.y, rhy.glove[i]!.z);
+    } else if (idleRide.ok) {
       const k = c.stanceArmsRide;
       const up = (bob - rDip * 0.7 + rHeadY * 0.5 + Math.max(0, breath) * c.stanceBreathLift * rhythm) * k;
       idleRide.sh.set((rFwd * 0.5 + weaveX * 0.6) * k, up, (rLat * 0.3 + weaveZ * 0.6 + sway * c.rigSwayAmp * 0.5) * k);
@@ -690,7 +710,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     // (slipCrouch) so the knees bend for real.
     const slipLat = next.slip.dir === -1 || next.slip.dir === 1 ? headL.z - shoulderL.z : 0;
     const slipAmt = Math.min(1, Math.abs(slipLat) / Math.max(1e-3, c.slipHeadOffset));
-    chase3(hipSway, leanF * c.rigLeanHip + rFwd + mvFwd * c.rigMoveLeanShift + surgeF + wob * c.rigHurtSway * 0.4, bob - rDip + stepUp - slipAmt * c.rigSlipDip - hurt * c.rigHurtSink, leanL * c.rigLeanLat + (pt === 'jab' ? 0 : latSign[next.punch.hand === 'lead' ? 0 : 1]! * cp.load * c.rigChainLoadShift) + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7 + surgeL + slipLat * c.rigSlipHipShift + wob * c.rigHurtSway, c.rigHipK, c.rigHipZeta, dt);
+    chase3(hipSway, leanF * c.rigLeanHip + rFwd - pBack + mvFwd * c.rigMoveLeanShift + surgeF + wob * c.rigHurtSway * 0.4, bob - rDip - pSink + stepUp - slipAmt * c.rigSlipDip - hurt * c.rigHurtSink, leanL * c.rigLeanLat + (pt === 'jab' ? 0 : latSign[next.punch.hand === 'lead' ? 0 : 1]! * cp.load * c.rigChainLoadShift) + sway * c.rigSwayAmp + rLat + mvLat * c.rigMoveLeanShift * 0.7 + surgeL + slipLat * c.rigSlipHipShift + wob * c.rigHurtSway, c.rigHipK, c.rigHipZeta, dt);
     chase3(spineBend, leanF * c.rigLeanChest + mvFwd * c.rigMoveLeanShift * 0.6 + weaveX * 0.6, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3 + mvLat * c.rigMoveLeanShift * 0.4 + weaveZ * 0.6, c.rigSpineK, c.rigSpineZeta, dt);
     // Circling: the head leads the travel.
     headL.z += mvLat * c.rigMoveHeadLead;
@@ -734,7 +754,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const blade = c.skelOn ? 0 : leadSign * st.chestYawDeg * DEG * (1 - Math.min(1, Math.abs(twist) / 0.5));
     qTmp.setFromAxisAngle(YAXIS, yawSh + spin + blade + reads.chestYaw);   // the shoulders whip round with a hook's spin
     qChest.multiply(qTmp);
-    qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg + mvFwd * c.rigMoveLeanDeg) * DEG - reads.chestPitch);
+    qTmp.setFromAxisAngle(ZAXIS, tilt - (leanF * c.rigLeanTiltDeg + blk * c.rigBlockTiltDeg + mvFwd * c.rigMoveLeanDeg + (c.rhythmV2 ? c.rhythmLeanDeg : 0)) * DEG - reads.chestPitch);
     qChest.multiply(qTmp);
     qTmp.setFromAxisAngle(XAXIS, reads.chestRoll);
     qChest.multiply(qTmp);
@@ -1114,7 +1134,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     for (let i = 0; i < 2; i++) {
       const s = latSign[i]!;
       const fp = feet[i]!.out;
-      toLocal({ x: fp.x, y: fp.y, z: fp.z }, ankle);
+      const ro = c.rhythmV2 ? rhy.feet[i]! : null;   // rhythmV2: the little re-placing steps, on top of the planter's spot (world)
+      toLocal({ x: fp.x + (ro ? ro.x : 0), y: fp.y + (ro ? ro.y : 0), z: fp.z + (ro ? ro.z : 0) }, ankle);
       // The foot under the punching hand of a hook pivots like the rear foot
       // on a cross (toe turns in, heel out); otherwise lead/rear as authored.
       const hookFoot = hookAmt * ((next.punch.hand === 'lead') === (i === 0) ? 1 : 0);
@@ -1141,7 +1162,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
       // V2 chain: the pushing foot's heel comes up WITH the hip drive (foot first), not with the forward lean (which peaks with the fist).
       const punchLift = cp.on ? c.rigPunchHeelLift * cp.push * (i === pushFoot ? (pt === 'jab' ? c.rigChainJabHeel : 1) : 0) : c.rigPunchHeelLift * Math.min(1, Math.max(0, leanF) / c.rigHeelLiftLean) * liftW;
       const keyLift = keyFeet ? next.footKey![i * 4 + 3]! : punchLift * reads.heelScale;
-      const lift = Math.max(keyLift, (i === 1 ? reads.heelRear * rhythm : 0), reads.heelBoth) * (1 - fallK);
+      const lift = Math.max(keyLift, (i === 1 ? reads.heelRear * rhythm : 0), reads.heelBoth, c.rhythmV2 ? (i === 1 ? rhy.heelRear : rhy.heelLead) : 0) * (1 - fallK);
       ankle.y += body.bootH + lift;
 
       hipJ[i]!.set(0, 0, s * d.hipJ).applyQuaternion(qHips).add(H);
@@ -1261,7 +1282,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   probe.sprayCount = (): number => spray.active;
   probe.skelDiverge = () => ({ ...skDiverge });
   probe.chain = () => ({ hipYaw: chainOut.hipYaw, hipY: chainOut.hipY, hipLat: chainOut.hipLat, footYaw: [chainOut.footYaw[0]!, chainOut.footYaw[1]!], heel: [chainOut.heel[0]!, chainOut.heel[1]!], kneeIn: [chainOut.kneeIn[0]!, chainOut.kneeIn[1]!] });
-  probe.footPos = () => [{ x: feet[0].out.x, y: feet[0].out.y, z: feet[0].out.z }, { x: feet[1].out.x, y: feet[1].out.y, z: feet[1].out.z }];
+  probe.footPos = () => [0, 1].map(i => ({ x: feet[i]!.out.x + (cfg.rhythmV2 ? rhy.feet[i]!.x : 0), y: feet[i]!.out.y + (cfg.rhythmV2 ? rhy.feet[i]!.y : 0), z: feet[i]!.out.z + (cfg.rhythmV2 ? rhy.feet[i]!.z : 0) })) as [{ x: number; y: number; z: number }, { x: number; y: number; z: number }];
 
   return {
     side,
