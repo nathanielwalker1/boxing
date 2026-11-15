@@ -109,7 +109,7 @@ function replayAB(snap, cfg) {
 
 // ── One fight ────────────────────────────────────────────────────────────────────────────────────────────────
 function fight(human, style, diffIdx, seed) {
-  const c = { ...kr.cfg, aiDifficulty: diffIdx, ...(ARGS.respect !== undefined ? { aiRespectV2: ARGS.respect === '1' } : {}) };
+  const c = { ...kr.cfg, aiDifficulty: diffIdx, ...(ARGS.payoff !== undefined ? { blockPayoffV2: ARGS.payoff === '1' } : {}), ...(ARGS.respect !== undefined ? { aiRespectV2: ARGS.respect === '1' } : {}) };
   let hid = HUMAN_BODIES[seed % 2];
   const aid = BODY[style][(seed >> 1) % BODY[style].length];
   if (hid === aid) hid = HUMAN_BODIES[(seed + 1) % 2];
@@ -150,6 +150,7 @@ function fight(human, style, diffIdx, seed) {
       if (e.type === 'punchStart' && e.side === 0) R.starts.push({ i, type: e.punch, alreadyUp: aiBlockPre, body: /body/i.test(e.variant) });
       else if (e.type === 'punchStart') R.aiStarts++;
       else if (e.type === 'guardBreak' && e.side === 1) R.guardBreaks++;
+      else if (e.type === 'guardBreak') R.humanBreaks = (R.humanBreaks ?? 0) + 1;
       else if (e.type === 'knockdown') R.kd[e.side]++;
       else if (e.type === 'ko' || e.type === 'tko') { R.winner = e.winner; R.how = e.type; }
       else if (e.type === 'decision') { R.winner = e.winner; R.how = 'decision'; }
@@ -235,7 +236,7 @@ for (const [dn] of DIFFS) {
 
 // ── C. A blocked punch, controlled (reference fighters, ratings and styles off, regen off) ───────────────────
 const kc = await kit({ rated: false });
-const cc = { ...kc.cfg, staminaRegen: 0, healthRegen: 0, aiDifficulty: 1 };
+const cc = { ...kc.cfg, staminaRegen: 0, healthRegen: 0, aiDifficulty: 1, ...(ARGS.payoff !== undefined ? { blockPayoffV2: ARGS.payoff === '1' } : {}) };
 function blockExp(p, d, blockerMode) {
   const run = (punch) => {
     let s = kc.fresh(cc, d);
@@ -289,6 +290,11 @@ for (const [dn] of DIFFS) {
     const det = o => { const q = reps.filter(x => x.outcome === o && x.push !== undefined); return q.length ? `${o} n=${q.length}: push ${(median(q.map(x => x.push)) * 100).toFixed(0)} cm, sep+30 ${(median(q.map(x => x.sep30)) * 100).toFixed(0)} cm, reclose ${median(q.filter(x => x.reclose !== null).map(x => x.reclose)) ?? '-'} t (${q.filter(x => x.reclose === null).length} never)` : `${o} n=0`; };
     console.log(`  ${st.padEnd(9)} ${press.padEnd(5)} n=${String(reps.length).padStart(3)} clean ${share('clean')} blocked ${share('blocked')} perfect ${share('perfect')} whiff ${share('whiff')} glancing ${share('glancing')} none ${share('none')} || ${det('clean')} || ${det('blocked')}`);
   }
+}
+
+console.log('\n=== G. Guard openings per fight: AI guard opened (by the human) / human guard opened (by the AI) ===');
+for (const [dn] of DIFFS) for (const h of HUMANS) {
+  console.log(`-- ${dn}, ${h}: ` + cellsOf(dn, h).map(([st, rs]) => `${st} ${(sum(rs, r => r.guardBreaks) / rs.length).toFixed(2)}/${(sum(rs, r => r.humanBreaks ?? 0) / rs.length).toFixed(2)}`).join('  '));
 }
 
 console.log('\n=== F. Outcome (6 fights per row): human wins / AI wins / draws | KO-TKO | knockdowns human-took / AI-took (per fight) | damage dealt BY human / BY AI (% of a bar per fight) | lands human / AI per fight | punches started human / AI per fight ===');

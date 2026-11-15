@@ -8,7 +8,8 @@ import { kit } from './bots/kit.mjs';
 import { check, done } from './check.js';
 
 const k = await kit();
-const { cfg, inp, NONE, fresh, run } = k;
+const { inp, NONE, fresh, run } = k;
+const cfg = { ...k.cfg, blockPayoffV2: false };   // pinned to the pre-payoff numbers (block_payoff_test.mjs has the new ones)
 const on = { ...cfg, stylesOn: true, staminaBlockDrain: 0, staminaRegen: 0, healthRegen: 0, guardMeterOn: false, guardHolesV2: true, blockFeelV2: true };
 const off = { ...on, blockFeelV2: false };
 const BLOCK = inp({ block: true });

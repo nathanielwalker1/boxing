@@ -31,6 +31,14 @@ const POSE_LEAN = 0.35, POSE_CROUCH = 0.08;
 /** No block absorbs more than this, whatever the defense rating. Shape. */
 const BLOCK_MAX = 0.95;
 
+/** blockPayoffV2: the per-punch numbers of a punch on the guard, by type (all config keys). */
+function payoff(t: PunchType, cfg: Config): { stop: number; push: number; rebound: number; stun: number; wear: number } {
+  return t === 'jab' ? { stop: cfg.blockPayoffStopJab, push: cfg.blockPayoffPushJab, rebound: cfg.blockPayoffReboundJab, stun: cfg.blockPayoffStunJab, wear: cfg.blockPayoffWearJab }
+    : t === 'cross' ? { stop: cfg.blockPayoffStopCross, push: cfg.blockPayoffPushCross, rebound: cfg.blockPayoffReboundCross, stun: cfg.blockPayoffStunCross, wear: cfg.blockPayoffWearCross }
+    : t === 'hook' ? { stop: cfg.blockPayoffStopHook, push: cfg.blockPayoffPushHook, rebound: cfg.blockPayoffReboundHook, stun: cfg.blockPayoffStunHook, wear: cfg.blockPayoffWearHook }
+    : { stop: cfg.blockPayoffStopUpper, push: cfg.blockPayoffPushUpper, rebound: cfg.blockPayoffReboundUpper, stun: cfg.blockPayoffStunUpper, wear: cfg.blockPayoffWearUpper };
+}
+
 /** Two pressed on the same tick: the faster punch wins. */
 function fastestOf(mask: number): PunchType | null {
   return mask & MASK_JAB ? 'jab' : mask & MASK_CROSS ? 'cross' : mask & MASK_HOOK ? 'hook' : mask & MASK_UPPERCUT ? 'uppercut' : null;
@@ -180,6 +188,8 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
   // Nor through a guard break, nor tied up.
   f.block = input.block && guardOpen && !f.down && !f.slip.active && f.guardBroken === 0 && !f.clinch.active;
   f.blockT = f.block ? (wasBlocking ? f.blockT + dt : 0) : 0;
+  // blockPayoffV2: once the pressure stops the guard meter comes back fast, so a combination opens it and a single poke never does.
+  if (cfg.blockPayoffV2 && cfg.guardWearOn && f.guardBroken === 0 && f.guardHp < 1 && f.guardRest >= cfg.blockPayoffRegenDelay) f.guardHp = Math.min(1, f.guardHp + cfg.blockPayoffRegen * dt);
   f.guard = f.down ? 'down' : f.block ? 'block' : 'rest';
 
   const buf = punchBuffer(f);
@@ -722,8 +732,10 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   if (d.block && !perfect) {
     // Stun and wear taken: the base × the blocker's guard shape × his defense rating.
     const gd = guardOf(d, cfg);
-    if (cfg.blockStunOn) { stun = Math.min(cfg.blockStunMax, cfg.blockStunBase * rawPower * gd.stun * rated(d, 'defense', -cfg.ratingDefenseStun, cfg)); d.blockStun = Math.max(d.blockStun, stun); }
-    if (cfg.guardWearOn) { d.guardHp = Math.max(0, d.guardHp - cfg.guardWearPerImpulse * (cfg.guardMeterOn ? cfg.guardWearScale : 1) * raw * gd.wear * rated(d, 'defense', -cfg.ratingDefenseGuard, cfg) * (rawPower < cfg.chipMinPower ? cfg.guardWearLight : 1)); d.guardRest = 0; }
+    const po = cfg.blockPayoffV2 && blocked ? payoff(type, cfg) : null;
+    if (cfg.blockStunOn) { stun = Math.min(cfg.blockStunMax, cfg.blockStunBase * rawPower * gd.stun * rated(d, 'defense', -cfg.ratingDefenseStun, cfg) * (po ? po.stun : 1)); d.blockStun = Math.max(d.blockStun, stun); }
+    if (cfg.guardWearOn && cfg.blockPayoffV2) { d.guardHp = Math.max(0, d.guardHp - payoff(type, cfg).wear * (blocked ? 1 : cfg.blockPayoffWearThrough) * gd.wear * rated(d, 'defense', -cfg.ratingDefenseGuard, cfg)); d.guardRest = 0; }
+    else if (cfg.guardWearOn) { d.guardHp = Math.max(0, d.guardHp - cfg.guardWearPerImpulse * (cfg.guardMeterOn ? cfg.guardWearScale : 1) * raw * gd.wear * rated(d, 'defense', -cfg.ratingDefenseGuard, cfg) * (rawPower < cfg.chipMinPower ? cfg.guardWearLight : 1)); d.guardRest = 0; }
     if (blocked && !light) chip = mag * cfg.healthDamagePerImpulse * (part === 'body' && cfg.bodyDamageOn ? cfg.bodyHealthScale : 1);
   }
 
@@ -774,6 +786,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const spread = cfg.gradeSpreadOn && !blocked;
   if (spread) stumble *= grade === 'glancing' ? cfg.gradeStumbleGlancing : grade === 'flush' ? cfg.gradeStumbleFlush : 1;
   // The hold (polish phase): inside a clean combination most of the knockback waits for its last punch (flow.ts).
+  if (cfg.blockPayoffV2 && blocked && !perfect) stumble *= payoff(type, cfg).push;   // blockPayoffV2: the push weighs by the punch
   applyKnock(a, d, impulse.x / d.body.massKg * stumble, impulse.z / d.body.massKg * stumble, combo, finisher, !blocked && grade !== 'glancing', cfg);
   applyReaction(d, type, dir, mag, cfg, {
     scale: blocked && !perfect && cfg.guardHolesV2 ? cfg.guardHolesBlockReact * (cfg.blockFeelV2 ? cfg.blockFeelHeadScale : 1) :!spread ? 1 : grade === 'glancing' ? cfg.gradeReactGlancing : grade === 'flush' ? cfg.gradeReactFlush : 1,
@@ -786,7 +799,11 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   if (cfg.guardHolesV2 && d.block && guarded) {
     // Guard holes: every punch on a held guard (blocked or through) wears the cover for the next; a perfect one is free.
     if (!perfect) setGuardPress(d, guardPress(d) + 1);
-    if (blocked && !perfect) setWhiffMult(a, Math.max(whiffMult(a), cfg.guardHolesRebound));   // rebound: the arm comes off the gloves slower
+    if (blocked && !perfect) {
+      // blockPayoffV2: the rebound is per punch, and under 1 the punch comes home FASTER (the jab is safe on a guard).
+      const rb = cfg.blockPayoffV2 ? payoff(type, cfg).rebound : cfg.guardHolesRebound, cur = whiffMult(a);
+      setWhiffMult(a, cfg.blockPayoffV2 && cur <= 1 ? rb : Math.max(cur, rb));
+    }   // rebound: the arm comes off the gloves slower
     // A WELL-TIMED block (raised inside the last guardHolesTimedTicks before the hit): the thrower is rocked and the
     // counter window the slip opens opens for the blocker (counter event on his landing, as for a slip).
     // (A SKILL, not an accident of reaction time: the seeded roll against the blocker's timedSkill — 1 for a human, set by the AI per difficulty.)
@@ -810,9 +827,10 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // hitStopV2 (anim 2.4): a frame count from the config table instead — see the keys; a counter is the heavier stop.
     const g2 = !cfg.gradesOn ? 'clean' : grade;
     const body2 = part === 'body';
-    const ticksV2 = blocked ? cfg.hitStopTicksBlocked
+    const ticksV2 = blocked ? (cfg.blockPayoffV2 ? payoff(type, cfg).stop : cfg.hitStopTicksBlocked)
       : (body2 ? (g2 === 'glancing' ? cfg.hitStopTicksBodyGlancing : g2 === 'flush' ? cfg.hitStopTicksBodyFlush : cfg.hitStopTicksBody)
-        : (g2 === 'glancing' ? cfg.hitStopTicksGlancing : g2 === 'flush' ? cfg.hitStopTicksFlush : cfg.hitStopTicksClean))
+        : (g2 === 'glancing' ? cfg.hitStopTicksGlancing : g2 === 'flush' ? cfg.hitStopTicksFlush : cfg.hitStopTicksClean)
+          + (cfg.blockPayoffV2 && type !== 'jab' && g2 !== 'glancing' ? cfg.blockPayoffLandStopExtra : 0))
       + (counter && !blocked ? cfg.hitStopTicksCounterBonus : 0);
     if (cfg.hitStopV2) {
       // A knockdown by health (takeHit above) is the fight's moment: exempt from the cap, keeps its stop.
@@ -830,9 +848,10 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     else addHitStop(s, want, cfg, counter && !blocked ? 2 : 0);
     // The guard meter emptied: the hands are knocked apart.
     if (d.block && cfg.guardWearOn && d.guardHp <= 0 && !d.down) {
-      d.guardBroken = cfg.guardBreakSeconds; d.block = false; d.blockT = 0; d.guard = 'rest';
-      applyPunish(d, cfg.guardBreakVuln, cfg.guardBreakSeconds, PUNISH_BLOCK);
-      events.push({ type: 'guardBreak', side: target, by: side, seconds: cfg.guardBreakSeconds });
+      const open = cfg.blockPayoffV2 ? cfg.blockPayoffOpenSeconds : cfg.guardBreakSeconds;   // blockPayoffV2: a combination opens it for a moment
+      d.guardBroken = open; d.block = false; d.blockT = 0; d.guard = 'rest';
+      applyPunish(d, cfg.guardBreakVuln, open, PUNISH_BLOCK);
+      events.push({ type: 'guardBreak', side: target, by: side, seconds: open });
     }
     // ROCKED (sim/stun.ts): a clean head shot from a punch that can rock is
     // measured against the target's threshold — rock, finish or flash.

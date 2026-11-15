@@ -14,7 +14,8 @@ import { check, near, done } from './check.js';
 const k = await kit();
 const kr = await kit({ rated: true });
 const [UI, ST, VU] = await load('/src/ui/slowmo.ts', '/src/sim/state.ts', '/src/sim/vulnerability.ts');
-const { cfg, sim, inp, NONE, fresh, run, SIM_DT } = k;
+const { sim, inp, NONE, fresh, run, SIM_DT } = k;
+const cfg = { ...k.cfg, blockPayoffV2: false };   // pinned to the pre-payoff numbers (block_payoff_test.mjs has the new ones)
 const MID = 0.79;
 const OLD = { ...cfg, hitStopV2: false };
 const isStop = (s0, s1, c) => s1.time - s0.time < SIM_DT * (c.hitStopScale + 1) / 2 - 1e-12 && s0.hitStop > 0;
