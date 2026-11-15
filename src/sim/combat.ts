@@ -96,7 +96,6 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // (Polish phase: also out of a pose still unwinding after a feint or a stuff — the hands are free, the body is not home yet.)
   setChainCarry(f, { on: chained || (cfg.carryFadeOn && (f.torsoTwist !== 0 || f.lean.fwd !== 0)), twist: f.torsoTwist, fwd: f.lean.fwd, lat: f.lean.lat, crouch: f.crouch });
   f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost * throwWeight(type, cfg) * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg));   // (polish phase: by the punch's weight)
-  if (cfg.staminaV2) setRegenDelay(f, Math.max(regenDelay(f), cfg.staminaV2ThrowDelay));   // staminaV2: the wind does not come back until a breath after the last punch, so a busy fighter never gets it back
   f.punch = {
     ...idlePunch(hand), type, phase: 'cock', variant,
     tell: (ph.cock * cock + ph.extend) * slow, timeMult: slow,
@@ -360,9 +359,40 @@ function missed(a: FighterState, cfg: Config, whiff: boolean, type: PunchType = 
   if (whiff && cfg.whiffCostOn) {
     // (Polish phase: by the punch's weight — a missed jab is a small thing, a missed hook is what gasses you.)
     const w = cfg.staminaPolishOn && cfg.staminaWhiffByWeight ? typeWeight(type, cfg) : 1;
-    a.stamina = Math.max(0, a.stamina - cfg.staminaWhiffCost * w * (cfg.staminaV2 ? cfg.staminaV2WhiffMult : 1) * rated(a, 'stamina', -cfg.ratingStaminaCost, cfg));
+    a.stamina = Math.max(0, a.stamina - cfg.staminaWhiffCost * w * rated(a, 'stamina', -cfg.ratingStaminaCost, cfg));
     a.wear += cfg.whiffCapLoss * w;
     if (cfg.staminaPolishOn) setRegenDelay(a, Math.max(regenDelay(a), cfg.staminaWhiffDelay * typeWeight(type, cfg)));   // a miss is a held breath
+  }
+}
+
+/**
+ * blockFeelV2: what the BODIES do on a block. The glove that met the fist is driven back toward its own head (by the
+ * blocked power, capped; part an instant shove, part a starting speed) and springs home by the ordinary glove spring;
+ * it is never left inside his own head. The thrower's fist is already stopped on the glove by the contacts — it
+ * skips part of its hold there, so it bounces back along its path sooner than a land's follow-through.
+ */
+function blockFeel(a: FighterState, d: FighterState, at: Vec3, dirX: number, dirZ: number, rawPower: number, cfg: Config): void {
+  const dist = Math.min(cfg.blockFeelGloveMax, cfg.blockFeelGlove * rawPower);
+  const t0 = touchedBlock(d, 0), t1 = touchedBlock(d, 1);
+  const near = (i: number): number => { const p = d.gloves[i]!.pos; return Math.hypot(p.x - at.x, p.y - at.y, p.z - at.z); };
+  const which = t0 && !t1 ? [0] : t1 && !t0 ? [1] : t0 && t1 ? [0, 1] : [near(0) <= near(1) ? 0 : 1];
+  const hb = d.headBox, minDist = hb.r + d.body.gloveR;
+  for (const i of which) {
+    const g = d.gloves[i]!;
+    const shove = dist * (1 - cfg.blockFeelGloveVel);
+    g.pos.x += dirX * shove; g.pos.z += dirZ * shove;
+    g.vel.x += dirX * dist * cfg.blockFeelGloveVel * Math.sqrt(cfg.chainK); g.vel.z += dirZ * dist * cfg.blockFeelGloveVel * Math.sqrt(cfg.chainK);
+    // Never inside his own head: pushed back out along the line from its centre.
+    const rx = g.pos.x - hb.x, ry = g.pos.y - hb.y, rz = g.pos.z - hb.z, rl = Math.hypot(rx, ry, rz);
+    if (rl < minDist && rl > 1e-9) { const k = minDist / rl; g.pos.x = hb.x + rx * k; g.pos.y = hb.y + ry * k; g.pos.z = hb.z + rz * k; }
+  }
+  const p = a.punch;
+  if (p.type !== null && cfg.blockFeelFistSkip > 0) {
+    const total = whiffPhases(a, PUNCHES[p.type].phases(cfg)).total;
+    const p0 = p.progress, p1 = Math.min(0.98, p0 + cfg.blockFeelFistSkip / Math.max(1e-6, total));
+    p.progress = p1;
+    // The skip brings the fist off the glove sooner; it must not hand the thrower the time back (the rebound is the block's frame cost: guardHolesRebound) — the rest of the recovery stretches so it ends when it would have.
+    setWhiffMult(a, whiffMult(a) * (1 - p0) / (1 - p1));
   }
 }
 
@@ -658,18 +688,14 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
       a.combo = (a.comboT > 0 ? a.combo : 0) + 1;
       a.comboT = cfg.comboWindow;
       if (cfg.comboBuildOn) mag *= 1 + Math.min(cfg.comboBuildMax, cfg.comboBuildStep * (a.combo - 1));
-      if (cfg.whiffCostOn) a.stamina = Math.min(1, a.stamina + (cfg.staminaV2 ? cfg.staminaV2LandRefund : cfg.staminaLandRefund));
+      if (cfg.whiffCostOn) a.stamina = Math.min(1, a.stamina + cfg.staminaLandRefund);
       // The finisher (polish phase): the power punch that lands third or later is the combination's last and biggest moment.
       finisher = cfg.comboFinisherOn && type !== 'jab' && a.combo >= cfg.comboFinisherAt;
       if (finisher) mag *= cfg.comboFinisherPower;
     }
     combo = a.combo;
     if (finisher) { a.combo = 0; a.comboT = 0; }   // the next clean land starts a new count
-  } else {
-    missed(a, cfg, false);
-    // staminaV2: a punch the guard stopped wasted its arm: a share of a miss on top of the throw (more than a land, less than a whiff)
-    if (cfg.staminaV2 && cfg.whiffCostOn) a.stamina = Math.max(0, a.stamina - cfg.staminaWhiffCost * typeWeight(type, cfg) * cfg.staminaV2BlockedThrow * rated(a, 'stamina', -cfg.ratingStaminaCost, cfg));
-  }
+  } else missed(a, cfg, false);
   if (type === 'jab' && cfg.jabImpulseCap > 0) mag = Math.min(mag, cfg.jabImpulseCap);   // …and again after the grade and the combination
 
   const power = mag / cfg.punchImpulseBase;
@@ -750,10 +776,12 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // The hold (polish phase): inside a clean combination most of the knockback waits for its last punch (flow.ts).
   applyKnock(a, d, impulse.x / d.body.massKg * stumble, impulse.z / d.body.massKg * stumble, combo, finisher, !blocked && grade !== 'glancing', cfg);
   applyReaction(d, type, dir, mag, cfg, {
-    scale: blocked && !perfect && cfg.guardHolesV2 ? cfg.guardHolesBlockReact : !spread ? 1 : grade === 'glancing' ? cfg.gradeReactGlancing : grade === 'flush' ? cfg.gradeReactFlush : 1,
+    scale: blocked && !perfect && cfg.guardHolesV2 ? cfg.guardHolesBlockReact * (cfg.blockFeelV2 ? cfg.blockFeelHeadScale : 1) :!spread ? 1 : grade === 'glancing' ? cfg.gradeReactGlancing : grade === 'flush' ? cfg.gradeReactFlush : 1,
     neck: (!spread ? 1 : finisher ? cfg.gradeNeckFinisher : grade === 'flush' ? cfg.gradeNeckFlush : 1)
       * (cfg.counterFeelV2 && counter && !blocked ? cfg.counterReactionOver : 1),   // counterFeelV2: the head travels further on a counter
     vary: blocked ? 0 : vary * cfg.reactionVary, vary2: blocked ? 0 : seededUnit(s.seed, s.tick, side + 7) * cfg.reactionVary,
+    part,   // hitChainV2: a body shot folds the torso instead of snapping the head
+    blockRaw: blocked && !perfect && cfg.guardHolesV2 && cfg.blockFeelV2 ? raw : undefined,   // hitChainV2 + blockFeelV2: the block's rock goes down the chain
   });
   if (cfg.guardHolesV2 && d.block && guarded) {
     // Guard holes: every punch on a held guard (blocked or through) wears the cover for the next; a perfect one is free.
@@ -768,6 +796,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
       a.stagger.z -= dirZ * cfg.guardHolesTimedStagger * cfg.staggerDecay;
       setWhiffMult(a, Math.max(whiffMult(a), cfg.guardHolesTimedHang));
     }
+    if (blocked && !perfect && cfg.blockFeelV2) blockFeel(a, d, at, dirX, dirZ, rawPower, cfg);
   }
   if (perfect) {
     applyPunish(a, cfg.perfectBlockPunishVuln, cfg.perfectBlockPunishDuration, PUNISH_BLOCK);

@@ -9,7 +9,7 @@
  * relaxes for the recovery and overshoots on the way back.
  */
 import type { Config, FighterState, GloveState, Hand, Side, Vec3 } from '../core';
-import { GUARDS, TAU, closestOnSegment, closestSegSeg, frameOf, handLateralSign, lerp, localToWorld, sin, sqrt, worldToLocal } from '../core';
+import { GUARDS, TAU, clamp, closestOnSegment, closestSegSeg, frameOf, handLateralSign, lerp, localToWorld, sin, sqrt, worldToLocal } from '../core';
 import { clinchAmount } from './clinch';
 import { PUNCHES, blockLocal, guardLocal, punchEnvelope, punchLocal, whiffPhases, type LocalPose } from './punches';
 import { slipBack, slipLateral } from './slip';
@@ -272,6 +272,7 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
       }
     }
     const g = f.gloves[i]!;
+    if (cfg.blockFeelV2 && cfg.blockFeelCatchOn && cfg.guardHolesV2) t = catchOffset(f, other, i, t, cfg);
     const free = t;
     if (solid) t = cutTarget(g.pos, t, fr.fwd, other, f.body.gloveR, sink, hitBody(other, cfg), keyed && f.punch.type !== null && f.punch.hand === hand);
     // Remember whether the other fighter's head or body clipped this target:
@@ -290,6 +291,31 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     springs(f)[i] = { k, c, kin, sx: g.pos.x, sy: g.pos.y, sz: g.pos.z };
   }
   void dt;
+}
+
+/**
+ * blockFeelV2 catch: while he holds the block and the other man's punch is on its way, the guard glove NEAREST the fist (across the
+ * punch line) is moved onto the fist's line — across and up/down by at most blockFeelCatchMax, never along it — as the fist closes
+ * (the last ~4 ticks) and held there through the contact, then released over blockFeelCatchReturn of the thrower's recovery.
+ * It is a target for the ordinary glove spring, so the glove the block uses is the glove drawn. Stateless: all from the two men's positions and the punch clock.
+ */
+function catchOffset(f: FighterState, other: FighterState, i: number, t: Vec3, cfg: Config): Vec3 {
+  const p = other.punch;
+  if (!f.block || f.punch.type !== null || p.type === null || p.feint) return t;
+  const fist = other.gloves[p.hand === 'lead' ? 0 : 1]!.pos, fwd = frameOf(other.yaw).fwd;
+  const across = (g: Vec3): { x: number; y: number; z: number; gap: number } => {
+    const dx = fist.x - g.x, dy = fist.y - g.y, dz = fist.z - g.z, ax = dx * fwd.x + dz * fwd.z;
+    return { x: dx - ax * fwd.x, y: dy, z: dz - ax * fwd.z, gap: -ax };
+  };
+  const mine = across(f.gloves[i]!.pos), theirs = across(f.gloves[1 - i]!.pos);
+  if (Math.hypot(mine.x, mine.y, mine.z) > Math.hypot(theirs.x, theirs.y, theirs.z)) return t;   // the other glove is nearer the fist
+  const rec = PUNCHES[p.type].phases(cfg).recover;
+  const w = p.phase === 'recover' ? clamp(1 - p.t / Math.max(1e-6, cfg.blockFeelCatchReturn), 0, 1) : clamp((cfg.blockFeelCatchReach - mine.gap) / Math.max(1e-6, cfg.blockFeelCatchReach - 0.17), 0, 1);
+  void rec;
+  const len = Math.hypot(mine.x, mine.y, mine.z);
+  if (w <= 0 || len < 1e-6) return t;
+  const s = Math.min(1, cfg.blockFeelCatchMax / len) * w;
+  return { x: t.x + mine.x * s, y: t.y + mine.y * s, z: t.z + mine.z * s };
 }
 
 /** Per-fighter spring constants for this tick, set by stepGloves and read by integrateGloves. Scratch, not state. */
@@ -358,7 +384,29 @@ export function clampGloves(f: FighterState, other: FighterState, cfg: Config): 
   const sink = f.body.gloveR * cfg.contactSquash;
   const upperR = other.body.bodyR * cfg.rigUpperArmR;
   const hb = hitBody(other, cfg);
-  for (const g of f.gloves) {
+  const fr = frameOf(f.yaw);
+  for (let gi = 0; gi < f.gloves.length; gi++) {
+    const g = f.gloves[gi]!;
+    // blockFeelV2: a punching fist stops on the OUTER surface of a held guard glove — pushed back along its own line,
+    // not out sideways (the sphere push below slid it under the glove and onto the face, measured).
+    // Straights only: a hook's arrival direction (how much guard it meets, combat.ts) is read from where the fist sits, so
+    // walking a hook back before it is scored changed block into land-through for a 12° hook into the high guard (styles_test).
+    if (cfg.blockFeelV2 && cfg.guardHolesV2 && other.block && f.punch.type !== null && (f.punch.type !== 'hook' || f.punch.contact) && (f.punch.hand === 'lead') === (gi === 0)) {
+      const minD = f.body.gloveR + other.body.gloveR - sink;
+      for (const og of other.gloves) {
+        const dx = g.pos.x - og.pos.x, dy = g.pos.y - og.pos.y, dz = g.pos.z - og.pos.z;
+        const ax = dx * fr.fwd.x + dz * fr.fwd.z;   // along the punch: negative = in front of his glove
+        const lx = dx - ax * fr.fwd.x, lz = dz - ax * fr.fwd.z, l2 = lx * lx + dy * dy + lz * lz;
+        if (l2 >= minD * minD) continue;
+        const need = sqrt(minD * minD - l2);
+        if (ax > -need && ax < need) {   // inside his glove's sphere (in front of its centre or just past it, having come up from under)
+          const back = Math.min(cfg.blockFeelStopStep, ax + need);   // …walked back a few cm a pass, not snapped
+          g.pos.x -= fr.fwd.x * back; g.pos.z -= fr.fwd.z * back;
+          const vf = g.vel.x * fr.fwd.x + g.vel.z * fr.fwd.z;
+          if (vf > 0) { g.vel.x -= vf * fr.fwd.x; g.vel.z -= vf * fr.fwd.z; }
+        }
+      }
+    }
     // Head and body overlap at the chin, so a push out of one can land in
     // the other; a few passes settle it (measured: one pass left 4–5 cm).
     for (let pass = 0; pass < CLAMP_PASSES; pass++) {

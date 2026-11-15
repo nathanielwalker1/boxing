@@ -12,7 +12,7 @@ import { costs, pace } from './stamina_probe.mjs';
 import { kit } from './bots/kit.mjs';
 
 const k = await kit();
-const cfg = { ...k.cfg, staminaV2: false }, OLD = { ...cfg, staminaPolishOn: false };   // the polish-phase economy; staminaV2 has its own test (stamina_budget_test.mjs)
+const cfg = k.cfg, OLD = { ...cfg, staminaPolishOn: false };
 const pct = x => `${(x * 100).toFixed(1)}%`;
 
 // ── 1. Three rounds at a sensible pace ───────────────────────────────────────

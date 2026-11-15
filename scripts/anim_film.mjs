@@ -46,11 +46,22 @@ SCENARIOS.hit_body_p = { dist: 0.7, s0: [], s1: bodyHook(), from: 22, to: 58, st
 SCENARIOS.counter = { dist: 0.79, s0: at({ ...flick(-1, 0), 12: { cross: true } }), s1: at({ 0: { jab: true } }), from: 0, to: 46, step: 2 };
 // His cross on a held block.
 SCENARIOS.block = { dist: 0.79, s0: hold([], 'block', 0, 60), s1: at({ 12: { cross: true } }), from: 8, to: 50, step: 2 };
+// blockFeelV2: side 1 (blue, face to camera) holds a high guard and takes the shot; side 0 throws it.
+SCENARIOS.block_cross = { dist: 0.8, s0: at({ 12: { cross: true } }), s1: hold([], 'block', 0, 60), from: 10, to: 40, step: 2 };
+SCENARIOS.block_hook = { dist: 0.8, s0: at({ 12: { hook: true, move: { x: 1, y: 0 } } }), s1: hold([], 'block', 0, 60), from: 10, to: 44, step: 2 };
 // Footwork: the stick held sideways about a second (60 ticks), and a step in then out.
 SCENARIOS.footwork_lateral = { dist: 1.2, s0: stick(1, 0, 2, 62), s1: [], from: 0, to: 84, step: 6 };
 SCENARIOS.footwork_in_out = { dist: 1.5, s0: [...stick(0, 0, 0, 1), ...stick(0, 1, 2, 24), ...stick(0, 0, 25, 29), ...stick(0, -1, 30, 52)], s1: [], from: 0, to: 80, step: 5 };
 // One cross that floors him (damage per impulse turned up for the strip: the one existing mechanism, no hook forces a knockdown), the fall, the get-up.
 SCENARIOS.knockdown = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: { healthDamagePerImpulse: 0.006, camLookY: 0.75, camDistMin: 3.3 }, from: 12, to: 204, step: 8 };
+// knockdownV2 falls by what dropped him (fall only: 12 to 100, every 4 ticks).
+const KD = { healthDamagePerImpulse: 0.006, camLookY: 0.75, camDistMin: 3.3 };
+SCENARIOS.kd_cross = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: KD, from: 12, to: 100, step: 4 };
+SCENARIOS.kd_hook = { dist: 0.79, s0: at({ 2: { hook: true, move: { x: -1, y: 0 } } }), s1: [], cfg: KD, from: 12, to: 100, step: 4 };
+// The whole fall AND get-up with the lens held on the DOWNED man (focus 1 = side 1's position, the film camera only): 12 to 204 every 8 ticks.
+SCENARIOS.kd_cross_full = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: KD, from: 12, to: 204, step: 8, focus: 1 };
+SCENARIOS.kd_hook_full = { dist: 0.79, s0: at({ 2: { hook: true, move: { x: -1, y: 0 } } }), s1: [], cfg: KD, from: 12, to: 204, step: 8, focus: 1 };
+SCENARIOS.kd_upper ={ dist: 0.65, s0: at({ 2: { uppercut: true, move: { x: 1, y: 0 } } }), s1: [], cfg: KD, from: 12, to: 100, step: 4 };
 
 const SIDE = { camFollow: 0, camAzimuthDeg: 90, camElevationDeg: 12, camDistMin: 2.6, camLookY: 1.05 };
 
@@ -93,7 +104,7 @@ async function shoot(file, sc, camCfg) {
   const restore = await page.evaluate(over => { const was = {}; for (const k in over) { was[k] = window.__cfg[k]; window.__cfg[k] = over[k]; } return was; }, { ...(sc.cfg ?? {}), ...(camCfg ?? {}) });
   await page.evaluate(() => { window.__look('red', 'rest', 0); });
   await frames(page, 4);
-  await page.evaluate(() => { window.__cfg.rigQuality = 1; window.__focus = -1; });
+  await page.evaluate(fo => { window.__cfg.rigQuality = 1; window.__focus = fo; }, sc.focus ?? -1);
   for (let t = sc.from; t <= sc.to; t += sc.step) {
     await page.evaluate(([dist, s0, s1, t]) => (window.__rigReplay ?? window.__replay)(dist, s0.map(x => x ?? {}), t, s1.map(x => x ?? {}), {}), [sc.dist, Array.from(sc.s0, x => x ?? null), Array.from(sc.s1, x => x ?? null), t]);
     await frames(page, 3);

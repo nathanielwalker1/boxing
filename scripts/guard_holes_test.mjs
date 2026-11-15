@@ -80,7 +80,9 @@ console.log('\n=== 4. Pressure wears the guard down ===');
 
 console.log('\n=== 5. A block feels like something ===');
 {
-  const peakHead = r => { let m = 0; return { r, get: () => m, track: s => { const h = s.fighters[1].reaction.head; m = Math.max(m, Math.hypot(h.vx, h.vz)); } }; };
+  // The REAL head (the posed head box), relative to his feet: its peak travel from where it stood at the press, m
+  // (with hitChainV2 the legacy spring offsets are not kicked, so they read 0; the block's rock goes down the chain).
+  const peakHead = () => { let m = 0, b = null; return { get: () => m, track: s => { const f = s.fighters[1], h = { x: f.headBox.x - f.pos.x, y: f.headBox.y, z: f.headBox.z - f.pos.z }; b = b ?? h; m = Math.max(m, Math.hypot(h.x - b.x, h.y - b.y, h.z - b.z)); } }; };
   const run1 = (type, d, c, x = 0) => { const s = fresh(c, d, 20); const t = peakHead(); const r = run(s, 40, i => [inp({ [type]: i === 0, move: { x: i === 0 ? x : 0, y: 0 } }), BLOCK], c, st => t.track(st)); return { head: t.get(), stam: 1 - r.s.fighters[1].stamina, rb: r.evs.some(e => e.type === 'punchBlock') }; };
   const hookOn = run1('hook', 0.72, quiet, 1), hookOff = run1('hook', 0.72, off, 1), jabOn = run1('jab', MID, quiet), crossOn = run1('cross', MID, quiet), jabOff = run1('jab', MID, off);
   check(`a blocked hook moves the head (${hookOn.head.toFixed(3)} vs ${hookOff.head.toFixed(3)} holes off)`, hookOn.head > hookOff.head * 1.5);

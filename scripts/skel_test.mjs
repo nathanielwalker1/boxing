@@ -340,7 +340,10 @@ function slipPeak(x, y, sp = specs) {
 // Measured by scripts/skel_probe.mjs keyReport (the same numbers `--keys` prints; LOG_PUNCHES.md has the table).
 {
   const { keyReport, keyCases, landBand } = await import('./skel_probe.mjs');
-  const KC = { ...cfg, punchKeysOn: true };
+  // PINNED hitChainV2: false — these measure the THROWER's key poses; with the chain the struck body folds / turns away on
+  // the land tick, which moved three of them (fist-to-target on the hit tick for the rear body hook, rear guard glove in the
+  // inside jab, hook elbow behind the shoulder plane). The hit reaction itself is hit_chain_test's.
+  const KC = { ...cfg, punchKeysOn: true, hitChainV2: false };
   // (Only the punches whose keys are ON — punchKeysJab / Cross / Hook / Uppercut; an OFF punch is the legacy motion.)
   const onFor = p => (p === 'jab' ? KC.punchKeysJab : p === 'cross' ? KC.punchKeysCross : p === 'hook' ? KC.punchKeysHook : KC.punchKeysUppercut);
   const cases = keyCases(KC).filter(kc => onFor(kc.punch));
