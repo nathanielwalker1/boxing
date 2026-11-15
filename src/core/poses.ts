@@ -72,7 +72,34 @@ export function guardPose(cfg: Config, body: BodyDims, stance: Stance, shape: Gu
     r.hand[1].cF = cfg.poseBlockRearF * s; r.hand[1].cU = cfg.poseBlockRearU * s; r.hand[1].cL = cfg.poseBlockRearL * s;
     r.hand[0].swivel += cfg.poseBlockSwivel * D; r.hand[1].swivel += cfg.poseBlockSwivel * D;
   }
+  if (cfg.stanceV2) applyStance(cfg, r, s);
   return r;
+}
+
+/**
+ * stanceV2 (docs/anim/LOG_STANCE.md): the boxer's stance over whatever guard shape the style keeps — knees, the pitch
+ * from the hips, hips back, chin, shoulders up and rolled, gloves, elbows, feet. Deltas, so a style keeps its character.
+ */
+function applyStance(cfg: Config, r: RPose, s: number): void {
+  r.pelUp -= cfg.stanceKneeDrop * s;
+  r.pelPitch += cfg.stancePelPitch * D;
+  r.spFlex += cfg.stanceSpFlex * D;
+  r.pelFwd -= (cfg.stancePelBack + cfg.stanceShiftBack) * s;
+  r.foot[0].stepF -= cfg.stanceShiftBack * s; r.foot[1].stepF -= cfg.stanceShiftBack * s;
+  r.hdPitch += cfg.stanceChin * D;
+  r.clElev[0] += cfg.stanceLeadShoulder * D;
+  r.clPro[0] += cfg.stanceShoulderRoll * D; r.clPro[1] += cfg.stanceShoulderRoll * D;
+  // (No glove spot here: the resting glove rides the HEAD (sim/gloves.ts home), so it drops and comes forward with it.)
+  for (const h of r.hand) h.swivel += cfg.stanceElbowIn * D;
+  r.foot[0].stepF += cfg.stanceFeetLong * s; r.foot[1].stepF -= cfg.stanceFeetLong * s;
+  r.foot[0].stepL += cfg.stanceFeetWide * s; r.foot[1].stepL += cfg.stanceFeetWide * s;
+  r.foot[1].heel += cfg.stanceRearHeel * s;
+  r.weight += cfg.stanceWeight;
+}
+
+/** How far below the standing body the guard key holds the hips (m, this body): the old soft knees plus stanceV2's bend. */
+export function guardStanceDrop(cfg: Config, body: BodyDims): number {
+  return (-c(cfg, 'pose_guard_pelUp') + (cfg.stanceV2 ? cfg.stanceKneeDrop : 0)) * poseScale(body);
 }
 
 /** A punch key over the guard: the deltas in punching-side convention, mirrored by the stance. */

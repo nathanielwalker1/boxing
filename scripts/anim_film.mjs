@@ -57,6 +57,10 @@ SCENARIOS.block_hook = { dist: 0.8, s0: at({ 12: { hook: true, move: { x: 1, y: 
 // Footwork: the stick held sideways about a second (60 ticks), and a step in then out.
 SCENARIOS.footwork_lateral = { dist: 1.2, s0: stick(1, 0, 2, 62), s1: [], from: 0, to: 84, step: 6 };
 SCENARIOS.footwork_in_out = { dist: 1.5, s0: [...stick(0, 0, 0, 1), ...stick(0, 1, 2, 24), ...stick(0, 0, 25, 29), ...stick(0, -1, 30, 52)], s1: [], from: 0, to: 80, step: 5 };
+// stanceV2: no input for 60 ticks, every 5 (the idle stance and its life: bounce, breath, weave); *_off is stanceV2 off.
+SCENARIOS.idle = { dist: 1.0, s0: [], s1: [], from: 0, to: 60, step: 5 };
+SCENARIOS.idle_off = { ...SCENARIOS.idle, cfg: { stanceV2: false } };
+SCENARIOS.footwork_in_out_off = { ...SCENARIOS.footwork_in_out, cfg: { stanceV2: false } };
 // One cross that floors him (damage per impulse turned up for the strip: the one existing mechanism, no hook forces a knockdown), the fall, the get-up.
 SCENARIOS.knockdown = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: { healthDamagePerImpulse: 0.006, camLookY: 0.75, camDistMin: 3.3 }, from: 12, to: 204, step: 8 };
 // knockdownV2 falls by what dropped him (fall only: 12 to 100, every 4 ticks).
