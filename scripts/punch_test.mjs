@@ -253,8 +253,9 @@ function reachOf(type, moveX = 0) {
   const longer = { ...cfg, hookReachScale: 1.3 };
   const farHook = outcome(run(fresh(0.9), 40, tapWith('hook', -1), longer).evs);
   check('hookReachScale 1.3 lands a hook at 0.9 m', farHook?.type === 'punchLand', farHook?.type);
-  const upFar = outcome(run(fresh(MID), 40, tapWith('uppercut', 1)).evs);
-  check('the uppercut is an inside punch: it whiffs at mid range', upFar?.type === 'punchWhiff', upFar?.type);
+  // (Re-pinned 2026-11-15 with uppercutReachScale 1.32: the uppercut now reaches ~0.77 m, so the whiff check moved out to 1.0 m.)
+  const upFar = outcome(run(fresh(1.0), 40, tapWith('uppercut', 1)).evs);
+  check('the uppercut is an inside punch: it whiffs at 1.0 m', upFar?.type === 'punchWhiff', upFar?.type);
 }
 {
   // Hand from the stick at the press: x < 0 = lead, x ≥ 0 = rear (CONTRACT 2026-09-02).

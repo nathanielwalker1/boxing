@@ -36,8 +36,9 @@ for (const [name, combo] of Object.entries(COMBOS)) {
   }
 }
 {
-  const hold = runCombo(k, { ...cfg, comboStepOn: false }, COMBOS['1-2-3'], 0.75), step = runCombo(k, { ...cfg, comboHoldOn: false }, COMBOS['1-2-3'], 0.75);
-  check('neither the hold nor the follow step is enough alone at 0.75 m (the 3 whiffs with either off)', hold.rows[2].outcome === 'W' && step.rows[2].outcome === 'W', `${hold.rows[2].outcome} ${step.rows[2].outcome}`);
+  // (Re-pinned 2026-11-15, hookReachScale 1.18: the hook reaches further, so the test distance moved from 0.75 m to 0.9 m.)
+  const hold = runCombo(k, { ...cfg, comboStepOn: false }, COMBOS['1-2-3'], 0.9), step = runCombo(k, { ...cfg, comboHoldOn: false }, COMBOS['1-2-3'], 0.9);
+  check('neither the hold nor the follow step is enough alone at 0.9 m (the 3 whiffs with either off)', hold.rows[2].outcome === 'W' && step.rows[2].outcome === 'W', `${hold.rows[2].outcome} ${step.rows[2].outcome}`);
   const ropes = [0.65, 0.75, 0.85].map(d => runCombo(k, cfg, COMBOS['1-2-3'], d, { ropes: true }));
   check('on the ropes it lands too', ropes.every(r => r.rows.every(x => x.outcome === 'L')));
   // The finisher is the biggest moment.
