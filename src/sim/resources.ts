@@ -51,9 +51,14 @@ export function stepStamina(f: FighterState, cfg: Config, dt: number): void {
     if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * cfg.staminaGuardHold * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * dt);
     const p = f.punch;
     const rate = f.block ? cfg.staminaGuardRegen : p.type === null ? 1 : p.phase === 'recover' && p.contact !== null && !p.feint ? cfg.staminaPunchRegen : 0;
-    // staminaV2: the pause is a ramp, not a switch: wind comes back in proportionally over the last staminaV2ThrowDelay seconds of the pause.
-    const ramp = cfg.staminaV2 && cfg.staminaV2ThrowDelay > 0 ? Math.max(0, 1 - delay / cfg.staminaV2ThrowDelay) : delay === 0 ? 1 : 0;
-    if (rate > 0 && ramp > 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + regen * rate * ramp);
+    if (cfg.staminaV2) {
+      // staminaV2: a base breath that never stops (less of it while a punch is out), plus the rest of the rate as a RAMP over the
+      // last staminaV2ThrowDelay seconds of the pause. Not a switch: a slightly busier pace costs slightly more wind, never all of it.
+      const ramp = cfg.staminaV2ThrowDelay > 0 ? Math.max(0, 1 - delay / cfg.staminaV2ThrowDelay) : delay === 0 ? 1 : 0;
+      const base = cfg.staminaV2BaseRegen * (p.type === null ? 1 : cfg.staminaV2BasePunching);
+      const k = base + Math.max(0, rate - base) * ramp;
+      if (k > 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + regen * k);
+    } else if (rate > 0 && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + regen * rate);
   } else if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * dt);
   else if (f.punch.type === null && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + regen);
   if (hDelay === 0 && f.health < healthCap(f)) f.health = Math.min(healthCap(f), f.health + cfg.healthRegen * dt);
