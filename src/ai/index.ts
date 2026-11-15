@@ -187,6 +187,8 @@ export interface AiState {
   coverT: number;
   /** Behind the guard: the last push at or over the flick threshold, held through the flick window so it is never a pivot or a shove by accident. */
   holdX: number; holdY: number;
+  /** aiRespectV2: seconds left of checking its advance after a jab landed; seconds left of a step-inside burst; the opponent's jab was resolved last tick (edge); seconds the guard has been held continuously, this hold's cap (0 = not rolled), seconds the cap keeps it down. */
+  checkT: number; burstInT: number; jabRes: boolean; guardT: number; guardCap: number; guardOffT: number;
   /** How many times it has used each tool. Read by tests and the bot table. */
   used: { body: number; slip: number; roll: number; pivot: number; push: number; burst: number; feint: number; clinch: number; cutOff: number; read: number };
 }
@@ -233,6 +235,7 @@ export function createAi(side: Side, seed: number, cfg: Config, style: StylePara
     hurtPlan: 'none',
     hits: 0, shellT: 0,
     wasInside: false, insideHold: false, oppRate: 0, queue: [], queueT: 0, armedOver: false, armedTold: false, armedBack: false, lastStun: 0, oppResolved: false, pushFollow: 0, resting: false, interceptCd: 0, oppQuiet: 9, coverT: -1, holdX: 0, holdY: 0,
+    checkT: 0, burstInT: 0, jabRes: false, guardT: 0, guardCap: 0, guardOffT: 0,
     learn: [0, 0, 0, 0], since: [60, 60, 60, 60], gap: [0, 0, 0, 0], steady: [0, 0, 0, 0], pre: -1, readT: -1, readMove: 0, readX: 0, readPunch: null, readHand: 0,
     used: { body: 0, slip: 0, roll: 0, pivot: 0, push: 0, burst: 0, feint: 0, clinch: 0, cutOff: 0, read: 0 },
   };
@@ -703,6 +706,27 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   if (retreating && !a.oppRetreating) a.chaseHold = Math.max(a.chaseHold, st.chaseDelay);
   a.oppRetreating = retreating;
 
+  // ── Respect the jab (aiRespectV2) ──────────────────────────────────────────
+  // A jab that lands on it makes it check its advance for a short, seeded time (a blocked one a smaller check); a second
+  // clean jab inside the check extends it. It comes back in by slipping in, behind its own jab, when the check runs out,
+  // or when he misses — so a brawler is slowed, not stopped.
+  const respect = tools && cfg.aiRespectV2;
+  a.checkT = Math.max(0, a.checkT - dt);
+  a.burstInT = Math.max(0, a.burstInT - dt);
+  a.guardOffT = Math.max(0, a.guardOffT - dt);
+  if (respect) {
+    const jabRes = opp.punch.type === 'jab' && opp.punch.resolved;
+    if (jabRes && !a.jabRes && opp.punch.contact !== null) {
+      const blocked = me.block || me.blockStun > 0;
+      const diff = st.diffIdx === 0 ? cfg.aiRespectEasy : st.diffIdx === 1 ? cfg.aiRespectMed : cfg.aiRespectHard;
+      const brawler = st.styleId === 'swarmer' || st.styleId === 'pressure';
+      const fresh = cfg.aiRespectCheck * diff * (brawler ? cfg.aiRespectBrawler : 1) * (blocked ? cfg.aiRespectBlocked : 1) * (1 + cfg.aiRespectVary * (2 * rngFloat(a.rngT) - 1));
+      a.checkT = blocked ? Math.max(a.checkT, fresh) : Math.min(cfg.aiRespectMax, fresh + a.checkT * cfg.aiRespectExtend);
+    }
+    a.jabRes = jabRes;
+    if (oppMissed) a.checkT = 0;
+  }
+
   // ── 0. Footwork mode ───────────────────────────────────────────────────────
   // A solid shot taken may trigger a reset, and a reset rolled at the last
   // throw starts once that punch has finished; the timer expiring rolls the
@@ -826,10 +850,16 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   const surviving = tools && ((nowHurt && a.hurtPlan === 'cover') || evade);
   const mode = surviving ? 'reset' : a.mode;
   let standoff = mode === 'reset' ? st.resetDist : mode === 'probe' ? st.probeDist : mode === 'circle' ? st.standoff + st.standoffBand : st.standoff;
-  const band = mode === 'circle' ? st.standoffBand * 2 : st.standoffBand;
+  let band = mode === 'circle' ? st.standoffBand * 2 : st.standoffBand;
   const stepsIn = a.armed !== null && st.stepIn > 0 && mode !== 'reset' && mode !== 'hold';
   if (stepsIn) standoff = Math.min(standoff, engageOf(a.armed!, st) - st.stepIn * st.standoffBand);
   if (a.giveGround > 0) standoff += st.giveGround;
+  if (respect && a.checkT > 0 && !(punching && me.punch.type === 'jab')) standoff += cfg.aiRespectGive;
+  // aiRespectV2: it works just outside smother distance (where both men's punches have power) and steps inside only in bursts.
+  if (respect && standoff < cfg.smotherDist + cfg.aiRespectMargin) {
+    if (a.burstInT === 0 && a.armed !== null && rngChance(a.rngT, cfg.aiRespectBurstRate * dt)) a.burstInT = cfg.aiRespectBurstTime;
+    if (a.burstInT === 0) { standoff = cfg.smotherDist + cfg.aiRespectMargin; band = Math.min(band, cfg.aiRespectMargin); }
+  }
   // Steer by the PERCEIVED distance: closing speed along the line (positive =
   // the gap is shrinking) → the distance it is heading for.
   const closing = (me.vel.x - opp.vel.x) * ux + (me.vel.z - opp.vel.z) * uz;
@@ -845,7 +875,9 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   const predicted = sDist - closing * st.lookahead;
   const err = predicted - standoff;
   const fr = frameOf(me.yaw);
-  const chasing = err > 0 && a.chaseHold > 0;   // they just backed off: let the space open
+  // (aiRespectV2: a jab has checked it — it does not close while the check lasts, unless it is coming in behind its own jab.)
+  const checking = respect && a.checkT > 0 && !(punching && me.punch.type === 'jab');
+  const chasing = err > 0 && (a.chaseHold > 0 || checking);   // they just backed off: let the space open
   if (mode !== 'hold' && !chasing && Math.abs(err) > band) {
     const mag = clamp(Math.abs(err) / (band * 2), 0, 1) * st.speed;
     const sign = err > 0 ? 1 : -1;   // +1 = close in, -1 = back off
@@ -898,6 +930,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     && dist > st.engageHook && dist < APPROACH_FAR && me.slip.dir === 0 && err > 0 && rngChance(a.rngT, st.approachSlip * dt)) {
     a.macro = { kind: 'slip', t: 0, x: rngChance(a.rngT, 0.5) ? 1 : -1, y: 0, punch: null };
     a.used.slip += 1;
+    if (respect) a.checkT = 0;   // slipping in is the way past a checking jab
   }
 
   // ── 6. The tools that are flicks: off the ropes, and making space ──────────
@@ -1012,7 +1045,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // ── Macros take the controls for their few ticks ───────────────────────────
   if (a.macro !== null) {
     const m = cloneInput(NULL_INPUT);
-    if (runMacro(a, m, s, cfg)) { trackStick(a, m, dt, cfg, false, false); return { ai: a, input: m }; }
+    if (runMacro(a, m, s, cfg)) { a.guardT = 0; a.guardCap = 0; trackStick(a, m, dt, cfg, false, false); return { ai: a, input: m }; }
   }
 
   // ── Stick discipline: never a double-tap by accident ────────────────────────
@@ -1026,6 +1059,18 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
   // (it walks in a little slower with its hands up). Those two are always macros.
   // (Phase 2: it used to cap the stick under the threshold, which made a guarded walk-in 40% slower than the man it
   // was chasing. Now a push at or over the threshold is simply HELD through the flick window before it may end.)
+  // aiRespectV2: no continuous guard past the cap — it comes down for a minimum gap and the next throw is due at once.
+  if (respect) {
+    if (a.guardOffT > 0) input.block = false;
+    if (input.block) {
+      if (a.guardCap === 0) a.guardCap = cfg.aiGuardCap * (1 + cfg.aiGuardCapVary * (2 * rngFloat(a.rngT) - 1));
+      a.guardT += dt;
+      if (a.guardT > a.guardCap) {
+        input.block = false; a.guardOffT = cfg.aiGuardGap; a.guardT = 0; a.guardCap = 0;
+        a.blockTimer = 0; a.shellT = 0; a.coverT = -1; a.insideHold = false; a.attackTimer = 0;
+      }
+    } else { a.guardT = 0; a.guardCap = 0; }
+  }
   if (input.block) {
     const m = Math.hypot(input.move.x, input.move.y);
     if (m >= cfg.slipInputThreshold) { a.holdX = input.move.x; a.holdY = input.move.y; }
