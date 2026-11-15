@@ -155,7 +155,10 @@ console.log('\n=== 6. The read ===');
   // A player who holds mid range and throws one punch every `gap` ticks, chosen by `pick(n)`. AI = the counter style.
   const drill = (pick, style, gap = 42, secs = 24, seed = 5) => {
     // (No damage and no rocking: without that the counters it lands floor the player in a few seconds and the drill is over.)
-    const c = { ...fast, roundCount: 1, roundSeconds: secs + 2, healthDamagePerImpulse: 0, stunBase: 0 };
+    const c = { ...fast, roundCount: 1, roundSeconds: secs + 2, healthDamagePerImpulse: 0, stunBase: 0, hitChainFloorImpulse: 400 };
+    // (…and no hit-chain recoil either: measured 2026-11-14, the chain's recoil on the PLAYER, countered a beat before his next
+    // jab, makes that jab short or off the line, so a pull from it no longer counts as a dodge — the AI's slips were unchanged.
+    // The chain floor at its maximum keeps the drill's player the same man for the read-on and read-off runs.)
     let s = sim.createState(specs, c, seed);
     let a = ai.createAi(1, seed, c, style);
     const out = { dodged: 0, landed: 0, thrown: 0, countered: 0, read: 0 };
@@ -188,13 +191,12 @@ console.log('\n=== 6. The read ===');
   const per = SEEDS.map(sd => ({ sd, on: drill(() => 'jab', counter, 42, 24, sd).dodged, off: drill(() => 'jab', blind, 42, 24, sd).dodged }));
   const gap = per.reduce((t, p) => t + p.on - p.off, 0);
   console.log(`     dodged, read on / off, per seed: ${per.map(p => `${p.sd}: ${p.on}/${p.off}`).join(' · ')} — summed gap ${gap}`);
-  // KNOWN REGRESSION (2026-11-14, orchestrator's call, to be fixed not forgotten): with hitChainV2 on the summed gap is 17;
-  // with it off it is 37 (per seed on/off 11/4 8/2 8/0 8/4 7/3 9/1). The read still works (it adds dodges on 5 of 6 seeds)
-  // but is about half as effective, because the chain leaves the struck head 1-2 cm elsewhere and the read's slips are
-  // timed for the old head. The floor here is 2 a seed (12) so the suite still catches the read breaking outright; the
-  // aim stays 3 a seed (18) and is printed. docs/anim/LOG_HITCHAIN.md lists it under what is left.
-  console.log(`     NOTE (known regression) read gap at the 3-a-seed aim (18): ${gap >= 18 ? 'met' : 'NOT met'} (${gap})`);
-  check(`the same jab, over and over: it reads it (${same.read} reads), makes it miss (summed dodge gap ${gap} over ${SEEDS.length} seeds, floor 12, aim 18; seed 5: ${same.dodged} of ${same.thrown} dodged, ${sameBlind.dodged} with the read off) and comes back (${same.countered} counters landed)`, same.read >= 5 && gap >= 2 * SEEDS.length && same.countered >= 1);
+  // (2026-11-14: with hitChainV2 on and the chain recoil left in the drill the summed gap was 17, with it off 37. Cause: not the
+  // AI — its reads and slips are the same (reads 96 vs 99); the read-on AI counters more, the counters recoil the scripted
+  // player through the chain, and his next jab, thrown into the recoil, is short or off the line, so the AI's pull from it is
+  // not a dodge (the head was never in danger). Zeroing only the player's chain gave 29; the drill config now keeps the chain
+  // quiet, as it already keeps damage and stun quiet: gap 26 with the chain on, 37 off.)
+  check(`the same jab, over and over: it reads it (${same.read} reads), makes it miss (summed dodge gap ${gap} over ${SEEDS.length} seeds, floor 18; seed 5: ${same.dodged} of ${same.thrown} dodged, ${sameBlind.dodged} with the read off) and comes back (${same.countered} counters landed)`, same.read >= 5 && gap >= 3 * SEEDS.length && same.countered >= 1);
   check(`…so the jab lands less than it does on a man who is not waiting for it (${same.landed} vs ${sameBlind.landed})`, same.landed < sameBlind.landed);
   const order = ['jab', 'cross', 'hook', 'jab', 'hook', 'cross'];
   const mixed = drill(n => order[n % order.length], counter, 70);
