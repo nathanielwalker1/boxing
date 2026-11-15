@@ -34,6 +34,11 @@ for (const [tag, dist] of [['mid', 0.84], ['in', 0.55]]) {
     SCENARIOS[`${name}_${tag}`] = { dist, s0: at({ 2: { [key]: true, move: { x, y: 0 } } }), s1: [], from: 2, to: LAST[punch], step: 2 };
   }
 }
+// Every tick of the hooks and uppercuts, with the inertia smoothing on (default) and off: for judging one-tick pops.
+for (const [name, key, punch, x] of [['hook_lead', 'hook', 'hook', -1], ['hook_rear', 'hook', 'hook', 1], ['upper_lead', 'uppercut', 'upper', -1], ['upper_rear', 'uppercut', 'upper', 1]]) {
+  SCENARIOS[`${name}_tick`] = { dist: 0.84, s0: at({ 2: { [key]: true, move: { x, y: 0 } } }), s1: [], from: 2, to: LAST[punch], step: 1 };
+  SCENARIOS[`${name}_tick_off`] = { ...SCENARIOS[`${name}_tick`], cfg: { inertiaOn: false } };
+}
 // 1-2-hook as fast as the sim accepts a press after a press (the timing fight_film/filmstrip's c_123 uses).
 SCENARIOS.combo_12hook = { dist: 0.8, s0: at({ 2: { jab: true }, 10: { cross: true }, 22: { hook: true, move: { x: -1, y: 0 } } }), s1: [], from: 2, to: 50, step: 3 };
 // The man hit. Side 1 (blue, face toward the camera) takes it; *_p is the player's own fighter (side 0, seen from behind).
