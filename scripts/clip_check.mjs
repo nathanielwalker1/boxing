@@ -24,7 +24,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { DEV_URL } from './devUrl.js';
 import { check, done } from './check.js';
-import { frames } from './waits.js';
+import { frames, settled } from './waits.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(HERE, '..', process.env.CLIP_OUT ?? 'docs/anim/CLIPPING.md');
@@ -187,7 +187,9 @@ for (const [id, cut] of builds) {
       if (p.replay) { const [dist, s0, s1, t] = p.replay; window.__rigReplay(dist, Array.from(s0, x => x ?? null).map(x => x ?? {}), t, Array.from(s1, x => x ?? null).map(x => x ?? {}), {}); }
     }, [p]);
     await frames(page, 5);
-    const r = await page.evaluate(id => window.__clip(id), id);
+    // The trunks hem is a sprung cloth point that chases the thigh after a pose jump (a fall is a long jump): measure once the count stops changing.
+    await settled(page, `window.__clip(${JSON.stringify(id)})?.total ?? -1`, { epsilon: 2, stableFrames: 3, label: `${id} ${name} exposure to settle` });
+    const r =await page.evaluate(id => window.__clip(id), id);
     await page.evaluate(was => { Object.assign(window.__cfg, was); }, restore);
     row.poses.push({ name, ...(r ?? { total: -1, bad: {}, must: 0 }) });
     if (process.env.CLIP_EX && r && r.total > 15) console.log('     ' + JSON.stringify(r.ex.slice(0, 14)));

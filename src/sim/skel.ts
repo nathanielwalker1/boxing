@@ -167,7 +167,8 @@ export function fitSimTorso(f: FighterState, cfg: Config): void {
 /** How far through his get-up (0 lying … 1 on his feet) from the sim's own count timing (resources.ts getUpPhaseAt's phases); 0 for a man who will not beat the count. */
 export function getUpProgress(f: FighterState, cfg: Config): number {
   const at = getUpAt(f), t = f.downT;
-  if (at < 0 || !cfg.getUpOn) return 0;
+  // (at < 0: counted out; at 0: never set, as for a TKO'd man who stays down. Neither ever rises: with at = 0 every phase time was 0 and the blend ran to standing at once.)
+  if (at <= 0 || !cfg.getUpOn) return 0;
   const stirAt = at * cfg.getUpStirFrac, kneeAt = at * cfg.getUpKneeFrac, riseAt = Math.max(kneeAt, at - cfg.getUpRiseSeconds);
   const slumpAt = kneeAt + (riseAt - kneeAt) * 0.3, slumpEnd = slumpAt + cfg.getUpSlumpSeconds;   // (resources.ts SLUMP_AT)
   const seg = (a: number, b: number, p0: number, p1: number): number => p0 + (p1 - p0) * clamp01((t - a) / Math.max(1e-6, b - a));
@@ -361,7 +362,7 @@ function fitFall(f: FighterState, cfg: Config, def: ReturnType<typeof skelDef>, 
     head, headRot: bodyBasis(axis(thH), faceXh),
   });
   // Legs: planted at the stance until the knees have folded, then the feet slide out to lie (straight along the fall line behind him, or behind the knees).
-  const lead = handLateralSign('lead', f.stance), legLen = (def.thigh + def.shin) * (kind === 2 ? cfg.kdSideLegLie : 0.95);
+  const lead = handLateralSign('lead', f.stance), legLen = (def.thigh + def.shin) * (kind === 2 ? cfg.kdSideLegLie : cfg.kdLegLie);
   const wl = smoothstep(clamp01((u - (kind === 3 ? 0.2 : 0.4)) / (kind === 3 ? 0.6 : 0.6)));
   const rest = pose.root;   // (root kept by fitTorso)
   void rest;
@@ -371,7 +372,7 @@ function fitFall(f: FighterState, cfg: Config, def: ReturnType<typeof skelDef>, 
     const stand = localToWorld(f.pos, fr, i === 0 ? cfg.rigStanceFwd : -cfg.rigStanceBack, body.bootH, s * cfg.rigStanceLat);
     const lie = kind === 3
       ? v3(pel.x - D.x * def.shin * 0.9 + fr.right.x * s * 0.1, body.bootH, pel.z - D.z * def.shin * 0.9 + fr.right.z * s * 0.1)
-      : v3(pel.x - D.x * legLen + fr.right.x * s * 0.12, body.bootH, pel.z - D.z * legLen + fr.right.z * s * 0.12);
+      : v3(pel.x - D.x * legLen + fr.right.x * s * cfg.kdLegSpread, body.bootH, pel.z - D.z * legLen + fr.right.z * s * cfg.kdLegSpread);
     const ankle = v3(mix(stand.x, lie.x, wl), body.bootH, mix(stand.z, lie.z, wl));
     const pole = kind === 3 ? vAdd(D, UP, -0.4) : vAdd(vAdd(fwd, UP, 0.4 + 0.8 * wl), v3(fr.right.x * s, 0, fr.right.z * s), 0.2);
     fitLeg(def, lim, cfg, pose, i, ankle, pole, null);

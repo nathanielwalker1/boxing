@@ -86,6 +86,23 @@ for (const cs of CASES) {
   for (let k = 1; k < stand.length; k++) wr = Math.max(wr, stand[k - 1].py - stand[k].py);
   check(`${cs.name}: pelvis rises monotonically through the stand (worst dip ${(wr * 100).toFixed(2)} cm)`, wr <= 0.01);
 }
+// A knockdown that ends the fight (the knockdown limit: a TKO) keeps him on the canvas for as long as he is down: head low for 120 ticks.
+for (const cs of CASES) {
+  const c = { ...base, knockdownV2: true, knockdownsForTko: 1 };
+  let s = sim.createState(specs, c, 1);
+  s.fighters[0].pos = { x: -cs.dist / 2, z: 0 }; s.fighters[1].pos = { x: cs.dist / 2, z: 0 };
+  for (let i = 0; i < 30; i++) s = sim.step(s, [inp(), inp()], c).state;
+  const d0 = s.fighters[1], def = skelDef(d0.body, d0.stance, c);
+  let downAt = -1, tko = false, maxHead = 0, stillDown = true;
+  for (let i = 0; i < 400; i++) {
+    const r = sim.step(s, [inp(i === 2 ? { [cs.punch]: true, move: { x: cs.x, y: 0 } } : {}), inp()], c); s = r.state;
+    if (r.events.some(e => e.type === 'tko')) tko = true;
+    const d = s.fighters[1];
+    if (d.down && downAt < 0) downAt = i;
+    if (downAt >= 0 && i >= downAt + 60 && i < downAt + 180) { maxHead = Math.max(maxHead, fk(def, d.skel).p[5].y); if (!d.down) stillDown = false; }
+  }
+  check(`${cs.name}, fight-ending knockdown: TKO, and he stays down with his head low for 120 ticks (highest head ${(maxHead * 100).toFixed(0)} cm)`, tko && stillDown && maxHead < 0.9);
+}
 // A man who is counted out stays down in the lying pose (no get-up is ever posed).
 {
   const c = { ...base, knockdownV2: true, getUpCountBest: 10, getUpCountWorst: 10, getUpJitter: 0 };
