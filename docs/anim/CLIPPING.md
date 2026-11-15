@@ -5,28 +5,28 @@ Entries are the number of EXPOSED must-cover skin vertices (fail above 40). The 
 
 | pose | red (short) | boiler (classic) | raffle (belt) | alambre (long) | monsoon (skirt) | grandad (split) |
 |---|---:|---:|---:|---:|---:|---:|
-| guard (high) | 0 | 1 | 0 | 1 | 0 | 0 |
-| block | 0 | 1 | 2 | 0 | 0 | 0 |
-| jab, full reach | 0 | 12 | 1 | 1 | 0 | 0 |
-| cross, full reach | 1 | 8 | 3 | 0 | 0 | 0 |
-| hook, lead, full | 1 | 0 | 1 | 0 | 0 | 0 |
-| hook, rear, full | 1 | 1 | 2 | 0 | 0 | 0 |
-| uppercut, lead, full | 1 | 0 | 0 | 0 | 0 | 0 |
-| uppercut, rear, full | 1 | 2 | 0 | 0 | 0 | 0 |
-| deep crouch | 0 | 1 | 3 | 0 | 0 | 0 |
-| torso twisted | 0 | 1 | 2 | 1 | 0 | 0 |
-| arms overhead | 0 | 13 | 0 | 0 | 0 | 0 |
-| slip left | 0 | 4 | 7 | 1 | 0 | 0 |
-| slip right | 0 | 2 | 13 | 1 | 0 | 0 |
-| roll | 0 | 2 | 1 | 1 | 0 | 0 |
-| wide step | 0 | 1 | 1 | 2 | 0 | 0 |
-| mid-step | 0 | 0 | 2 | 0 | 2 | 0 |
-| knee (falling) | 2 | 1 | 5 | 1 | 3 | 1 |
-| on the back / prone | 3 | 28 | 20 | 0 | 0 | 1 |
-| down, arms out | 1 | 24 | 15 | 1 | 0 | 1 |
-| hands and knees | 1 | 22 | 6 | 1 | 0 | 1 |
-| seated | 1 | 3 | 13 | 1 | 0 | 4 |
-| getting up | 2 | 0 | 0 | 1 | 0 | 0 |
-| must-cover vertices | 871 | 831 | 974 | 987 | 853 | 859 |
+| guard (high) | 1 | 1 | 1 | 1 | 0 | 0 |
+| block | 0 | 2 | 2 | 1 | 0 | 0 |
+| jab, full reach | 0 | 3 | 1 | 0 | 0 | 0 |
+| cross, full reach | 1 | 1 | 3 | 0 | 0 | 0 |
+| hook, lead, full | 1 | 0 | 2 | 0 | 0 | 0 |
+| hook, rear, full | 1 | 1 | 3 | 0 | 0 | 0 |
+| uppercut, lead, full | 1 | 0 | 1 | 1 | 0 | 0 |
+| uppercut, rear, full | 1 | 2 | 1 | 0 | 0 | 0 |
+| deep crouch | 0 | 1 | 3 | 1 | 0 | 0 |
+| torso twisted | 0 | 1 | 1 | 1 | 0 | 0 |
+| arms overhead | 0 | 21 | 2 | 1 | 7 | 0 |
+| slip left | 1 | 4 | 7 | 2 | 0 | 0 |
+| slip right | 2 | 3 | 14 | 1 | 3 | 1 |
+| roll | 0 | 0 | 1 | 1 | 0 | 0 |
+| wide step | 0 | 0 | 1 | 1 | 2 | 0 |
+| mid-step | 1 | 1 | 1 | 0 | 2 | 0 |
+| knee (falling) | 1 | 0 | 1 | 2 | 0 | 0 |
+| on the back / prone | 7 | 12 | 25 | 55 | 8 | 10 |
+| down, arms out | 17 | 26 | 48 | 70 | 22 | 21 |
+| hands and knees | 19 | 31 | 53 | 61 | 23 | 24 |
+| seated | 14 | 1 | 3 | 42 | 1 | 0 |
+| getting up | 1 | 3 | 1 | 65 | 3 | 0 |
+| must-cover vertices | 901 | 894 | 1052 | 1031 | 921 | 889 |
 
-Worst: boiler (classic) in "on the back / prone": 28 vertices.
+Worst: alambre (long) in "down, arms out": 70 vertices.

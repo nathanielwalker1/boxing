@@ -85,7 +85,13 @@ export function torsoShape(c: Ctx): TorsoShape {
   const neck0 = sy + cl * nb;
 
   // The trapezius slope: half-width a fraction f of the way from the shoulder tip to the neck base (straight, plus a bulge for a heavy trap).
-  const trapW = (f: number): number => { const w0 = yokeHalf * 0.9, wN = nr * 1.14; return w0 + (wN - w0) * f + 0.02 * (Math.min(1.4, trap) - 1) * Math.sin(Math.PI * f); };
+  // meshV3: a fuller trapezius (convex slope, the muscle stands on the line), and the neck narrowing up into the jaw.
+  const v3 = !!cfg.meshV3;
+  const trapV3 = v3 ? cfg.rigV3Trap * R * (0.7 + 0.3 * Math.min(1.5, trap)) : 0;
+  const neckTop = v3 ? cfg.rigV3NeckTop : 1;
+  // meshV3: the slope is CONVEX (the muscle stays wide and turns in near the neck), so the top of the shoulders is a mound, not a shelf with a crease.
+  const yokeTop = v3 ? cfg.rigV3YokeTop : 0.9;   // meshV3: the yoke turns in sooner above the joint, so the line falls from the trap ONTO the deltoid (no flat box top)
+  const trapW = (f: number): number => { const w0 = yokeHalf * yokeTop, wN = nr * 1.14; return w0 + (wN - w0) * (v3 ? Math.pow(f, cfg.rigV3TrapCurve) : f) + 0.02 * (Math.min(1.4, trap) - 1) * Math.sin(Math.PI * f); };
   // Stations: y, half-width, front depth, back depth, squareness.
   const st: number[][] = [
     [hy - R * 0.62, 0, 0, 0, 2],
@@ -102,12 +108,12 @@ export function torsoShape(c: Ctx): TorsoShape {
     [sy - cl * 0.06, yokeHalf * 1.0, chestF * 0.88, chestB * 1.0, 2.7],
     // Pass 2 (silhouette): no shelf, no square corner. The outline runs from the shoulder tip (rounded, squareness 2.15) up the trapezius to the neck
     // in a straight slope (about 24°, a touch fuller with a heavy trap), the deltoid cap then sits OUTSIDE and slightly below it.
-    [sy + cl * 0.08, yokeHalf * 0.9, chestF * 0.74, chestB * 0.95, 2.15],
+    [sy + cl * 0.08, yokeHalf * yokeTop, chestF * 0.74, chestB * 0.95, 2.15],
     [sy + cl * 0.08 + cl * (nb - 0.08) * 0.38, trapW(0.38), Math.max(chestF * 0.5, nr * 1.4), chestB * 0.84, 2.2],
     [sy + cl * 0.08 + cl * (nb - 0.08) * 0.72, trapW(0.72), nr * 1.25, nr * 1.5 * Math.min(1.2, trap), 2.15],
     [neck0, nr * 1.14, nr * 1.08, nr * 1.2, 2.1],
-    [(neck0 + neckTopY) / 2, nr, nr * 0.95, nr * 1.02, 2],
-    [neckTopY, nr * 1.02, nr * 0.98, nr * 1.05, 2],
+    [(neck0 + neckTopY) / 2, nr * (1 + neckTop) / 2, nr * 0.95 * (1 + neckTop) / 2, nr * 1.02 * (1 + neckTop) / 2, 2],
+    [neckTopY, nr * 1.02 * neckTop, nr * 0.98 * neckTop, nr * 1.05 * neckTop, 2],
   ];
   for (let k = 1; k < st.length; k++) if (st[k]![0]! < st[k - 1]![0]! + 0.004) st[k]![0] = st[k - 1]![0]! + 0.004;
   const keys = st.map(s => s[0]!);
@@ -153,6 +159,17 @@ export function torsoShape(c: Ctx): TorsoShape {
       h += back * (0.5 + 0.5 * def) * R * 0.1 * bump((az - chestHalf * 0.38) / (chestHalf * 0.42)) * bump((y - (sy + cl * 0.02)) / (cl * 0.2));
       h += back * (0.5 + 0.5 * def) * R * 0.05 * bump(az / (chestHalf * 0.22)) * bump((y - (sy - cl * 0.22)) / (cl * 0.22));
       h += back * def * R * 0.055 * bump((az - chestHalf * 0.5) / (chestHalf * 0.42)) * bump((y - (sy - cl * 0.16)) / (cl * 0.2));
+    }
+    if (v3) {
+      // The armpit's two walls: the pectoral runs out into the front of the deltoid (anterior axillary fold), the lat and teres into the back of
+      // the arm (posterior fold). They fill the corner between the ribcage and the arm, so a raised arm stretches a fold instead of opening a hole.
+      const ax = def * R * cfg.rigV3AxFold;
+      h += front * ax * bump((az - chestHalf * 0.96) / (chestHalf * 0.32)) * bump((y - (sy - cl * 0.17)) / (cl * 0.22));
+      h += back * ax * 1.15 * bump((az - chestHalf * 0.94) / (chestHalf * 0.34)) * bump((y - (sy - cl * 0.32)) / (cl * 0.28));
+      // The trapezius from behind, heavier over the top of the blades (it reads as the slope from the neck to the shoulder from the play camera).
+      // It sits ON the slope (between the shoulder tip and the neck, half-way up), so it fills the concave turn that read as a collar crease.
+      const slopeY = sy + cl * (0.08 + (nb - 0.08) * 0.5), slopeZ = (yokeHalf * yokeTop + nr * 1.14) / 2;
+      h += back * trapV3 * bump((az - slopeZ) / (slopeZ * 0.7)) * bump((y - slopeY) / (cl * 0.16));
     }
     return h;
   };
@@ -273,7 +290,7 @@ function hingeWeights(s: number, sj: number, w: number, upper: number, helper: n
 export function armSpan(c: Ctx): { s0: number; s1: number } {
   const delt = c.cfg.rigDeltoid * (1 + 0.08 * c.m.muscle) * (c.spec.outfit ? 0.78 : 1);
   // The referee's hands are bare: the forearm runs to the wrist. A glove's cuff hides the rest.
-  return { s0: -c.d.upperArmR * delt * 0.5, s1: c.body.upperArm + c.body.forearm - c.body.gloveR * (c.spec.outfit ? c.cfg.rigHandScale * 0.9 : 0.6) };
+  return { s0: -c.d.upperArmR * delt * (c.cfg.meshV3 ? c.cfg.rigV3CapHeight : 0.5), s1: c.body.upperArm + c.body.forearm - c.body.gloveR * (c.spec.outfit ? c.cfg.rigHandScale * 0.9 : 0.6) };
 }
 
 export function buildArm(c: Ctx, i: number, torso: TorsoShape): void {
@@ -310,11 +327,13 @@ export function buildArm(c: Ctx, i: number, torso: TorsoShape): void {
     [wristS - (wristS - L1) * 0.12, R2 * 0.6 * tp * tp, R2 * 0.66 * tp * tp, 0, 0],
     [wristS, R2 * 0.56 * tp * tp, R2 * 0.62 * tp * tp, 0, 0],
   ];
+  const v3 = !!cfg.meshV3;
+  if (v3) st.splice(0, st.length, ...armStationsV3(c, delt, tp, wristS));
   for (let k = 1; k < st.length; k++) if (st[k]![0]! < st[k - 1]![0]! + 0.003) st[k]![0] = st[k - 1]![0]! + 0.003;
   const keys = st.map(s => s[0]!), vals = st.map(s => s.slice(1));
-  const counts = [1, 1, 2, 2, 2, 2, 3, 2, 3, 3, 4, 4, 3, 3, 3, 1];
+  const counts = v3 ? [1, 1, 2, 2, 2, 3, 2, 3, 3, 3, 4, 3, 3, 3, 1] : [1, 1, 2, 2, 2, 2, 3, 2, 3, 3, 4, 4, 3, 3, 3, 1];
   const ss = rowParams(keys, counts, c.low);
-  const bumps: LimbBump[] = [
+  const bumps: LimbBump[] = v3 ? armBumpsV3(c, def) : [
     { s: L1 * 0.62, ss: L1 * 0.3, phi: 0.1, sphi: 1.25, amp: 0.14 * def },                // biceps
     { s: L1 * 0.52, ss: L1 * 0.34, phi: 2.5, sphi: 1.1, amp: 0.11 * def },                 // triceps, lateral head
     { s: L1 * 0.6, ss: L1 * 0.3, phi: -2.7, sphi: 1.0, amp: 0.09 * def },                  // triceps, long head
@@ -323,17 +342,21 @@ export function buildArm(c: Ctx, i: number, torso: TorsoShape): void {
     { s: L1 + L2 * 0.18, ss: L2 * 0.22, phi: 0.9, sphi: 1.0, amp: 0.1 * def },             // brachioradialis
     { s: L1 + L2 * 0.2, ss: L2 * 0.24, phi: -1.3, sphi: 1.0, amp: 0.08 * def },            // flexors
   ];
-  const cols = c.low ? 10 : 16;
+  const cols = v3 ? Math.round(cfg.rigV3ArmCols / (c.low ? 2 : 1)) : c.low ? 10 : 16;
   const row = [0, 0, 0, 0];
   const outfit = !!c.spec.outfit;
   const span = armSpan(c);
+  const deltLayer = v3 ? deltoidLayerV3(c, delt) : null;
+  const flexName = MORPHS_FLEX[i]!;
   const sleeveEnd = L1 - 0.09 * (span.s1 - span.s0);   // where the painted sleeve ends (paint.ts)
   const wj = R1 * cfg.rigJointBlend;
   addGrid(c.g, {
     rows: ss.length, cols, wrap: true, mirror: c.lat[i]! < 0,
     point: (r, j, out) => {
       // φ = 0 is the front of the arm (u = 0.25), u = 0.5 the outside; the seam runs down the inside (medial).
-      limbPoint(keys, vals, bumps, ss[r]!, (j / cols) * TAU - Math.PI / 2, row, out);
+      const phi = (j / cols) * TAU - Math.PI / 2;
+      limbPoint(keys, vals, bumps, ss[r]!, phi, row, out);
+      if (deltLayer) { const h = deltLayer(ss[r]!, phi); out.x += h * Math.cos(phi); out.z += h * Math.sin(phi); }
       if (outfit && ss[r]! > 0) { const sl = ss[r]!; const k = sl < sleeveEnd - 0.014 ? 1.14 : sl < sleeveEnd ? 1.22 : 1; out.x = row[2]! + (out.x - row[2]!) * k; out.z = row[3]! + (out.z - row[3]!) * k; }
       out.x += J.x; out.y += J.y; out.z += Math.abs(J.z);
     },
@@ -342,7 +365,17 @@ export function buildArm(c: Ctx, i: number, torso: TorsoShape): void {
       const w: BW[] = [];
       // Deltoid: mostly the shoulder bone at the cap, all upper arm by the insertion.
       const a = smooth01((s + R1 * 0.5) / (L1 * 0.44 + R1 * 0.5));
-      if (a < 1) {
+      if (v3 && cfg.skelOn && s < L1 * 0.3) {
+        // meshV3: the deltoid belongs to the ARM. Pass 2 gave the cap's crown wholly to the torso, so with the arm forward or raised the crown
+        // stayed put while the rest turned and the back of the cap showed as a flat plate (the "stub" from behind). Now the crown is mostly the
+        // shoulder helper (it turns rigShoulderFollow of the way with the arm), a little torso so the yoke and the cap still meet, and the
+        // upper arm takes over by 0.3 of the upper arm.
+        const b3 = smooth01((s + R1 * delt * 0.5) / (L1 * 0.3 + R1 * delt * 0.5));
+        const wt = cfg.rigV3CapTorso * (1 - b3), wh = (1 - cfg.rigV3CapTorso) * (1 - b3) + 0.4 * b3 * (1 - b3);
+        for (const e of torso.weights(p)) w.push([e[0], e[1] * wt]);
+        w.push([bones.shoulder, wh], [bones.upper, Math.max(0, 1 - wt - wh)]);
+      } else if (v3 && cfg.skelOn) hingeWeights(s, L1, wj, bones.upper, bones.elbow, bones.fore, w);
+      else if (a < 1) {
         if (cfg.skelOn) {
           // Phase 1.2: above and around the joint the cap IS the torso's skin there: the very same weights at the same place (chest and
           // clavicle), so the yoke and the deltoid move as one surface and no seam opens or creases to a point. Below, it hands over to
@@ -364,7 +397,94 @@ export function buildArm(c: Ctx, i: number, torso: TorsoShape): void {
       return [1 - 0.04 * e, 1 - 0.12 * e, 1 - 0.12 * e];
     },
     ao: cfg.rigAoStrength,
+    // meshV3: the biceps bunches forward (and a little up) as the elbow bends; mesh.ts drives the weight from the elbow angle.
+    morph: (_p, r, j) => {
+      if (!v3 || outfit) return null;
+      const s = ss[r]!, phi = (j / cols) * TAU - Math.PI / 2;
+      const a = R1 * cfg.rigV3FlexBunch * Math.min(1.5, def) * bump((s - L1 * 0.56) / (L1 * 0.3)) * bump(angDiff(phi, -0.1) / 1.25);
+      return a > 1e-6 ? { [flexName]: [a, a * 0.3, 0] } : null;
+    },
   });
+}
+
+/** meshV3: one morph per arm (lead, rear): the biceps bunched at full elbow bend. Appended after MORPHS_EXTRA (mesh.ts). */
+export const MORPHS_FLEX = ['flex0', 'flex1'] as const;
+
+/**
+ * meshV3 base stations [s, rx, rz, cx, cz] of the arm, WITHOUT the deltoid (deltoidLayerV3 lays it on): a humeral-head dome at the top
+ * (deeper front to back than wide, rigV3DeltBreadth), the upper arm under the muscles, a narrow elbow, the forearm thick under the elbow
+ * and flattening to a wrist wider than it is deep. The crown and s range match armSpan (the painter maps v across it).
+ */
+function armStationsV3(c: Ctx, delt: number, tp: number, wristS: number): number[][] {
+  const { body: b, d, cfg } = c;
+  const L1 = b.upperArm, L2 = b.forearm, R1 = d.upperArmR, R2 = d.forearmR, B = cfg.rigV3DeltBreadth;
+  // The crown sits lower than pass 2's (rigV3CapHeight) and OUTSIDE the joint (cz grows toward the top), so the dome's top slopes down and out
+  // from the yoke: seen from the front the shoulder is a round cap below the trapezius line, not a flat-topped block level with it.
+  const D = delt * cfg.rigV3CapHeight / 0.5;
+  return [
+    [-R1 * D * 0.5, 0, 0, 0, R1 * cfg.rigV3CapOut],
+    [-R1 * D * 0.44, R1 * 0.26 * B, R1 * 0.26 * delt, 0, R1 * cfg.rigV3CapOut],
+    [-R1 * D * 0.34, R1 * 0.42 * B, R1 * 0.46 * delt, 0, R1 * cfg.rigV3CapOut * 0.9],
+    [-R1 * D * 0.2, R1 * 0.54 * B, R1 * 0.62 * delt, 0, R1 * cfg.rigV3CapOut * 0.8],
+    [-R1 * D * 0.05, R1 * 0.62 * B, R1 * 0.7 * delt, 0, R1 * cfg.rigV3CapOut * 0.65],
+    [L1 * 0.12, R1 * 0.64 * B, R1 * 0.7 * delt, 0, R1 * 0.08],
+    [L1 * 0.32, R1 * 0.97, R1 * 0.9, 0, R1 * 0.03],
+    [L1 * 0.5, R1 * 1.0, R1 * 0.9, R1 * 0.02, 0],
+    [L1 * 0.68, R1 * 0.97, R1 * 0.86, R1 * 0.02, 0],
+    [L1 * 0.86, R1 * 0.8 * tp, R1 * 0.76 * tp, 0, 0],
+    [L1, R1 * 0.64 * tp * tp, R1 * 0.8 * tp * tp, 0, 0],
+    [L1 + L2 * 0.12, R2 * 1.02 * tp, R2 * 1.12 * tp, R2 * 0.04, 0],
+    [L1 + L2 * 0.3, R2 * 0.96 * tp, R2 * 1.02 * tp, R2 * 0.03, 0],
+    [L1 + L2 * 0.55, R2 * 0.72 * tp * tp, R2 * 0.8 * tp * tp, 0, 0],
+    [wristS - (wristS - L1) * 0.12, R2 * 0.54 * tp * tp, R2 * 0.66 * tp * tp, 0, 0],
+    [wristS, R2 * 0.5 * tp * tp, R2 * 0.64 * tp * tp, 0, 0],
+  ];
+}
+
+/** meshV3 muscle bumps on the base arm: biceps, the two visible triceps heads, the grooves where they meet, brachialis, the forearm masses. */
+function armBumpsV3(c: Ctx, def: number): LimbBump[] {
+  const { body: b, cfg } = c;
+  const L1 = b.upperArm, L2 = b.forearm;
+  const bi = cfg.rigV3Biceps * def, tr = cfg.rigV3Triceps * def, gr = cfg.rigV3ArmGroove * def, fo = cfg.rigV3Forearm * def;
+  return [
+    { s: L1 * 0.6, ss: L1 * 0.32, phi: -0.15, sphi: 1.0, amp: bi },                      // biceps: a peak at the front, just inside the middle
+    { s: L1 * 0.5, ss: L1 * 0.32, phi: -2.55, sphi: 0.9, amp: tr },                      // triceps, long head (back, inner)
+    { s: L1 * 0.38, ss: L1 * 0.22, phi: 2.3, sphi: 0.8, amp: tr * 0.9 },                 // triceps, lateral head (back, outer, under the rear deltoid)
+    { s: L1 * 0.84, ss: L1 * 0.13, phi: Math.PI, sphi: 0.8, amp: -tr * 0.4 },            // the flat triceps tendon above the elbow
+    { s: L1 * 0.64, ss: L1 * 0.3, phi: 1.45, sphi: 0.45, amp: -gr },                     // outer groove: biceps / triceps, where the deltoid's V points
+    { s: L1 * 0.55, ss: L1 * 0.32, phi: -1.55, sphi: 0.45, amp: -gr * 0.85 },            // inner groove
+    { s: L1 * 0.76, ss: L1 * 0.15, phi: 0.95, sphi: 0.5, amp: gr * 0.8 },                // brachialis showing outside the biceps above the elbow
+    { s: L1, ss: L1 * 0.1, phi: Math.PI, sphi: 0.7, amp: 0.07 },                         // elbow point
+    { s: L1 + L2 * 0.17, ss: L2 * 0.24, phi: 0.85, sphi: 0.85, amp: fo },                // brachioradialis (the thick top of the forearm)
+    { s: L1 + L2 * 0.22, ss: L2 * 0.28, phi: 2.1, sphi: 0.9, amp: fo * 0.65 },           // extensors
+    { s: L1 + L2 * 0.22, ss: L2 * 0.26, phi: -1.0, sphi: 1.0, amp: fo * 0.8 },           // flexors
+  ];
+}
+
+/**
+ * meshV3: the deltoid as a LAYER over the base arm (metres along the radial direction, by s down the arm and angle φ around it; φ = 0 the
+ * front, +π/2 the outside, −π/2 the armpit side). Three heads (front, side, rear) with shallow grooves between them, none on the armpit side;
+ * the lower border is a V: highest at the front and back, reaching down to its insertion on the outside (rigV3DeltInsert), with a short
+ * edge so the muscle reads as a muscle and not as a taper. It fades in from the crown so the cap stays a dome.
+ */
+function deltoidLayerV3(c: Ctx, delt: number): (s: number, phi: number) => number {
+  const { body: b, d, cfg } = c;
+  const L1 = b.upperArm, R1 = d.upperArmR;
+  const T = cfg.rigV3DeltThick * R1 * (delt / cfg.rigDeltoid);
+  const s0 = -R1 * delt * cfg.rigV3CapHeight;
+  const ins = L1 * cfg.rigV3DeltInsert;
+  const sep = cfg.rigV3DeltSep;
+  return (s, phi) => {
+    const lat = Math.abs(angDiff(phi, Math.PI / 2));            // 0 on the outside, π/2 front and back, π in the armpit
+    const heads = 1 - smooth01((lat - 1.75) / 0.9);
+    if (heads <= 0) return 0;
+    const se = ins * (0.55 + 0.45 * bump(lat / 2.0));            // the V: the lower border by angle
+    const prof = smooth01((se - s) / (L1 * 0.14));
+    const crown = smooth01((s - s0) / (R1 * delt * cfg.rigV3CapHeight * 0.9));
+    const belly = 0.85 + 0.15 * bump((s - L1 * 0.08) / (L1 * 0.3));
+    const grooves = 1 - sep * (bump(angDiff(phi, 0.8) / 0.4) + bump(angDiff(phi, 2.34) / 0.4));
+    return T * heads * prof * crown * belly * grooves;
+  };
 }
 
 /** The leg's station table: s down from the hip joint → [rx (front/back), rz (lateral), cx, cz]. Trunks and boots fit themselves to it. */

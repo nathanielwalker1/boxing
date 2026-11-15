@@ -16,7 +16,8 @@ import * as THREE from 'three';
 import { morphOf, type BodyDims, type Config, type FighterSpec } from '../core';
 import { Geo } from './geo';
 import { BONE_COUNT, BONE_PARENT, bindPose, rigDims, skelBindPose, type Ctx, type RigDims } from './skeleton';
-import { armSpan, buildArm, buildLeg, buildTorso, muscleDef, torsoShape } from './anatomy';
+import { armSpan, buildArm, buildLeg, buildTorso, MORPHS_FLEX, muscleDef, torsoShape } from './anatomy';
+import { armBones } from './skeleton';
 import { buildFacialHair, buildHair, buildHead, headShape } from './head';
 import { buildBoot, buildBowTie, buildGlove, buildTrunks } from './kit';
 import { atlasRect } from './atlas';
@@ -46,6 +47,9 @@ export function rigGeomKey(spec: FighterSpec, body: BodyDims, cfg: Config): stri
     // anim Phase 1.2 / 1.3.
     cfg.rigNeckBase, cfg.rigLatFlare, cfg.rigGluteDepth, cfg.rigFaceForm, cfg.rigHipBlend, cfg.rigTrunkGap, cfg.rigRefBelly, cfg.rigRefArm, cfg.rigRefTrouser,
     cfg.skelOn, cfg.skelSpine1At, cfg.skelSpine2At, cfg.skelChestAt, cfg.skelNeckBase, cfg.skelHeadPivot, cfg.skelClavicleInset, cfg.skelSkinBlend,
+    // mesh pass 3 (the flex bunch amount is a morph target's size, so it rebuilds too).
+    cfg.meshV3, cfg.rigV3DeltBreadth, cfg.rigV3DeltThick, cfg.rigV3DeltInsert, cfg.rigV3DeltSep, cfg.rigV3Biceps, cfg.rigV3Triceps, cfg.rigV3ArmGroove,
+    cfg.rigV3Forearm, cfg.rigV3FlexBunch, cfg.rigV3ArmCols, cfg.rigV3AxFold, cfg.rigV3Trap, cfg.rigV3TrapCurve, cfg.rigV3CapTorso, cfg.rigV3CapHeight, cfg.rigV3CapOut,cfg.rigV3YokeTop, cfg.rigV3NeckTop,
   ].join('|');
 }
 
@@ -88,7 +92,7 @@ export function buildRigMesh(
   for (let i = 0; i < 2; i++) { g.part(`glove${i}`, () => buildGlove(c, i)); g.part(`boot${i}`, () => buildBoot(c, i)); }
   if (spec.outfit) g.part('tie', () => buildBowTie(c, torso));
 
-  const geometry = g.build([...MORPHS, ...MORPHS_EXTRA]);
+  const geometry = g.build(cfg.meshV3 ? [...MORPHS, ...MORPHS_EXTRA, ...MORPHS_FLEX] : [...MORPHS, ...MORPHS_EXTRA]);
   const span = armSpan(c);
   const atlas = paintAtlas(spec, cfg, low, {
     torsoV: y => 1 - (y - torso.yBottom) / (torso.yTop - torso.yBottom),
@@ -124,6 +128,27 @@ export function buildRigMesh(
   bodyMesh.receiveShadow = true;
   bodyMesh.frustumCulled = false;
   group.add(bodyMesh);
+  // meshV3: the biceps bunch follows the elbow. Each render reads the elbow bend (the forearm bone's turn relative to the upper arm) and sets
+  // the arm's flex morph: none below FLEX_FROM, full at FLEX_FULL. The driver (index.ts) only writes the face morphs, so these are ours.
+  if (cfg.meshV3) {
+    const k0 = MORPHS.length + MORPHS_EXTRA.length;
+    const qa = new THREE.Quaternion(), qb = new THREE.Quaternion();
+    bodyMesh.onBeforeRender = (): void => {
+      const infl = bodyMesh.morphTargetInfluences;
+      if (!infl) return;
+      for (let i = 0; i < 2; i++) {
+        const ab = armBones(i);
+        const up = bones[ab.upper]!, fo = bones[ab.fore]!;
+        // With the hierarchy (skelOn) the forearm's local turn IS the elbow; flat siblings need the relative turn.
+        if (fo.parent === up) qb.copy(fo.quaternion);
+        else qb.copy(qa.copy(up.quaternion).invert().multiply(fo.quaternion));
+        const ang = 2 * Math.acos(Math.min(1, Math.abs(qb.w)));
+        const a0 = cfg.rigV3FlexFromDeg * Math.PI / 180, a1 = Math.max(a0 + 0.1, cfg.rigV3FlexFullDeg * Math.PI / 180);
+        const t = Math.min(1, Math.max(0, (ang - a0) / (a1 - a0)));
+        infl[k0 + i] = t * t * (3 - 2 * t);
+      }
+    };
+  }
 
   const outline = new THREE.SkinnedMesh(geometry, outlineMat);
   outline.bind(skeleton, new THREE.Matrix4());

@@ -154,3 +154,58 @@ Evidence `docs/anim/p1_2/after2` (guard / hang x four views for red, boiler, ref
 6. Referee: standing collar, shirt blousing over the belt, short cloth sleeves with cuffs, smaller deltoid. Got; the placket is painted only.
 7. Face: `rigFaceForm` 1.35 scales brow shelf, sockets, cheekbones, jaw and chin; jaw and chin squarer; nose bridge projects more in profile. Partly: reads in portrait, still soft at play distance; ears still petals.
 Regression to watch: arms raised overhead with no clavicle motion leaves the deltoid crown on the chest (bare mesh only; the driver's clavicle should cover it). Clip worst cell is boiler, arms overhead, 30 exposed (was 19 at raffle slip right).
+
+## 9. Pass 3: shoulder girdle and arm (branch `anim/mesh3`, toggle `meshV3`, default on; off = pass 2 exactly)
+
+Why: Nate, twice on 2026-11-15: "the fighters still look like goofy Wii Sports characters", "the arms and biceps look fucked". Evidence: `docs/anim/p_mesh3/before|after`
+(`close/` = `scripts/_debug.mjs` upper-body views of the bare mesh, poses guard / side90 / across / low, views front, f34, back, b34, for red, blue (lean),
+boiler (heavy), alambre (southpaw); `mv/` mesh_view full body before; film = anim_film hook_rear_mid, jab_mid, upper_rear_mid, block). The before `close/*_across_*`
+were taken with the across pose's sign wrong (arms swung OUT, not in); only the after ones show the arm over the chest.
+
+What was structurally wrong:
+1. **The deltoid crown belonged to the torso.** Pass 2 weighted the cap's crown 100 % to the torso (chest + clavicle) and handed it to the arm over 0.44 of the upper
+   arm. With the arm forward or raised, the crown stayed while the rest turned: the back of the cap showed as a flat plate standing off the back (the "stub" at
+   hook_rear t019). Fix: the crown is now `rigV3CapTorso` (0.6) torso and the rest the shoulder helper (which turns `rigShoulderFollow` of the way with the arm);
+   the upper arm owns it all by 0.3 L1. 0.4 torso was tried first: the plate went but boiler's guard shoulder came to a ridge where the cap left the yoke.
+2. **The deltoid was a body of revolution.** A dome round the arm axis, tapering into the arm: a sausage end. Now the arm is a base (humeral dome, deeper front
+   to back than wide, `rigV3DeltBreadth`) with the deltoid as a LAYER (`deltoidLayerV3`): front, side and rear heads with two shallow grooves (`rigV3DeltSep`),
+   nothing on the armpit side, and a V lower border: high at front and back (about 0.3 L1), down to its insertion on the outside (`rigV3DeltInsert` 0.48 L1),
+   with a short edge so it ends as a muscle.
+3. **Biceps / triceps were broad bumps on a round tube.** Now: a biceps peak (front, a little inside), triceps long head (back-inner) and lateral head (back-outer,
+   under the rear deltoid), the flat triceps tendon above the elbow, an outer and inner groove where they meet, brachialis showing outside above the elbow.
+   Forearm: brachioradialis + extensors thick below the elbow outside, flexors inside, a wrist wider than deep. 20 columns round the arm (`rigV3ArmCols`; 16
+   could not hold an 18 to 25 degree groove).
+4. **Biceps bunch**: morph targets `flex0` / `flex1` (appended after MORPHS_EXTRA, indices 6 and 7, only with meshV3). mesh.ts sets them in the body mesh's
+   onBeforeRender from the forearm bone's turn relative to the upper arm (`rigV3FlexFromDeg` 20 to `rigV3FlexFullDeg` 125). Render only; nothing in the sim reads it.
+   The driver (index.ts) writes indices 0 to 3 only, so this needed no change there.
+5. **Torso**: anterior (pec) and posterior (lat / teres) axillary folds near the arm (`rigV3AxFold`); the trapezius slope convex (`rigV3TrapCurve` 1.7) with extra
+   mass on the slope from behind (`rigV3Trap`); the neck narrows to `rigV3NeckTop` 0.88 under the jaw. A first try put the trap mass on the yoke line and also on
+   the front: it deepened the collar crease and turned the top of the chest into a lid. Moved onto the slope, back only. A second try also widened
+   the slope's half-width (all round the neck): on boiler (heavy trap, thick neck) it read as a collar from the front. Out; only the convex curve and
+   the back-only mass remain.
+6. **Shoulder line from the front (tried, mostly backed out).** With the arms low, from the front, BOTH passes show square shoulders: a flat-topped
+   cap level with the yoke top and the top of the chest as a lid with a dark line. Tried: crown lower (`rigV3CapHeight` 0.38) and outside the joint, yoke
+   narrower above the shoulder line (`rigV3YokeTop` 0.8). Result: a notch between lid and cap, the arms read as boxes bolted on: worse. Then crown
+   0.46 with the crown 0.2 R1 outside the joint: the lean fighters (blue, alambre) got a flat-topped square shoulder, worse than pass 2's round cap.
+   Final: `rigV3CapHeight` 0.5 and `rigV3YokeTop` 0.9 (both = pass 2), crown `rigV3CapOut` 0.06 R1 outside the joint. The real fix is the torso's top: the yoke is a superellipse
+   ring (squareness 2.7) extruded upward; the shoulder top needs its own surface (clavicle, trapezius sloping onto the acromion) or the torso's top
+   rows bent down toward the arms. Next pass.
+7. **headsTall: not touched.** `core/body.ts` makes headR = height / headsTall / 2 and headR is the sim's head sphere; 7.2 would shrink the head hit sphere about 14 %
+   and move bootH, gloveR (from the anatomical fist) and the neck. Needs Nate's call and a roster / heights review.
+
+Numbers: body mesh triangles red 18,548 → 18,924, boiler 19,516 → 19,892 (+2 %); draw calls unchanged (one skinned mesh). Film frame (headless,
+low tier): 41 calls both, 134,234 → 133,994 tris (the low tier keeps 10 columns round the arm and has fewer rows).
+
+Clip check (`docs/anim/CLIPPING.md`, regenerated; the committed table it replaced was older than HEAD's legs, so leg rows are not comparable):
+still fails only on the known alambre "down, arms out" (70, all legs; the brief had it at 74). Rows that are this pass's: "arms overhead" boiler 13 → 21
+(20 of them `arm0`, forearm skin out of the glove cuff with the arm overhead) and monsoon 0 → 7 (`arm0`). Torso rows near the arms stay 0 to 3. Likely cause:
+the V3 wrist is wider than deep (0.64 × 0.5 of the forearm radius against pass 2's 0.62 × 0.56) and pokes out of the cuff sideways at full extension overhead.
+
+### What the after captures show, harshly
+- Better: the raised or forward arm no longer leaves a flat plate behind the shoulder in most poses (red side90 b34); the deltoid ends in a V with an
+  edge, the biceps peaks and the triceps reads as a ridge (boiler low f34, the hook arm at hook_rear t012); the neck narrows under the jaw.
+- Still a toy: from the front with the arms low, the shoulders are square blocks under a lid (both passes; the torso top, see 6). With the arm
+  across the chest the near deltoid folds to a sharp, jagged crease (red across f34). In the guard the lead shoulder's top comes to a corner
+  (red guard f34, boiler guard f34), a little sharper than pass 2's rounder (balloon) cap. blue's rear arm held straight out still shows a small disc
+  behind the shoulder (blue side90 b34). At play distance, in headless software GL (low tier), the difference is small: the arm reads less like a pipe,
+  the guard shoulder seen from behind is still a stub. The head (6.2 heads tall) is still the biggest toy cue.
