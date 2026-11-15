@@ -364,6 +364,21 @@ export function integrateGloves(a: FighterState, b: FighterState, cfg: Config, d
       // could shove it on into the face behind his gloves (−3.6 cm past the give, arms_test). The surfaces have the
       // last word: head and body clamp once more after the glove contacts.
       if (springs(a).some(s => s.kin) || springs(b).some(s => s.kin)) { clampGloves(a, b, cfg); clampGloves(b, a, cfg); }
+      // A keyed glove going HOME is on an authored path: another arm's contact may nudge it off that path by
+      // chainReturnYield at most, so it slides round a guard instead of hopping out and back (a 17 cm glove / 44 cm elbow
+      // step in one tick on a rear hook's return, measured).
+      for (const f of [a, b]) {
+        const sp = springs(f);
+        for (let i = 0; i < 2; i++) {
+          const s = sp[i]!;
+          // (Hooks and uppercuts only, and not against a held block: a straight's bounce off a guard is meant to push.)
+          if (!s.kin || armActive(f, i, cfg) || f.punch.type === 'jab' || f.punch.type === 'cross' || (f === a ? b : a).block) continue;
+          const g = f.gloves[i]!, t = g.target, u = (n + 1) / CHAIN_SUBSTEPS;
+          const lx = s.sx + (t.x - s.sx) * u, ly = s.sy + (t.y - s.sy) * u, lz = s.sz + (t.z - s.sz) * u;
+          const ox = g.pos.x - lx, oy = g.pos.y - ly, oz = g.pos.z - lz, od = Math.hypot(ox, oy, oz);
+          if (od > cfg.chainReturnYield) { const k = cfg.chainReturnYield / od; g.pos = { x: lx + ox * k, y: ly + oy * k, z: lz + oz * k }; }
+        }
+      }
     }
   }
 }

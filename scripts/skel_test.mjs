@@ -334,7 +334,10 @@ function slipPeak(x, y, sp = specs) {
   // PINNED with punch keys (geometry, wrap-up 2026-11-13): give + 5 cm — the elbows-out guard puts the forearms
   // further into the exchange (7.2 cm measured); counterpart: the keys-off run above at give + 4.
   const X1 = exchange(true);
-  check(`exchange (skeleton, punch keys on): forearm-into-forearm ${cm(X1.ff)} cm, glove-into-forearm ${cm(X1.fg)} cm; PINNED bound give + 5 cm`, X1.ff <= give + 0.05 && X1.fg <= give + 0.05);
+  // Re-pinned give + 8 cm (hookfix 2026-11-15): a hook's / uppercut's return glove may now be pushed off its path by only
+  // chainReturnYield (4 cm) per tick instead of hopping 17 cm out round his forearm (the elbow pop), so it passes
+  // through a guard forearm a little deeper for a few ticks (9.5 cm measured).
+  check(`exchange (skeleton, punch keys on): forearm-into-forearm ${cm(X1.ff)} cm, glove-into-forearm ${cm(X1.fg)} cm; PINNED bound give + 8 cm`, X1.ff <= give + 0.08 && X1.fg <= give + 0.08);
 }
 
 // ── Punch keys (anim Phase 1.4, punchKeysOn): every punch × hand × level at its MID range (the middle of the legacy
