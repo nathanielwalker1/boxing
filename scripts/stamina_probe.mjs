@@ -132,6 +132,38 @@ export function pace({ ppm = 32, miss = 0.25, blocked = 0.3, his = 24, guard = 0
   return out;
 }
 
+/**
+ * A STEADY puncher: one punch every 3600/ppm ticks, on the beat, cycling jab, cross, jab, cross (straights only: a hook needs
+ * the stick, which walks him off his range and turns some into misses); held at punching range
+ * in front of a partner who stands and takes it (so nothing but the rate changes between runs: no stepping, no blocks,
+ * no counters). Returns the tank at the end of a 60 s round and the second the tank first fell under lowStamina.
+ */
+export function steady(ppm, c = cfg, { seconds = 60, miss = 0.4, cycle = ['jab', 'cross', 'jab', 'cross'] } = {}) {
+  const cc = { ...c, roundSeconds: seconds, roundCount: 1, healthDamagePerImpulse: 0, stunBase: 0, bodyHurtOn: false, liverOn: false, guardWearOn: false };
+  let s = fresh(cc, 0.78);
+  const every = 3600 / ppm; let n = 0, next = 0, gassedAt = null, thrown = 0;
+  const lowest = { v: 1 };
+  for (let i = 0; i < seconds * 60 && s.round.phase !== 'over'; i++) {
+    // He steps in whenever the partner has been knocked back out of range, so every punch is thrown at punching range.
+    const a = s.fighters[0], d = s.fighters[1];
+    const gap = Math.hypot(a.pos.x - d.pos.x, a.pos.z - d.pos.z);
+    let mine = inp({ move: { x: 0, y: gap > 0.8 ? 1 : 0 } });
+    if (i >= next) {
+      const p = cycle[n % cycle.length];
+      // `miss` of every punch is thrown at a partner who has just been put out of reach (placed by the harness, not by a rng).
+      const out = Math.floor((n + 1) * miss) !== Math.floor(n * miss);
+      const dx = Math.sign(d.pos.x - a.pos.x) || 1, want = out ? 1.7 : 0.78;
+      d.pos.x = a.pos.x + dx * want; d.pos.z = a.pos.z; d.vel.x = 0; d.vel.z = 0;
+      mine = inp({ [p]: true }); n++; next += every;
+    }
+    const r = k.sim.step(s, [mine, NONE], cc); s = r.state;
+    for (const e of r.events) if (e.type === 'punchStart' && e.side === 0) thrown++;
+    const st = s.fighters[0].stamina; lowest.v = Math.min(lowest.v, st);
+    if (st < cc.lowStamina && gassedAt === null) gassedAt = i / 60;
+  }
+  return { end: s.fighters[0].stamina, gassedAt, thrown, lowest: lowest.v };
+}
+
 export function paces(c = cfg) {
   console.log('\nA scripted human pace, 3 × 60 s (he throws 1-2s and 1-2-3s on a beat; the partner hits back on a beat)\n');
   return {

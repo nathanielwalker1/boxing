@@ -794,7 +794,12 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
     a.macro = { kind: 'clinch', t: 0, x: 1, y: 0, punch: null };
     a.used.clinch += 1;
   }
-  if (!evade) a.attackTimer = Math.max(0, a.attackTimer - dt * aggression * tempo);
+  // staminaV2: rationing. How far its own wind has fallen under aiTireFrom (0 = fresh, 1 = at aiTireFloor or lower): it waits longer
+  // between punches and, below aiTireNoCombo, starts no combination. Off with staminaV2 off, and for a fresh fighter, so the
+  // random draws of a fresh AI are exactly what they were.
+  const ration = cfg.staminaV2 ? clamp((cfg.aiTireFrom - me.stamina) / Math.max(1e-6, cfg.aiTireFrom - cfg.aiTireFloor), 0, 1) : 0;
+  const noCombo = cfg.staminaV2 && me.stamina < cfg.aiTireNoCombo;
+  if (!evade) a.attackTimer = Math.max(0, a.attackTimer - dt * aggression * tempo * lerp(1, cfg.aiTireTempo, ration));
   if (a.attackTimer === 0 && a.armed === null && !evade) {
     a.armed = pickPunch(a.rng, st);
     a.armedX = rngChance(a.rng, 0.5) ? -1 : 1;
@@ -803,7 +808,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
       // The finish: a hurt opponent gets power. Otherwise a SIGNATURE combination of the style's, or a single
       // punch that sometimes goes to the body — more against a held guard — or, a cross, over the top.
       if (opp.hurt > 0 && rngChance(a.rngT, st.finishPower)) a.armed = pickPunch(a.rngT, st, POWER);
-      else if (st.combos.length > 0 && rngChance(a.rngT, st.comboSignature * st.comboChance)) {
+      else if (st.combos.length > 0 && !noCombo && rngChance(a.rngT, st.comboSignature * st.comboChance)) {
         const combo = st.combos[rngInt(a.rngT, 0, st.combos.length - 1)]!;
         armStep(a, combo[0]!);
         a.queue = combo.slice(1); a.queueT = QUEUE_LIFE;
@@ -997,7 +1002,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: A
         // (The last punch of a signature combination ends the exchange: no random burst on top of it.)
         const signed = a.queueT > 0;
         a.queueT = 0;
-        if (!signed && a.burst === 0 && st.comboMax > 1 && rngChance(a.rng, st.comboChance)) a.burst = rngInt(a.rng, 1, Math.floor(st.comboMax) - 1);
+        if (!signed && a.burst === 0 && st.comboMax > 1 && !noCombo && rngChance(a.rng, st.comboChance * (1 - ration * cfg.aiTireBurstCut))) a.burst = rngInt(a.rng, 1, Math.floor(st.comboMax) - 1);
         else if (a.burst > 0) a.burst -= 1;
         if (a.burst > 0) a.attackTimer = st.comboGap;
         else {
