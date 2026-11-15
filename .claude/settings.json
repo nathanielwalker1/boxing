@@ -41,6 +41,7 @@
       "Bash(git ls-files:*)",
       "Bash(git rev-parse:*)",
       "Bash(git cherry-pick:*)",
+      "Bash(git revert:*)",
 
       "Bash(ln -s:*)",
       "Bash(cat:*)",
