@@ -17,7 +17,7 @@ import type { ArmJoints, ArmPose, Config, FighterState, Vec3 } from '../core';
 import {
   closestOnSegment, smoothstep, twoBoneMid, GUARDS,
   clavicleTarget, fitArm, fitLeg, fitTorso, fk, frameOf, handLateralSign, localToWorld, qAxisAngle, qMul, qRot, restPose, rootQuat,
-  skelDef, skelLimits, torsoShapes, SKJ, clampPose,
+  skelDef, skelLimits, torsoShapes, SKJ, clampPose, skelHeadCentre,
   applyKeyedTorso, keyedClavicleTarget, keyedPose, poseScale, swivelPole, type KeyedInput, type RPose,
   poseQ, setPoseQ, qFromRotVec, qFromBasis, qSlerp, skelArm, skelLeg, cloneSkel, lerpPose, SIM_DT, type SkelFK, type SkelPose, type Quat,
 } from '../core';
@@ -401,6 +401,8 @@ const CHAIN_SPINE_SPLIT: readonly [number, number][] = [[SKJ.spine1, 0.25], [SKJ
 function applyHitChain(f: FighterState, cfg: Config, def: ReturnType<typeof skelDef>, pose: NonNullable<FighterState['skel']>, lim: ReturnType<typeof skelLimits>): void {
   const hd = chainAngles(f, 0), sp = chainAngles(f, 1), pv = chainAngles(f, 2);
   if (!hd.some(v => v !== 0) && !sp.some(v => v !== 0) && !pv.some(v => v !== 0)) return;
+  const fr = frameOf(f.yaw);
+  const h0 = skelHeadCentre(def, fk(def, pose, SKJ.head + 1));
   const add = (j: number, a: readonly number[], w: number): void => {
     setPoseQ(pose, j, qMul(poseQ(pose, j), qFromRotVec({ x: a[0]! * w, y: a[1]! * w, z: a[2]! * w })));
   };
@@ -409,6 +411,17 @@ function applyHitChain(f: FighterState, cfg: Config, def: ReturnType<typeof skel
   add(SKJ.neck, hd, cfg.hitChainNeckShare);
   add(SKJ.head, hd, 1 - cfg.hitChainNeckShare);
   clampPose(def, pose, lim);
+  // The chain is the presentation of a hit already scored: it never carries the head TOWARD the man who hit him.
+  // A body shot folds him forward round the fist; folded about the hips the head came 20–30 cm forward and down into
+  // range, and the next punches landed flush on it (an idle man knocked down by the Hard AI in 4 s, measured; off: not
+  // in 12 s). So the hips go back by what the fold carried the head forward (weight shift, the pelvis's own
+  // translation; the leg IK re-plants the feet), as a man folding round a body shot sits back.
+  const h1 = skelHeadCentre(def, fk(def, pose, SKJ.head + 1));
+  const fwd = (h1.x - h0.x) * fr.fwd.x + (h1.z - h0.z) * fr.fwd.z;
+  // (Only while the spine is FOLDING — a body shot. A hook's turn tips the head a few cm forward on one side too; sitting
+  // back on that moved a blocked hook's guard glove off home for the whole return — block_feel_test.)
+  // (A real fold, past 1°: the return's small overshoot below zero on a head shot does not count.)
+  if (fwd > 0 && sp[2] < -Math.PI / 180) pose.root[3] = pose.root[3]! - fwd * cfg.hitChainSitBack;
 }
 
 /** What the last arm fit did, per side and arm (scripts/skel_probe.mjs reads it; output only, never read by the sim). */

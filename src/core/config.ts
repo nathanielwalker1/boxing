@@ -1805,6 +1805,7 @@ export const SCHEMA = {
   hitChainBodyLat:   num(12, 0, 30, 0.5, 'hit chain', 'body shot, hook: the spine bends sideways TOWARD the hit side (the liver fold), degrees'),
   hitChainBodyHeadDip: num(8, 0, 30, 0.5, 'hit chain', 'body shot: the head dips forward (neck flexion) as the torso folds, degrees'),
   hitChainPelvis:    num(0.15, 0, 0.5, 0.01, 'hit chain', 'the pelvis takes this share of the spine\'s angles, last (it carries the whole upper body, so a little goes a long way)'),
+  hitChainSitBack:   num(1, 0, 1, 0.05, 'hit chain', 'share of any FORWARD head travel the chain causes (a body shot\'s fold) that the hips take back, so the fold never brings his head toward the puncher (1 = none comes forward; 0 = the folded head came 20–30 cm into range and the next punches landed flush)'),
   hitChainNeckShare: num(0.6, 0, 1, 0.05, 'hit chain', 'share of the head group\'s angle in the neck joint (the rest in the head joint)'),
   hitChainHeadPeak:  num(2.5, 1, 8, 0.25, 'hit chain', 'ticks from the hit to the peak of the head / neck'),
   hitChainSpinePeak: num(4.25, 1, 12, 0.25, 'hit chain', 'ticks from the hit to the peak of the spine'),
@@ -1829,6 +1830,9 @@ export const SCHEMA = {
   kdArmRate:         num(5.5, 2, 12, 0.5, 'knockdown fall', 'the most any arm joint turns in one tick through a fall or get-up, degrees (the arms carry over from tick to tick; this keeps an elbow flip from ever showing as a snap)'),
   kdSway:          num(0.025, 0, 0.08, 0.005, 'knockdown fall', 'a heavy knockdown only: sideways sway of the pelvis as he stands, m (a flash knockdown has none)'),
   kdStep:            num(0.12, 0, 0.3, 0.01, 'knockdown fall', 'a heavy knockdown only: the half step of the lead foot as he comes up, m'),
+  hitChainBlockScale: num(0.3, 0, 1, 0.01, 'hit chain', 'with blockFeelV2: a BLOCKED punch drives the chain as a straight push along the punch (whatever the punch) at this share of a land\'s degrees — the rock behind the gloves (replaces blockFeelHeadScale on the legacy springs)'),
+  hitChainBlockFloor: num(130, 0, 400, 5, 'hit chain', 'blocked: impulse ARRIVING at the guard (N·s, before the block absorbs it) under which the chain does not move; size = (impulse − floor) / (hitChainRefImpulse − floor), capped at hitChainBlockMax — lower than the land\'s floor so a blocked jab still rocks a little'),
+  hitChainBlockMax:  num(1.5, 0.5, 3, 0.05, 'hit chain', 'blocked: cap on the size above (a blocked hook rocks about as far as a blocked cross)'),
   ...poseEntries(),
 } satisfies Record<string, Entry>;
 

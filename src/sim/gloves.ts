@@ -389,7 +389,9 @@ export function clampGloves(f: FighterState, other: FighterState, cfg: Config): 
     const g = f.gloves[gi]!;
     // blockFeelV2: a punching fist stops on the OUTER surface of a held guard glove — pushed back along its own line,
     // not out sideways (the sphere push below slid it under the glove and onto the face, measured).
-    if (cfg.blockFeelV2 && cfg.guardHolesV2 && other.block && f.punch.type !== null && (f.punch.hand === 'lead') === (gi === 0)) {
+    // Straights only: a hook's arrival direction (how much guard it meets, combat.ts) is read from where the fist sits, so
+    // walking a hook back before it is scored changed block into land-through for a 12° hook into the high guard (styles_test).
+    if (cfg.blockFeelV2 && cfg.guardHolesV2 && other.block && f.punch.type !== null && (f.punch.type !== 'hook' || f.punch.contact) && (f.punch.hand === 'lead') === (gi === 0)) {
       const minD = f.body.gloveR + other.body.gloveR - sink;
       for (const og of other.gloves) {
         const dx = g.pos.x - og.pos.x, dy = g.pos.y - og.pos.y, dz = g.pos.z - og.pos.z;

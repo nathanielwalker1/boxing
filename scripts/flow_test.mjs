@@ -157,11 +157,24 @@ console.log('\n=== 6. What a land carries ===');
   const a = two(cfg), b = two(cfg);
   check(`a seeded variation rides on every land, in −1..1 (${a.map(e => e.vary.toFixed(2)).join(', ')}): two jabs differ, two runs do not`, a.length === 2 && a.every(e => e.vary >= -1 && e.vary <= 1) && a[0].vary !== a[1].vary && a[0].vary === b[0].vary && a[1].vary === b[1].vary);
   // The reaction itself differs between two identical jabs (and not at all with reactionVary 0).
-  const disp = c => { const out = []; run(fresh(c, 0.7, 30, k.bound(c) - 0.36), 60, i => [inp({ jab: i === 0 || i === 30 }), NONE], c, (s, i, ev) => { if (ev.some(e => e.type === 'punchLand')) out.push(Math.hypot(s.fighters[1].reaction.head.x, s.fighters[1].reaction.head.y, s.fighters[1].reaction.head.z)); }); return out; };
+  // The REAL head (the posed head box the sim hits), relative to his feet: its peak travel in the 10 ticks after a land
+  // from where it was the tick before (with hitChainV2 the legacy spring offsets are not kicked, so they read 0).
+  const headTravel = () => {
+    let prev = null, base = null, until = -1, peak = 0; const out = [];
+    const rel = f => ({ x: f.headBox.x - f.pos.x, y: f.headBox.y, z: f.headBox.z - f.pos.z });
+    return { out, track: (s, i, ev) => {
+      const h = rel(s.fighters[1]);
+      if (ev.some(e => e.type === 'punchLand')) { if (until >= 0) out.push(peak); base = prev ?? h; until = i + 10; peak = 0; }
+      if (base && i <= until) peak = Math.max(peak, Math.hypot(h.x - base.x, h.y - base.y, h.z - base.z));
+      if (i === until) { out.push(peak); until = -1; base = null; }
+      prev = h;
+    } };
+  };
+  const disp = c => { const t = headTravel(); run(fresh(c, 0.7, 30, k.bound(c) - 0.36), 60, i => [inp({ jab: i === 0 || i === 30 }), NONE], c, t.track); return t.out; };
   const dv = disp(cfg);
   check(`…and the head's snap differs with it (${dv.map(x => (x * 100).toFixed(1)).join(' vs ')} cm)`, dv.length === 2 && Math.abs(dv[0] - dv[1]) > 0.002);
   // The grade gap: displacement on the frozen frame.
-  const head = (c, dist, p, rocked) => { const s0 = fresh(c, dist); if (rocked) { s0.fighters[1].hurt = 2; s0.fighters[1].hurtMax = 3; s0.fighters[1].hurtKind = 'head'; } let d = 0, g = ''; run(s0, 30, i => [inp({ [p]: i === 2 }), NONE], c, (s, i, ev) => { const e = ev.find(x => x.type === 'punchLand'); if (e) { g = e.grade; d = Math.hypot(s.fighters[1].reaction.head.x, s.fighters[1].reaction.head.y, s.fighters[1].reaction.head.z); } }); return { d, g }; };
+  const head = (c, dist, p, rocked) => { const s0 = fresh(c, dist); if (rocked) { s0.fighters[1].hurt = 2; s0.fighters[1].hurtMax = 3; s0.fighters[1].hurtKind = 'head'; } let g = ''; const t = headTravel(); run(s0, 30, i => [inp({ [p]: i === 2 }), NONE], c, (s, i, ev) => { const e = ev.find(x => x.type === 'punchLand'); if (e) g = e.grade; t.track(s, i, ev); }); return { d: t.out[0] ?? 0, g }; };
   const flat = { ...cfg, reactionVary: 0 }, plain = { ...flat, gradeSpreadOn: false };
   const gl = head(flat, 1.0, 'jab'), gl0 = head(plain, 1.0, 'jab'), cl = head(flat, 0.8, 'cross'), cl0 = head(plain, 0.8, 'cross'), fl = head(flat, 0.8, 'cross', true), fl0 = head(plain, 0.8, 'cross', true);
   check(`a glancing jab moves the head less than it did (${(gl.d * 100).toFixed(1)} vs ${(gl0.d * 100).toFixed(1)} cm), a clean cross the same (${(cl.d * 100).toFixed(1)} cm), a flush cross more (${(fl.d * 100).toFixed(1)} vs ${(fl0.d * 100).toFixed(1)} cm — past the old neck clamp)`,
