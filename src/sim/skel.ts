@@ -18,7 +18,7 @@ import {
   closestOnSegment, smoothstep, twoBoneMid, GUARDS,
   clavicleTarget, fitArm, fitLeg, fitTorso, fk, frameOf, handLateralSign, localToWorld, qAxisAngle, qMul, qRot, restPose, rootQuat,
   skelDef, skelLimits, torsoShapes, SKJ, clampPose, skelHeadCentre,
-  applyKeyedTorso, keyedClavicleTarget, keyedPose, poseScale, swivelPole, type KeyedInput, type RPose,
+  applyKeyedTorso, keyedClavicleTarget, keyedPose, swivelPole, guardStanceDrop, type KeyedInput, type RPose,
   poseQ, setPoseQ, qFromRotVec, qFromBasis, qSlerp, skelArm, skelLeg, cloneSkel, lerpPose, SIM_DT, type SkelFK, type SkelPose, type Quat,
 } from '../core';
 import { chainAngles, chainOn } from './reaction';
@@ -77,7 +77,8 @@ export function aimPoint(f: FighterState, other: FighterState, cfg: Config): Vec
   //  uppercut under it and a hook at the jaw. His STANDING height: a duck still takes the head away — level_test.)
   const y = body ? (other.body.shoulderY + other.body.hipY) / 2 : other.body.headY - cfg.punchAimChin;
   // (+ his guard key's knee bend: he STANDS that much lower with the keys on.)
-  const guardDrop = keyedFor(other, cfg) ? ((cfg as unknown as Record<string, number>).pose_guard_pelUp ?? 0) * poseScale(other.body) : 0;
+  // (stanceV2: plus the stance's deeper knee bend — guardStanceDrop.)
+  const guardDrop = keyedFor(other, cfg) ? -guardStanceDrop(cfg, other.body) : 0;
   // The two punches that answer a low head (variants.ts aimAtPress) come down / up to where it was at the press —
   // the overhand and the uppercut; straights and hooks keep their lane (that is what ducking is for).
   const v = f.punch.type !== null ? VARIANTS[f.punch.variant] : undefined;

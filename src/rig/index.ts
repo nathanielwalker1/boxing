@@ -243,6 +243,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
   const torsoOffL = new THREE.Vector3();
   const H = new THREE.Vector3();
   const S = new THREE.Vector3();
+  /** stanceV2: this frame's idle offsets (rig-local, m) the shoulders (sh) and gloves (gl) ride; set in apply. */
+  const idleRide = { ok: false, sh: new THREE.Vector3(), gl: [new THREE.Vector3(), new THREE.Vector3()] };
   const neckBase = new THREE.Vector3();
   const qHips = new THREE.Quaternion();
   const qChest = new THREE.Quaternion();
@@ -453,6 +455,12 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
         clavT = { x: clavT.x + (sx - clavT.x) * k, y: clavT.y + (sy - clavT.y) * k, z: clavT.z + (sz - clavT.z) * k };
         glT = { x: glT.x + (sH.x - glT.x) * k, y: glT.y + (sH.y - glT.y) * k, z: glT.z + (sH.z - glT.z) * k };
         pole = { x: pole.x + (ex - sx - pole.x) * k, y: pole.y + (ey - sy - pole.y) * k, z: pole.z + (ez - sz - pole.z) * k };
+        // stanceV2: the shoulders and gloves ride the idle life (a few cm; the sim's boxes hold still, as the head's bounce does).
+        if (idleRide.ok) {
+          const sh = idleRide.sh, gl = idleRide.gl[i]!;
+          clavT = { x: clavT.x + sh.x * k, y: clavT.y + sh.y * k, z: clavT.z + sh.z * k };
+          glT = { x: glT.x + gl.x * k, y: glT.y + gl.y * k, z: glT.z + gl.z * k };
+        }
       }
       const r = fitArm(def, lim, c, pose, i, clavT, glT, pole, 0);
       // The fist turns over as the arm straightens (as drawn before), on the hand joint: the forearm's twist, carried at the wrist.
@@ -621,20 +629,36 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const rhythm = chase1(rhythmGate, (busy ? 1 - c.rigRhythmFade : 1) * freshness * (1 - reads.still), c.rigSpineK, c.rigSpineZeta, dt);   // (still: the beat before a late body shot folds him)
     beatPh += dt * st.bounceHz * (1 - 0.06 * side) * Math.PI * 2;
     const beat = beatPh + side * 1.3;
-    const rDip = st.bounceAmp * (0.5 - 0.5 * Math.cos(beat)) * rhythm;        // hips drop on the beat, feet planted → knees
-    const rLat = c.rigRhythmSway * Math.sin(beat / 2) * rhythm;                  // weight foot to foot, every other beat
-    const rFwd = c.rigRhythmFwd * Math.sin(beat / 2 + 1.1) * rhythm;             // and a little rock front / back
-    const rHeadY = -c.rigRhythmBob * (0.5 - 0.5 * Math.cos(beat - 0.5)) * c.rigRhythmHead * rhythm;   // head follows, a little late
-    const rHeadZ = c.rigRhythmSway * Math.sin(beat / 2 - 0.5) * c.rigRhythmHead * rhythm;
+    // stanceV2: the whole idle life × stanceLife (at 1 it was there but too small to read at 5 m).
+    const life = c.stanceV2 ? c.stanceLife : 1;
+    const rDip = st.bounceAmp * (0.5 - 0.5 * Math.cos(beat)) * rhythm * life;        // hips drop on the beat, feet planted → knees
+    const rLat = c.rigRhythmSway * Math.sin(beat / 2) * rhythm * life;                  // weight foot to foot, every other beat
+    const rFwd = c.rigRhythmFwd * Math.sin(beat / 2 + 1.1) * rhythm * life;             // and a little rock front / back
+    const rHeadY = -c.rigRhythmBob * (0.5 - 0.5 * Math.cos(beat - 0.5)) * c.rigRhythmHead * rhythm * life;   // head follows, a little late
+    const rHeadZ = c.rigRhythmSway * Math.sin(beat / 2 - 0.5) * c.rigRhythmHead * rhythm * life;
     const rRoll = c.rigRhythmRoll * DEG * Math.sin(beat / 2 - 0.25) * rhythm;    // chest rolls over the loaded foot
     // Head off the centre line: a slow asymmetric weave of the upper body
     // (head full, shoulders 0.6), on top of the beat, gated the same way.
     const wPh = tIdle * c.rigWeaveHz * Math.PI * 2 + side * 2.7;
-    const weaveZ = c.rigWeaveAmp * (Math.sin(wPh) + 0.35 * Math.sin(wPh * 1.7 + 0.8)) * rhythm;
-    const weaveX = c.rigWeaveFwd * Math.sin(wPh * 0.5 + 1.9) * rhythm;
+    const weaveZ = c.rigWeaveAmp * (Math.sin(wPh) + 0.35 * Math.sin(wPh * 1.7 + 0.8)) * rhythm * life;
+    const weaveX = c.rigWeaveFwd * Math.sin(wPh * 0.5 + 1.9) * rhythm * life;
     headL.y += rHeadY;
     headL.z += rHeadZ + weaveZ;
     headL.x += weaveX;
+    // stanceV2: what the shoulders and gloves ride (poseSkeleton) — with skelOn they were pinned to the sim's, so the
+    // bounce moved the hips and head under arms that held still. The upper body's share of the beat and weave, the
+    // shoulders lifting on the breath, and per hand a pump on the beat (lead and rear alternate) and a slow drift.
+    idleRide.ok = c.stanceV2 && c.stanceArmsRide > 0;
+    if (idleRide.ok) {
+      const k = c.stanceArmsRide;
+      const up = (bob - rDip * 0.7 + rHeadY * 0.5 + Math.max(0, breath) * c.stanceBreathLift * rhythm) * k;
+      idleRide.sh.set((rFwd * 0.5 + weaveX * 0.6) * k, up, (rLat * 0.3 + weaveZ * 0.6 + sway * c.rigSwayAmp * 0.5) * k);
+      for (let i = 0; i < 2; i++) {
+        const pump = c.stanceGlovePump * Math.sin(beat + (i === 0 ? 0 : Math.PI)) * rhythm;
+        const dr = c.stanceGloveDrift * rhythm, dp = wPh * 0.8 + i * 2.2;
+        idleRide.gl[i]!.set(idleRide.sh.x + pump * k + dr * Math.cos(dp) * k * 0.5, up + dr * Math.sin(dp) * k, idleRide.sh.z + dr * Math.cos(dp * 1.3) * k * 0.5);
+      }
+    }
 
     // Walking lean: the body leans into the direction of travel (hips shift,
     // chest pitches / rolls), through the spine spring so it arrives a beat
@@ -643,7 +667,8 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     const vScale = c.moveSpeed > 1e-6 ? 1 / c.moveSpeed : 0;
     const vFwd = v.x, vLat = v.z, vSpd = Math.hypot(vFwd, vLat);
     chase3(moveLean, vFwd * vScale, 0, vLat * vScale, c.rigSpineK, c.rigSpineZeta, dt);
-    const mvFwd = moveLean.x, mvLat = moveLean.z;
+    const ml = c.stanceV2 ? c.stanceMoveLean : 1;   // stanceV2: the walking lean, bigger
+    const mvFwd = moveLean.x * ml, mvLat = moveLean.z * ml;
     // Footwork roles: the foot nearest the direction of travel leads, the
     // other drags. Forward → lead foot; back → rear foot; sideways → the foot
     // on that side. Sideways travel is a shuffle.
@@ -669,6 +694,7 @@ export function createFighterView(side: Side, spec: FighterSpec, cfg: Config, pa
     chase3(spineBend, leanF * c.rigLeanChest + mvFwd * c.rigMoveLeanShift * 0.6 + weaveX * 0.6, 0, sway * c.rigSwayAmp * 0.5 + rLat * 0.3 + mvLat * c.rigMoveLeanShift * 0.4 + weaveZ * 0.6, c.rigSpineK, c.rigSpineZeta, dt);
     // Circling: the head leads the travel.
     headL.z += mvLat * c.rigMoveHeadLead;
+    if (c.stanceV2) headL.x += mvFwd * c.rigMoveLeanShift;   // stanceV2: the head goes with the leaning chest, not held back by the neck
     const yawS = chase1(shoulderYaw, leadSign * c.rigStanceShoulderYawDeg * DEG + twist, c.rigShoulderK, c.rigShoulderZeta, dt);
 
     // Hips.
