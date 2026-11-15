@@ -381,12 +381,20 @@ export interface FighterState {
    */
   skel?: SkelPose;
   /**
+   * Joint inertialization state (sim/inertia.ts, cfg.inertiaOn), per joint, flat: the last OUTPUT rotation `out` (x,y,z,w),
+   * the last output turn `step` and the lag offset `off` and its rate `vel`
+   * (rotation vectors, rad and rad per tick, 3 numbers a joint). Absent with inertiaOn off.
+   */
+  inertia?: InertiaState;
+  /**
    * The keyed feet (anim Phase 1.4, cfg.punchKeysOn): per foot, lead then rear — step forward (m), step outward (m),
    * pivot about the ball (rad, about +y), heel lift (m) — then the weight on the rear foot (0..1). The rig's foot
    * planter obeys it. Absent without punch keys.
    */
   footKey?: number[];
 }
+
+export interface InertiaState { out: number[]; step: number[]; off: number[]; vel: number[] }
 
 export interface ArmJoints { shoulder: Vec3; elbow: Vec3 }
 

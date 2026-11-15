@@ -262,6 +262,7 @@ export function cloneFighter(f: FighterState): FighterState {
     // The skeleton (anim Phase 1.1): only present while cfg.skelOn has fitted one; absent, the state is as before.
     ...(f.skel ? { skel: { root: f.skel.root.slice(), q: f.skel.q.slice() } } : {}),
     ...(f.footKey ? { footKey: f.footKey.slice() } : {}),
+    ...(f.inertia ? { inertia: { out: f.inertia.out.slice(), step: f.inertia.step.slice(), off: f.inertia.off.slice(), vel: f.inertia.vel.slice() } } : {}),
   };
 }
 
