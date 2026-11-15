@@ -23,6 +23,7 @@ import { advancePunch, resolvePunch, stepActions } from './combat';
 import { computeBoxes, stepReaction } from './reaction';
 import { integrateGloves, settleContacts, settleGloves, stepGloves } from './gloves';
 import { stepArms } from './arms';
+import { applyInertia, restoreInertia, snapInertia } from './inertia';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip, type FlickRequest } from './slip';
 import { stepVulnerability } from './vulnerability';
@@ -132,6 +133,11 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   for (const side of SIDES) stepArms(s.fighters[side], cfg, dt);   // the elbow-pole lags advance once a tick
   integrateGloves(s.fighters[0], s.fighters[1], cfg, dt);
   for (const side of SIDES) stepArms(s.fighters[side], cfg, 0);
+  // Joint inertialization (inertia.ts): the pose is final; no joint starts or stops in one tick. The hit shapes are
+  // rewritten from the smoothed pose before the hit test. (Snapshot: a land tick re-fits the pose below and redoes this.)
+  const inSnap = SIDES.map(side => snapInertia(s.fighters[side]));
+  for (const side of SIDES) applyInertia(s.fighters[side], cfg, false, stopped);
+  const evMark = events.length;
   for (const side of SIDES) { const t = peaked[side]; if (t !== null) resolvePunch(s, side, t, cfg, events); }
   // A land applies the impact pose at once (reaction.ts): the struck body's
   // boxes and arms move on the land tick, so re-derive them and re-settle
@@ -140,6 +146,14 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     for (const side of SIDES) { computeBoxes(s.fighters[side], cfg); stepArms(s.fighters[side], cfg, 0); }
     settleContacts(s.fighters[0], s.fighters[1], cfg);
     for (const side of SIDES) stepArms(s.fighters[side], cfg, 0);
+    // The re-fit overwrote the smoothed pose: the struck man (a hit or a block on him) takes the pose as it is, the other
+    // man is smoothed again from the state he had before this tick.
+    for (const side of SIDES) {
+      const f = s.fighters[side];
+      const struck = events.slice(evMark).some(e => (e.type === 'punchLand' || e.type === 'punchBlock') && e.target === side);
+      restoreInertia(f, inSnap[side]);
+      applyInertia(f, cfg, struck, stopped);
+    }
   }
   // Polish phase (flow.ts): knockback held while a combination ran is let go once it is over; the hit-stop bucket refills.
   stepHold(s.fighters[0], s.fighters[1], cfg);

@@ -18,7 +18,9 @@ const {
   qMul, qAxis, qFromRotVec, qRot, qId, swingTwist, solveTwoBone, skelHeadCentre, skelShoulderLine, skelArm, skelLeg,
   fitTorso, fitArm, rootQuat, qAxisAngle,
 } = core;
-const cfg = createConfig();
+// inertiaOn false: this test pins the fitted pose against the FK / hit shapes and exact fist timing; the inertialization
+// layer (src/sim/inertia.ts, smooth_test.mjs) deliberately lags the joints after a cut and leaves the gloves on the physics.
+const cfg = { ...createConfig(), inertiaOn: false };
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const cm = v => (v * 100).toFixed(1);
 const DEG = Math.PI / 180;
