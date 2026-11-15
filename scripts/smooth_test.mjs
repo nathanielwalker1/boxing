@@ -4,8 +4,8 @@
  *     and none turns more than 40 deg in one tick.
  *  2. Punch timing barely moves: the tick a punch lands (the glove's contact), inertia on vs off, single punches within 1
  *     tick, the second punch of jab-cross and cross-hook within 2.
- *  3. inertiaOn = false is the pre-change sim: a seeded scripted fight gives the same skeleton, bit for bit, as the sim
- *     before the layer existed (fingerprint pinned below; re-pin only when the pose is changed on purpose).
+ *  3. inertiaOn = false is the pre-change sim: on a seeded scripted fight the skeleton, gloves and head are bit for bit
+ *     the unsmoothed pose (the layer on with a limit that never engages), every tick; and no inertia state exists.
  */
 import { load } from './load.mjs';
 import { check, done } from './check.js';
@@ -79,15 +79,22 @@ for (const [name, pr] of [['jab>cross', [[2, 'jab', 'lead'], [11, 'cross', 'rear
     if (i >= 340 && i < 360) b.move = { x: -1, y: 0 };
     return [a, b];
   };
-  let h = 2166136261;
-  const mix = str => { for (let k = 0; k < str.length; k++) { h ^= str.charCodeAt(k); h = Math.imul(h, 16777619) >>> 0; } };
-  let hasInertia = false;
+  // The reference: the layer ON but with a limit no cut can reach (inertiaMaxAccel huge, so it never engages): that
+  // is the pose underneath, untouched. inertiaOn false must equal it on every tick, bit for bit (no config pin: this
+  // survives unrelated tunes).
+  const refCfg = { ...cfg, inertiaOn: true, inertiaMaxAccel: 1e9 };
+  let r = sim.createState([ROSTER[0], ROSTER[1]], refCfg, 7);
+  let hasInertia = false, same = true, firstBad = -1;
   for (let i = 0; i < 600; i++) {
     s = sim.step(s, script(i), cfg).state;
-    for (const f of s.fighters) { mix(JSON.stringify(f.skel.q)); mix(JSON.stringify(f.gloves.map(g => g.pos))); mix(JSON.stringify(f.headBox)); if (f.inertia) hasInertia = true; }
+    r = sim.step(r, script(i), refCfg).state;
+    for (let k = 0; k < 2; k++) {
+      const a = s.fighters[k], b = r.fighters[k];
+      if (a.inertia) hasInertia = true;
+      if (JSON.stringify(a.skel) !== JSON.stringify(b.skel) || JSON.stringify(a.gloves.map(g => g.pos)) !== JSON.stringify(b.gloves.map(g => g.pos)) || JSON.stringify(a.headBox) !== JSON.stringify(b.headBox)) { same = false; if (firstBad < 0) firstBad = i; }
+    }
   }
-  const PINNED = '3889377711';
-  check(`off: no inertia state is ever created`, !hasInertia);
-  check(`off: skeleton, gloves and head fingerprint is the pre-change one (${h})`, String(h) === PINNED);
+  check('off: no inertia state is ever created', !hasInertia);
+  check(`off: skeleton, gloves and head equal the unsmoothed pose on all 600 ticks${firstBad >= 0 ? ` (first difference tick ${firstBad})` : ''}`, same);
 }
 done();

@@ -23,7 +23,7 @@ import { advancePunch, resolvePunch, stepActions } from './combat';
 import { computeBoxes, stepReaction } from './reaction';
 import { integrateGloves, settleContacts, settleGloves, stepGloves } from './gloves';
 import { stepArms } from './arms';
-import { applyInertia, restoreInertia, snapInertia } from './inertia';
+import { applyInertia, restoreInertia, restoreRaw, snapInertia } from './inertia';
 import { stepCount, stepStamina } from './resources';
 import { stepSlip, type FlickRequest } from './slip';
 import { stepVulnerability } from './vulnerability';
@@ -80,6 +80,7 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
   const stopped = s.hitStop > 0;
   s.hitStop = cfg.hitStopV2 && s.hitStop - SIM_DT < 1e-6 ? 0 : Math.max(0, s.hitStop - SIM_DT);
 
+  for (const side of SIDES) restoreRaw(s.fighters[side], cfg);
   if (s.tick === 0) startRound(s, 0, cfg, events);
   const fighting = s.round.phase === 'fighting';
   const ins: [Readonly<FrameInput>, Readonly<FrameInput>] = fighting ? inputs : [NULL_INPUT, NULL_INPUT];

@@ -394,7 +394,8 @@ export interface FighterState {
   footKey?: number[];
 }
 
-export interface InertiaState { out: number[]; step: number[]; off: number[]; vel: number[] }
+/** `raw`: the unsmoothed pose (q) of the last tick; the next tick's sim starts from it, so smoothing never feeds back into the sim. */
+export interface InertiaState { out: number[]; step: number[]; off: number[]; vel: number[]; raw: number[] }
 
 export interface ArmJoints { shoulder: Vec3; elbow: Vec3 }
 
