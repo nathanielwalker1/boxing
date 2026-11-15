@@ -36,7 +36,23 @@ Nate: "there's still no like fighter stances, bouncing, lean. It's just like upr
   forward of the position; feet 50 × 40 cm; knees 65° lead / 84° rear.
 - Rig: bounce, weave, glove pump and breath now carry the arms; visible between idle frames side-on.
 
-## Gameplay (scripts/_debug.mjs game, 6 seeds, Hard = aiDifficulty 2)
+## Second pass (coordinator review: "too seated", "reach must not shrink")
+- Knees 0.036, pelvis pitch 11 (about the ROOT's lateral axis, so a punch's hip turn no longer swings the lean
+  sideways: that turn had cost ~5 cm of cross reach), spine 5, hips back 0.125 = exactly the lean's carry of the
+  shoulders, feet back 0.11 so the hips stand over the feet, rear heel and weight deltas 0, feet long 0.015.
+- Measured: lean 11.4°, hips 3.7 %, knees 62 / 68°, shoulder joints +0.5 cm forward / 4.7 cm lower than the old
+  guard, head sphere 2.5 cm forward and 6.3 cm lower, hips and feet mid 12.5–13 cm behind the position.
+- AI finding: src/ai reads no hit shapes. Per fighting tick the Hard AI starts 7 % more punches at an idle man
+  (0.0203 → 0.0218); the +88 % was fight length (fewer early KOs: 18.7k → 28.8k fighting ticks). Press share rises
+  because circling fades with the AI's stamina in longer fights (src/ai/index.ts:271).
+- Still red: punch (one-tick push jab now lands at 1.10 m), flow (1-2-body3 third whiffs at 0.9 m), styles (12°
+  hook round the guards), skel (head jab +5 cm / hook +5 cm / body shots −5 to −7.5 cm band; hook elbow over the
+  shoulder; uppercut chain order; rear glove 8 cm off guard in the inside body jab). Cause: with shoulders fixed,
+  the lean puts the head lower and closer to the thrower's shoulder line (head shots reach further) and the hips —
+  the body capsule's lower end — 12.5 cm back (body shots reach less); the hook keys' chest-frame spots assume an
+  upright chest. Needs a reach / key retune pass, which the review ruled out of this one.
+
+## Gameplay, first pass (scripts/_debug.mjs game, 6 seeds, Hard = aiDifficulty 2)
 - Idle man vs Hard: lands 289 → 398 (+38 %), knockdowns 9 → 15. The Hard AI STARTS 380 → 713 punches (+88 %);
   its land rate per punch falls 76 % → 56 %. So the AI decides to throw far more at the new stance (src/ai reads
   something — likely the body capsule / head position — as "in range"); not owned here.

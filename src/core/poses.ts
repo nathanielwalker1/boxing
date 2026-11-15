@@ -84,7 +84,9 @@ function applyStance(cfg: Config, r: RPose, s: number): void {
   r.pelUp -= cfg.stanceKneeDrop * s;
   r.pelPitch += cfg.stancePelPitch * D;
   r.spFlex += cfg.stanceSpFlex * D;
-  r.pelFwd -= (cfg.stancePelBack + cfg.stanceShiftBack) * s;
+  // The hips go back by the lean's forward carry of the shoulders (stancePelBack), so the SHOULDER joints stay where the
+  // upright guard had them (punch reach unchanged); the feet follow the hips (stanceShiftBack) so he stands over them.
+  r.pelFwd -= cfg.stancePelBack * s;
   r.foot[0].stepF -= cfg.stanceShiftBack * s; r.foot[1].stepF -= cfg.stanceShiftBack * s;
   r.hdPitch += cfg.stanceChin * D;
   r.clElev[0] += cfg.stanceLeadShoulder * D;
@@ -228,7 +230,10 @@ export function applyKeyedTorso(def: SkelDef, pose: SkelPose, r: RPose, cfg: Con
   pose.root[3] = pose.root[3]! + r.pelFwd + wShift;
   pose.root[4] = pose.root[4]! + r.pelUp;
   pose.root[5] = pose.root[5]! + r.pelLat;
-  setPoseQ(pose, SKJ.pelvis, qNorm(qMul(poseQ(pose, SKJ.pelvis), qMul(qAxis(1, turned ? 0 : r.pelYaw), qMul(qAxis(2, -r.pelPitch), qAxis(0, r.pelRoll))))));
+  // (The pitch is about the ROOT's lateral axis, outside the turn: the stance's forward lean stays toward him while a punch
+  //  turns the hips under it. In the pelvis frame a cross's 55° turn swung 40 % of the lean sideways and took ~5 cm off
+  //  every punch's reach — measured, stanceV2. No punch key uses pelPitch; at 0 the order changes nothing.)
+  setPoseQ(pose, SKJ.pelvis, qNorm(qMul(qAxis(2, -r.pelPitch), qMul(poseQ(pose, SKJ.pelvis), qMul(qAxis(1, turned ? 0 : r.pelYaw), qAxis(0, r.pelRoll))))));
   // Bend shared by the spine shares; the TURN shared in proportion to each joint's rotation range, so no joint reaches
   // its stop before the others (25/35/40 put the lumbar, 8° range, on its stop through every cross — measured).
   const sh = def.spineShare, J = [SKJ.spine1, SKJ.spine2, SKJ.chest];
