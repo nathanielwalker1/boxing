@@ -9,7 +9,7 @@
  * `snap` multiplier still rides on top of every level, as in v1.
  */
 import type { Config, FighterState, PunchType, Vec3 } from '../core';
-import { clamp, frameOf, localToWorld, stepSpring1, stepSpring3, SIM_DT } from '../core';
+import { clamp, frameOf, lerp, localToWorld, stepSpring1, stepSpring3, SIM_DT } from '../core';
 import { PUNCHES } from './punches';
 import { neckMult, reactionSnap, setNeckMult, setReactionSnap } from './state';
 import { slipBack, slipHeadDip, slipLateral, slipShape } from './slip';
@@ -22,7 +22,7 @@ import { fitSimTorso, keyedFor } from './skel';
  * defender's frame, becomes a yaw whip of the head and shoulders — a hook
  * turns the head round, a straight barely does.
  */
-export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: number, cfg: Config, opt: { scale?: number; neck?: number; vary?: number; vary2?: number; part?: 'head' | 'body'; blockRaw?: number | undefined } = {}): void {
+export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: number, cfg: Config, opt: { scale?: number; neck?: number; vary?: number; vary2?: number; part?: 'head' | 'body'; blockRaw?: number | undefined; partial?: number } = {}): void {
   const def = PUNCHES[type];
   if (!def) return;
   // Polish phase: `scale` = the grade's own size on top of the impulse (glancing less, flush more); `neck` = how much
@@ -44,8 +44,12 @@ export function applyReaction(f: FighterState, type: PunchType, dir: Vec3, mag: 
     if (opt.blockRaw !== undefined) {
       // blockFeelV2: a BLOCKED punch rocks him behind his gloves — the same chain as a land, as a straight push along the
       // punch, sized from what arrived at the guard (the guard hands ride the head: gloves.ts keyHeadShift).
-      const size = clamp((opt.blockRaw - cfg.hitChainBlockFloor) / Math.max(1e-6, cfg.hitChainRefImpulse - cfg.hitChainBlockFloor), 0, cfg.hitChainBlockMax);
-      kickChain(f, 'cross', false, dir, size, cfg.hitChainBlockScale, cfg);
+      const u = cfg.guardReadV2 ? opt.partial ?? 0 : 0;
+      const floor = lerp(cfg.hitChainBlockFloor, cfg.hitChainFloorImpulse, u);
+      const size = clamp((opt.blockRaw - floor) / Math.max(1e-6, cfg.hitChainRefImpulse - floor), 0, cfg.hitChainBlockMax);
+      // guardReadV2: a partial punch is the PUNCH's own reaction (a hook turns the head, an uppercut lifts the chin) at the share that got through.
+      if (u > 0) kickChain(f, type, opt.part === 'body', dir, size, lerp(cfg.hitChainBlockScale, cfg.guardReadHead, u), cfg);
+      else kickChain(f, 'cross', false, dir, size, cfg.hitChainBlockScale, cfg);
     } else {
       const size = clamp((mag / (sc || 1) - cfg.hitChainFloorImpulse) / Math.max(1e-6, cfg.hitChainRefImpulse - cfg.hitChainFloorImpulse), 0, cfg.hitChainMaxScale);
       kickChain(f, type, opt.part === 'body', dir, size, sc * (opt.neck ?? 1) * (1 + va * 0.5), cfg);

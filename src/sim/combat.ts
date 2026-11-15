@@ -375,14 +375,21 @@ function missed(a: FighterState, cfg: Config, whiff: boolean, type: PunchType = 
   }
 }
 
+/** guardReadV2: how much of a punch beat the guard, 0 (clean block, cover at guardReadFullAt or over) to 1 (cover at guardThroughAt: it is a land). */
+export function partialShare(cover: number, cfg: Config): number {
+  if (!cfg.guardReadV2 || !cfg.blockFeelV2 || !cfg.guardHolesV2) return 0;
+  return clamp((cfg.guardReadFullAt - cover) / Math.max(1e-6, cfg.guardReadFullAt - cfg.guardThroughAt), 0, 1);
+}
+
 /**
  * blockFeelV2: what the BODIES do on a block. The glove that met the fist is driven back toward its own head (by the
  * blocked power, capped; part an instant shove, part a starting speed) and springs home by the ordinary glove spring;
  * it is never left inside his own head. The thrower's fist is already stopped on the glove by the contacts — it
  * skips part of its hold there, so it bounces back along its path sooner than a land's follow-through.
  */
-function blockFeel(a: FighterState, d: FighterState, at: Vec3, dirX: number, dirZ: number, rawPower: number, cfg: Config): void {
-  const dist = Math.min(cfg.blockFeelGloveMax, cfg.blockFeelGlove * rawPower);
+function blockFeel(a: FighterState, d: FighterState, at: Vec3, dirX: number, dirZ: number, rawPower: number, cfg: Config, partial = 0): void {
+  // guardReadV2: a partial punch drives the glove back harder (past the usual cap) and throws it aside, out of the fist's way.
+  const dist = Math.min(cfg.blockFeelGloveMax * (1 + cfg.guardReadGloveKick * partial), cfg.blockFeelGlove * rawPower * (1 + cfg.guardReadGloveKick * partial));
   const t0 = touchedBlock(d, 0), t1 = touchedBlock(d, 1);
   const near = (i: number): number => { const p = d.gloves[i]!.pos; return Math.hypot(p.x - at.x, p.y - at.y, p.z - at.z); };
   const which = t0 && !t1 ? [0] : t1 && !t0 ? [1] : t0 && t1 ? [0, 1] : [near(0) <= near(1) ? 0 : 1];
@@ -392,6 +399,12 @@ function blockFeel(a: FighterState, d: FighterState, at: Vec3, dirX: number, dir
     const shove = dist * (1 - cfg.blockFeelGloveVel);
     g.pos.x += dirX * shove; g.pos.z += dirZ * shove;
     g.vel.x += dirX * dist * cfg.blockFeelGloveVel * Math.sqrt(cfg.chainK); g.vel.z += dirZ * dist * cfg.blockFeelGloveVel * Math.sqrt(cfg.chainK);
+    if (partial > 0 && cfg.guardReadGloveSide > 0) {
+      // Aside: across the punch line, away from the side of his head this glove is on (the hook's glove is swept off the cheek).
+      const side = (g.pos.x - hb.x) * -dirZ + (g.pos.z - hb.z) * dirX >= 0 ? 1 : -1, sx = -dirZ * side, sz = dirX * side, k = cfg.guardReadGloveSide * partial;
+      g.pos.x += sx * k * (1 - cfg.blockFeelGloveVel); g.pos.z += sz * k * (1 - cfg.blockFeelGloveVel);
+      g.vel.x += sx * k * cfg.blockFeelGloveVel * Math.sqrt(cfg.chainK); g.vel.z += sz * k * cfg.blockFeelGloveVel * Math.sqrt(cfg.chainK);
+    }
     // Never inside his own head: pushed back out along the line from its centre.
     const rx = g.pos.x - hb.x, ry = g.pos.y - hb.y, rz = g.pos.z - hb.z, rl = Math.hypot(rx, ry, rz);
     if (rl < minDist && rl > 1e-9) { const k = minDist / rl; g.pos.x = hb.x + rx * k; g.pos.y = hb.y + ry * k; g.pos.z = hb.z + rz * k; }
@@ -794,6 +807,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
       * (cfg.counterFeelV2 && counter && !blocked ? cfg.counterReactionOver : 1),   // counterFeelV2: the head travels further on a counter
     vary: blocked ? 0 : vary * cfg.reactionVary, vary2: blocked ? 0 : seededUnit(s.seed, s.tick, side + 7) * cfg.reactionVary,
     part,   // hitChainV2: a body shot folds the torso instead of snapping the head
+    partial: blocked && !perfect ? partialShare(cover, cfg) : 0,   // guardReadV2: how much of it beat the guard
     blockRaw: blocked && !perfect && cfg.guardHolesV2 && cfg.blockFeelV2 ? raw : undefined,   // hitChainV2 + blockFeelV2: the block's rock goes down the chain
   });
   if (cfg.guardHolesV2 && d.block && guarded) {
@@ -813,7 +827,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
       a.stagger.z -= dirZ * cfg.guardHolesTimedStagger * cfg.staggerDecay;
       setWhiffMult(a, Math.max(whiffMult(a), cfg.guardHolesTimedHang));
     }
-    if (blocked && !perfect && cfg.blockFeelV2) blockFeel(a, d, at, dirX, dirZ, rawPower, cfg);
+    if (blocked && !perfect && cfg.blockFeelV2) blockFeel(a, d, at, dirX, dirZ, rawPower, cfg, partialShare(cover, cfg));
   }
   if (perfect) {
     applyPunish(a, cfg.perfectBlockPunishVuln, cfg.perfectBlockPunishDuration, PUNISH_BLOCK);

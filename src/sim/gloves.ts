@@ -11,9 +11,10 @@
 import type { Config, FighterState, GloveState, Hand, Side, Vec3 } from '../core';
 import { GUARDS, TAU, clamp, closestOnSegment, closestSegSeg, frameOf, handLateralSign, lerp, localToWorld, sin, sqrt, worldToLocal } from '../core';
 import { clinchAmount } from './clinch';
+import { guardCover, partialShare } from './combat';
 import { PUNCHES, blockLocal, guardLocal, punchEnvelope, punchLocal, whiffPhases, type LocalPose } from './punches';
 import { slipBack, slipLateral } from './slip';
-import { reachNerf, setTargetCut, setTouchedBlock } from './state';
+import { guardPress, reachNerf, setTargetCut, setTouchedBlock } from './state';
 import { stepArms } from './arms';
 import { hurtLevel } from './stun';
 import { VARIANTS } from './variants';
@@ -75,13 +76,25 @@ function targetLocal(f: FighterState, hand: Hand, cfg: Config, other: FighterSta
     const g0 = guardLocal(f.body, hand, f.stance, shape), c = clinchLocal(f, hand, cfg, other);
     return { pose: { fwd: lerp(g0.fwd, c.fwd, tie), up: lerp(g0.up, c.up, tie), lat: lerp(g0.lat, c.lat, tie) }, kMul: 1, contact: null, guard: false };
   }
-  if (f.block) return { pose: blockLocal(f.body, hand, f.stance, shape), kMul: 1, contact: null, guard: true };
+  if (f.block) {
+    const b = blockLocal(f.body, hand, f.stance, shape), w = wornShare(f, cfg);
+    return { pose: w > 0 ? { fwd: b.fwd + cfg.guardReadWornBack * w, up: b.up - cfg.guardReadWornDrop * w, lat: b.lat + Math.sign(b.lat) * cfg.guardReadWornWide * w } : b, kMul: 1, contact: null, guard: true };
+  }
   const g = guardLocal(f.body, hand, f.stance, shape);
   // Rocked: the resting guard sags by stunGuardDrop × how rocked (sim/stun.ts) — the chin is open.
   // Overhaul: it also hangs by guardDroop (fatigue, body wear, winded) and, through a guard break, is knocked down and apart.
   const broken = f.guardBroken > 0 ? cfg.guardBreakDrop : 0;
   const sag = guardSag(f, cfg);
   return { pose: sag > 0 ? { fwd: g.fwd, up: g.up - sag, lat: g.lat + Math.sign(g.lat) * broken * 0.5 } : g, kMul: 1, contact: null, guard: true };
+}
+
+/**
+ * guardReadV2: how worn the held guard is, 0..1 — the share of its cover the blocks lately have taken (the same press count
+ * guardCover wears by, which recovers over guardHolesRecover). The gloves sit lower, wider and off the face by this much.
+ */
+function wornShare(f: FighterState, cfg: Config): number {
+  if (!cfg.guardReadV2 || !cfg.blockFeelV2 || !cfg.guardHolesV2) return 0;
+  return clamp(cfg.guardHolesWearPerBlock * guardPress(f) / Math.max(1e-6, 1 - cfg.guardHolesCoverFloor), 0, 1);
 }
 
 /** How far the resting guard hangs: rocked, droop (fatigue, wear, winded), a broken guard. */
@@ -314,7 +327,9 @@ function catchOffset(f: FighterState, other: FighterState, i: number, t: Vec3, c
   void rec;
   const len = Math.hypot(mine.x, mine.y, mine.z);
   if (w <= 0 || len < 1e-6) return t;
-  const s = Math.min(1, cfg.blockFeelCatchMax / len) * w;
+  let s = Math.min(1, cfg.blockFeelCatchMax / len) * w;
+  // guardReadV2: a punch that meets only part of the guard finds the glove late and short — the fist is seen going past it.
+  if (cfg.guardReadV2) s *= 1 - cfg.guardReadCatchMiss * partialShare(guardCover(f, p.type, VARIANTS[p.variant]?.body ? 'body' : 'head', fwd.x, fwd.z, cfg), cfg);
   return { x: t.x + mine.x * s, y: t.y + mine.y * s, z: t.z + mine.z * s };
 }
 

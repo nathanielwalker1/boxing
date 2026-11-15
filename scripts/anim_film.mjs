@@ -54,6 +54,13 @@ SCENARIOS.block = { dist: 0.79, s0: hold([], 'block', 0, 60), s1: at({ 12: { cro
 // blockFeelV2: side 1 (blue, face to camera) holds a high guard and takes the shot; side 0 throws it.
 SCENARIOS.block_cross = { dist: 0.8, s0: at({ 12: { cross: true } }), s1: hold([], 'block', 0, 60), from: 10, to: 40, step: 2 };
 SCENARIOS.block_hook = { dist: 0.8, s0: at({ 12: { hook: true, move: { x: 1, y: 0 } } }), s1: hold([], 'block', 0, 60), from: 10, to: 44, step: 2 };
+// guardReadV2: side 1 holds the guard, side 0 throws (jab, head hook, 1-2-1-2 on a wearing guard, uppercut, body hook).
+const GB = hold([], 'block', 0, 90);
+SCENARIOS.gr_jab = { dist: 0.8, s0: at({ 12: { jab: true } }), s1: GB, from: 10, to: 30, step: 2 };
+SCENARIOS.gr_hook = { dist: 0.8, s0: at({ 12: { hook: true, move: { x: 1, y: 0 } } }), s1: GB, from: 10, to: 44, step: 2 };
+SCENARIOS.gr_combo = { dist: 0.8, s0: at({ 12: { jab: true }, 24: { cross: true }, 38: { jab: true }, 50: { cross: true } }), s1: GB, from: 34, to: 72, step: 2 };
+SCENARIOS.gr_upper = { dist: 0.65, s0: at({ 12: { uppercut: true, move: { x: 1, y: 0 } } }), s1: GB, from: 10, to: 46, step: 2 };
+SCENARIOS.gr_body = { dist: 0.7, s0: hold(at({ 12: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 40), s1: GB, from: 18, to: 56, step: 3 };
 // Footwork: the stick held sideways about a second (60 ticks), and a step in then out.
 SCENARIOS.footwork_lateral = { dist: 1.2, s0: stick(1, 0, 2, 62), s1: [], from: 0, to: 84, step: 6 };
 SCENARIOS.footwork_in_out = { dist: 1.5, s0: [...stick(0, 0, 0, 1), ...stick(0, 1, 2, 24), ...stick(0, 0, 25, 29), ...stick(0, -1, 30, 52)], s1: [], from: 0, to: 80, step: 5 };
