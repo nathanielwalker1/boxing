@@ -11,11 +11,12 @@ import { check, done } from './check.js';
 
 const [core, sim, st] = await load('/src/core/index.ts', '/src/sim/index.ts', '/src/sim/state.ts');
 const { createConfig, ROSTER, NULL_INPUT, cloneInput, JOINT_COUNT, skelDef, skelLimits, fk, poseQ, withinLimits } = core;
-const base = { ...createConfig(), ratingsOn: false, stylesOn: false, jabHealthFloor: 0, healthDamagePerImpulse: 0.006, kdElbowAt: 0.05, kdKneeAt: 0.2 };
+const base = { ...createConfig(), ratingsOn: false, stylesOn: false, jabHealthFloor: 0, healthDamagePerImpulse: 0.006 };
 const specs = [ROSTER[0], ROSTER[1]];
 const inp = (o = {}) => ({ ...cloneInput(NULL_INPUT), ...o });
 const TICKS = 700;
 const DEG = Math.PI / 180;
+const LIMB = 0.5;   // an arm's radius as a share of the torso capsule radius (body.ts bodyR): the limb is thinner than the trunk
 
 const CASES = [
   { name: 'cross', punch: 'cross', x: 0, dist: 0.79, kind: 1 },
@@ -47,7 +48,7 @@ function run(c, cs) {
       rows.push({ i, py: f.p[0].y, p: f.p.map(q => ({ ...q })), turn, down: d.down });
     }
   }
-  return { evs, rows, downAt, limitsOk, floorMin, kind, riseAt, upAt };
+  return { evs, rows, downAt, limitsOk, floorMin, kind, riseAt, upAt, body: d0.body };
 }
 
 for (const cs of CASES) {
@@ -62,6 +63,13 @@ for (const cs of CASES) {
   const end = rows[Math.min(rows.length - 1, 59)];
   check(`${cs.name}: pelvis lands low (${(end.py * 100).toFixed(0)} cm)`, end.py < (cs.kind === 3 ? 0.55 : 0.2));
   check(`${cs.name}: no joint under the canvas (min ${(on.floorMin * 100).toFixed(1)} cm)`, on.floorMin >= -0.005);
+  // At rest no arm joint is under the canvas: hands at the glove radius, elbows and shoulders at the limb radius (bodyR * kdLimbShare).
+  {
+    const bd = on.body, rr = rows[59], A = [[7, 'shoulder', bd.bodyR * LIMB], [8, 'elbow', bd.bodyR * LIMB], [9, 'hand', bd.gloveR], [11, 'shoulder', bd.bodyR * LIMB], [12, 'elbow', bd.bodyR * LIMB], [13, 'hand', bd.gloveR]];
+    let worstGap = 9, wn = '';
+    for (const [j, n, r] of A) { const g = rr.p[j].y - r; if (g < worstGap) { worstGap = g; wn = `${n} ${j} at ${(rr.p[j].y * 100).toFixed(1)} cm, needs ${(r * 100).toFixed(1)}`; } }
+    check(`${cs.name}: at rest no arm joint is under the canvas (lowest: ${wn})`, worstGap >= -0.003);
+  }
   check(`${cs.name}: every joint inside its limits every tick`, on.limitsOk);
   const a = rows[59], b = rows[60];
   let sp = 0;

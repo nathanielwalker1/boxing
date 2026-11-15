@@ -353,13 +353,15 @@ function fitFall(f: FighterState, cfg: Config, def: ReturnType<typeof skelDef>, 
   const chest = vAdd(pel, axis(th), torsoLen);
   const thH = th * 1.04;
   const head = vAdd(chest, axis(thH), neckLen);
+  // The hook fall lands on his side but rolled kdSideRoll degrees toward his back, so the lower shoulder and arm are not under the canvas.
+  const rollUp = kind === 2 ? Math.sin(cfg.kdSideRoll * DEG2) * v : 0, faceXh = v3(fwd.x * (1 - rollUp), rollUp, fwd.z * (1 - rollUp));
   fitTorso(def, lim, cfg, pose, {
     rootX: f.pos.x, rootZ: f.pos.z, yaw: f.yaw,
-    pelvis: pel, pelvisRot: bodyBasis(axis(thP), fwd), chest, chestRot: bodyBasis(axis(th), fwd), chestTwist: 0,
-    head, headRot: bodyBasis(axis(thH), fwd),
+    pelvis: pel, pelvisRot: bodyBasis(axis(thP), faceXh), chest, chestRot: bodyBasis(axis(th), faceXh), chestTwist: 0,
+    head, headRot: bodyBasis(axis(thH), faceXh),
   });
   // Legs: planted at the stance until the knees have folded, then the feet slide out to lie (straight along the fall line behind him, or behind the knees).
-  const lead = handLateralSign('lead', f.stance), legLen = (def.thigh + def.shin) * 0.95;
+  const lead = handLateralSign('lead', f.stance), legLen = (def.thigh + def.shin) * (kind === 2 ? cfg.kdSideLegLie : 0.95);
   const wl = smoothstep(clamp01((u - (kind === 3 ? 0.2 : 0.4)) / (kind === 3 ? 0.6 : 0.6)));
   const rest = pose.root;   // (root kept by fitTorso)
   void rest;
