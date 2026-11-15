@@ -402,8 +402,8 @@ function blockFeel(a: FighterState, d: FighterState, at: Vec3, dirX: number, dir
     if (partial > 0 && cfg.guardReadGloveSide > 0) {
       // Aside: across the punch line, away from the side of his head this glove is on (the hook's glove is swept off the cheek).
       const side = (g.pos.x - hb.x) * -dirZ + (g.pos.z - hb.z) * dirX >= 0 ? 1 : -1, sx = -dirZ * side, sz = dirX * side, k = cfg.guardReadGloveSide * partial;
-      g.pos.x += sx * k * (1 - cfg.blockFeelGloveVel); g.pos.z += sz * k * (1 - cfg.blockFeelGloveVel);
-      g.vel.x += sx * k * cfg.blockFeelGloveVel * Math.sqrt(cfg.chainK); g.vel.z += sz * k * cfg.blockFeelGloveVel * Math.sqrt(cfg.chainK);
+      // (All as a starting speed, no instant shove: the glove is seen thrown aside after the fist has met it, not teleported.)
+      g.vel.x += sx * k * Math.sqrt(cfg.chainK); g.vel.z += sz * k * Math.sqrt(cfg.chainK);
     }
     // Never inside his own head: pushed back out along the line from its centre.
     const rx = g.pos.x - hb.x, ry = g.pos.y - hb.y, rz = g.pos.z - hb.z, rl = Math.hypot(rx, ry, rz);

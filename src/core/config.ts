@@ -712,7 +712,7 @@ export const SCHEMA = {
   guardReadGloveKick: num(1.2, 0, 4, 0.05, 'block feel', 'guardReadV2: extra knock on the blocking glove for a fully partial punch, as a multiple of blockFeelGlove\'s knock (the glove is driven back harder AND aside, into his own face for a hook)'),
   guardReadGloveSide: num(0.09, 0, 0.25, 0.005, 'block feel', 'guardReadV2: metres the blocking glove is thrown ACROSS the punch line (away from the side the punch came round) for a fully partial punch'),
   guardReadHead:    num(0.75, 0, 1.5, 0.01, 'block feel', 'guardReadV2: share of a flush chain reaction (hitChainBlockScale replaced by this) the head and torso get for a fully partial punch; a clean block keeps hitChainBlockScale'),
-  guardReadCatchMiss: num(0.55, 0, 1, 0.01, 'block feel', 'guardReadV2: how much of the guard glove\'s move onto the fist\'s line is lost for a fully partial punch (it arrives late and short, so the fist is seen going past the glove)'),
+  guardReadCatchMiss: num(0.25, 0, 1, 0.01, 'block feel', 'guardReadV2: how much of the guard glove\'s move onto the fist\'s line is lost for a fully partial punch (it arrives late and short, so the fist is seen going past the glove)'),
   guardReadWornDrop: num(0.07, 0, 0.2, 0.005, 'block feel', 'guardReadV2: metres the guard gloves sit lower at full wear (wear = how much cover the blocks so far have taken: guardHolesWearPerBlock x blocks lately)'),
   guardReadWornWide: num(0.06, 0, 0.2, 0.005, 'block feel', 'guardReadV2: metres the guard gloves sit wider apart (each glove outward) at full wear'),
   guardReadWornBack: num(0.04, 0, 0.2, 0.005, 'block feel', 'guardReadV2: metres the guard gloves drift off the face (forward, so the gap shows) at full wear'),
