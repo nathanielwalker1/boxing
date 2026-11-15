@@ -61,6 +61,11 @@ SCENARIOS.footwork_in_out = { dist: 1.5, s0: [...stick(0, 0, 0, 1), ...stick(0, 
 SCENARIOS.idle = { dist: 1.0, s0: [], s1: [], from: 0, to: 60, step: 5 };
 SCENARIOS.idle_off = { ...SCENARIOS.idle, cfg: { stanceV2: false } };
 SCENARIOS.footwork_in_out_off = { ...SCENARIOS.footwork_in_out, cfg: { stanceV2: false } };
+// rhythmV2 (rig/rhythm.ts): 3 s of two men standing at fighting distance, and a walk in then back; *_off is rhythmV2 off.
+SCENARIOS.rhythm_idle = { dist: 0.85, s0: [], s1: [], from: 0, to: 180, step: 6 };
+SCENARIOS.rhythm_idle_off = { ...SCENARIOS.rhythm_idle, cfg: { rhythmV2: false } };
+SCENARIOS.rhythm_walk = { dist: 1.3, s0: [...stick(0, 0, 0, 1), ...stick(0, 1, 2, 40), ...stick(0, 0, 41, 60), ...stick(0, -1, 61, 100)], s1: [], from: 0, to: 120, step: 6 };
+SCENARIOS.rhythm_walk_off = { ...SCENARIOS.rhythm_walk, cfg: { rhythmV2: false } };
 // One cross that floors him (damage per impulse turned up for the strip: the one existing mechanism, no hook forces a knockdown), the fall, the get-up.
 SCENARIOS.knockdown = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: { healthDamagePerImpulse: 0.006, camLookY: 0.75, camDistMin: 3.3 }, from: 12, to: 204, step: 8 };
 // knockdownV2 falls by what dropped him (fall only: 12 to 100, every 4 ticks).
@@ -75,7 +80,7 @@ SCENARIOS.kd_upper ={ dist: 0.65, s0: at({ 2: { uppercut: true, move: { x: 1, y:
 const SIDE = { camFollow: 0, camAzimuthDeg: 90, camElevationDeg: 12, camDistMin: 2.6, camLookY: 1.05 };
 
 const args = process.argv.slice(2);
-const noSide = args.includes('--noside');
+const noSide = args.includes('--noside'), sideOnly = args.includes('--sideonly');
 const plain = args.filter(a => !a.startsWith('--'));
 const outDir = resolve(plain[0] ?? 'docs/anim/baseline');
 const names = plain.slice(1);
@@ -145,7 +150,7 @@ async function sheet(files, labels, path) {
 
 for (const name of run) {
   const sc = SCENARIOS[name];
-  for (const [suffix, cam] of noSide ? [['', null]] : [['', null], ['_side', SIDE]]) {
+  for (const [suffix, cam] of noSide ? [['', null]] : sideOnly ? [['_side', SIDE]] : [['', null], ['_side', SIDE]]) {
     const file = name + suffix;
     const { files, ticks } = await shoot(file, sc, cam);
     await sheet(files, ticks.map(t => `${file} t=${t}`), `${outDir}/${file}.png`);
