@@ -226,12 +226,15 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
   // OUTBOXER — long guard, long jab, always leaving. Probes from outside his opponent's reach, circles away from
   // the power hand, resets after every exchange, shoves and ties up when crowded. Beaten by cutting the ring off.
   outboxer: {
-    standoff: 0.98, probeDist: 1.08, resetDist: 1.45, engageStraight: 1.0, stepIn: 1,
+    // (2026-11-15, Nate: "Okafor barely throws a punch", "hard to connect". MEASURED: he probed at 1.08, OUTSIDE his own
+    // engage distance of 1.0, so against a man who stood still he was out of range 89% of the time and threw 23 a
+    // minute; 61% of a fight sat past 1.0 m, beyond the human jab's clean edge (0.98). Was 0.98 / 1.08 / 1.45.)
+    standoff: 0.88, probeDist: 0.96, resetDist: 1.25, engageStraight: 1.0, stepIn: 1,
     pressWeight: 0.5, probeWeight: 6, circleWeight: 5, holdWeight: 0.5, circleSpeed: 0.85, speed: 0.95,
     jabWeight: 8, crossWeight: 2.5, hookWeight: 0.6, uppercutWeight: 0, bodyRate: 0.15,
     attackDelayMin: 0.35, attackDelayMax: 0.9, comboChance: 0.5, comboMax: 2,
     combos: [[J, J], [J, X], [J, bJ], [J, J, X]], comboSignature: 0.8,
-    resetChance: 0.75, hitResetChance: 0.8, burstChance: 0.65, feintChance: 0.15,
+    resetChance: 0.5, hitResetChance: 0.8, burstChance: 0.65, feintChance: 0.15,   // resetChance was 0.75: 43% of a fight in reset mode
     blockChance: 0.4, slipShare: 0.4, rollShare: 0.1, counterChance: 0.6,
     giveGroundChance: 0.85, giveGround: 0.4, chaseDelay: 0.8,
     cutOff: 0, leadPursuit: 0, ringUse: 'circleAway', pushOffRate: 2.5, ropePivotRate: 3,

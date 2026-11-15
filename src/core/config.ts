@@ -825,7 +825,7 @@ export const SCHEMA = {
   aiHumanHoldMed:   num(0.3, 0.05, 2, 0.05, 'ai', 'aiHumanV2, medium: seconds the reactive guard stays up once raised (aiBlockWindow is 0.45 and applies to hard)'),
   aiHumanHoldEasy:  num(0.25, 0.05, 2, 0.05, 'ai', 'aiHumanV2, easy: the same'),
   aiHumanTempoMed:  num(3, 0.5, 8, 0.05, 'ai', 'aiHumanV2, medium: x the gaps between its attacks, on top of the difficulty tempo (holds its punches per minute near a human pace)'),
-  aiHumanTempoEasy: num(5, 0.5, 8, 0.05, 'ai', 'aiHumanV2, easy: the same'),
+  aiHumanTempoEasy: num(3.5, 0.5, 8, 0.05, 'ai', 'aiHumanV2, easy: the same (was 5: with the difficulty tempo of 1.8 on top the outboxer waited 3 to 8 s between attacks and threw 28 a minute; Nate 2026-11-15, "barely throws a punch")'),
   aiHumanCounterMed: num(0.5, 0, 1.5, 0.05, 'ai', 'aiHumanV2, medium: x its counter chance (holds the counter rate near 12-18% of punches that hit it)'),
   aiHumanCounterEasy: num(0.5, 0, 1.5, 0.05, 'ai', 'aiHumanV2, easy: the same'),
   aiHumanReplyMed:  num(0.4, 0, 1.5, 0.05, 'ai', 'aiHumanV2, medium: x the replies it gives off its clock (the fire-back after its own block, the stiff jab at a man walking in). With guardHolesV2 a block rocks the thrower and these replies land, which read as 35% counters'),
