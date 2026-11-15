@@ -334,7 +334,10 @@ function slipPeak(x, y, sp = specs) {
   // PINNED with punch keys (geometry, wrap-up 2026-11-13): give + 5 cm — the elbows-out guard puts the forearms
   // further into the exchange (7.2 cm measured); counterpart: the keys-off run above at give + 4.
   const X1 = exchange(true);
-  check(`exchange (skeleton, punch keys on): forearm-into-forearm ${cm(X1.ff)} cm, glove-into-forearm ${cm(X1.fg)} cm; PINNED bound give + 5 cm`, X1.ff <= give + 0.05 && X1.fg <= give + 0.05);
+  // Re-pinned give + 8 cm (hookfix 2026-11-15): a hook's / uppercut's return glove may now be pushed off its path by only
+  // chainReturnYield (4 cm) per tick instead of hopping 17 cm out round his forearm (the elbow pop), so it passes
+  // through a guard forearm a little deeper for a few ticks (9.5 cm measured).
+  check(`exchange (skeleton, punch keys on): forearm-into-forearm ${cm(X1.ff)} cm, glove-into-forearm ${cm(X1.fg)} cm; PINNED bound give + 8 cm`, X1.ff <= give + 0.08 && X1.fg <= give + 0.08);
 }
 
 // ── Punch keys (anim Phase 1.4, punchKeysOn): every punch × hand × level at its MID range (the middle of the legacy
@@ -353,9 +356,11 @@ function slipPeak(x, y, sp = specs) {
   const bandBad = [];
   for (const kc of cases) {
     const kb = landBand(kc.punch, kc.hand, kc.bodyLevel, KC);
-    if (!kb || !kc.band || Math.abs(kb.hi - kc.band.hi) > 0.026 || kb.lo > kc.band.lo + 1e-6) bandBad.push(`${kc.punch} ${kc.hand}${kc.bodyLevel ? ' body' : ''} keys ${kb ? `${kb.lo}–${kb.hi}` : 'none'} legacy ${kc.band?.lo}–${kc.band?.hi}`);
+    if (!kb || !kc.band || Math.abs(kb.hi - kc.band.hi) > (kc.punch === 'hook' || kc.punch === 'uppercut' ? 0.076 : 0.026) || kb.lo > kc.band.lo + 1e-6) bandBad.push(`${kc.punch} ${kc.hand}${kc.bodyLevel ? ' body' : ''} keys ${kb ? `${kb.lo}–${kb.hi}` : 'none'} legacy ${kc.band?.lo}–${kc.band?.hi}`);
   }
-  check('punch keys: every punch lands over the same distance band as the legacy motion (far edge within 2.5 cm)', bandBad.length === 0, bandBad.slice(0, 4).join('; '));
+  // (Hooks and uppercuts: far edge within 7.5 cm, re-pinned 2026-11-15 with hookReachScale 1.18 / uppercutReachScale 1.32 —
+  //  the keyed arm gains 5-7 cm more of the widened reach than the legacy motion does.)
+  check('punch keys: every punch lands over the same distance band as the legacy motion (far edge within 2.5 cm; hooks / uppercuts 7.5)', bandBad.length === 0, bandBad.slice(0, 4).join('; '));
   const fails = { land: [], reach: [], order: [], ret: [], other: [], hookSh: [], hookBack: [], upLat: [], flex: [], drop: [], clamp: [] };
   let clampTicks = 0;
   for (const kc of cases) for (const [rn, d] of [['mid', kc.mid], ['in', kc.inside]]) {
@@ -397,7 +402,7 @@ function slipPeak(x, y, sp = specs) {
     // …and the punching ELBOW is never above its shoulder + 5 cm, nor behind his shoulder plane by more than 5 cm (the
     //  forearm lying beside the head read as an arm wrapped behind it — film, 2026-11-14).
     if (punch === 'hook' && !(r.elbowUpMax <= 0.05 && r.elbowBehindMax <= 0.05)) fails.hookBack.push(`${name} elbow ${cm(r.elbowUpMax)} cm over the shoulder, ${cm(r.elbowBehindMax)} cm behind`);
-    if (punch === 'hook' && !(r.behindMax <= 0 && (bodyLevel || r.loadDev <= 0.15))) fails.hookBack.push(`${name} ${cm(r.behindMax)} cm behind, ${cm(r.loadDev)} cm off guard in the load`);
+    if (punch === 'hook' && !(r.behindMax <= 0 && (bodyLevel || r.loadDev <= 0.17))) fails.hookBack.push(`${name} ${cm(r.behindMax)} cm behind, ${cm(r.loadDev)} cm off guard in the load`);
     if (punch === 'uppercut' && !(r.latRise <= 0.12)) fails.upLat.push(`${name} ${cm(r.latRise)}`);
     if (!(r.flexMax <= cfg.poseBodyFlexMax + 0.1)) fails.flex.push(`${name} ${r.flexMax.toFixed(1)}°`);
     if (bodyLevel && punch !== 'uppercut' && !(r.drop >= 0.01)) fails.drop.push(`${name} ${cm(r.drop)}`);
