@@ -583,7 +583,7 @@ export const SCHEMA = {
   staminaPunchCost: num(0.04, 0, 0.2, 0.005, 'health', 'stamina spent per punch thrown, lands or not (v1: 4/100)', 'staminaDrainPerPunch'),
   staminaBlockDrain: num(0.08, 0, 0.5, 0.01, 'health', 'stamina drained per second the block is held — a full bar buys 12.5 s of guard. v1 was 2/100 per s, which made turtling free (Nate 2026-09-11: "you can\'t perpetually block")', 'staminaDrainPerSecondBlocking'),
   staminaRegen:     num(0.35, 0, 1, 0.01, 'health', 'stamina regained per second while neither punching nor blocking — an empty bar refills in ~3 s (v1: 20/100; raised from 0.2, Nate 2026-09-11)', 'staminaRegenPerSecond'),
-  staminaHitCost:   num(0.00015, 0, 0.002, 0.00001, 'health', 'stamina lost per N·s taken (after block reduction): eating a solid cross costs about what throwing one does (v1: 0.012 per force). Was 0.00026 until phase 3: MEASURED, a man under an inside fighter went from 0.76 to an empty tank in 5 s and never got it back (no regen under fire) — no guard, no punches, three knockdowns in 26 s; at 0.00015 the same fight goes the distance', 'staminaDrainPerHitForce'),
+  staminaHitCost:   num(0.00015, 0, 0.002, 0.00001, 'health', 'stamina lost per N·s taken (after block reduction; NOT touched by the 2026-11-15 relief tune: stamina_test pins a blocked cross at 1.2% and a landed uppercut above a blocked one): eating a solid cross costs about what throwing one does (v1: 0.012 per force). Was 0.00026 until phase 3: MEASURED, a man under an inside fighter went from 0.76 to an empty tank in 5 s and never got it back (no regen under fire) — no guard, no punches, three knockdowns in 26 s; at 0.00015 the same fight goes the distance', 'staminaDrainPerHitForce'),
   staminaBlockedHitMult: num(1, 0, 3, 0.1, 'health', 'multiplier on that hit cost when the shot lands on the guard, on top of blockReduction having already cut the impulse', 'staminaDrainBlockedMult'),
   staminaRegenDelay: num(0.6, 0, 3, 0.05, 'health', 'seconds regen pauses after taking a hit, so a chip is not repaid before the next punch lands', 'staminaRegenDelayAfterHit'),
   staminaRegenDelayLight: num(0.25, 0, 1, 0.05, 'health', 'the share of staminaRegenDelay a LIGHT shot (a jab) pauses the wind for. 1 = the same as any punch (before phase 2): a man jabbing twice a second then holds the other\'s wind at zero'),
@@ -1050,9 +1050,9 @@ export const SCHEMA = {
   jabHealthFloor:   num(0.05, 0, 0.5, 0.01, 'fatigue', 'a JAB cannot take the health bar under this: it never puts a man down by itself (it cannot rock or finish either). MEASURED without it: the jab-and-move bot scored 4.6 knockdowns a fight with nothing but the jab. 0 = a jab can empty the bar'),
   tiredGuardDroop:  num(0.07, 0, 0.3, 0.01, 'fatigue', 'how far a fully fatigued fighter\'s resting hands hang, m'),
   whiffCostOn:      bool(true, 'fatigue', 'MISSING COSTS MORE THAN LANDING: a miss takes extra stamina and wears the stamina ceiling; a clean land gives some of the punch\'s cost back'),
-  staminaWhiffCost: num(0.05, 0, 0.2, 0.005, 'fatigue', 'extra stamina a missed punch costs (on top of staminaPunchCost)'),
+  staminaWhiffCost: num(0.035, 0, 0.2, 0.005, 'fatigue', 'extra stamina a missed punch costs (on top of staminaPunchCost). Relief tune 2026-11-15: was 0.05'),
   staminaLandRefund: num(0.015, 0, 0.1, 0.005, 'fatigue', 'stamina a clean or flush land gives back'),
-  whiffCapLoss:     num(0.006, 0, 0.05, 0.001, 'fatigue', 'stamina ceiling lost per missed punch (FighterState.staminaCap) — the round has an arc'),
+  whiffCapLoss:     num(0.004, 0, 0.05, 0.001, 'fatigue', 'stamina ceiling lost per missed punch (FighterState.staminaCap) — the round has an arc. Relief tune 2026-11-15: was 0.006'),
   wearRestore:      num(0.5, 0, 1, 0.05, 'fatigue', 'fraction of that work-rate wear that comes back on the stool between rounds (body wear never does)'),
   staminaCapFloor:  num(0.45, 0.1, 1, 0.05, 'fatigue', 'the stamina ceiling never falls below this'),
 
@@ -1529,7 +1529,7 @@ export const SCHEMA = {
 
   // ── polish: stamina (SIM, combat.ts + resources.ts) — polish phase 2026-11-11, item 6: "drains a bit too much, and blocking shouldn't drain it so bad". MEASURED (scripts/stamina_probe.mjs): wind only came back while a fighter was neither punching, nor holding the guard, nor just hit — at a human's bursts-and-rests it never dropped under 66%, but a man who keeps his guard up between punches (70% of the time) averaged 24% and was gassed 59% of the fight; holding the guard cost 8% a second and stopped all regeneration; every punch cost the same, a jab as much as an uppercut ──
   staminaPolishOn:     bool(true, 'polish: stamina', 'the polish-phase stamina rules: the guard is nearly free to hold and wind comes back behind it, light shots on the guard cost next to nothing and heavy ones something, a punch costs by its weight, a miss costs by its weight too. Off = the costs as they were (every key below ignored)'),
-  staminaThrowScale:   num(0.8, 0.2, 1.5, 0.05, 'polish: stamina', 'every punch thrown costs staminaPunchCost × this × its own weight below (0.8 × 4% = 3.2% for a cross)'),
+  staminaThrowScale:   num(0.6, 0.2, 1.5, 0.05, 'polish: stamina', 'every punch thrown costs staminaPunchCost × this × its own weight below (0.6 × 4% = 2.4% for a cross). Relief tune 2026-11-15 (Nate: "drains too fast"): was 0.8'),
   staminaJabWeight:    num(0.5, 0.1, 2, 0.05, 'polish: stamina', 'a jab\'s cost, as a fraction of a cross\'s: thrown 1.6%, landed 0.1% (the land refund), missed 4.1%'),
   staminaHookWeight:   num(1.15, 0.1, 2, 0.05, 'polish: stamina', 'a hook\'s cost against a cross\'s'),
   staminaUppercutWeight: num(1.3, 0.1, 2, 0.05, 'polish: stamina', 'an uppercut\'s cost against a cross\'s'),

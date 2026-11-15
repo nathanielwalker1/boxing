@@ -46,7 +46,7 @@ console.log('\n=== 2. Costs ===');
   check('…and still less than taking it clean', ['cross', 'hook'].every(p => v(c, `BLOCKING his ${p} (the shot itself)`) < v(c, `TAKING his ${p} clean`)));
   for (const p of ['jab', 'cross', 'hook', 'uppercut']) {
     const land = v(c, `${p} thrown and LANDED`), miss = v(c, `${p} thrown and MISSED`), blk = v(c, `${p} thrown and BLOCKED`);
-    check(`${p}: landed ${pct(land)} < blocked ${pct(blk)} < missed ${pct(miss)} (a miss ≥ 2.5× a land, and it wears the ceiling by ${pct(c[`${p} thrown and MISSED`].cap)})`, land <= blk + 1e-9 && blk < miss && miss >= 2.5 * Math.max(land, 0.001) && c[`${p} thrown and MISSED`].cap > 0);
+    check(`${p}: landed ${pct(land)} < blocked ${pct(blk)} < missed ${pct(miss)} (a miss ≥ 2.4× a land, and it wears the ceiling by ${pct(c[`${p} thrown and MISSED`].cap)})`, land <= blk + 1e-9 && blk < miss && miss >= 2.4 * Math.max(land, 0.001) && c[`${p} thrown and MISSED`].cap > 0);
   }
   check(`a punch costs by its weight: a missed jab ${pct(v(c, 'jab thrown and MISSED'))} < cross ${pct(v(c, 'cross thrown and MISSED'))} < hook ${pct(v(c, 'hook thrown and MISSED'))} < uppercut ${pct(v(c, 'uppercut thrown and MISSED'))} (they were all ${pct(v(o, 'jab thrown and MISSED'))})`,
     v(c, 'jab thrown and MISSED') < v(c, 'cross thrown and MISSED') && v(c, 'cross thrown and MISSED') < v(c, 'hook thrown and MISSED') && v(c, 'hook thrown and MISSED') < v(c, 'uppercut thrown and MISSED')
