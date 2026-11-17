@@ -12,8 +12,10 @@ unclear or share-alike licence may be used. Every download is listed here.
 | MakeHuman system assets pack (skin textures, eyes, eyebrows, eyelashes, hair) | https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip (page: https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html) | unversioned (CC0 edition, fetched 2026-11-16) | CC0. The asset files carry "explicitly released as CC0 in september 2020" headers. |
 
 Used from the pack: skins `young_caucasian_male` and `young_african_male` (diffuse only), eyes `high-poly` with
-`brown` iris, `eyebrow001`, `eyelashes01`, hair `short02`. The gloves, trunks and boots are modelled in
-`tools/blender/build_boxer.py` (our own geometry, derived from the generated body surface).
+`brown` iris, `eyebrow001`, `eyelashes01` (the pack's hair `short02` is no longer used). The gloves, trunks and boots are
+modelled from scratch in `tools/blender/build_boxer.py` (our own geometry, fitted to the measured body surface,
+weights transferred from the body). The six-pack / pec relief, scalp stubble paint and the skin normal map are
+procedural (numpy, in the same script); the hair is a 1.6 mm cap over a painted scalp. No new downloads.
 
 The zips are NOT committed. The extension and the pack stay in Blender's user folders.
 
@@ -40,4 +42,10 @@ Do not run Blender with `--factory-startup`: it drops the extension repository a
 - Rest pose is MakeHuman's (arms down and a little forward), not Mixamo's T-pose: Mixamo clips will need a retarget
   (world-space, by bone direction) rather than direct local-rotation playback.
 - Materials (renamed so colour can be set at runtime): `skin`, `glove`, `trunks`, `trim`, `boot`, `hair`, plus `eye`, `brow`, `lash`.
-- About 1.76 m tall, 7.4 heads, about 32k triangles, 1.4 MB, textures WebP (skin 2048 px).
+- About 1.76 m tall, 7.4 heads, about 31k triangles (body 16.2k, boots 6.4k, gloves 3.7k, eyes 2k, trunks 1.8k, cap 0.4k),
+  1.3 MB glb, textures WebP (skin 2048 px). Also written: `skin_dark.webp` (dark tone, lifted from the pack's very dark
+  diffuse and scalp-painted) and `skin_normal.webp` (shared normal map: pores, six-pack, pec border, stubble).
+- Runtime: `src/human/body.ts` (`loadBoxer()` then `spawn(tone, kit)`) builds the skin material (normal map, clearcoat
+  sheen); the shaft/foot of the boots and the kit meshes are weighted deterministically in the build script.
+- Gotcha: Blender's `materials.clear()` resets every face's `material_index` to 0 and `Image.save_render` applies the
+  scene view transform; the build uses slot replacement and `Image.save()` instead.

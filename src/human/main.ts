@@ -2,10 +2,9 @@
 // Loads public/fighter/boxer.glb, lights it with the game's rig (values from createConfig), poses two
 // boxers into an orthodox guard by setting bone rotations, and offers two cameras (keys 1 and 2).
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { createConfig } from '../core/config';
-import { guard, type KitColors } from './pose';
+import { guard, type PoseName } from './pose';
+import { loadBoxer, type BoxerAssets, type KitColors } from './body';
 
 const c = createConfig();
 const app = document.getElementById('app') as HTMLElement;
@@ -54,7 +53,9 @@ scene.add(floor);
 
 // ---- cameras ----
 const LOOK = new THREE.Vector3(0, c.camLookY, 0);
-function place(az: number, el: number, dist: number, fov: number): void {
+function place(az: number, el: number, dist: number, fov: number, look?: THREE.Vector3): void {
+  LOOK.set(0, c.camLookY, 0);
+  if (look) LOOK.copy(look);
   camera.position.set(
     LOOK.x + dist * Math.cos(el) * Math.cos(az),
     LOOK.y + dist * Math.sin(el),
@@ -72,6 +73,12 @@ const deg = Math.PI / 180;
 const PRESETS: Record<string, () => void> = {
   '1': () => place((90 + c.camBehindDeg) * deg, c.camElevationDeg * deg, c.camDistMin, c.camFovMin),
   '2': () => place(90 * deg, 4 * deg, 3.4, 30),
+  // 3: upper-body close-up of the dark boxer (blue, +x side), from his front-left
+  '3': () => place(205 * deg, 5 * deg, 1.9, 30, new THREE.Vector3(0.425, 1.3, 0)),
+  // 5: the light boxer's head from behind and above (scalp, hairline)
+  '5': () => place(190 * deg, 30 * deg, 1.0, 30, new THREE.Vector3(-0.425, 1.65, 0)),
+  // 4: lower-body close-up of the light boxer (red): trunks, legs, boots
+  '4': () => place(60 * deg, 12 * deg, 2.1, 30, new THREE.Vector3(-0.425, 0.55, 0)),
 };
 
 function resize(): void {
@@ -91,29 +98,12 @@ const KIT: Record<'red' | 'blue', KitColors> = {
 const HALF_GAP = 0.425;   // 0.85 m apart, centre to centre
 const SCALE = 1.8 / 1.759;   // the game's POSE_REF_HEIGHT over the body's native height
 
-function makeBoxer(src: THREE.Object3D, side: 'red' | 'blue', skinMap: THREE.Texture | null): THREE.Group {
-  const root = cloneSkinned(src) as THREE.Object3D;
-  const mats = new Map<string, THREE.Material>();
-  root.traverse(o => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    m.castShadow = true;
-    m.receiveShadow = true;
-    m.frustumCulled = false;
-    const own = (m.material as THREE.Material).clone();
-    m.material = own;
-    mats.set(own.name, own);
-  });
-  const k = KIT[side];
-  for (const n of ['glove', 'trunks', 'trim', 'boot', 'hair'] as const) {
-    (mats.get(n) as THREE.MeshStandardMaterial | undefined)?.color.set(k[n]);
-  }
-  const skin = mats.get('skin') as THREE.MeshStandardMaterial | undefined;
-  if (skin && skinMap) { skin.map = skinMap; skin.needsUpdate = true; }
+function makeBoxer(assets: BoxerAssets, side: 'red' | 'blue', pose: PoseName): THREE.Group {
+  const root = assets.spawn(side === 'red' ? 'light' : 'dark', KIT[side]);
   const g = new THREE.Group();
   g.add(root);
   g.updateMatrixWorld(true);
-  guard(root);   // posed in metres at the body's native size, then scaled as a whole
+  guard(root, pose);   // posed in metres at the body's native size, then scaled as a whole
   g.scale.setScalar(SCALE);
   g.position.set(side === 'red' ? -HALF_GAP : HALF_GAP, 0, 0);
   g.rotation.y = side === 'red' ? Math.PI / 2 : -Math.PI / 2;
@@ -121,33 +111,31 @@ function makeBoxer(src: THREE.Object3D, side: 'red' | 'blue', skinMap: THREE.Tex
 }
 
 let frames = 0, last = performance.now(), fps = 0;
-const loader = new GLTFLoader();
-Promise.all([
-  loader.loadAsync('/fighter/boxer.glb'),
-  new THREE.TextureLoader().loadAsync('/fighter/skin_dark.webp'),
-]).then(([gltf, dark]) => {
-  dark.flipY = false;
-  dark.colorSpace = THREE.SRGBColorSpace;
-  dark.anisotropy = 8;
-  const a = makeBoxer(gltf.scene, 'red', null);
-  const b = makeBoxer(gltf.scene, 'blue', dark);
-  scene.add(a, b);
+let boxers: THREE.Group[] = [];
+function setPose(assets: BoxerAssets, pose: PoseName): void {
+  boxers.forEach(b => scene.remove(b));
+  boxers = [makeBoxer(assets, 'red', pose), makeBoxer(assets, 'blue', pose)];
+  scene.add(...boxers);
+}
+loadBoxer().then(assets => {
+  setPose(assets, (new URLSearchParams(location.search).get('pose') as PoseName) || 'guard');
   let tris = 0;
   scene.traverse(o => {
     const m = o as THREE.Mesh;
-    if (m.isMesh && m.geometry) tris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+    if (m.isMesh && m.geometry && m !== floor) tris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position!.count) / 3;
   });
   (window as unknown as { __human: unknown }).__human = {
     ready: true,
-    tris,
+    tris: tris / 2,   // per boxer
     get fps() { return fps; },
     preset: (k: string) => PRESETS[k]?.(),
+    pose: (p: PoseName) => setPose(assets, p),
   };
-  console.log('boxer ready, triangles in scene:', Math.round(tris));
+  console.log('boxer ready, triangles per boxer:', Math.round(tris / 2));
 }).catch(e => console.error('load failed', e));
 
 resize();
-PRESETS['1']();
+PRESETS['1']!();
 renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
   frames++;

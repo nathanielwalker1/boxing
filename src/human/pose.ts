@@ -4,7 +4,6 @@
 // faces +Z, its left side is +X, up is +Y. Metres.
 import * as THREE from 'three';
 
-export interface KitColors { glove: string; trunks: string; trim: string; boot: string; hair: string }
 
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
@@ -57,7 +56,11 @@ function ik(upper: THREE.Object3D, lower: THREE.Object3D, end: THREE.Object3D, t
 }
 
 // ---- the guard (every number here is a pose choice, not a game tunable) ----
-export function guard(root: THREE.Object3D): void {
+export type PoseName = 'guard' | 'reach';
+
+/** 'guard' = orthodox guard; 'reach' = stress pose: lead arm straight out at shoulder height, deep knee bend. */
+export function guard(root: THREE.Object3D, pose: PoseName = 'guard'): void {
+  const reach = pose === 'reach';
   root.updateMatrixWorld(true);
   const B = (n: string) => bone(root, n);
   const hips = B('Hips'), sp0 = B('Spine'), sp1 = B('Spine1'), sp2 = B('Spine2'), neck = B('Neck'), head = B('Head');
@@ -65,7 +68,7 @@ export function guard(root: THREE.Object3D): void {
 
   // 1. hips: down and a little forward of centre, turned, leaning
   const rest = wpos(hips);
-  const hipsAt = v3(-0.06, 0.865, 0.04);
+  const hipsAt = v3(-0.06, reach ? 0.72 : 0.865, 0.04);
   hips.position.copy((hips.parent as THREE.Object3D).worldToLocal(hipsAt.clone()));
   hips.updateMatrixWorld(true);
   void rest;
@@ -109,9 +112,11 @@ export function guard(root: THREE.Object3D): void {
   const R = { up: B('RightArm'), fore: B('RightForeArm'), hand: B('RightHand'), mid: B('RightHandMiddle1') };
   const lSh = wpos(L.up);
   // lead glove: out in front of the lead shoulder at chin height; elbow down
-  const leadWrist = lSh.clone().addScaledVector(opp, 0.33).add(v3(0, 0.05, 0)).addScaledVector(sideL, -0.02);
+  const leadWrist = reach
+    ? lSh.clone().addScaledVector(opp, 0.7).addScaledVector(sideL, -0.03)   // shoulder height, fully extended
+    : lSh.clone().addScaledVector(opp, 0.33).add(v3(0, 0.05, 0)).addScaledVector(sideL, -0.02);
   ik(L.up, L.fore, L.hand, leadWrist, v3(0, -1, 0).addScaledVector(sideL, 0.5));
-  aim(L.hand, L.mid, opp.clone().multiplyScalar(0.8).add(v3(0, 0.6, 0)));
+  aim(L.hand, L.mid, reach ? opp.clone().add(v3(0, 0.1, 0)) : opp.clone().multiplyScalar(0.8).add(v3(0, 0.6, 0)));
   // rear glove: at the cheek, elbow tucked in against the ribs
   const rearWrist = hd.clone().addScaledVector(fwdC, 0.15).addScaledVector(sideL, -0.03).add(v3(0, -0.09, 0));
   ik(R.up, R.fore, R.hand, rearWrist, v3(0, -1, 0).addScaledVector(fwdC, 0.35).addScaledVector(sideL, 0.2));
