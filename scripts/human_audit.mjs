@@ -1,8 +1,16 @@
 /**
  * human_audit.mjs — measures the drawn human boxers against the deterministic sim, tick by tick, across a matrix of
  * scripted scenarios, and prints a violations table. One browser session. Fixes nothing.
- *   PORT=5195 node scripts/human_audit.mjs [filter-substring]
- * Output: stdout table, scripts/output/human_audit/audit.json, shot_N.png for the five worst.
+ *   PORT=5195 node scripts/human_audit.mjs [--quick] [--noshots] [filter-substring]
+ * --quick: ~40 scenarios (every punch and hand at 1.0 / 1.25 m, body shots, the five chains, slips, crouch, block,
+ * walk-in, one knockdown), a few minutes. Output: stdout table + per-check counts, audit.json (audit_quick.json),
+ * shot_N.png for the five worst.
+ *
+ * Truth comes from the sim: land / block / whiff are the sim's own events (the probe's `events`, the ones the view was
+ * fed that tick); the contact and through-the-target checks use the sim's head sphere and body capsule (headBox /
+ * bodyBox). The punching hand's pop threshold is the clip's OWN glove displacement between the two frames drawn
+ * (probe `legitHand`: clip speed × playback rate) × 1.3 + 3 cm, measured relative to the body origin (the lunge is
+ * checked through the hips); every other part keeps the flat 12 cm (idle, guard, steps never move that fast).
  */
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'fs';
@@ -13,7 +21,10 @@ import { bootReady, frames, until } from './waits.js';
 
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), 'output', 'human_audit');
 mkdirSync(OUT, { recursive: true });
-const FILTER = process.argv[2] ?? '';
+const ARGS = process.argv.slice(2);
+const QUICK = ARGS.includes('--quick');
+const SHOTS = !ARGS.includes('--noshots');
+const FILTER = ARGS.find(a => !a.startsWith('--')) ?? '';
 const HZ = 60;
 
 // ---------- scenario definitions ----------
@@ -48,7 +59,35 @@ const lastInput = sc => {
 const scenarios = [];
 const addSc = sc => { sc.lastInput = lastInput(sc); Object.assign(sc, build(sc)); if (!FILTER || sc.name.includes(FILTER)) scenarios.push(sc); };
 const DISTS = [0.75, 1.0, 1.25, 1.6];
-for (const actor of [0, 1]) {
+const PH = [['jab', 'lead'], ['cross', 'rear'], ['hook', 'lead'], ['hook', 'rear'], ['uppercut', 'lead'], ['uppercut', 'rear']];
+const CHAINS = [['jab', 'lead', 'cross', 'rear'], ['jab', 'lead', 'jab', 'lead'], ['cross', 'rear', 'hook', 'lead'], ['hook', 'lead', 'cross', 'rear'], ['jab', 'lead', 'uppercut', 'rear']];
+const punchSc = (actor, punch, hand, zone, dist, opp) => {
+  const lvl = zone === 'body';
+  addSc({
+    name: `s${actor} ${punch}/${hand} ${zone} d${dist} vs ${opp}`, kind: 'punch', actor, dist, punch, hand, zone, opp,
+    holds: lvl ? [{ from: 0, to: PRESS + 1, input: { level: true } }] : [],
+    acts: [{ t: PRESS, input: press(punch, hand, PRESS, lvl) }],
+    oppHolds: opp === 'block' ? [{ from: 0, to: 120, input: { block: true } }] : [],
+  });
+};
+if (QUICK) {
+  for (const [punch, hand] of PH) for (const dist of [1.0, 1.25]) punchSc(0, punch, hand, 'head', dist, 'idle');
+  for (const [punch, hand] of PH) punchSc(0, punch, hand, 'body', 1.0, 'idle');
+  punchSc(0, 'jab', 'lead', 'head', 1.0, 'block'); punchSc(0, 'cross', 'rear', 'head', 1.0, 'block');
+  punchSc(0, 'jab', 'lead', 'head', 0.75, 'idle'); punchSc(0, 'hook', 'lead', 'head', 0.75, 'idle');
+  punchSc(1, 'jab', 'lead', 'head', 1.0, 'idle'); punchSc(1, 'cross', 'rear', 'head', 1.0, 'idle');
+  for (const [p1, h1, p2, h2] of CHAINS) addSc({ name: `s0 chain ${p1}-${p2} gap8 d1`, kind: 'chain', actor: 0, dist: 1.0, punch: p1, hand: h1, zone: 'head', opp: 'idle',
+    acts: [{ t: PRESS, input: press(p1, h1) }, { t: PRESS + 8, input: press(p2, h2) }] });
+  for (const [nm, mv] of [['slipL', { x: -1, y: 0 }], ['slipR', { x: 1, y: 0 }], ['slipBack', { x: 0, y: -1 }]]) addSc({ name: `s0 ${nm}`, kind: 'defence', actor: 0, dist: 1.0, acts: [{ t: PRESS, len: 2, input: { move: mv } }] });
+  addSc({ name: 's0 slipL vs jab', kind: 'defence', actor: 0, dist: 1.0, acts: [{ t: PRESS + 3, len: 2, input: { move: { x: -1, y: 0 } } }], oppActs: [{ t: PRESS, input: { jab: true } }] });
+  addSc({ name: 's0 level hold', kind: 'defence', actor: 0, dist: 1.0, holds: [{ from: 6, to: 60, input: { level: true } }] });
+  addSc({ name: 's0 block hold', kind: 'defence', actor: 0, dist: 1.0, holds: [{ from: 6, to: 40, input: { block: true } }] });
+  addSc({ name: 's0 block vs jab', kind: 'defence', actor: 0, dist: 1.0, holds: [{ from: 2, to: 40, input: { block: true } }], oppActs: [{ t: PRESS, input: { jab: true } }] });
+  for (const [nm, mv] of [['fwd', { x: 0, y: 1 }], ['back', { x: 0, y: -1 }], ['left', { x: -1, y: 0 }]]) addSc({ name: `s0 walk ${nm}`, kind: 'walk', actor: 0, dist: 1.4, holds: [{ from: 4, to: 50, input: { move: mv } }] });
+  addSc({ name: 's0 knockdown by hook', kind: 'knockdown', actor: 1, dist: 0.79, cfg: { healthDamagePerImpulse: 0.006 },
+    acts: [{ t: 2, input: press('hook', 'rear') }, { t: 40, input: press('hook', 'rear') }, { t: 80, input: press('hook', 'rear') }], fixedN: 300 });
+}
+for (const actor of QUICK ? [] : [0, 1]) {
   for (const [punch, hand] of [['jab', 'lead'], ['cross', 'rear'], ['hook', 'lead'], ['hook', 'rear'], ['uppercut', 'lead'], ['uppercut', 'rear']]) {
     for (const zone of ['head', 'body']) {
       for (const dist of DISTS) {
@@ -107,8 +146,11 @@ async function runScenario(page, sc) {
         const f = st[side], p = w.__humanProbe(side);
         if (!p) throw new Error('probe null');
         if (t === 0 && side === 0) bodyDims = null;
+        const hb = f.headBox, bb = f.bodyBox;
         row.push({
-          p: { head: p.head, hips: p.hips, gl: p.gloves, feet: p.feet, clip: p.clip, pc: p.punchClip, fr: p.frame },
+          p: { head: p.head, hips: p.hips, gl: p.gloves, feet: p.feet, clip: p.clip, pc: p.punchClip, fr: p.frame, org: p.origin, legit: p.legitHand,
+            ev: (p.events ?? []).filter(e => /^punch/.test(e.type)).map(e => ({ type: e.type, side: e.side, target: e.target, part: e.part })) },
+          hb: [hb.x, hb.y, hb.z, hb.r], bb: [[bb.a.x, bb.a.y, bb.a.z], [bb.b.x, bb.b.y, bb.b.z], bb.r],
           s: { x: f.pos.x, z: f.pos.z, yaw: f.yaw, hp: f.health, blk: f.block, down: f.down, burst: f.burstT, lvl: f.level, hurt: f.hurt,
             slip: f.slip.active, pt: f.punch.type, ph: f.punch.phase, hand: f.punch.hand, prog: f.punch.progress, res: f.punch.resolved,
             con: f.punch.contact ? [f.punch.contact.x, f.punch.contact.y, f.punch.contact.z] : null, variant: f.punch.variant,
@@ -172,12 +214,17 @@ function analyse(sc, run) {
   // 2 pops
   let maxPop = 0, maxPopWhat = '';
   for (let t = 1; t < N; t++) for (const s of bothSides) {
-    const A = rows[t - 1][s].p, B = rows[t][s].p;
+    const A = rows[t - 1][s].p, B = rows[t][s].p, S = rows[t][s].s;
+    // the punching hand while a mocapGeo clip plays: body-origin relative, against the clip's own motion this tick
+    const same = (u, v) => u[0] === v[0] && u[1] === v[1] && u[2] === v[2];
+    const punchHand = S.pt !== null && B.legit >= 0 ? (same(S.hand === 'lead' ? B.gl.lead : B.gl.rear, B.gl.left) ? 'handL' : 'handR') : null;
+    const rel = (p, o) => [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
     const items = { head: [A.head, B.head], hips: [A.hips, B.hips], handL: [A.gl.left, B.gl.left], handR: [A.gl.right, B.gl.right], footL: [A.feet.left, B.feet.left], footR: [A.feet.right, B.feet.right] };
     for (const [k, [p, q]] of Object.entries(items)) {
-      const m = dist3(p, q);
+      let m = dist3(p, q), thr = 0.12;
+      if (k === punchHand) { m = dist3(rel(p, A.org), rel(q, B.org)); thr = Math.max(0.06, 1.3 * B.legit + 0.03); }
       if (m > maxPop) { maxPop = m; maxPopWhat = `s${s} ${k} t${t}`; }
-      if (m > 0.12) flag('pop', t, +m.toFixed(3), 0.12, m / 0.12, `s${s} ${k} (${A.clip}->${B.clip})`);
+      if (m > thr) flag(k === punchHand ? 'pop (punching hand vs clip speed)' : 'pop', t, +m.toFixed(3), +thr.toFixed(3), m / thr, `s${s} ${k} (${A.clip}->${B.clip}) p=${S.prog?.toFixed(2)} ${S.ph ?? ''}`);
     }
   }
   info.maxPop = { cm: +(maxPop * 100).toFixed(1), at: maxPopWhat };
@@ -226,12 +273,9 @@ function analyse(sc, run) {
     if (C.pt !== null && (P.pt === null || C.prog < P.prog - 0.2)) starts.push(t);
   }
   info.punchStarts = starts;
-  const bodyOf = (s, t, off) => {
-    const R = rows[t][s], b = R.s.body;
-    const base = [R.p.hips[0], R.p.hips[1] + hpy[s], R.p.hips[2]];
-    return { a: base, b: [base[0], base[1] + (b.sy - b.hy), base[2]], r: b.br };
-  };
-  const headOf = (s, t) => { const R = rows[t][s]; return { c: [R.p.head[0], R.p.head[1] + hy[s], R.p.head[2]], r: R.s.body.hr }; };
+  // the SIM's hit shapes (what the hit test uses)
+  const bodyOf = (s, t) => { const R = rows[t][s]; return { a: R.bb[0], b: R.bb[1], r: R.bb[2] }; };
+  const headOf = (s, t) => { const R = rows[t][s]; return { c: R.hb.slice(0, 3), r: R.hb[3] }; };
   const gap = (g, s, t) => {
     const R = rows[t][s], gr = R.s.body.gr;
     const H = headOf(s, t), B = bodyOf(s, t);
@@ -253,20 +297,30 @@ function analyse(sc, run) {
 
     // 4 contact truth, per punch resolve
     info.resolves = [];
+    // the sim's own outcome events for the actor's punches; the drawn glove's surface gap to the part it hit
+    const holdTicks = [];
     for (let t = 1; t < N; t++) {
-      const P = A[t - 1].s, C = A[t].s;
-      if (C.pt !== null && C.res && !P.res) {
-        const hpD = rows[t][d].s.hp - rows[t - 1][d].s.hp;
-        const hpD2 = t + 1 < N ? rows[t + 1][d].s.hp - rows[t - 1][d].s.hp : hpD;
-        const kind = (hpD < -1e-6 || hpD2 < -1e-6) ? 'land' : rows[t][d].s.blk ? 'block' : C.con ? 'contact-nodmg' : 'whiff';
-        const g = handOf(A[t], C.hand);
-        const gp = gap(g, d, t);
-        const part = gp.hg <= gp.bg ? 'head' : 'body';
-        const m = Math.min(gp.hg, gp.bg);
-        info.resolves.push({ t, punch: C.pt, hand: C.hand, kind, part, gloveGapCm: +(m * 100).toFixed(1), simGap: +(dist3(g, C.g[GL[C.hand]]) * 100).toFixed(1) });
-        if (kind === 'land' && m > 0.08) flag('landed but glove away from target', t, +m.toFixed(3), 0.08, m / 0.08, `${C.pt}/${C.hand} nearest ${part} d${sc.dist}`);
+      const C = A[t].s;
+      for (const e of A[t].p.ev) {
+        if (e.side !== a || !['punchLand', 'punchBlock', 'punchWhiff', 'punchSmother'].includes(e.type)) continue;
+        const kind = e.type.slice(5).toLowerCase();
+        const hand = C.hand ?? A[t - 1].s.hand;
+        const g = handOf(A[t], hand), gp = gap(g, d, t);
+        const part = e.part ?? (gp.hg <= gp.bg ? 'head' : 'body');
+        const m = part === 'head' ? gp.hg : gp.bg;
+        info.resolves.push({ t, punch: C.pt, hand, kind, part, gloveGapCm: +(m * 100).toFixed(1), simGap: C.pt ? +(dist3(g, C.g[GL[hand]]) * 100).toFixed(1) : null });
+        if (kind === 'land') {
+          if (m > 0.06) flag('landed but glove away from target', t, +m.toFixed(3), 0.06, m / 0.06, `${C.pt}/${hand} ${part} d${sc.dist}`);
+          holdTicks.push(t);
+        }
+        if (kind === 'block') {
+          // a blocked shot stops on the guard: the drawn glove within reach of either of the defender's drawn gloves
+          const dg = Math.min(dist3(g, rows[t][d].p.gl.left), dist3(g, rows[t][d].p.gl.right)) - 2 * C.body.gr;
+          if (dg > 0.08) flag('blocked but glove away from the guard', t, +dg.toFixed(3), 0.08, dg / 0.08, `${C.pt}/${hand} d${sc.dist}`);
+        }
       }
     }
+    info.punchLands = holdTicks;
     // through the head/body, any tick within punch windows + 15 ticks
     for (let t = 0; t < N; t++) {
       const inWin = starts.some(s0 => t >= s0 && t <= s0 + 70);
@@ -275,8 +329,9 @@ function analyse(sc, run) {
         const g = A[t].p.gl[hk];
         const H = headOf(d, t), B = bodyOf(d, t);
         const inH = H.r - dist3(g, H.c), inB = B.r - segDist(g, B.a, B.b);   // centre depth inside the surface
-        if (inH > 0.05) flag('glove through head', t, +inH.toFixed(3), 0.05, inH / 0.05, `${hk} hand, ${A[t].s.pt}/${A[t].s.ph}`);
-        if (inB > 0.05) flag('glove through body', t, +inB.toFixed(3), 0.05, inB / 0.05, `${hk} hand, ${A[t].s.pt}/${A[t].s.ph}`);
+        // the glove CENTRE inside the sim's head sphere / body capsule (2 cm for the skin): half a glove sunk in
+        if (inH > 0.02) flag('glove through head', t, +inH.toFixed(3), 0.02, inH / 0.02, `${hk} hand, ${A[t].s.pt}/${A[t].s.ph}`);
+        if (inB > 0.02) flag('glove through body', t, +inB.toFixed(3), 0.02, inB / 0.02, `${hk} hand, ${A[t].s.pt}/${A[t].s.ph}`);
       }
     }
     // 5 wrong direction: straight at head height
@@ -330,7 +385,7 @@ function analyse(sc, run) {
     const chk = sc.lastInput + 45;
     if (chk < N) for (const s of bothSides) {
       const R = rows[chk][s];
-      if (R.s.down) continue;
+      if (R.s.down || R.s.pt !== null) continue;   // (a sim punch still in flight: the clip is right to be playing)
       if (R.p.pc) flag('not idle 45 ticks after last input', chk, 1, 0, 1, `s${s} still in punch clip ${R.p.clip}`);
       for (const hand of ['lead', 'rear']) {
         const gd = dist3(local(handOf(R, hand), R.p.hips, R.s.yaw), guard[s][hand]);
@@ -409,11 +464,11 @@ const kd = results.filter(r => r.sc.kind === 'knockdown').map(r => `${r.sc.name}
 console.log(kd.join('\n'));
 console.log(`\n${rows.length} violations in ${nViolScen} scenarios (${results.length} scenarios run, ${results.filter(r => r.error).length} errored)`);
 
-writeFileSync(`${OUT}/audit.json`, JSON.stringify({ total: rows.length, scenariosWithViolations: nViolScen, scenarios: results.length, byCheck, violations: rows.map(({ sc, ...r }) => r), scenarioInfo: results.map(r => ({ name: r.sc.name, ticks: r.ticks, info: r.info })) }, null, 1));
+writeFileSync(`${OUT}/${QUICK ? 'audit_quick' : 'audit'}.json`,JSON.stringify({ total: rows.length, scenariosWithViolations: nViolScen, scenarios: results.length, byCheck, violations: rows.map(({ sc, ...r }) => r), scenarioInfo: results.map(r => ({ name: r.sc.name, ticks: r.ticks, info: r.info })) }, null, 1));
 
 // ---------- screenshots of the five worst (distinct scenarios) ----------
 const picked = [], seen = new Set();
-for (const pass of [0, 1]) for (const r of rows) {
+for (const pass of SHOTS ? [0, 1] : []) for (const r of rows) {
   if (picked.length === 5) break;
   if (picked.includes(r) || picked.some(p => p.scenario === r.scenario)) continue;
   if (pass === 0 && seen.has(r.check)) continue;   // first pass: five different checks

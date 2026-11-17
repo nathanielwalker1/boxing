@@ -63,8 +63,10 @@ function laneY(f: FighterState, body: boolean, cfg: Config): number {
  * separationDist + mocapLungeGap to the other man.
  */
 export function stepMocap(f: FighterState, other: FighterState, side: Side, cfg: Config): void {
-  recordChain(f);
   const t = POOL[side];
+  // the lunge he was carrying last tick (along his facing): a chained punch starts its lunge from there, not from 0
+  const fr0 = frameOf(f.yaw);
+  recordChain(f, t.on && t.owner !== null ? t.lunge.x * fr0.fwd.x + t.lunge.z * fr0.fwd.z : 0);
   t.owner = f;
   OF.set(f, t);
   computeMocap(f, other, cfg, t);
@@ -76,7 +78,7 @@ export function stepMocap(f: FighterState, other: FighterState, side: Side, cfg:
  * (chainCarry(f).on: pressed while the last was in flight). Written only here, only with mocapGeo on.
  */
 const HIST_MOCAP = 90;
-function recordChain(f: FighterState): void {
+function recordChain(f: FighterState, lungeNow: number): void {
   const p = f.punch, h = f.moveHist;
   if (p.type === null) return;
   const cur = punchCode(p.type, p.hand), was = h[HIST_MOCAP] ?? 0, last = h[HIST_MOCAP + 2] ?? 0;
@@ -86,6 +88,8 @@ function recordChain(f: FighterState): void {
     // there over the wind-up instead of jumping to the clip's first frame (up to 70 cm in one tick on the cross)
     const g = f.gloves[p.hand === 'lead' ? 0 : 1].pos, fr = frameOf(f.yaw), dx = g.x - f.pos.x, dz = g.z - f.pos.z;
     h[HIST_MOCAP + 3] = dx * fr.fwd.x + dz * fr.fwd.z; h[HIST_MOCAP + 4] = g.y; h[HIST_MOCAP + 5] = dx * fr.right.x + dz * fr.right.z;
+    // (+6) the lunge carried into this punch (a chain: the last punch's lunge this tick; 0 from the guard)
+    h[HIST_MOCAP + 6] = lungeNow;
   }
   h[HIST_MOCAP] = cur;
   h[HIST_MOCAP + 2] = p.progress;
@@ -104,10 +108,17 @@ function computeMocap(f: FighterState, other: FighterState, cfg: Config, t: Moca
   const low = !!v?.body || p.aim > cfg.humanBodyAim;
   const targetY = laneY(other, low, cfg) - (low ? 0 : p.aim);
   const selfY = laneY(f, low, cfg);
-  const g = mocapPunchGeo(lib, cfg, f.body.heightM, f.stance, p.type, p.hand, low, p.progress, ph.cockEnd, ph.peakAt, p.tell, targetY, selfY, t.geo, mocapChainedFrom(f));
+  // the fit: the glove centre's forward distance at the other man's STANDING surface (his pos, not his head this tick,
+  // so a slip still takes the punch away), the glove sunk by the contact squash as the hit test expects
+  const d = v2dist(f.pos, other.pos);
+  const reachTo = d - (low ? other.body.bodyR : other.body.headR) - f.body.gloveR + f.body.gloveR * cfg.contactSquash;
+  const g = mocapPunchGeo(lib, cfg, f.body.heightM, f.stance, p.type, p.hand, low, p.progress, ph.cockEnd, ph.peakAt, p.tell, targetY, selfY, t.geo, mocapChainedFrom(f), reachTo);
   if (!g.ok) return;
-  let L = g.lunge;
-  if (L > 0) L = Math.min(L, Math.max(0, v2dist(f.pos, other.pos) - cfg.mocapLungeMin));
+  // a chained punch takes over the lunge the last one was carrying and lets it go over its own wind-up and extension
+  const L0 = f.moveHist[HIST_MOCAP + 6] ?? 0, kIn = Math.min(1, p.progress / Math.max(1e-6, ph.peakAt));
+  let L = g.lunge + L0 * (1 - kIn * kIn * (3 - 2 * kIn));
+  // never closer than the body separation (the sim owns pos; the lunge may not overrule it)
+  if (L > 0) L = Math.min(L, Math.max(0, d - Math.max(cfg.mocapLungeMin, cfg.separationDist)));
   const fr = frameOf(f.yaw);
   // (the turn rotated the glove about the lunged origin; a clamped lunge moves that origin, and the glove with it, along the facing)
   let fwd = g.fwd - g.lunge + L, up = g.up, lat = g.lat;

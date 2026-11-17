@@ -14,6 +14,8 @@ import { aiStep, createAi, type AiState, type StyleParams } from './ai';
 import * as aiModule from './ai';
 import { createFighterView as createRigView, type RigView } from './rig';
 import { createHumanView, humanReady, preloadHuman } from './human/view';
+import { addFighterLights } from './human/body';
+import * as THREE from 'three';
 import { loadMocapGeo } from './core/mocapLoad';
 import { FightFlow, type StartOpts } from './ui/flow';
 import { ReplayBuffer, ReplayPlayer } from './ui/replay';
@@ -97,6 +99,9 @@ if (params.get('human') === '1') cfg.humanBody = true;
 if (cfg.humanBody && !(await preloadHuman())) cfg.humanBody = false;
 if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; }
 if (cfg.humanBody) cfg.mocapGeo = await loadMocapGeo();   // the sim's punching glove = the drawn mocap glove (core/mocap.ts)
+// The human fighters' own key + rims (human/body.ts), aimed each frame at the pair's midpoint.
+const fighterLights = cfg.humanBody ? addFighterLights(stage.scene) : null;
+const lightFocus = new THREE.Vector3();
 function createFighterView(side: Side, spec: FighterSpec, c: Config, parent: Stage['scene']): RigView {
   return c.humanBody && humanReady() ? createHumanView(side, spec, c, parent) : createRigView(side, spec, c, parent);
 }
@@ -512,6 +517,7 @@ function loop(nowMs: number): void {
   const f = window.__focus;
   if (f === -1) stage.frame(a.pos, b.pos, closeness, nowMs / 1000, dt, shot);
   else stage.frame(shown[f]!.pos, shown[f]!.pos, 1, nowMs / 1000, dt);
+  if (fighterLights) { lightFocus.set((a.pos.x + b.pos.x) / 2, 1.2, (a.pos.z + b.pos.z) / 2); fighterLights.update(stage.camera, lightFocus); }
   if (replay && replay.player.done) endReplay();
 
   // The hanging scoreboard carries the round and the clock during a flow fight (the sponsor card otherwise).

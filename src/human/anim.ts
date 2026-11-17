@@ -18,7 +18,8 @@ import type { Config } from '../core/config';
 import type { BodyPart, FighterState, HitGrade, PunchType, SimEvent, Side, Vec3 } from '../core/types';
 import { punchPhases } from '../sim/punches';
 import { mocapPunchNow } from '../sim/mocap';
-import { mocapRoleNames, type ChainedFrom } from '../core/mocap';
+import { mocapClipGlove, mocapRoleNames, type ChainedFrom } from '../core/mocap';
+const CG1 = { x: 0, y: 0, z: 0 };   // scratch
 import { makePose, sample, type Clip, type ClipLib, type Pose, type Role, type Roles } from './clip';
 
 interface Pick { name: string; role: Role; clip: Clip; mirror: boolean }
@@ -32,7 +33,9 @@ interface Track {
 export interface AnimOut {
   pose: Pose;
   /** Hand IK ask: pull this arm's hand so the glove centre sits at `at` (world), by weight w. */
-  ik: { arm: 'Left' | 'Right'; w: number; at: Vec3; exact?: boolean } | null;
+  ik: { arm: 'Left' | 'Right'; w: number; at: Vec3; exact?: boolean; key?: number; pressW?: number } | null;
+  /** The previous punch's arm easing off the sim glove while a chained punch with the other arm runs (null otherwise). */
+  ik2: AnimOut['ik'];
   /** mocapGeo: the body offset of the punch's lunge (world floor m) and its turn (rad, + = toward his right), from the sim. */
   lunge: { x: number; z: number };
   turn: number;
@@ -88,8 +91,14 @@ export class HumanAnim {
   private clock = 0;
   private punchStart = 0;
   private ikTail: { arm: 'Left' | 'Right'; gi: number; w: number } | null = null;
+  private tailOld: { arm: 'Left' | 'Right'; gi: number; w: number } | null = null;
   /** The clip on top this frame (read-only, for tests). */
   info: { slug: string; frame: number; punch: boolean } = { slug: '', frame: 0, punch: false };
+  /** (audit) The clip's own punching-glove displacement this tick, m (-1 = no mocapGeo punch, or its first tick). */
+  legitHand = -1;
+  private legitPick: unknown = null;
+  private readonly CG0 = { x: 0, y: 0, z: 0 };
+  private pressW = 0;
   private lastPunch: ChainedFrom | null = null;
   private lastPunchEnd = -1e9;
   private chainedFrom: ChainedFrom | null = null;
@@ -172,6 +181,8 @@ export class HumanAnim {
     const cfg = this.cfg;
     this.clock += dt;
     this.wanted.clear();
+    this.legitHand = -1;
+    if (next.punch.type === null) this.legitPick = null;
     let label = '';
     const lean = { lat: 0, back: 0, fwd: 0 };
     let ik: AnimOut['ik'] = null;
@@ -249,7 +260,7 @@ export class HumanAnim {
           // a new punch: chained if the last one was still in flight (the sim's test) or ended a moment ago
           const last = this.lastPunch;
           this.chainedFrom = last && (prev.punch.type !== null || this.clock - this.lastPunchEnd < cfg.humanComboWindow) ? last : null;
-          this.punchKey = key; this.punchN++; this.punchStart = this.clock;
+          this.punchKey = key; this.punchN++; this.punchStart = this.clock; this.legitPick = null;
         }
         this.lastPunch = { type, hand: p.hand };
         this.lastPunchEnd = this.clock;
@@ -268,15 +279,27 @@ export class HumanAnim {
           const f = same ? ip(geoA!.frame, geoB.frame) : geoB.frame;
           this.want('punch#' + this.punchN, pk, f / gp.clip.fps);
           label = `${gp.name} f${f.toFixed(0)} (contact ${gp.contactF})`;
+          // (audit) how far the clip's own glove moves between the frames drawn last tick and this one
+          mocapClipGlove(gp, f, cfg, next.body.heightM, CG1);
+          const C0 = this.CG0;
+          this.legitHand = this.legitPick === gp ? Math.hypot(CG1.x - C0.x, CG1.y - C0.y, CG1.z - C0.z) : -1;
+          this.legitPick = gp; C0.x = CG1.x; C0.y = CG1.y; C0.z = CG1.z;
           lunge = same ? { x: ip(geoA!.lunge.x, geoB.lunge.x), z: ip(geoA!.lunge.z, geoB.lunge.z) } : { ...geoB.lunge };
           turn = same ? ip(geoA!.geo.turn, g.turn) : g.turn;
           // the drawn arm onto the sim glove: a small correction, in over the flight, held on the target through the hit-stop
           // full weight through the whole punch once the clip has faded in (so the drawn glove IS the scored glove), eased in over the fade
-          const w = cfg.humanIKWeight * (p.contact ? 1 : smooth((this.clock - this.punchStart) / Math.max(0.01, cfg.humanFadeIn)));
+          // Weight 1 from the press: the view starts the target ON the drawn hand (its press offset, eased out over the
+          // wind-up as the sim eases its glove from the press), so nothing switches on mid-punch.
+          const w = cfg.humanIKWeight;
+          const kc = clamp(u / Math.max(1e-6, ph.cockEnd), 0, 1);
+          this.pressW = 1 - kc * kc * (3 - 2 * kc);
           // the SIM's glove (the clip glove, stopped where it met a head, a body or a guard), not the free clip glove
           const gi = p.hand === 'lead' ? 0 : 1, g0 = prev.gloves[gi].pos, g1 = next.gloves[gi].pos;
           const gl = { x: ip(g0.x, g1.x), y: ip(g0.y, g1.y), z: ip(g0.z, g1.z) };
-          if (w > 0.01) ik = { arm: g.arm, w, at: gl, exact: true };
+          if (w > 0.01) ik = { arm: g.arm, w, at: gl, exact: true, key: this.punchN, pressW: this.pressW };
+          // a chained punch with the OTHER arm: the last arm keeps its own tail (it was lost here: a 30 cm pop of the jab hand when the cross started)
+          if (this.ikTail && this.ikTail.arm !== g.arm) this.tailOld = { ...this.ikTail };
+          if (this.tailOld && this.tailOld.arm === g.arm) this.tailOld = null;
           this.ikTail = { arm: g.arm, gi, w };
         } else {
           const names = mocapRoleNames(this.roles, type, p.hand, low, this.chainedFrom);
@@ -417,6 +440,15 @@ export class HumanAnim {
         ik = { arm: t.arm, w: t.w, at: { x: lerp(g0.x, g1.x, alpha), y: lerp(g0.y, g1.y, alpha), z: lerp(g0.z, g1.z, alpha) }, exact: true };
       } else this.ikTail = null;
     }
+    let ik2: AnimOut['ik'] = null;
+    if (this.tailOld) {
+      const t = this.tailOld;
+      t.w -= dt / Math.max(0.01, cfg.humanFadeOut);
+      if (t.w > 0.01 && !next.down) {
+        const g0 = prev.gloves[t.gi === 0 ? 0 : 1].pos, g1 = next.gloves[t.gi === 0 ? 0 : 1].pos;
+        ik2 = { arm: t.arm, w: t.w, at: { x: lerp(g0.x, g1.x, alpha), y: lerp(g0.y, g1.y, alpha), z: lerp(g0.z, g1.z, alpha) }, exact: true };
+      } else this.tailOld = null;
+    }
     // what is on top (test hook __humanProbe): the heaviest track, or the idle
     let top: Track | null = null;
     for (const tr of this.tracks) if (tr.w > 0.5 && (!top || tr.seq > top.seq)) top = tr;
@@ -435,6 +467,6 @@ export class HumanAnim {
       + (punching ? 0 : Math.max(0, ipn(prev.crouch, next.crouch))) + (slipClip || !next.slip.active ? 0 : ipn(prev.slip.dip, next.slip.dip)))
       + cfg.humanSinkGain * Math.max(0, ipn(prev.reaction.sink.x, next.reaction.sink.x));
     if (!slipClip && next.slip.active && !next.down) lean.fwd = 0;   // the dip is now the hips going down, not a bow
-    return { pose: this.pose, ik, aim, lean, drop, label, lunge, turn };
+    return { pose: this.pose, ik, ik2, aim, lean, drop, label, lunge, turn };
   }
 }

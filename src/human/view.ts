@@ -34,7 +34,7 @@ export async function preloadHuman(): Promise<boolean> {
   if (assets) return true;
   try {
     const [boxer, index, bin, roles] = await Promise.all([
-      loadBoxer(),
+      loadBoxer('/fighter/', 'boxer_v2.glb'),   // the art-pass body (kit textures, look 2)
       fetch('/fighter/clips/index.json').then(r => r.json() as Promise<BakeIndex>),
       fetch('/fighter/clips/clips.bin').then(r => r.arrayBuffer()),
       fetch('/fighter/clips/roles.json').then(r => r.json() as Promise<Roles>),
@@ -193,13 +193,20 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       gloves: { left: gloveOf('Left'), right: gloveOf('Right'), lead: gloveOf(lead), rear: gloveOf(rear) },
       feet: { left: v3(leg.Left[2]), right: v3(leg.Right[2]) },
       clip: anim.info.slug, frame: anim.info.frame, punchClip: anim.info.punch, label,
+      origin: [group.position.x, group.position.y, group.position.z], legitHand: anim.legitHand,
+      // the sim events this view was fed on its last tick (the replay filters them to this side), as plain data
+      events: lastEvents.map(e => ({ ...e })),
     };
   };
+  let lastEvents: readonly SimEvent[] = [];
+  let ikKey = -1;
+  const ikOff = new THREE.Vector3();
   const feed: ReplayFeed ={ feed: (p, n, ev) => run(p, n, 1, SIM_DT, ev), freeze: on => { frozen = on; } };
   feeds[side] = feed;
   installRigReplay(cfg, () => feeds);
 
   function run(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]): void {
+    lastEvents = events;
     {
       // ---- place: interpolated floor position, facing yaw (the clips face +Z), scaled to his height ----
       const x = prev.pos.x + (next.pos.x - prev.pos.x) * alpha, z = prev.pos.z + (next.pos.z - prev.pos.z) * alpha;
@@ -300,12 +307,20 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       }
 
       // ---- fist on target: two-bone IK on the punching arm, bell-weighted round the hit ----
-      if (out.ik && (cfg.humanHandIK || out.ik.exact)) {
-        const [up, fore, hand] = arm[out.ik.arm];
+      // (ik2: the previous punch's arm easing off the sim glove while a chained punch with the other arm runs)
+      for (const ik of [out.ik, out.ik2]) if (ik && (cfg.humanHandIK || ik.exact)) {
+        group.updateMatrixWorld(true);
+        const [up, fore, hand] = arm[ik.arm];
         up.getWorldPosition(vS); fore.getWorldPosition(vE); hand.getWorldPosition(vW);
-        vT.set(out.ik.at.x, out.ik.at.y, out.ik.at.z);
+        vT.set(ik.at.x, ik.at.y, ik.at.z);
+        // a new punch: the target starts ON the drawn glove (its offset from the sim glove at the press), eased out
+        // over the wind-up (pressW 1 -> 0), so the arm never jumps to the sim's guard spot
+        if (ik.key !== undefined) {
+          if (ik.key !== ikKey) { ikKey = ik.key; ikOff.fromArray(gloveOf(ik.arm)).sub(vT); }
+          vT.addScaledVector(ikOff, ik.pressW ?? 0);
+        }
         const opp = heads[side === 0 ? 1 : 0];
-        if (opp && !out.ik.exact) {   // (mocapGeo: the sim glove IS the drawn clip glove; no picture-vs-sim head shift)
+        if (opp && !ik.exact) {   // (mocapGeo: the sim glove IS the drawn clip glove; no picture-vs-sim head shift)
           const k =Math.max(0, Math.min(1, 1 - (vT.distanceTo(opp.sim) - 0.15) / 0.3));   // only a target at the head
           vT.addScaledVector(vA.subVectors(opp.drawn, opp.sim), k);
         }
@@ -315,7 +330,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         vT.addScaledVector(vA.normalize(), -Math.min(cfg.humanGloveOffset, reach * 0.5));
         const a = vE.distanceTo(vS), b = vW.distanceTo(vE);
         const c = Math.max(Math.abs(a - b) + 1e-3, Math.min(a + b - 1e-4, vT.distanceTo(vS)));
-        const w = out.ik.w;
+        const w = ik.w;
         const save = [up.quaternion.clone(), fore.quaternion.clone()];
         // 1) the elbow: open / close the interior angle to the one that spans shoulder -> target
         vA.subVectors(vS, vE); vB.subVectors(vW, vE);
@@ -333,10 +348,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         vA.subVectors(vW, vS).normalize(); vB.subVectors(vT, vS).normalize();
         qR.setFromUnitVectors(vA, vB);
         rotateWorld(up, qR);
-        if (out.ik.exact) {
+        if (ik.exact) {
           // second pass: the glove centre sits humanGloveOffset past the wrist along the FOREARM as it now lies
           group.updateMatrixWorld(true);
-          const T = new THREE.Vector3(out.ik.at.x, out.ik.at.y, out.ik.at.z), E = fore.getWorldPosition(new THREE.Vector3());
+          const T = new THREE.Vector3(ik.at.x, ik.at.y, ik.at.z).addScaledVector(ikOff, ik.key !== undefined ? ik.pressW ?? 0 : 0), E = fore.getWorldPosition(new THREE.Vector3());
           twoBone(up, fore, hand, T.clone().addScaledVector(T.clone().sub(E).normalize(), -cfg.humanGloveOffset));
         }
         // weight

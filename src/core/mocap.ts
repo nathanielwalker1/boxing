@@ -258,7 +258,8 @@ function geometricContact(p: MocapPick, from: number, end: number): number {
  * no clip exists for this punch.
  */
 export function mocapPunchGeo(lib: MocapLib, cfg: Config, heightM: number, stance: Stance, type: PunchType, hand: Hand, low: boolean,
-  u: number, cockEnd: number, peakAt: number, tell: number, targetY: number | null, selfY: number | null, out: MocapPunchGeo, chainedFrom: ChainedFrom | null = null): MocapPunchGeo {
+  u: number, cockEnd: number, peakAt: number, tell: number, targetY: number | null, selfY: number | null, out: MocapPunchGeo, chainedFrom: ChainedFrom | null = null,
+  reachTo: number | null = null): MocapPunchGeo {
   const pick = mocapPunchPick(lib, type, hand, stance, low, chainedFrom);
   out.pick = pick;
   if (!pick) { out.ok = false; out.lunge = 0; return out; }
@@ -266,14 +267,31 @@ export function mocapPunchGeo(lib: MocapLib, cfg: Config, heightM: number, stanc
   const startF = startFrame(pick, tell, cfg.humanMaxLeadIn);
   const f = frameAt(pick, u, peakAt, startF);
   const gloveOff = cfg.humanGloveOffset / s;
-  gloveNative(pick, f, gloveOff, G);
   // model axes: x = his left, y up, z forward
   out.ok = true; out.frame = f; out.arm = pick.arm;
-  out.fwd = G.z * s - cfg.humanBackShift; out.rawUp = G.y * s; out.lat = -G.x * s;
   // the lunge: keep × the clip's forward root travel since the start frame, faded back to 0 by the end frame
   const n = pick.clip.frames, z0 = rowAt(pick.rows, n, startF, 12), zEnd = rowAt(pick.rows, n, pick.endF, 12);
-  const back = pick.endF > pick.contactF ? smooth01((f - pick.contactF) / (pick.endF - pick.contactF)) : (f >= pick.endF ? 1 : 0);
-  out.lunge = cfg.mocapLungeKeep * ((rowAt(pick.rows, n, f, 12) - z0) - (zEnd - z0) * back) * s;
+  const lungeAt = (ff: number): number => {
+    const back = pick.endF > pick.contactF ? smooth01((ff - pick.contactF) / (pick.endF - pick.contactF)) : (ff >= pick.endF ? 1 : 0);
+    return cfg.mocapLungeKeep * ((rowAt(pick.rows, n, ff, 12) - z0) - (zEnd - z0) * back) * s;
+  };
+  // THE FIT to the distance (reachTo = the glove centre's forward distance at the target's surface, or null): two
+  // constants for the whole punch, so the path stays one smooth curve that starts and ends where the clip's does —
+  // k scales the lunge (first), r the arm's forward travel from its start frame (only if the lunge alone is not enough).
+  gloveNative(pick, startF, gloveOff, G); const fwd0 = G.z * s - cfg.humanBackShift;
+  let k = 1, r = 1;
+  if (reachTo !== null) {
+    gloveNative(pick, pick.contactF, gloveOff, G);
+    const fwdC = G.z * s - cfg.humanBackShift, lC = lungeAt(pick.contactF);
+    if (fwdC + Math.max(0, lC) > reachTo) {
+      if (lC > 1e-4) k = Math.max(0, Math.min(1, (reachTo - fwdC) / lC));
+      const over = fwdC + Math.max(0, lC) * k - reachTo;
+      if (over > 0 && fwdC - fwd0 > 0.05) r = Math.max(cfg.mocapReachFitMin, (fwdC - fwd0 - over) / (fwdC - fwd0));
+    }
+  }
+  gloveNative(pick, f, gloveOff, G);
+  out.fwd = fwd0 + (G.z * s - cfg.humanBackShift - fwd0) * r; out.rawUp = G.y * s; out.lat = -G.x * s;
+  out.lunge = lungeAt(f) * k;
   out.fwd += out.lunge;
   // Aim, in over the extension and out over the recovery. HEIGHT: the clip's glove height AT CONTACT goes to the
   // thrower's OWN lane (selfY: the same lane on a man his height; a body clip thrown at the head is lifted all the
@@ -299,6 +317,17 @@ export function mocapPunchGeo(lib: MocapLib, cfg: Config, heightM: number, stanc
     out.lat = -gz * sn + gl * c;
   }
   return out;
+}
+
+/**
+ * The clip's OWN glove at frame f (fractional), his frame (fwd, up, lat + = his right), m, for a man heightM tall: no
+ * aim, no lunge, no turn. Measurement helper (the audit's legitimate per-tick hand speed = this glove's displacement
+ * between the frames two ticks draw).
+ */
+export function mocapClipGlove(pick: MocapPick, f: number, cfg: Config, heightM: number, o: { x: number; y: number; z: number }): void {
+  const s = heightM / cfg.humanNativeHeight;
+  gloveNative(pick, f, cfg.humanGloveOffset / s, o);
+  o.x *= s; o.y *= s; o.z *= s;
 }
 
 /** The native-space height of a clip's glove at its contact frame × s, and its forward reach there (measurement helper). */
