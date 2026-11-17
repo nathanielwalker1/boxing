@@ -14,6 +14,9 @@ import { loadBoxer, type BoxerAssets, type KitColors } from './body';
 import { decode, type BakeIndex, type ClipLib, type Roles } from './clip';
 import { applyFit, buildFit, type Fit, type FitOut, type Skeleton } from './retarget';
 import { HumanAnim } from './anim';
+import { Spray } from '../rig/spray';
+import { installRigReplay, type ReplayFeed } from '../rig/replay';
+import { SIM_DT } from '../core';
 
 interface Assets { boxer: BoxerAssets; lib: ClipLib; roles: Roles; index: BakeIndex }
 let assets: Assets | null = null;
@@ -23,6 +26,8 @@ let assets: Assets | null = null;
  * the drawn one: the hand IK shifts a head-bound target by the opponent's difference.
  */
 const heads: ({ drawn: THREE.Vector3; sim: THREE.Vector3 } | null)[] = [null, null];
+/** The states each human view was last given (the other view reads them: the sim's aim needs the opponent). */
+const shown: ({ prev: FighterState; next: FighterState } | null)[] = [null, null];
 
 /** Load the body and the clips once. Resolves to false (and logs) if anything is missing. */
 export async function preloadHuman(): Promise<boolean> {
@@ -80,6 +85,31 @@ function rotateWorld(b: THREE.Bone, r: THREE.Quaternion): void {
   b.quaternion.premultiply(qL);
 }
 
+/** Two-bone IK at full weight: bend `mid` so root -> end spans root -> target, then swing `root` onto it. Matrices must be current. */
+function twoBone(root: THREE.Bone, mid: THREE.Bone, end: THREE.Bone, target: THREE.Vector3): void {
+  const S = root.getWorldPosition(new THREE.Vector3()), E = mid.getWorldPosition(new THREE.Vector3()), W = end.getWorldPosition(new THREE.Vector3());
+  const a = E.distanceTo(S), b = W.distanceTo(E);
+  const c = Math.max(Math.abs(a - b) + 1e-3, Math.min(a + b - 1e-4, target.distanceTo(S)));
+  const u = new THREE.Vector3().subVectors(S, E), v = new THREE.Vector3().subVectors(W, E);
+  const cur = u.angleTo(v);
+  const des = Math.acos(Math.max(-1, Math.min(1, (a * a + b * b - c * c) / (2 * a * b))));
+  const n = new THREE.Vector3().crossVectors(u, v);
+  if (n.lengthSq() < 1e-10) return;
+  n.normalize();
+  const r = new THREE.Quaternion().setFromAxisAngle(n, des - cur);
+  rotateWorld(mid, r);
+  v.applyQuaternion(r);
+  W.copy(E).add(v);
+  const r2 = new THREE.Quaternion().setFromUnitVectors(W.sub(S).normalize(), new THREE.Vector3().subVectors(target, S).normalize());
+  rotateWorld(root, r2);
+}
+
+/** window.__rigReplay (rig/replay.ts) feeds every tick and its events through these when the human views are up. */
+const feeds: Partial<Record<Side, ReplayFeed>> = {};
+/** window.__humanProbe(side): the drawn body this frame (tests / audits; read-only). */
+const probes: Partial<Record<Side, () => unknown>> = {};
+(window as unknown as { __humanProbe: (side: Side) => unknown }).__humanProbe = side => probes[side]?.() ?? null;
+
 export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, parent: THREE.Object3D): RigView {
   if (!assets) throw new Error('createHumanView: call preloadHuman() first');
   const { boxer, lib, roles, index } = assets;
@@ -103,6 +133,15 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     Left: [bone('LeftArm'), bone('LeftForeArm'), bone('LeftHand')] as const,
     Right: [bone('RightArm'), bone('RightForeArm'), bone('RightHand')] as const,
   };
+  const leg = {
+    Left: [bone('LeftUpLeg'), bone('LeftLeg'), bone('LeftFoot')] as const,
+    Right: [bone('RightUpLeg'), bone('RightLeg'), bone('RightFoot')] as const,
+  };
+  const neck = bone('Neck');
+  const spray = new Spray(parent);
+  // the hit snap: the sim head relative to his floor point, its slow average, and how long the snap is drawn
+  const headRel = new THREE.Vector3(), headSlow = new THREE.Vector3();
+  let headInit = false, struck = 0, frozen = false;
   const anim = new HumanAnim(lib, roles, side, spec.stance, cfg);
   if (side === 0) {
     const miss = anim.missing();
@@ -122,23 +161,85 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       return { headFwd: fwd, head: hp.toArray(), gloves: [g('Left'), g('Right')] };
     },
     apply(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]): void {
+      if (frozen) return;
+      run(prev, next, alpha, dt, events);
+    },
+    highlight(): void { /* the read's warm rim: not drawn on the human body yet */ },
+    setFace(): void { /* no face rig yet */ },
+    setBodyState(): void { /* no sweat / damage layer yet */ },
+    dispose(): void {
+      parent.remove(group);
+      heads[side] = null;
+      shown[side] = null;
+      delete probes[side];
+      if (feeds[side] === feed) delete feeds[side];
+      spray.mesh.parent?.remove(spray.mesh);
+      model.traverse(o => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) (Array.isArray(m.material) ? m.material : [m.material]).forEach(mt => mt.dispose());
+      });
+    },
+  };
+  // Read-only test hook: what is DRAWN this frame (world m). The sim beside it: window.__states()[side] (gloves[i].pos, punch, pos).
+  const v3 = (o: THREE.Object3D): number[] => o.getWorldPosition(new THREE.Vector3()).toArray();
+  const gloveOf = (a: 'Left' | 'Right'): number[] => {
+    const h = arm[a][2].getWorldPosition(new THREE.Vector3()), e = arm[a][1].getWorldPosition(new THREE.Vector3());
+    return h.addScaledVector(h.clone().sub(e).normalize(), cfg.humanGloveOffset).toArray();
+  };
+  probes[side] = () => {
+    const lead = spec.stance === 'orthodox' ? 'Left' : 'Right', rear = lead === 'Left' ? 'Right' : 'Left';
+    return {
+      head: v3(head), hips: v3(hips),
+      gloves: { left: gloveOf('Left'), right: gloveOf('Right'), lead: gloveOf(lead), rear: gloveOf(rear) },
+      feet: { left: v3(leg.Left[2]), right: v3(leg.Right[2]) },
+      clip: anim.info.slug, frame: anim.info.frame, punchClip: anim.info.punch, label,
+    };
+  };
+  const feed: ReplayFeed ={ feed: (p, n, ev) => run(p, n, 1, SIM_DT, ev), freeze: on => { frozen = on; } };
+  feeds[side] = feed;
+  installRigReplay(cfg, () => feeds);
+
+  function run(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]): void {
+    {
       // ---- place: interpolated floor position, facing yaw (the clips face +Z), scaled to his height ----
       const x = prev.pos.x + (next.pos.x - prev.pos.x) * alpha, z = prev.pos.z + (next.pos.z - prev.pos.z) * alpha;
       let dy = next.yaw - prev.yaw;
       dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       const yaw = prev.yaw + dy * alpha;
-      // stand back along his facing so the leaning mocap head sits over the sim's head (cfg.humanBackShift)
-      group.position.set(x - Math.cos(yaw) * cfg.humanBackShift, 0, z - Math.sin(yaw) * cfg.humanBackShift);
-      group.rotation.y = Math.PI / 2 - yaw;
-      group.visible = true;
+      shown[side] = { prev, next };
+      const oppSt = shown[side === 0 ? 1 : 0];
 
       // ---- pose from the clips ----
-      const out = anim.update(prev, next, alpha, Math.min(dt, 0.1), events);
+      const out = anim.update(prev, next, alpha, Math.min(dt, 0.1), events, oppSt);
+      // stand back along his facing so the leaning mocap head sits over the sim's head (cfg.humanBackShift); with
+      // mocapGeo the punch's lunge moves the body (the sim moves his head and body boxes by the same) and its turn turns it
+      group.position.set(x - Math.cos(yaw) * cfg.humanBackShift + out.lunge.x, 0, z - Math.sin(yaw) * cfg.humanBackShift + out.lunge.z);
+      group.rotation.y = Math.PI / 2 - yaw - out.turn;
+      group.visible = true;
+      group.updateMatrixWorld(true);
       label = out.label;
       applyFit(fit, out.pose, fitOut);
       for (let i = 0; i < bones.length; i++) { const r = fitOut.localRot[i]!; bones[i]!.quaternion.set(r[0], r[1], r[2], r[3]); }
       hips.position.set(fitOut.hipsPos[0], fitOut.hipsPos[1], fitOut.hipsPos[2]);
       group.updateMatrixWorld(true);
+
+      // ---- level / crouch / dip / hit sink: the hips go down by the sim's head drop, feet pinned by leg IK ----
+      if (out.drop > 0.002) {
+        const feet = (['Left', 'Right'] as const).map(s => ({ s, p: leg[s][2].getWorldPosition(new THREE.Vector3()), q: leg[s][2].getWorldQuaternion(new THREE.Quaternion()) }));
+        const hp = hips.getWorldPosition(new THREE.Vector3());
+        hp.y -= Math.min(0.45, out.drop);
+        hips.parent!.worldToLocal(hp);
+        hips.position.copy(hp);
+        group.updateMatrixWorld(true);
+        for (const f of feet) {
+          const [u, m, e] = leg[f.s];
+          twoBone(u, m, e, f.p);
+          group.updateMatrixWorld(true);
+          e.parent!.getWorldQuaternion(qP);
+          e.quaternion.copy(qP.invert().multiply(f.q));   // the foot keeps its world orientation (flat on the canvas)
+        }
+        group.updateMatrixWorld(true);
+      }
 
       // ---- procedural lean (slips without a clip, the blocked-shot jolt): spread over the three spine bones ----
       const { lat, back, fwd } = out.lean;
@@ -174,14 +275,38 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         rise(up, 1);   // the rest of the gap
       }
 
+      // ---- the sim's hit snap on top of the clip: the fast part of the sim head's movement, through the spine and neck ----
+      {
+        const hx = prev.headBox.x + (next.headBox.x - prev.headBox.x) * alpha, hy = prev.headBox.y + (next.headBox.y - prev.headBox.y) * alpha, hz = prev.headBox.z + (next.headBox.z - prev.headBox.z) * alpha;
+        headRel.set(hx - x, hy, hz - z);
+        if (!headInit) { headSlow.copy(headRel); headInit = true; }
+        headSlow.lerp(headRel, 1 - Math.exp(-dt / Math.max(0.01, cfg.humanReactTau)));
+        if (events.some(e => e.type === 'punchLand' && e.target === side)) struck = cfg.humanReactHold;
+        if (struck > 0 && cfg.humanReactGain > 0) {
+          const k = cfg.humanReactGain * (struck / cfg.humanReactHold);
+          const delta = new THREE.Vector3().subVectors(headRel, headSlow).multiplyScalar(k);
+          if (delta.length() > 0.4) delta.setLength(0.4);
+          for (const [pivot, share] of [[spine[2]!, 0.5], [neck, 0.5]] as const) {
+            const H = head.getWorldPosition(new THREE.Vector3()), P = pivot.getWorldPosition(new THREE.Vector3());
+            const arm1 = H.sub(P), d = delta.clone().multiplyScalar(share);
+            const ax = new THREE.Vector3().crossVectors(arm1, d);
+            if (ax.lengthSq() < 1e-12) continue;
+            qR.setFromAxisAngle(ax.normalize(), Math.atan2(d.length(), arm1.length()));
+            rotateWorld(pivot, qR);
+            group.updateMatrixWorld(true);
+          }
+        }
+        struck = Math.max(0, struck - dt);
+      }
+
       // ---- fist on target: two-bone IK on the punching arm, bell-weighted round the hit ----
-      if (out.ik && cfg.humanHandIK) {
+      if (out.ik && (cfg.humanHandIK || out.ik.exact)) {
         const [up, fore, hand] = arm[out.ik.arm];
         up.getWorldPosition(vS); fore.getWorldPosition(vE); hand.getWorldPosition(vW);
         vT.set(out.ik.at.x, out.ik.at.y, out.ik.at.z);
         const opp = heads[side === 0 ? 1 : 0];
-        if (opp) {
-          const k = Math.max(0, Math.min(1, 1 - (vT.distanceTo(opp.sim) - 0.15) / 0.3));   // only a target at the head
+        if (opp && !out.ik.exact) {   // (mocapGeo: the sim glove IS the drawn clip glove; no picture-vs-sim head shift)
+          const k =Math.max(0, Math.min(1, 1 - (vT.distanceTo(opp.sim) - 0.15) / 0.3));   // only a target at the head
           vT.addScaledVector(vA.subVectors(opp.drawn, opp.sim), k);
         }
         // aim the wrist short of the glove centre along the shoulder -> glove line
@@ -208,28 +333,55 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         vA.subVectors(vW, vS).normalize(); vB.subVectors(vT, vS).normalize();
         qR.setFromUnitVectors(vA, vB);
         rotateWorld(up, qR);
+        if (out.ik.exact) {
+          // second pass: the glove centre sits humanGloveOffset past the wrist along the FOREARM as it now lies
+          group.updateMatrixWorld(true);
+          const T = new THREE.Vector3(out.ik.at.x, out.ik.at.y, out.ik.at.z), E = fore.getWorldPosition(new THREE.Vector3());
+          twoBone(up, fore, hand, T.clone().addScaledVector(T.clone().sub(E).normalize(), -cfg.humanGloveOffset));
+        }
         // weight
         up.quaternion.copy(save[0]!.slerp(up.quaternion, w));
         fore.quaternion.copy(save[1]!.slerp(fore.quaternion, w));
       }
+      // ---- guard tuck (drawn only): close to the other man the guard hands come back toward his own chin, never in a punch ----
+      if (cfg.humanGuardTuck > 0 && next.punch.type === null && !next.down && oppSt) {
+        const d = Math.hypot(oppSt.next.pos.x - next.pos.x, oppSt.next.pos.z - next.pos.z);
+        const span = Math.max(0.01, cfg.humanTuckFar - cfg.humanTuckNear);
+        const t = Math.max(0, Math.min(1, (cfg.humanTuckFar - d) / span));
+        const k = cfg.humanGuardTuck * t * t * (3 - 2 * t);
+        if (k > 0.002) {
+          const chin = head.getWorldPosition(new THREE.Vector3());
+          chin.x += Math.cos(yaw) * 0.06; chin.z += Math.sin(yaw) * 0.06;   // just in front of the face
+          for (const a of ['Left', 'Right'] as const) {
+            const [u, m, e] = arm[a];
+            const hp = e.getWorldPosition(new THREE.Vector3());
+            const to = new THREE.Vector3().subVectors(chin, hp);
+            const room = to.length() - 0.1;
+            if (room <= 0) continue;
+            twoBone(u, m, e, hp.addScaledVector(to.normalize(), Math.min(k, room)));
+            group.updateMatrixWorld(true);
+          }
+        }
+      }
+
       // record this man's drawn head (bone origin + ~9 cm to the head's centre) against the sim's sphere
       const hd = heads[side] ?? (heads[side] = { drawn: new THREE.Vector3(), sim: new THREE.Vector3() });
       head.getWorldPosition(hd.drawn);
       hd.drawn.y += 0.09 * group.scale.y;
       hd.sim.set(next.headBox.x, next.headBox.y, next.headBox.z);
-    },
-    highlight(): void { /* the read's warm rim: not drawn on the human body yet */ },
-    setFace(): void { /* no face rig yet */ },
-    setBodyState(): void { /* no sweat / damage layer yet */ },
-    dispose(): void {
-      parent.remove(group);
-      heads[side] = null;
-      model.traverse(o => {
-        const m = o as THREE.Mesh;
-        if (m.isMesh) (Array.isArray(m.material) ? m.material : [m.material]).forEach(mt => mt.dispose());
-      });
-    },
-  };
+
+      // ---- sweat off the head on clean / flush lands (rig/spray.ts), from the DRAWN head, along the punch ----
+      if (cfg.humanSpray) {
+        for (const e of events) {
+          if (e.type !== 'punchLand' || e.target !== side || e.part !== 'head' || e.grade === 'glancing') continue;
+          const n = Math.round(cfg.rigSprayCount * (e.grade === 'flush' ? 1 : 0.4) * (0.3 + 0.7 * Math.min(1, next.fatigue + 0.4)));
+          const dl = Math.hypot(e.impulse.x, e.impulse.z) || 1, off = next.body.headR * 1.6;
+          spray.burst(n, { x: hd.drawn.x + e.impulse.x / dl * off, y: hd.drawn.y + next.body.headR * 0.3, z: hd.drawn.z + e.impulse.z / dl * off }, e.impulse, cfg.rigSpraySpeed, cfg.rigSpraySize, cfg.rigSprayLife);
+        }
+      }
+      spray.update(dt);
+    }
+  }
   (window as unknown as { __human?: Record<number, { label: () => string }> }).__human ??= {};
   (window as unknown as { __human: Record<number, { label: () => string }> }).__human[side] = view;
   return view;

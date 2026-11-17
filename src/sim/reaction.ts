@@ -15,6 +15,7 @@ import { neckMult, reactionSnap, setNeckMult, setReactionSnap } from './state';
 import { slipBack, slipHeadDip, slipLateral, slipShape } from './slip';
 import { stanceDrop } from './footing';
 import { fitSimTorso, keyedFor } from './skel';
+import { mocapLunge } from './mocap';
 
 /**
  * Kick the defender's springs. `dir` is the unit impulse direction, `mag` in
@@ -218,6 +219,18 @@ export function stepReaction(f: FighterState, cfg: Config, dt: number): void {
  * slipped straight can still catch the body if the slip went the wrong way.
  */
 export function computeBoxes(f: FighterState, cfg: Config): void {
+  // mocapGeo: the puncher's body (head, capsule, skeleton) stands at pos + the clip's lunge; pos itself is restored exactly.
+  const L = cfg.mocapGeo ? mocapLunge(f) : null;
+  if (L) {
+    const px = f.pos.x, pz = f.pos.z;
+    f.pos.x = px + L.x; f.pos.z = pz + L.z;
+    computeBoxesAt(f, cfg);
+    f.pos.x = px; f.pos.z = pz;
+    return;
+  }
+  computeBoxesAt(f, cfg);
+}
+function computeBoxesAt(f: FighterState, cfg: Config): void {
   const fr = frameOf(f.yaw);
   const b = f.body, r = f.reaction;
   const slipLat = slipLateral(f);

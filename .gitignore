@@ -8,6 +8,7 @@ tools/blender/_debug.mjs
 tools/blender/_debug.py
 tools/mocap/_debug.mjs
 tools/human_debug.mjs
+tools/mocapgeo_debug.mjs
 *.fbx
 .cache/
 .DS_Store

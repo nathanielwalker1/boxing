@@ -71,7 +71,19 @@ import {
   type Config, type FrameInput, type PunchType, type RngState, type Side, type SimState,
 } from '../core';
 import { canStartPunch } from '../sim';
+import { mocapCfg } from '../sim/mocap';
 import { defaultStyle, type ComboStep, type StyleParams } from './style';
+
+/** mocapGeo: a style's distances × mocapRangeScale (cached per style object and scale; the source is never changed). */
+const MOCAP_STYLE = new WeakMap<StyleParams, { s: number; st: StyleParams }>();
+function mocapStyle(st: StyleParams, cfg: Config): StyleParams {
+  const s = cfg.mocapRangeScale, hit = MOCAP_STYLE.get(st);
+  if (hit && hit.s === s) return hit.st;
+  const out: StyleParams = { ...st, standoff: st.standoff * s, standoffBand: st.standoffBand * s, probeDist: st.probeDist * s, resetDist: st.resetDist * s,
+    engageStraight: st.engageStraight * s, engageHook: st.engageHook * s, engageUppercut: st.engageUppercut * s };
+  MOCAP_STYLE.set(st, { s, st: out });
+  return out;
+}
 
 export { defaultStyle, styleFor, styleParams, withDifficulty, withReach, DIFFICULTY, STYLE_IDS, type StyleParams, type ComboStep, type Difficulty } from './style';
 export { DRILLS, type Drill } from './drills';
@@ -369,10 +381,12 @@ function trackStick(a: AiState, input: FrameInput, dt: number, cfg: Config, pres
  * Decide this tick's input from the state the sim is about to step. Pure:
  * returns a new AiState and a fresh FrameInput, touches neither argument.
  */
-export function aiStep(ai: Readonly<AiState>, s: SimState, cfg: Config): { ai: AiState; input: FrameInput } {
+export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai: AiState; input: FrameInput } {
+  // mocapGeo: the same scaled distances the sim reads (sim/mocap.ts), and the style's own distances × mocapRangeScale.
+  const cfg = mocapCfg(cfgIn);
   const a: AiState = { ...ai, rng: rngClone(ai.rng), rngT: rngClone(ai.rngT), macro: ai.macro ? { ...ai.macro } : null, used: { ...ai.used }, queue: ai.queue.slice(), learn: [ai.learn[0], ai.learn[1], ai.learn[2], ai.learn[3]],
     since: [ai.since[0], ai.since[1], ai.since[2], ai.since[3]], gap: [ai.gap[0], ai.gap[1], ai.gap[2], ai.gap[3]], steady: [ai.steady[0], ai.steady[1], ai.steady[2], ai.steady[3]] };
-  const st = a.style ?? defaultStyle(cfg);
+  const st = cfg.mocapGeo ? mocapStyle(a.style ?? defaultStyle(cfgIn), cfgIn) : a.style ?? defaultStyle(cfg);
   const tools = cfg.aiToolsOn || a.style !== null;
   const input = cloneInput(NULL_INPUT);
   input.timedSkill = [cfg.aiTimedBlockEasy, cfg.aiTimedBlockMed, cfg.aiTimedBlockHard][Math.max(0, Math.min(2, Math.round(cfg.aiDifficulty)))]!;   // guardHolesV2: a well-timed block is a skill

@@ -198,10 +198,39 @@ export function bake(outDir, rows, raws) {
         const best = cands.sort((a, b) => (b.r.loop - a.r.loop) || (b.r.stats.guardFrac - a.r.stats.guardFrac) || (a.r.stats.peakTravel - b.r.stats.peakTravel))[0];
         if (best) pick = { slug: best.c.slug, from: 0, to: best.c.frames - 1 };
         if (best && role === 'block') pick.contact = tightestGuardFrame(raws[best.c.slug]);
+        if (best && role === 'block_hit') pick.impact = tightestGuardFrame(raws[best.c.slug]);   // the gloves crushed onto the head = the shot arriving
       }
     }
     roles[role] = pick;
   }
+  // Alternates: the other single-punch head crosses as cross_2, cross_3 ... (least travel first, as the pick);
+  // the other guard-up idles as idle_2, idle_3 ... (each fighter gets a different one).
+  if (roles.cross) {
+    const alts = live.filter(({ r, c }) => c.punches.length === 1 && c.punches[0].type === 'cross' && c.slug !== roles.cross.slug && r.usable !== 'no').sort((a, b) => a.r.stats.peakTravel - b.r.stats.peakTravel);
+    alts.forEach(({ c }, k) => { roles[`cross_${k + 2}`] = { slug: c.slug, from: 0, to: c.frames - 1, contact: c.punches[0].peak }; });
+  }
+  if (roles.idle) {
+    const alts = live.filter(({ r, c }) => r.label.startsWith('fight idle') && c.slug !== roles.idle.slug).sort((a, b) => (b.r.loop - a.r.loop) || (b.r.stats.guardFrac - a.r.stats.guardFrac));
+    alts.forEach(({ c }, k) => { roles[`idle_${k + 2}`] = { slug: c.slug, from: 0, to: c.frames - 1 }; });
+  }
+  // Two-punch combinations: combo_<first>_<second> (jab, cross, lead_hook, rear_hook, lead_uppercut, rear_uppercut).
+  // from = where the first hand is on its way back (half way from its contact to its end, never before the second
+  // punch starts winding), contact = the second punch's contact; first = the first punch's mark. body: true when
+  // the combination is thrown to the body (head-level ones are preferred).
+  const norm = (t) => t.replace(/^body /, '').replace(/ /g, '_');
+  const combos = {};
+  for (const { r, c } of live) {
+    if (!r.label.startsWith('combo') || c.punches.length !== 2) continue;
+    const [a, b] = c.punches;
+    const name = `combo_${norm(a.type)}_${norm(b.type)}`;
+    const body = a.type.startsWith('body ') || b.type.startsWith('body ');
+    if (combos[name] && !(combos[name].body && !body)) continue;
+    // enter as the first hand starts back (a quarter of its way home): late enough not to replay the first punch,
+    // early enough that the second has a real wind-up (entering at half way left 6 frames: a frozen pose, lifted by the aim)
+    const from = Math.max(b.from, Math.round(a.peak + (a.to - a.peak) * 0.25));
+    combos[name] = { slug: c.slug, from: Math.min(from, b.peak - 2), to: Math.min(c.frames - 1, b.to + Math.round((b.to - b.peak) * 0.5)), contact: b.peak, first: { from: a.from, to: a.to, contact: a.peak }, ...(body ? { body: true } : {}) };
+  }
+  Object.assign(roles, combos);
   writeFileSync(join(outDir, 'roles.json'), JSON.stringify(roles, null, 1) + '\n');
   return { clips: clips.length, bytes: bin.length + JSON.stringify(index).length, roles: Object.entries(roles).map(([k, v]) => `${k}=${v ? v.slug : 'null'}`).join(' ') };
 }

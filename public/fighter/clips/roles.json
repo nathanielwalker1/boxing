@@ -11,11 +11,10 @@
   "contact": 24
  },
  "cross": {
-  "slug": "boxing_7",
+  "slug": "cross_punch",
   "from": 0,
-  "to": 127,
-  "contact": 39,
-  "body": true
+  "to": 60,
+  "contact": 34
  },
  "lead_hook": {
   "slug": "hook",
@@ -30,11 +29,10 @@
   "contact": 68
  },
  "lead_uppercut": {
-  "slug": "boxing_5",
+  "slug": "lead_uppercut",
   "from": 0,
-  "to": 132,
-  "contact": 41,
-  "body": true
+  "to": 36,
+  "contact": 24
  },
  "rear_uppercut": {
   "slug": "boxing_3",
@@ -50,10 +48,10 @@
   "contact": 27
  },
  "body_cross": {
-  "slug": "boxing_7",
+  "slug": "body_cross",
   "from": 0,
-  "to": 127,
-  "contact": 39
+  "to": 54,
+  "contact": 8
  },
  "body_hook": {
   "slug": "bodyhook2",
@@ -72,7 +70,12 @@
   "from": 0,
   "to": 206
  },
- "block_hit": null,
+ "block_hit": {
+  "slug": "center_block",
+  "from": 0,
+  "to": 48,
+  "impact": 19
+ },
  "hit_head_light": {
   "slug": "light_hit_to_head_copy",
   "from": 0,
@@ -229,5 +232,68 @@
   "slug": "defeat",
   "from": 0,
   "to": 285
+ },
+ "cross_2": {
+  "slug": "cross",
+  "from": 0,
+  "to": 47,
+  "contact": 4
+ },
+ "idle_2": {
+  "slug": "idle",
+  "from": 0,
+  "to": 132
+ },
+ "idle_3": {
+  "slug": "idle_1",
+  "from": 0,
+  "to": 217
+ },
+ "combo_jab_cross": {
+  "slug": "body_jab_cross_1",
+  "from": 26,
+  "to": 53,
+  "contact": 36,
+  "first": {
+   "from": 10,
+   "to": 37,
+   "contact": 22
+  },
+  "body": true
+ },
+ "combo_lead_hook_cross": {
+  "slug": "boxing_1",
+  "from": 29,
+  "to": 57,
+  "contact": 39,
+  "first": {
+   "from": 13,
+   "to": 40,
+   "contact": 25
+  },
+  "body": true
+ },
+ "combo_lead_hook_lead_hook": {
+  "slug": "boxing_6",
+  "from": 74,
+  "to": 110,
+  "contact": 89,
+  "first": {
+   "from": 12,
+   "to": 38,
+   "contact": 29
+  }
+ },
+ "combo_lead_hook_rear_hook": {
+  "slug": "hook_2",
+  "from": 70,
+  "to": 132,
+  "contact": 97,
+  "first": {
+   "from": 50,
+   "to": 66,
+   "contact": 60
+  },
+  "body": true
  }
 }

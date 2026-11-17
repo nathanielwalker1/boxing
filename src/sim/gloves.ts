@@ -22,6 +22,7 @@ import { hurtMods, stanceDrop } from './footing';
 import { hitBody } from './reaction';
 import { aimPoint, keyHeadShift, keyedFor, laneLift, simKeyedPose } from './skel';
 import { fk, guardPose, keyedHandTarget, posePunchOf, skelDef, SKJ } from '../core';
+import { mocapGlove, mocapLunge } from './mocap';
 
 const HANDS: [Hand, Hand] = ['lead', 'rear'];
 /**
@@ -213,8 +214,12 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
   const keyed = keyedFor(f, cfg) && !!f.skel && !(cfg.clinchV2 && clinchAmount(f, cfg) > 0);
   const rp = keyed ? simKeyedPose(f, cfg) : null;
   const kf = keyed ? fk(skelDef(f.body, f.stance, cfg), f.skel!) : null;
+  // mocapGeo (sim/mocap.ts): the guard rides the puncher's lunge; the punching hand goes where the clip's glove is.
+  const lunge = cfg.mocapGeo ? mocapLunge(f) : null;
+  const mg = cfg.mocapGeo ? mocapGlove(f) : null;
   for (let i = 0; i < 2; i++) {
     const hand = HANDS[i]!;
+    const mocapMine = mg !== null && f.punch.type !== null && f.punch.hand === hand;
     const tl = targetLocal(f, hand, cfg, other);
     const { pose, contact, guard } = tl;
     // Keyed: the punching hand keeps the punch's stiffness home too — the KEY times the retraction (no slower than the
@@ -236,6 +241,7 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     t = contact ? { x: contact.x, y: contact.y, z: contact.z } : localToWorld(f.pos, fr, fwd, pose.up + bob - stanceDrop(f, cfg), lat);
     // The gloves ride the torso's reaction offset, so they travel with the body.
     if (!contact) { t.x += f.reaction.torso.x; t.y += f.reaction.torso.y; t.z += f.reaction.torso.z; }
+    if (lunge) { t.x += lunge.x; t.z += lunge.z; }
     return t;
     };
     t = toWorld(pose, guard, contact);
@@ -246,7 +252,8 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     // The PUNCHING hand leaves home along its key: the key's chest-frame path, offset by home − its keyed guard spot
     // (so it starts and ends exactly at home) and lifted by the lane difference to the other man as it goes out (the
     // whole punch plane follows his height), then blended toward the aim point by the key; held inside the arm.
-    if (rp && kf) {
+    if (mocapMine) t = { x: mg.x, y: mg.y, z: mg.z };
+    else if (rp && kf) {
       const hs = keyHeadShift(f), sideL = handLateralSign(hand, f.stance);
       const mine = f.punch.type !== null && f.punch.hand === hand;
       const hl = mine ? targetLocal({ ...f, punch: { ...f.punch, type: null } }, hand, cfg, other) : tl;
@@ -287,7 +294,7 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     const g = f.gloves[i]!;
     if (cfg.blockFeelV2 && cfg.blockFeelCatchOn && cfg.guardHolesV2) t = catchOffset(f, other, i, t, cfg);
     const free = t;
-    if (solid) t = cutTarget(g.pos, t, fr.fwd, other, f.body.gloveR, sink, hitBody(other, cfg), keyed && f.punch.type !== null && f.punch.hand === hand);
+    if (solid) t = cutTarget(g.pos, t, fr.fwd, other, f.body.gloveR, sink, hitBody(other, cfg), (keyed && f.punch.type !== null && f.punch.hand === hand) || mocapMine);
     // Remember whether the other fighter's head or body clipped this target:
     // the hit test reads it (a fist stopped on a pinned guard hand is only
     // "absorbed" if the punch was going to arrive).
@@ -300,7 +307,7 @@ export function stepGloves(f: FighterState, other: FighterState, side: Side, tim
     // Phase 1.4: the keyed PUNCHING glove is kinematic — it is where its key puts it this tick (a spring chasing a hand
     // that is fastest at arrival lagged it 13–18 cm short of the face on the hit tick: measured). The contacts below
     // still stop it on a body and push it off a guard.
-    const kin = keyed && f.punch.type !== null && f.punch.hand === hand;
+    const kin = (keyed && f.punch.type !== null && f.punch.hand === hand) || mocapMine;
     springs(f)[i] = { k, c, kin, sx: g.pos.x, sy: g.pos.y, sz: g.pos.z };
   }
   void dt;

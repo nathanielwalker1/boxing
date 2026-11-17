@@ -17,6 +17,8 @@
 import type { Config } from '../core/config';
 import type { BodyPart, FighterState, HitGrade, PunchType, SimEvent, Side, Vec3 } from '../core/types';
 import { punchPhases } from '../sim/punches';
+import { mocapPunchNow } from '../sim/mocap';
+import { mocapRoleNames, type ChainedFrom } from '../core/mocap';
 import { makePose, sample, type Clip, type ClipLib, type Pose, type Role, type Roles } from './clip';
 
 interface Pick { name: string; role: Role; clip: Clip; mirror: boolean }
@@ -30,11 +32,16 @@ interface Track {
 export interface AnimOut {
   pose: Pose;
   /** Hand IK ask: pull this arm's hand so the glove centre sits at `at` (world), by weight w. */
-  ik: { arm: 'Left' | 'Right'; w: number; at: Vec3 } | null;
+  ik: { arm: 'Left' | 'Right'; w: number; at: Vec3; exact?: boolean } | null;
+  /** mocapGeo: the body offset of the punch's lunge (world floor m) and its turn (rad, + = toward his right), from the sim. */
+  lunge: { x: number; z: number };
+  turn: number;
   /** Aim lift: a body-flagged clip thrown at the head: raise the punching hand toward world height y (spine pitch + shoulder), by weight w. */
   aim: { arm: 'Left' | 'Right'; w: number; y: number } | null;
   /** Procedural spine lean, as the head displacement wanted, m, in his own frame (lat + = to his left, back + = backward, fwd + = forward bend). */
   lean: { lat: number; back: number; fwd: number };
+  /** Drop the hips this far, m, feet pinned (level, crouch, posture, slip dip, the sink of a hit). */
+  drop: number;
   /** What is playing (debug / checks). */
   label: string;
 }
@@ -44,6 +51,8 @@ const LABEL_FALLBACK: Record<string, string> = {
   walk_fwd: 'step forward', walk_back: 'step back', walk_left: 'step left', walk_right: 'step right',
   stunned: 'stagger (dizzy idle)', knockdown: 'knockdown fall',
 };
+
+// The clip choice for a punch is ONE function in core (core/mocap.ts mocapRoleNames / mocapPunchPick), shared with the sim's glove.
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
@@ -76,6 +85,14 @@ export class HumanAnim {
   private hitN = 0;
   private jolt = 0;   // procedural flinch of a blocked shot, 1 -> 0
   private wasDown = false;
+  private clock = 0;
+  private punchStart = 0;
+  private ikTail: { arm: 'Left' | 'Right'; gi: number; w: number } | null = null;
+  /** The clip on top this frame (read-only, for tests). */
+  info: { slug: string; frame: number; punch: boolean } = { slug: '', frame: 0, punch: false };
+  private lastPunch: ChainedFrom | null = null;
+  private lastPunchEnd = -1e9;
+  private chainedFrom: ChainedFrom | null = null;
 
   constructor(private readonly lib: ClipLib, private readonly roles: Roles, private readonly side: Side, stance: string, private readonly cfg: Config) {
     this.nb = lib.bones.length;
@@ -88,7 +105,8 @@ export class HumanAnim {
       this.upperMask[i] = s === 'Spine' ? 0.35 : s === 'Spine1' ? 0.7 : /^(Spine2|Neck|Head|Left(Shoulder|Arm|ForeArm|Hand)|Right(Shoulder|Arm|ForeArm|Hand))/.test(s) ? 1 : 0;
     });
     // A second idle for the other corner if one exists; otherwise the same idle half a loop apart.
-    this.idle = (side === 1 ? this.find('idle_2') ?? this.find('idle_alt') : null) ?? this.find('idle');
+    // (idle_2 measures the same as idle — likely the same take — so the other corner prefers idle_3, the long guard)
+    this.idle = (side === 1 ? this.find('idle_3') ?? this.find('idle_2') : null) ?? this.find('idle');
     this.idleT = this.idle ? (side === 1 ? this.idle.clip.duration * 0.47 : 0) : 0;
   }
 
@@ -149,20 +167,28 @@ export class HumanAnim {
     this.hit = { pick: pk, t: impact + age, end: pk.role.to / fps, n: ++this.hitN, fromState };
   }
 
-  update(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]): AnimOut {
+  /** `opp`: the opponent's states this frame (mocapGeo needs them for the aim, exactly as the sim does), or null. */
+  update(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[], opp: { prev: FighterState; next: FighterState } | null = null): AnimOut {
     const cfg = this.cfg;
+    this.clock += dt;
     this.wanted.clear();
     let label = '';
     const lean = { lat: 0, back: 0, fwd: 0 };
     let ik: AnimOut['ik'] = null;
     let aim: AnimOut['aim'] = null;
+    let slipClip = false;
+    let lunge = { x: 0, z: 0 }, turn = 0;
     const p = next.punch;
     const punching = p.type !== null;
 
     // ---- events: hits and blocked shots on this man ----
     let hitByEvent = false;
     for (const e of events) {
-      if (e.type === 'punchLand' && e.target === this.side) { this.startHit(e.part, e.punch, e.grade, 1, 0, false); hitByEvent = true; }
+      if (e.type === 'punchLand' && e.target === this.side) {
+        // grade picks the size; a counter or a combination's finisher is one size up
+        const g: HitGrade = (e.counter || e.finisher) && e.grade !== 'flush' ? (e.grade === 'glancing' ? 'clean' : 'flush') : e.grade;
+        this.startHit(e.part, e.punch, g, 1, 0, false); hitByEvent = true;
+      }
       else if (e.type === 'punchBlock' && e.target === this.side) {
         const bh = this.find('block_hit');
         if (bh) this.want('blockhit#' + this.seq, bh, (bh.role.impact ?? bh.role.contact ?? bh.role.from) / bh.clip.fps, { fadeIn: 0.04, upper: true });
@@ -194,6 +220,11 @@ export class HumanAnim {
       if (next.getUp.phase === 'rise' && gu) {
         this.want('getup', gu, gu.role.from / gu.clip.fps + next.getUp.t, { fadeIn: 0.3 });
         label = 'getup';
+      } else if (next.getUp.phase === 'rise' && kd) {
+        // no get-up clip: the fall played backwards from where it settled reads as getting up (instead of a pop to standing)
+        const settle = ((kd.role as Role & { settle?: number }).settle ?? kd.role.to) / kd.clip.fps;
+        this.want('down', kd, Math.max(kd.role.from / kd.clip.fps, settle - next.getUp.t * cfg.humanRiseRate), { fadeIn: 0.12, fadeOut: 0.5 });
+        label = 'rise (fall reversed)';
       } else if (kd) {
         this.want('down', kd, Math.min(kd.role.to / kd.clip.fps, kd.role.from / kd.clip.fps + next.downT), { fadeIn: 0.12, fadeOut: 0.4 });
         label = 'down ' + kd.name;
@@ -213,14 +244,46 @@ export class HumanAnim {
         const lead = p.hand === 'lead';
         const base = type === 'jab' ? 'jab' : type === 'cross' ? 'cross' : `${lead ? 'lead' : 'rear'}_${type}`;
         const low = p.variant.startsWith('body') || p.aim > cfg.humanBodyAim;
-        const pk = low ? this.pick(`body_${base}`, `body_${type}`, base) : this.pick(base);
         const key = `${type}:${p.hand}:${p.variant}`;
-        if (key !== this.punchKey || p.progress < this.lastProgress - 0.25) { this.punchKey = key; this.punchN++; }
+        if (key !== this.punchKey || p.progress < this.lastProgress - 0.25) {
+          // a new punch: chained if the last one was still in flight (the sim's test) or ended a moment ago
+          const last = this.lastPunch;
+          this.chainedFrom = last && (prev.punch.type !== null || this.clock - this.lastPunchEnd < cfg.humanComboWindow) ? last : null;
+          this.punchKey = key; this.punchN++; this.punchStart = this.clock;
+        }
+        this.lastPunch = { type, hand: p.hand };
+        this.lastPunchEnd = this.clock;
         this.lastProgress = p.progress;
         const u = prev.punch.type === p.type && prev.punch.hand === p.hand ? ip(prev.punch.progress, p.progress) : p.progress;
         const ph = punchPhases(cfg, type);
         const peak = ph.peakAt;
-        if (pk) {
+        // mocapGeo: the SIM's numbers (core/mocap.ts through sim/mocap.ts): its clip, its frame, its lunge, its turn, its glove
+        const geoB = cfg.mocapGeo && opp ? mocapPunchNow(next, opp.next, cfg) : null;
+        const geoA = geoB && opp && prev.punch.type === p.type && prev.punch.hand === p.hand ? mocapPunchNow(prev, opp.prev, cfg) : null;
+        let pk: Pick | null = null;
+        if (geoB?.geo.pick) {
+          const g = geoB.geo, gp = g.pick!;
+          pk = { name: gp.name, role: gp.role, clip: gp.clip, mirror: gp.mirror !== this.southpaw };   // core's mirror is absolute
+          const same = geoA?.geo.pick === gp;
+          const f = same ? ip(geoA!.frame, geoB.frame) : geoB.frame;
+          this.want('punch#' + this.punchN, pk, f / gp.clip.fps);
+          label = `${gp.name} f${f.toFixed(0)} (contact ${gp.contactF})`;
+          lunge = same ? { x: ip(geoA!.lunge.x, geoB.lunge.x), z: ip(geoA!.lunge.z, geoB.lunge.z) } : { ...geoB.lunge };
+          turn = same ? ip(geoA!.geo.turn, g.turn) : g.turn;
+          // the drawn arm onto the sim glove: a small correction, in over the flight, held on the target through the hit-stop
+          // full weight through the whole punch once the clip has faded in (so the drawn glove IS the scored glove), eased in over the fade
+          const w = cfg.humanIKWeight * (p.contact ? 1 : smooth((this.clock - this.punchStart) / Math.max(0.01, cfg.humanFadeIn)));
+          // the SIM's glove (the clip glove, stopped where it met a head, a body or a guard), not the free clip glove
+          const gi = p.hand === 'lead' ? 0 : 1, g0 = prev.gloves[gi].pos, g1 = next.gloves[gi].pos;
+          const gl = { x: ip(g0.x, g1.x), y: ip(g0.y, g1.y), z: ip(g0.z, g1.z) };
+          if (w > 0.01) ik = { arm: g.arm, w, at: gl, exact: true };
+          this.ikTail = { arm: g.arm, gi, w };
+        } else {
+          const names = mocapRoleNames(this.roles, type, p.hand, low, this.chainedFrom);
+          const twin = names[names.length - 1]!;   // the other hand's role: mirrored onto this arm
+          for (const n of names) { const f = this.find(n); if (f) { pk = { ...f, mirror: n === twin }; break; } }
+        }
+        if (pk && !geoB?.geo.pick) {
           const c = pk.clip, fps = c.fps, r = pk.role;
           const mark = c.punches.find(m => r.contact !== undefined ? m.from <= r.contact && r.contact <= m.to + 2 : true);
           const contactF = r.contact ?? mark?.peak ?? (r.from + r.to) / 2;
@@ -231,17 +294,17 @@ export class HumanAnim {
           const f = u <= peak ? startF + (u / Math.max(1e-6, peak)) * (contactF - startF) : contactF + ((u - peak) / Math.max(1e-6, 1 - peak)) * (endF - contactF);
           this.want('punch#' + this.punchN, pk, f / fps);
           label = `${pk.name} f${f.toFixed(0)} (contact ${contactF})`;
-        } else label = `punch ${base}: no clip`;
+        } else if (!pk) label = `punch ${base}: no clip`;
         const sec = (u - peak) * ph.total * Math.max(1, p.timeMult);
-        // A body clip (roles.json body: true) thrown at the head: lift it, bell-shaped round the hit.
-        if (pk && !low && (pk.role as Role & { body?: boolean }).body && cfg.humanAimLift > 0) {
+        // A body clip (roles.json body: true) thrown at the head: lift it, bell-shaped round the hit (the sim aims it itself under mocapGeo).
+        if (pk && !geoB && !low && (pk.role as Role & { body?: boolean }).body && cfg.humanAimLift > 0) {
           const w = cfg.humanAimLift * Math.exp(-0.5 * (sec / Math.max(0.01, cfg.humanAimSigma)) ** 2);
           const gi = lead ? 0 : 1;
           const y = p.contact?.y ?? ip(prev.gloves[gi].pos.y, next.gloves[gi].pos.y);
           if (w > 0.01) aim = { arm: lead !== this.southpaw ? 'Left' : 'Right', w, y };
         }
         // Fist on target: a bell round the hit moment, in (approx.) real seconds.
-        if (cfg.humanHandIK) {
+        if (cfg.humanHandIK && !geoB) {
           const w = cfg.humanIKWeight * Math.exp(-0.5 * (sec / Math.max(0.01, cfg.humanIKSigma)) ** 2);
           if (w > 0.01) {
             const gi = lead ? 0 : 1;
@@ -280,8 +343,9 @@ export class HumanAnim {
         const off = ip(prev.slip.offset, s.offset), dip = ip(prev.slip.dip, s.dip);
         const leftward = s.dir === 2 ? 0 : -off * (this.southpaw ? -1 : 1);   // offset < 0 = toward the lead side
         const name = s.kind === 'roll' || (s.dir !== 2 && dip > 0.06 && Math.abs(off) < 0.05) ? 'duck' : s.dir === 2 ? 'lean_back' : leftward > 0 ? 'slip_left' : 'slip_right';
-        const pk = this.find(name);
+        const pk = name === 'lean_back' && !cfg.humanLeanBackClip ? null : this.pick(name);   // a missing slip side = the other side mirrored
         if (pk) {
+          slipClip = true;
           this.want('slip:' + name + ':' + s.chain, pk, pk.role.from / pk.clip.fps + s.t, { fadeIn: 0.05, fadeOut: 0.15 });
           label = label || name;
         } else {
@@ -344,11 +408,33 @@ export class HumanAnim {
       }
       if (!tr.upper) this.pose.hips[1] = lerp(this.pose.hips[1]!, this.tmp.hips[1]!, w);
     }
+    // after a mocapGeo punch the arm leaves the sim's glove gradually (it is on its way back to the guard), never in one frame
+    if (!ik && this.ikTail) {
+      const t = this.ikTail;
+      t.w -= dt / Math.max(0.01, cfg.humanFadeOut);
+      if (t.w > 0.01 && !next.down) {
+        const g0 = prev.gloves[t.gi === 0 ? 0 : 1].pos, g1 = next.gloves[t.gi === 0 ? 0 : 1].pos;
+        ik = { arm: t.arm, w: t.w, at: { x: lerp(g0.x, g1.x, alpha), y: lerp(g0.y, g1.y, alpha), z: lerp(g0.z, g1.z, alpha) }, exact: true };
+      } else this.ikTail = null;
+    }
+    // what is on top (test hook __humanProbe): the heaviest track, or the idle
+    let top: Track | null = null;
+    for (const tr of this.tracks) if (tr.w > 0.5 && (!top || tr.seq > top.seq)) top = tr;
+    this.info = top
+      ? { slug: top.pick.clip.slug, frame: top.t * top.pick.clip.fps, punch: top.key.startsWith('punch#') }
+      : { slug: this.idle?.clip.slug ?? '', frame: this.idleT * (this.idle?.clip.fps ?? 60), punch: false };
     // The sim owns the floor position: no horizontal hips travel from any clip.
     this.pose.hips[0] = 0; this.pose.hips[2] = 0;
 
     // A blocked shot: a short flinch back (no block_hit clip, or on top of it).
     if (this.jolt > 0) { lean.back += cfg.humanBlockJolt * this.jolt; this.jolt = Math.max(0, this.jolt - dt / 0.18); }
-    return { pose: this.pose, ik, aim, lean, label };
+    // How far the sim's head is down from level / crouch / inside posture / slip dip, m (the view drops the hips by it,
+    // feet pinned). A punch's own crouch is in its clip; a slip clip carries its own dip.
+    const ipn = (a: number, b: number): number => lerp(a, b, alpha);
+    const drop = next.down ? 0 : cfg.humanLevelGain * (ipn(prev.level, next.level) * cfg.levelDrop + ipn(prev.posture, next.posture) * cfg.insideCrouch
+      + (punching ? 0 : Math.max(0, ipn(prev.crouch, next.crouch))) + (slipClip || !next.slip.active ? 0 : ipn(prev.slip.dip, next.slip.dip)))
+      + cfg.humanSinkGain * Math.max(0, ipn(prev.reaction.sink.x, next.reaction.sink.x));
+    if (!slipClip && next.slip.active && !next.down) lean.fwd = 0;   // the dip is now the hips going down, not a bow
+    return { pose: this.pose, ik, aim, lean, drop, label, lunge, turn };
   }
 }

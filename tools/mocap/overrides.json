@@ -1,4 +1,10 @@
 {
+  "cross_punch": { "label": "cross", "note": "THE head-height cross (picked by picture): straight rear hand at head height f26-34, back to guard by f51; in place. The detector called it a rear hook" },
+  "cross": { "label": "cross", "note": "starts already at full extension (f0-18) and steps back 0.5 m: poor as a punch, kept as cross_2", "usable": "with trimming" },
+  "center_block": { "label": "block reaction", "note": "guard up tight, absorbs a shot: head 0.34 m back at f14-21, then back to guard; the blocked-punch reaction" },
+  "rear_uppercut": { "label": "showboat (double uppercut, arms over the head)", "note": "filmed as the rear uppercut role: both hands end up over his head for half a second (looks frozen); not a usable punch" },
+  "dodge": { "label": "slips", "note": "short evasion from a crouch (not a walk; southpaw feet)" },
+  "dodge2": { "label": "dodge (crouch)", "note": "short crouched dodge from a low stance, gloves low; filmed as slip_left it read as a duck, not a slip: kept out of the slip cuts (not a body hook either)" },
   "dodging": { "label": "slips", "note": "evasion sequence: bobs, slips and leans, guard low, drifts 0.5 m back; cut single slips / a duck out of it", "usable": "with trimming" },
   "bodyhook2": { "label": "body lead hook", "note": "lead hook to the body with a small step in (wide arc, f30-65); arc too sideways for the reach detector" },
   "floored": { "label": "down", "note": "lying on the canvas, small breathing / stirring; loops; no get-up in it" },

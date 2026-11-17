@@ -32,6 +32,7 @@ import { cornerOf, endRound, startRound, stepBetween } from './round';
 import { stepFooting } from './footing';
 import { stepClinch } from './clinch';
 import { stepHitStopBudget, stepHold } from './flow';
+import { mocapCfg, stepMocap } from './mocap';
 
 export { healthCap, PUNISH_SLIP, punishSource } from './state';
 export { canStartPunch, guardCover } from './combat';
@@ -69,7 +70,9 @@ export function createState(specs: [FighterSpec, FighterSpec], cfg: Config, seed
   return s;
 }
 
-export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Config): { state: SimState; events: SimEvent[] } {
+export function step(state: SimState, inputs: [FrameInput, FrameInput], cfgIn: Config): { state: SimState; events: SimEvent[] } {
+  // mocapGeo (sim/mocap.ts): the reach-dependent distances × mocapRangeScale; off = cfgIn itself.
+  const cfg = mocapCfg(cfgIn);
   const events: SimEvent[] = [];
   const s = cloneState(state);
   // Hit-stop: the whole sim advances at the scaled rate; the stop itself
@@ -121,6 +124,8 @@ export function step(state: SimState, inputs: [FrameInput, FrameInput], cfg: Con
     stepStun(f, dt, cfg);
     stepVulnerability(f, cfg, dt);
   }
+  // mocapGeo: this tick's mocap glove and lunge, from the punch clocks just advanced (read by computeBoxes and stepGloves).
+  if (cfg.mocapGeo) for (const side of SIDES) stepMocap(s.fighters[side], s.fighters[side === 0 ? 1 : 0], side, cfg);
   // The liver fuse: a clean liver shot buckles him a beat later (or puts him down).
   if (fighting) for (const side of SIDES) stepLiver(s, side, cfg, dt, events);
   // Polish phase (item 3): a body hurt that lands a beat late; a hurt fighter taking a knee by choice.

@@ -14,6 +14,7 @@ import { aiStep, createAi, type AiState, type StyleParams } from './ai';
 import * as aiModule from './ai';
 import { createFighterView as createRigView, type RigView } from './rig';
 import { createHumanView, humanReady, preloadHuman } from './human/view';
+import { loadMocapGeo } from './core/mocapLoad';
 import { FightFlow, type StartOpts } from './ui/flow';
 import { ReplayBuffer, ReplayPlayer } from './ui/replay';
 import { Referee } from './ui/referee';
@@ -94,6 +95,8 @@ if (params.get('tune') === '1') mountTuningPanel(cfg);
 // assets load before the first view is built; with the switch off nothing below changes.
 if (params.get('human') === '1') cfg.humanBody = true;
 if (cfg.humanBody && !(await preloadHuman())) cfg.humanBody = false;
+if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; }
+if (cfg.humanBody) cfg.mocapGeo = await loadMocapGeo();   // the sim's punching glove = the drawn mocap glove (core/mocap.ts)
 function createFighterView(side: Side, spec: FighterSpec, c: Config, parent: Stage['scene']): RigView {
   return c.humanBody && humanReady() ? createHumanView(side, spec, c, parent) : createRigView(side, spec, c, parent);
 }
@@ -402,6 +405,8 @@ let wasHeld = true;
 function loop(nowMs: number): void {
   const dt = Math.min(MAX_FRAME, (nowMs - lastMs) / 1000);
   lastMs = nowMs;
+  // Human fighters: their own punch speed (panel-tunable) and no referee (he is still the old body and walks across the camera).
+  if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; }
   const paused = posed[0] !== null || posed[1] !== null;
   const held = paused || replay !== null || (flow !== null && flow.holdsSim);   // a menu / card / replay is up: the sim waits
   frameEvents.length = 0;

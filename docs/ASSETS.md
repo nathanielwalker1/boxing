@@ -21,10 +21,12 @@ The zips are NOT committed. The extension and the pack stay in Blender's user fo
 
 ## Rebuild (one command)
 
-    npm run asset:boxer
+    npm run asset:boxer                      # -> boxer.glb + skin_dark.webp, skin_normal.webp, ...
+    node tools/blender/build.mjs boxer_v2    # -> boxer_v2.glb + every texture with the _v2 suffix
 
-Writes `public/fighter/boxer.glb` (meshes + skeleton, no animation) and `public/fighter/skin_dark.webp`
-(second skin tone, same UVs, swapped in at runtime). Prerequisites, once per machine:
+The optional name lets a new look be built next to the one the game is using; the still page loads it with
+`human.html?v=2`. Writes `public/fighter/<name>.glb` (meshes + skeleton, no animation) and, next to it, all textures
+with the suffix. Prerequisites, once per machine:
 
 1. Blender 5.3 at `/Applications/Blender.app` (or set `BLENDER`).
 2. `Blender --background --command extension install-file -r user_default --enable <add-on-mpfb-v2.0.18.zip>`
@@ -47,5 +49,24 @@ Do not run Blender with `--factory-startup`: it drops the extension repository a
   diffuse and scalp-painted) and `skin_normal.webp` (shared normal map: pores, six-pack, pec border, stubble).
 - Runtime: `src/human/body.ts` (`loadBoxer()` then `spawn(tone, kit)`) builds the skin material (normal map, clearcoat
   sheen); the shaft/foot of the boots and the kit meshes are weighted deterministically in the build script.
+
+### Look 2 (art pass, `boxer_v2`)
+
+All generated in `build_boxer.py`, no new downloads:
+- Gloves: lace-up shape from an analytic lathe (cuff tapering to the wrist, padded knuckle volume, flat-ish
+  knuckle face), a separate thumb capsule sunk into the side, a label patch across the back of the wrist (invented
+  mark "IRONJAW", 5x7 block letters rasterised in numpy), criss-cross laces on the palm side of the cuff.
+- Trunks: 8.4 cm ribbed elastic waistband (geometry ribs), pipe / diaper / half-lock folds displaced into the mesh,
+  side and hem piping (`trim`), centre-front label patch.
+- Boots: laces up the shaft and instep, sock cuff, heel accent panel (`trim`), seams in the normal map.
+- Face: MPFB targets for a heavier brow, deep-set narrowed eyes, mouth corners down; a little crown volume.
+- Skin: colour zones (blotches, redder knees / elbows / wrists / nose / cheeks / ears, dark eye sockets) over the
+  pack diffuse; deltoid and serratus relief in the normal map.
+- Textures (WebP, kit 1024 px): `glove_c/n/r`, `boot_c/n/r` (albedo grey multiplier, normal, roughness),
+  `trunks_c/n`, `skin_rough` (R = sweat / clearcoat mask, G = roughness), `label` (embedded in the glb).
+  The glb's `asset.extras` = `{look: 2, suffix}` tells `src/human/body.ts` to load them.
+- New materials: `label`, `lace`, `sock` (and `guard`, reserved; no mouthguard mesh yet).
+- About 39k triangles (body 16.2k, trunks 7.0k, boots 7.0k, gloves 6.1k, eyes 2k), 4.2 MB with textures.
+
 - Gotcha: Blender's `materials.clear()` resets every face's `material_index` to 0 and `Image.save_render` applies the
   scene view transform; the build uses slot replacement and `Image.save()` instead.

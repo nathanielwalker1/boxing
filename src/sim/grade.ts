@@ -38,7 +38,8 @@ export interface GradeResult { grade: HitGrade; quality: number; bonus: number; 
 export function punchReach(a: FighterState, d: FighterState, def: PunchDef, v: VariantDef, part: BodyPart, cfg: Config): number {
   const path = shapePath(def.path(a.body, a.punch.hand, a.stance, cfg), v, cfg);
   const radial = Math.hypot(path.peak.fwd, path.peak.lat);
-  return radial + cfg.punchLean * def.lean * cfg.punchLeanShift + (part === 'head' ? d.body.headR : d.body.bodyR) + a.body.gloveR - cfg.gradeReachSlack;
+  const r = radial + cfg.punchLean * def.lean * cfg.punchLeanShift + (part === 'head' ? d.body.headR : d.body.bodyR) + a.body.gloveR - cfg.gradeReachSlack;
+  return cfg.mocapGeo ? r * cfg.mocapRangeScale : r;   // mocapGeo: the mocap punches reach further (sim/mocap.ts)
 }
 
 export interface GradeInput {

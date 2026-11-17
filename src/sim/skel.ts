@@ -25,6 +25,7 @@ import { chainAngles, chainOn } from './reaction';
 import { PUNCHES, whiffPhases } from './punches';
 import { VARIANTS } from './variants';
 import { pressDist, fallInfo, getUpAt } from './state';
+import { mocapGlove } from './mocap';
 
 /** Pelvis yaw (relative to the root) for a torso twist: skelHipTwistShare of it, more if the spine would pass its rotation limits. */
 export function pelvisYawFor(twist: number, cfg: Config): number {
@@ -494,6 +495,9 @@ export function fitSimArm(f: FighterState, cfg: Config, i: number, hint: ArmJoin
   f.arms[i] = { shoulder: r.shoulder, elbow: r.elbow };
   skelProbe.arm[`${f.specId}:${i}`] = { glove: { ...g.pos }, hand: { ...r.hand }, clear: P.w, oldSwitch: P.d < P.clearance, clearDist: P.d, clearAt: P.clearance };
   void hint;
+  // mocapGeo: the punching glove is the mocap clip's (sim/mocap.ts), on a longer arm than this skeleton's: the fit
+  // poses the arm toward it but does not pull the glove back to this arm's reach.
+  if (cfg.mocapGeo && f.punch.type !== null && (f.punch.hand === 'lead') === (i === 0) && mocapGlove(f)) { if (ref) limitArm(pose, ref, i, cfg.kdArmRate * DEG2); return; }
   // The glove is the hand. If the fit moved it (out of reach, or a limit), the velocity that carried it there goes.
   const dx = g.pos.x - r.hand.x, dy = g.pos.y - r.hand.y, dz = g.pos.z - r.hand.z;
   const d = Math.sqrt(dx * dx + dy * dy + dz * dz);

@@ -4,8 +4,12 @@
 import * as THREE from 'three';
 import { createConfig } from '../core/config';
 import { guard, type PoseName } from './pose';
-import { loadBoxer, type BoxerAssets, type KitColors } from './body';
+import { loadBoxer, addFighterLights, type BoxerAssets, type KitColors } from './body';
 
+// ?v=2 loads the art-pass build (boxer_v2.glb + _v2 textures) and adds the fighter lights;
+// ?tm=agx|neutral|aces tries a tone mapping (the game renders without one).
+const params = new URLSearchParams(location.search);
+const V2 = params.get('v') === '2';
 const c = createConfig();
 const app = document.getElementById('app') as HTMLElement;
 const hud = document.getElementById('hud') as HTMLElement;
@@ -15,8 +19,11 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
+const TM: Record<string, THREE.ToneMapping> = { agx: THREE.AgXToneMapping, neutral: THREE.NeutralToneMapping, aces: THREE.ACESFilmicToneMapping };
+renderer.toneMapping = TM[params.get('tm') ?? ''] ?? THREE.NoToneMapping;
 app.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
+const fighterLights = V2 ? addFighterLights(scene) : null;
 const fog = new THREE.Fog(new THREE.Color(c.fogColor), c.fogNear, c.fogFar);
 scene.fog = fog;
 scene.background = fog.color;
@@ -66,6 +73,7 @@ function place(az: number, el: number, dist: number, fov: number, look?: THREE.V
   camera.updateProjectionMatrix();
   rim.position.set(-Math.cos(az) * 6, 3.5, -Math.sin(az) * 6);
   rim.target.position.copy(LOOK);
+  fighterLights?.update(camera, new THREE.Vector3(0, 1.2, 0));
 }
 const deg = Math.PI / 180;
 // Play camera = stage.ts's follow camera with the pair clinched on the x axis (closeness 1):
@@ -79,6 +87,14 @@ const PRESETS: Record<string, () => void> = {
   '5': () => place(190 * deg, 30 * deg, 1.0, 30, new THREE.Vector3(-0.425, 1.65, 0)),
   // 4: lower-body close-up of the light boxer (red): trunks, legs, boots
   '4': () => place(60 * deg, 12 * deg, 2.1, 30, new THREE.Vector3(-0.425, 0.55, 0)),
+  // 6: the light boxer's gloves, close, from his front-right
+  '6': () => place(55 * deg, 8 * deg, 0.85, 30, new THREE.Vector3(-0.17, 1.38, 0)),
+  // 7: the dark boxer's face, close, from his front-left
+  '7': () => place(205 * deg, 2 * deg, 0.75, 30, new THREE.Vector3(0.40, 1.53, 0)),
+  // 8: the light boxer's face, close
+  '8': () => place(62 * deg, 2 * deg, 0.8, 30, new THREE.Vector3(-0.40, 1.53, 0)),
+  // 9: the light boxer's boots, close
+  '9': () => place(50 * deg, 10 * deg, 1.0, 30, new THREE.Vector3(-0.425, 0.12, 0)),
 };
 
 function resize(): void {
@@ -117,8 +133,8 @@ function setPose(assets: BoxerAssets, pose: PoseName): void {
   boxers = [makeBoxer(assets, 'red', pose), makeBoxer(assets, 'blue', pose)];
   scene.add(...boxers);
 }
-loadBoxer().then(assets => {
-  setPose(assets, (new URLSearchParams(location.search).get('pose') as PoseName) || 'guard');
+(V2 ? loadBoxer('/fighter/', 'boxer_v2.glb') : loadBoxer()).then(assets => {
+  setPose(assets, (params.get('pose') as PoseName) || 'guard');
   let tris = 0;
   scene.traverse(o => {
     const m = o as THREE.Mesh;
