@@ -38,6 +38,12 @@ const P = [
   { name: 'lead upper', btn: 'uppercut', x: -1, far: 'mocapFarLeadUpper' }, { name: 'rear upper', btn: 'uppercut', x: 1, far: 'mocapFarRearUpper' },
 ];
 const H = core.ROSTER[0].heightM / base.mocapBandRefHeight;
+// the far ends the sim uses: measured from the clips (core/mocap.ts mocapBandFar), or the hand-set keys with that off
+const R0 = core.ROSTER[0], G0 = sim.createState([R0, R0], cfg, 1).fighters[0].body.gloveR;
+const TYPE = { jab: ['jab', 'lead'], cross: ['cross', 'rear'], 'lead hook': ['hook', 'lead'], 'rear hook': ['hook', 'rear'], 'lead upper': ['uppercut', 'lead'], 'rear upper': ['uppercut', 'rear'] };
+const farOf = (p, low) => base.mocapBandsFromClips
+  ? mocap.mocapBandFar(mocap.mocapLib(), cfg, R0.heightM, R0.stance, TYPE[p.name][0], TYPE[p.name][1], low, R0.heightM, R0.stance, G0)
+  : base[low ? p.bodyFar : p.far] * H;
 /** One throw by side 0 from `dist`; opp(i) = side 1's input on tick i. Returns the first outcome event (+ slip events seen). */
 function throwAt(dist, p, { low = false, opp = () => inp(), c = cfg } = {}) {
   const specs = [core.ROSTER[0], { ...core.ROSTER[1], heightM: core.ROSTER[0].heightM, stance: core.ROSTER[0].stance }];
@@ -60,10 +66,15 @@ function throwAt(dist, p, { low = false, opp = () => inp(), c = cfg } = {}) {
 const sep = base.mocapSeparation;
 
 // ── 1. bands: whiff beyond far, land inside, on the part thrown at ──
+if (base.mocapBandsFromClips) {
+  const bands = P.flatMap(p => [false, true].filter(low => !low || p.bodyFar).map(low => `${low ? 'body ' : ''}${p.name} ${farOf(p, low)?.toFixed(2)}`));
+  console.log(`bands from the clips (far end, m, centre to centre, ${R0.heightM} m fighters): ${bands.join(' | ')}`);
+  check('every band is measured from its clip and reaches past the separation (each punch lands somewhere)', P.every(p => [false, true].every(low => (low && !p.bodyFar) || (farOf(p, low) ?? 0) > sep + 0.05)), bands.join(' | '));
+}
 const tells = [];
 for (const low of [false, true]) for (const p of P) {
   if (low && !p.bodyFar) continue;
-  const far = base[low ? p.bodyFar : p.far] * H, want = low ? 'body' : 'head';
+  const far = farOf(p, low), want = low ? 'body' : 'head';
   const name = `${low ? 'body' : 'head'} ${p.name}`;
   const out = throwAt(far + 0.05, p, { low });
   check(`${name}: whiffs just beyond its far end (${(far + 0.05).toFixed(2)} m)`, out.type === 'punchWhiff', `${out.type} at ${out.hitDist?.toFixed(2)}`);
@@ -88,7 +99,7 @@ for (const low of [false, true]) for (const p of P) {
   let n = 0, b = 0; const miss = [];
   for (const low of [false, true]) for (const p of P) {
     if (low && !p.bodyFar) continue;
-    const far = base[low ? p.bodyFar : p.far] * H;
+    const far = farOf(p, low);
     for (const d of [sep + 0.02, (sep + far) / 2, far - 0.03]) {
       const o = throwAt(d, p, { low, opp: () => inp({ block: true }) });
       n++;

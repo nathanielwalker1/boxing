@@ -34,6 +34,34 @@ export interface BakeIndex {
 export interface Role {
   slug: string; from: number; to: number; contact?: number; impact?: number | null;
   settle?: number; body?: boolean; travel?: number; amount?: number;
+  /** A SYNTHESISED take (synthClips): the clip `slug` played through these [from, to] frame segments in order, a
+   *  segment with from > to played backwards (a straight punch reversed is still a straight punch). from / to /
+   *  contact then count frames of the synthesised take. */
+  seq?: [number, number][];
+}
+
+/**
+ * Build the synthesised takes of roles.json (roles with `seq`) as clips of their own, slug `syn_<role>`, and point
+ * those roles at them. Idempotent per roles object. Call once after decode, before anything reads the roles.
+ */
+export function synthClips(lib: ClipLib, roles: Roles): void {
+  const nb = lib.bones.length;
+  for (const [name, r] of Object.entries(roles)) {
+    if (!r?.seq) continue;
+    const slug = 'syn_' + name;
+    if (r.slug === slug && lib.clips.has(slug)) continue;
+    const src = lib.clips.get(r.slug);
+    if (!src) continue;
+    const frames: number[] = [];
+    for (const [a, b] of r.seq) {
+      const d = a <= b ? 1 : -1;
+      for (let f = a; d > 0 ? f <= b : f >= b; f += d) if (frames[frames.length - 1] !== f) frames.push(Math.max(0, Math.min(src.frames - 1, f)));
+    }
+    const rot = new Float32Array(frames.length * nb * 4), hips = new Float32Array(frames.length * 3);
+    frames.forEach((f, i) => { rot.set(src.rot.subarray(f * nb * 4, (f + 1) * nb * 4), i * nb * 4); hips.set(src.hips.subarray(f * 3, f * 3 + 3), i * 3); });
+    lib.clips.set(slug, { ...src, slug, label: `${src.label} (synthesised: ${name})`, frames: frames.length, punches: [], impact: null, rot, hips, duration: (frames.length - 1) / src.fps });
+    r.slug = slug;
+  }
 }
 export type Roles = Record<string, Role | null>;
 

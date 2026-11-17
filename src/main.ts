@@ -96,7 +96,7 @@ if (params.get('tune') === '1') mountTuningPanel(cfg);
 // Human fighters (?human=1): the realistic skinned boxer on mocap clips instead of the procedural rig. The
 // assets load before the first view is built; with the switch off nothing below changes.
 if (params.get('human') === '1') cfg.humanBody = true;
-if (cfg.humanBody && !(await preloadHuman())) cfg.humanBody = false;
+if (cfg.humanBody && !(await preloadHuman(cfg.humanBodyFile))) cfg.humanBody = false;
 if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; }
 if (cfg.humanBody) cfg.mocapGeo = await loadMocapGeo();   // the sim's punching glove = the drawn mocap glove (core/mocap.ts)
 if (cfg.mocapGeo) cfg.mocapOutcome = true;   // outcome first: the sim decides by rule, the drawing conforms (sim/outcome.ts)

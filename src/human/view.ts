@@ -11,7 +11,7 @@ import type { Config } from '../core/config';
 import type { FighterSpec, FighterState, Side, SimEvent } from '../core/types';
 import type { RigView } from '../rig';
 import { loadBoxer, type BoxerAssets, type KitColors } from './body';
-import { decode, type BakeIndex, type ClipLib, type Roles } from './clip';
+import { decode, synthClips, type BakeIndex, type ClipLib, type Roles } from './clip';
 import { applyFit, buildFit, type Fit, type FitOut, type Skeleton } from './retarget';
 import { HumanAnim } from './anim';
 import { Spray } from '../rig/spray';
@@ -37,16 +37,22 @@ interface DrawnBody { head: THREE.Vector3; headR: number; a: THREE.Vector3; b: T
 const drawnBodies: (DrawnBody | null)[] = [null, null];
 
 /** Load the body and the clips once. Resolves to false (and logs) if anything is missing. */
-export async function preloadHuman(): Promise<boolean> {
+/** cfg.humanBodyFile: which body glb the human fighters wear (read once, at preload). */
+export const HUMAN_BODY_FILES = ['boxer_v2.glb', 'boxer_m1.glb'] as const;
+
+export async function preloadHuman(bodyFile = 1): Promise<boolean> {
   if (assets) return true;
   try {
     const [boxer, index, bin, roles] = await Promise.all([
-      loadBoxer('/fighter/', 'boxer_v2.glb'),   // the art-pass body (kit textures, look 2)
+      // 0: the art-pass body (kit textures, look 2); 1: the Meshy body (same 52 bones, recoloured by region masks)
+      loadBoxer('/fighter/', HUMAN_BODY_FILES[Math.max(0, Math.min(HUMAN_BODY_FILES.length - 1, Math.round(bodyFile)))]!),
       fetch('/fighter/clips/index.json').then(r => r.json() as Promise<BakeIndex>),
       fetch('/fighter/clips/clips.bin').then(r => r.arrayBuffer()),
       fetch('/fighter/clips/roles.json').then(r => r.json() as Promise<Roles>),
     ]);
-    assets = { boxer, lib: decode(index, bin), roles, index };
+    const lib = decode(index, bin);
+    synthClips(lib, roles);   // the synthesised takes (roles with `seq`), same as the sim's library
+    assets = { boxer, lib, roles, index };
     return true;
   } catch (e) {
     console.error('human fighters: assets failed to load, using the procedural rig', e);

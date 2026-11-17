@@ -177,16 +177,18 @@ export class HumanAnim {
   }
   private wanted = new Set<string>();
 
-  private startHit(part: BodyPart, punch: PunchType | null, grade: HitGrade | null, sev: number, age: number, fromState: boolean): void {
+  private startHit(part: BodyPart, punch: PunchType | null, grade: HitGrade | null, sev: number, age: number, fromState: boolean, rocked = false): void {
     const g = grade ?? (sev < 0.4 ? 'glancing' : sev < 0.75 ? 'clean' : 'flush');
     const level = g === 'glancing' ? 'light' : g === 'clean' ? 'medium' : 'heavy';
     const head0 = level === 'heavy' ? ['hit_head_heavy', 'hit_head_medium', 'hit_head_light'] : level === 'medium' ? ['hit_head_medium', 'hit_head_light', 'hit_head_heavy'] : ['hit_head_light', 'hit_head_medium'];
-    // outcome mode: light and medium hits play the calm takes (guard stays up; the impact layer carries the head);
-    // the flailing takes are for heavy only
-    const head = this.cfg.mocapOutcome && this.cfg.humanCalmHits && level !== 'heavy' ? [`hit_head_${level}_calm`, ...head0] : head0;
+    // outcome mode: light and medium play the calm takes (guard stays up; the impact layer carries the snap); heavy
+    // the medium take (big but on his feet); the knockout-looking takes (hit_head_heavy, the uppercut stagger) only
+    // when this land rocked him or put him down
+    const calm = this.cfg.mocapOutcome && this.cfg.humanCalmHits;
+    const head = !calm ? head0 : rocked ? ['hit_head_heavy', 'hit_head_medium'] : level === 'heavy' ? ['hit_head_heavy_calm', 'hit_head_medium'] : [`hit_head_${level}_calm`, ...head0];
     const names = part === 'body'
       ? (punch === 'uppercut' ? ['hit_body_uppercut', 'hit_body'] : ['hit_body'])
-      : punch === 'uppercut' ? [`hit_uppercut_${level}`, 'hit_uppercut', ...head] : head;
+      : punch === 'uppercut' && !(calm && !rocked) ? [`hit_uppercut_${level}`, 'hit_uppercut', ...head] : head;
     const pk = this.pick(...names);
     if (!pk) return;
     const fps = pk.clip.fps;
@@ -276,11 +278,19 @@ export class HumanAnim {
 
     // ---- events: hits and blocked shots on this man ----
     let hitByEvent = false;
+    const rocked = events.some(e => (e.type === 'rocked' || e.type === 'knockdown') && e.side === this.side);
     for (const e of events) {
       if (e.type === 'punchLand' && e.target === this.side) {
-        // grade picks the size; a counter or a combination's finisher is one size up
-        const g: HitGrade = (e.counter || e.finisher) && e.grade !== 'flush' ? (e.grade === 'glancing' ? 'clean' : 'flush') : e.grade;
-        this.startHit(e.part, e.punch, g, 1, 0, false); hitByEvent = true;
+        let g: HitGrade;
+        if (cfg.mocapOutcome && cfg.humanCalmHits) {
+          // outcome mode (the impact layer gives the instant snap; the clip is the body's after-life):
+          // glancing, or a clean jab -> light; a clean cross / hook / uppercut -> medium; flush or a counter -> heavy
+          g = e.grade === 'flush' || e.counter ? 'flush' : e.grade === 'glancing' || e.punch === 'jab' ? 'glancing' : 'clean';
+        } else {
+          // grade picks the size; a counter or a combination's finisher is one size up
+          g = (e.counter || e.finisher) && e.grade !== 'flush' ? (e.grade === 'glancing' ? 'clean' : 'flush') : e.grade;
+        }
+        this.startHit(e.part, e.punch, g, 1, 0, false, rocked); hitByEvent = true;
       }
       else if (e.type === 'punchBlock' && e.target === this.side) {
         const bh = this.find('block_hit');

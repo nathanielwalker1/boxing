@@ -11,6 +11,13 @@
   "contact": 24
  },
  "cross": {
+  "slug": "cross",
+  "seq": [[18, 3], [3, 21]],
+  "from": 0,
+  "to": 33,
+  "contact": 15
+ },
+ "cross_flung": {
   "slug": "cross_punch",
   "from": 0,
   "to": 60,
@@ -89,10 +96,16 @@
   "impact": 6
  },
  "hit_head_medium_calm": {
-  "slug": "head_hit_copy",
+  "slug": "light_hit_to_head_1",
   "from": 0,
-  "to": 63,
-  "impact": 4
+  "to": 48,
+  "impact": 6
+ },
+ "hit_head_heavy_calm": {
+  "slug": "light_hit_to_head",
+  "from": 0,
+  "to": 46,
+  "impact": 6
  },
  "hit_head_medium": {
   "slug": "big_hit_to_head_1",

@@ -2032,6 +2032,7 @@ export const SCHEMA = {
   humanCalmHits:     bool(true, 'human', 'outcome mode: light and medium head hits play the calm reaction takes (roles hit_head_light_calm / hit_head_medium_calm, guard stays up); the arm-flinging takes only for heavy hits'),
   humanRecoverRateMax: num(2, 0, 4, 0.1, 'human', 'outcome mode: a punch recovery or a hit reaction plays at most this many times its clip speed to fit the sim\'s time; whatever is left is eased into the idle guard over the remaining time (0 = off: the clip is stretched to fit, any speed)'),
   humanHitReactTime: num(0.5, 0.1, 2, 0.05, 'human', 'outcome mode: seconds after a land by which the hit reaction is back in the idle guard (with humanRecoverRateMax)'),
+  humanBodyFile:     int(1, 0, 1, 'human', 'which body the human fighters wear, read once at load: 0 = boxer_v2.glb (Blender art pass), 1 = boxer_m1.glb (Meshy-generated, same 52 bones, recoloured by region masks; no face morphs)'),
   humanRiseRate:   num(1.2, 0.3, 4, 0.05, 'human', 'no get-up clip: the knockdown fall plays backwards at this rate through the sim\'s rise phase'),
   humanWalkSpeedMin: num(0.25, 0.02, 1, 0.01, 'human', 'below this speed in his own frame, m/s, he plays the idle; the step clips are fully in at twice it'),
   humanWalkRateMax:  num(1.8, 1, 3, 0.05, 'human', 'fastest the step clips may play, times their own speed'),
@@ -2049,6 +2050,8 @@ export const SCHEMA = {
   mocapCloseScale:   num(1.15, 1, 1.6, 0.01, 'mocapGeo', 'with mocapGeo on, the body-to-body distances (separationDist, smotherDist, clinchHoldDist) are × this instead: kept short, because the shortest mocap punch (the rear uppercut clip) reaches only ~0.75 m centre to centre'),
   // ── Outcome first (sim/outcome.ts): the sim decides each punch by RULE at its hit tick; the drawing is made to show it ──
   mocapOutcome:      bool(false, 'mocapGeo', 'OUTCOME FIRST (needs mocapGeo; ?human=1 turns both on): at the hit tick the punch is decided by the locked rules, not by a glove sphere: beyond its band\'s far end = whiff; slipped / pulled / rolled / ducked in time = dodged; a held block = blocked; else it lands, on the head or body as THROWN. The drawn glove is then steered onto the contact point. Off = mocapGeo as before'),
+  mocapBandsFromClips: bool(true, 'mocapGeo', 'outcome: every punch\'s far band end is MEASURED from its clip at load (core/mocap.ts mocapBandFar: the contact-frame glove with the full lunge just resting on the drawn head / torso, less mocapBandMargin), so a whiff is visibly short and a land visibly on; off = the hand-set mocapFar… keys below'),
+  mocapBandMargin:   num(0.03, 0, 0.15, 0.005, 'mocapGeo', 'outcome: the measured far end is this much shorter than the exact touch distance, m (the hand correction closes it on a land)'),
   mocapBandRefHeight: num(1.80, 1.5, 2.1, 0.01, 'mocapGeo', 'outcome: the far ends below are measured for a fighter this tall, m; each fighter\'s band is × his height over this'),
   mocapFarJab:       num(1.48, 0.6, 2, 0.01, 'mocapGeo', 'outcome: a head jab whiffs beyond this, centre to centre, m (the jab clip with its lunge just touches the head here: scripts/mocap_geo_test.mjs bands, 2026-11-17)'),
   mocapFarCross:     num(1.18, 0.6, 2, 0.01, 'mocapGeo', 'outcome: head cross far end, m (measured, as above)'),

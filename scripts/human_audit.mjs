@@ -330,6 +330,9 @@ function analyse(sc, run) {
           }
           if (kind === 'land') holdTicks.push(t);
           // expectations by scenario
+          // a whiff must LOOK short: the drawn glove at least 5 cm off the drawn target's surface at the hit tick (a slipped
+          // head is off the line by the slip itself: those scenarios are left out)
+          if (kind === 'whiff' && !/slip/.test(sc.name) && m < 0.05) flag('whiff but glove at the target', t, +m.toFixed(3), 0.05, (0.05 - m) / 0.05 + 1, `${C.pt}/${hand} ${part} d${sc.dist}`);
           if (sc.opp === 'block' && kind === 'land') flag('landed through a held block', t, 1, 0, 1, `${C.pt}/${hand} ${part} d${sc.dist}`);
           if (sc.zone === 'body' && kind === 'land' && part !== 'body') flag('body punch landed on the head', t, 1, 0, 1, `${C.pt}/${hand} ${C.variant} d${sc.dist}`);
           if (sc.zone === 'body' && sc.punch !== 'uppercut' && !/body/.test(A[t].p.lb ?? '')) flag('body punch not playing a body clip', t, 1, 0, 1, `${C.pt}/${hand} ${C.variant} clip ${A[t].p.lb}`);

@@ -114,6 +114,24 @@ for (const D of [1.2, 0.9]) {
 SCENARIOS.v2_cross_head_close = { dist: 1.0, s0: at({ 2: { cross: true } }), s1: [], from: 18, to: 28, step: 1, cfg: { camDistMin: 1.3, camLookY: 1.55 } };
 SCENARIOS.v2_cross_head_close_off = { ...SCENARIOS.v2_cross_head_close, cfg: { ...SCENARIOS.v2_cross_head_close.cfg, impactOn: false } };   // the impact layer off: the on / off pair
 
+// outcome_v3 (m1 body): 1.1 m and 0.85 m; plus the cross whiff from just outside its measured band and the close head
+for (const D of [1.1, 0.85]) {
+  const tag = `_${String(D).replace('.', '')}`;
+  SCENARIOS[`v3_idle${tag}`] = { dist: D, s0: [], s1: [], from: 0, to: 30, step: 15 };
+  SCENARIOS[`v3_block${tag}`] = { dist: D, s0: [], s1: hold([], 'block', 0, 60), from: 6, to: 30, step: 12 };
+  SCENARIOS[`v3_crouch${tag}`] = { dist: D, s0: [], s1: hold([], 'level', 0, 60), from: 0, to: 40, step: 10 };
+  for (const [name, key, punch, x] of [['jab', 'jab', 'jab', 0], ['cross', 'cross', 'cross', 0], ['hook_lead', 'hook', 'hook', -1], ['hook_rear', 'hook', 'hook', 1], ['upper_lead', 'uppercut', 'upper', -1], ['upper_rear', 'uppercut', 'upper', 1]]) {
+    SCENARIOS[`v3_${name}${tag}`] = { dist: D, s0: at({ 2: { [key]: true, move: { x, y: 0 } } }), s1: [], from: 2, to: V2[punch], step: 4 };
+  }
+  SCENARIOS[`v3_body_hook${tag}`] = { dist: D, s0: hold(at({ 4: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], from: 4, to: 40, step: 4 };
+  SCENARIOS[`v3_jab_cross${tag}`] = { dist: D, s0: at({ 2: { jab: true }, 10: { cross: true } }), s1: [], from: 2, to: 46, step: 4 };
+  SCENARIOS[`v3_blocked_cross${tag}`] = { dist: D, s0: at({ 2: { cross: true } }), s1: hold([], 'block', 0, 60), from: 2, to: 34, step: 4 };
+  SCENARIOS[`v3_slipped_jab${tag}`] = { dist: D, s0: at({ 2: { jab: true } }), s1: at({ ...flick(-1, 5) }), from: 2, to: 26, step: 4 };
+}
+SCENARIOS.v3_cross_whiff = { dist: 1.2, s0: at({ 2: { cross: true } }), s1: [], from: 10, to: 30, step: 2 };   // band far end 1.14 m
+SCENARIOS.v3_cross_head_close = { dist: 1.0, s0: at({ 2: { cross: true } }), s1: [], from: 20, to: 26, step: 1, cfg: { camDistMin: 1.3, camLookY: 1.55 } };
+SCENARIOS.v3_cross_head_close_off = { ...SCENARIOS.v3_cross_head_close, cfg: { ...SCENARIOS.v3_cross_head_close.cfg, impactOn: false } };
+
 const SIDE = { camFollow: 0, camAzimuthDeg: 90, camElevationDeg: 12, camDistMin: 2.6, camLookY: 1.05 };
 
 const args = process.argv.slice(2);

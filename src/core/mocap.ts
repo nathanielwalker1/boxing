@@ -20,7 +20,7 @@
  */
 import type { Config } from './config';
 import type { Hand, PunchType, Stance } from './types';
-import { decode, makePose, sample, type BakeIndex, type Clip, type ClipLib, type Role, type Roles } from './mocapClip';
+import { decode, makePose, sample, synthClips, type BakeIndex, type Clip, type ClipLib, type Role, type Roles } from './mocapClip';
 import { applyFit, buildFit, worldPositions, type Fit, type Skeleton } from './mocapFit';
 
 /** A punch clip as the sim plays it: which role / clip, mirrored or not, which arm throws, and its timing frames. */
@@ -72,6 +72,7 @@ export function glbSkeleton(glb: ArrayBuffer | Uint8Array): Skeleton {
 /** Decode the baked clips, fit them to boxer.glb's skeleton and bake the punch clips' arm positions. */
 export function buildMocapLib(index: BakeIndex, bin: ArrayBuffer, roles: Roles, glb: ArrayBuffer | Uint8Array): MocapLib {
   const clips = decode(index, bin);
+  synthClips(clips, roles);
   const skel = glbSkeleton(glb);
   const fit = buildFit(index.source, index.bones, index.parents, skel);
   const lib: MocapLib = { clips, roles, fit, baked: new Map(), picks: new Map() };
@@ -434,6 +435,52 @@ export function mocapClipGlove(pick: MocapPick, f: number, cfg: Config, heightM:
   const s = heightM / cfg.humanNativeHeight;
   gloveNative(pick, f, cfg.humanGloveOffset / s, o);
   o.x *= s; o.y *= s; o.z *= s;
+}
+
+const BANDS = new Map<string, number>();
+/**
+ * THE FAR END OF A PUNCH'S BAND, FROM ITS CLIP (cfg.mocapBandsFromClips): the centre-to-centre distance, m, at which
+ * the clip's own glove at its contact frame (the full drawn lunge, fitted to the attacker's height) just rests on the
+ * DRAWN target's head sphere (or torso line for a body punch), on the target's own idle, less cfg.mocapBandMargin.
+ * Lateral offset counted (a hook's glove meets the side of the head); height not (the aim lifts it there).
+ * Cached per lib, punch and both heights. null: no clip.
+ */
+export function mocapBandFar(lib: MocapLib, cfg: Config, heightA: number, stance: Stance, type: PunchType, hand: Hand, low: boolean,
+  heightT: number, stanceT: Stance, gloveR: number): number | null {
+  const key = `${type}|${hand}|${stance}|${low ? 1 : 0}|${heightA.toFixed(3)}|${heightT.toFixed(3)}|${stanceT}|${gloveR.toFixed(3)}|${cfg.mocapBandMargin}|${cfg.mocapHeadR}|${cfg.mocapTorsoR}|${cfg.mocapHeadFwd}|${cfg.mocapTorsoFwd}`;
+  const hit = BANDS.get(key);
+  if (hit !== undefined) return hit;
+  const g = mocapContactGlove(lib, cfg, heightA, stance, type, hand, low);
+  const rest = mocapRest(lib, cfg.humanGloveOffset * cfg.humanNativeHeight / heightT);
+  if (!g || !rest) return null;
+  const s = heightT / cfg.humanNativeHeight, k = heightT / cfg.mocapBandRefHeight, mir = stanceT === 'southpaw' ? 1 : -1, back = cfg.humanBackShift;
+  // the target's surface point in HIS frame (fwd toward the attacker, lat + = his right) -> the attacker's frame (lat flips)
+  const tFwd = low ? rest.hips[2] * s - back + cfg.mocapTorsoFwd * k : rest.head[2] * s - back + cfg.mocapHeadFwd * k;
+  const tLat = -(low ? rest.chest[0] : rest.head[0]) * s * mir;
+  const R = (low ? cfg.mocapTorsoR : cfg.mocapHeadR) * k + gloveR * (1 - cfg.contactSquash);
+  // (the capped hand correction, mocapIKArmMax, closes an ACROSS / height miss — never the forward reach)
+  const ik = cfg.mocapIKArmMax;
+  const dl = Math.max(0, Math.abs(g.lat - tLat) - ik);
+  let far = g.fwd + tFwd + Math.sqrt(Math.max(0, R * R - dl * dl)) - cfg.mocapBandMargin;
+  if (type === 'uppercut' && !low) {
+    // a rising punch meets the chin on its way up, not at the top of its arc (its contact frame can hold the glove
+    // above the head): the best frame of the rise whose glove is within reach of the head's height and line
+    const pick = mocapPunchPick(lib, type, hand, stance, low);
+    if (pick) {
+      const tUp = rest.head[1] * s, sA = heightA / cfg.humanNativeHeight;
+      const o = { x: 0, y: 0, z: 0 };
+      let best = -Infinity;
+      for (let f = Math.max(pick.fromF, pick.contactF - 12); f <= pick.contactF; f += 0.5) {
+        mocapClipGlove(pick, f, cfg, heightA, o);
+        const off = Math.max(0, Math.hypot(o.y - tUp, -o.x - tLat) - ik), q = R * R - off * off;
+        if (q > 0) best = Math.max(best, o.z + g.lunge + tFwd + Math.sqrt(q));
+      }
+      void sA;
+      far = best > -Infinity ? best - cfg.mocapBandMargin : far;
+    }
+  }
+  BANDS.set(key, far);
+  return far;
 }
 
 /** The native-space height of a clip's glove at its contact frame × s, and its forward reach there (measurement helper). */

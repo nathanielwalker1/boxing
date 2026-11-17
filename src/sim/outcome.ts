@@ -17,7 +17,7 @@
  */
 import type { BodyPart, Config, FighterState, Hand, PunchType, PunchVariant } from '../core';
 import { GUARDS, handLateralSign, v2dist } from '../core';
-import { makeDrawnTargets, mocapDrawnTargets, mocapLib, type DrawnTargets } from '../core/mocap';
+import { makeDrawnTargets, mocapBandFar, mocapDrawnTargets, mocapLib, type DrawnTargets } from '../core/mocap';
 import { VARIANTS } from './variants';
 import { slipLateral } from './slip';
 
@@ -32,15 +32,18 @@ export interface Outcome {
 }
 
 /** The punch's band, centre to centre, m. Straights: near = smotherDist (the power ramp starts); hooks and uppercuts: the separation. */
-export function punchBand(a: FighterState, type: PunchType, hand: Hand, variant: PunchVariant, cfg: Config): { near: number; far: number } {
+export function punchBand(a: FighterState, type: PunchType, hand: Hand, variant: PunchVariant, cfg: Config, d: FighterState | null = null): { near: number; far: number } {
   const v = VARIANTS[variant];
   const lead = hand === 'lead';
+  // the far end measured from the clip itself (core/mocap.ts mocapBandFar): the picture and the rule cannot disagree
+  const lib = cfg.mocapBandsFromClips ? mocapLib() : null;
+  const clipFar = lib ? mocapBandFar(lib, cfg, a.body.heightM, a.stance, type, hand, !!v.body, d?.body.heightM ?? a.body.heightM, d?.stance ?? a.stance, a.body.gloveR) : null;
   const far0 = type === 'jab' ? (v.body ? cfg.mocapFarBodyJab : cfg.mocapFarJab)
     : type === 'cross' ? (v.body ? cfg.mocapFarBodyCross : cfg.mocapFarCross)
     : type === 'hook' ? (v.body ? cfg.mocapFarBodyHook : lead ? cfg.mocapFarLeadHook : cfg.mocapFarRearHook)
     : lead ? cfg.mocapFarLeadUpper : cfg.mocapFarRearUpper;
   // (not × the variant's reach: that shaped the procedural arm; the drawn clip is the same for a shovel hook or an inside uppercut)
-  const far = far0 * a.body.heightM / cfg.mocapBandRefHeight;
+  const far = clipFar ?? far0 * a.body.heightM / cfg.mocapBandRefHeight;
   const near = type === 'jab' || type === 'cross' ? cfg.smotherDist : cfg.separationDist;
   return { near: Math.min(near, far), far };
 }
@@ -55,7 +58,7 @@ export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, ou
   const p = a.punch;
   if (p.type === null) return null;
   const o = out ?? { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0 };
-  const band = punchBand(a, p.type, p.hand, p.variant, cfg);
+  const band = punchBand(a, p.type, p.hand, p.variant, cfg, d);
   const v = VARIANTS[p.variant];
   o.near = band.near; o.far = band.far; o.d = v2dist(a.pos, d.pos); o.slip = false;
   o.part = v.body ? 'body' : 'head';
