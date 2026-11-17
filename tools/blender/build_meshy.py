@@ -216,6 +216,39 @@ for s in ("Left", "Right"):
     for f in ("Thumb", "Index", "Middle", "Ring", "Pinky"):
         CHILD.update({"%sHand%s1" % (s, f): "%sHand%s2" % (s, f), "%sHand%s2" % (s, f): "%sHand%s3" % (s, f)})
 
+# ---------------------------------------------------------------- 2b. delete the skin hidden under the shorts
+# Meshy models the thighs / hips inside the trunks. A raised thigh then pokes through the hem (and the bake can pick
+# the hidden skin up). A face in the trunk band is hidden when every ray into its outward hemisphere hits the mesh.
+from mathutils.bvhtree import BVHTree
+bm = bmesh.new()
+bm.from_mesh(body.data)
+bm.faces.ensure_lookup_table()
+bvh = BVHTree.FromBMesh(bm)
+gold = math.pi * (3 - math.sqrt(5))
+DIRS = [Vector((math.cos(gold * i) * math.sqrt(1 - (1 - 2 * (i + 0.5) / 24) ** 2), math.sin(gold * i) * math.sqrt(1 - (1 - 2 * (i + 0.5) / 24) ** 2), 1 - 2 * (i + 0.5) / 24)) for i in range(24)]
+hidden = []
+for f in bm.faces:
+    c = f.calc_center_median()
+    if not (hem_z - 0.03 < c.z < band_z and abs(c.x) < 0.30):
+        continue
+    n = f.normal
+    used = 0
+    for d in DIRS:
+        if d.dot(n) < 0.15:
+            continue
+        used += 1
+        if bvh.ray_cast(c + n * 0.002, d, 0.5)[0] is None:
+            used = -1
+            break
+    if used >= 4:
+        hidden.append(f)
+bmesh.ops.delete(bm, geom=hidden, context="FACES")
+bm.to_mesh(body.data)
+bm.free()
+log("deleted %d hidden faces under the trunks" % len(hidden))
+V = verts(body)
+X, Y, Z = V[:, 0], V[:, 1], V[:, 2]
+
 # ---------------------------------------------------------------- 3. decimate (denser at joints and the face)
 vg = body.vertex_groups.new(name="dens")
 P = np.stack([X, Y, Z], 1)
@@ -223,7 +256,11 @@ w = np.zeros(len(P))
 for k in ("LeftArm", "LeftForeArm", "LeftUpLeg", "LeftLeg", "RightArm", "RightForeArm", "RightUpLeg", "RightLeg", "Neck"):
     d = np.linalg.norm(P - np.array(J[k]), axis=1)
     w = np.maximum(w, np.exp(-(d / 0.07) ** 2))
+for s in (1, -1):   # forearms (faceted close up at 45k)
+    mid = np.array([s * (el_x + wrist) / 2, (el_y + wr_y) / 2, (el_z + wr_z) / 2])
+    w = np.maximum(w, 0.8 * np.exp(-(np.linalg.norm(P - mid, axis=1) / 0.12) ** 2))
 w = np.maximum(w, ((Z > head_z - 0.04) & (Y < 0.0)).astype(float))          # the face
+w = np.maximum(w, ((Z > head_z - 0.03) & (Z < head_z + 0.09) & (np.abs(X) > 0.055) & (np.abs(X) < 0.11)).astype(float))  # ears
 w = np.maximum(w, 0.6 * ((Z > hem_z - 0.05) & (Z < hem_z + 0.20) & (np.abs(X) < 0.08)))   # crotch / trunk hem
 for val in (0.25, 0.5, 0.75, 1.0):
     idx = np.nonzero((w > val - 0.25) & (w <= val))[0].tolist()
@@ -414,15 +451,15 @@ E = np.empty(len(me.edges) * 2, dtype=np.int64); me.edges.foreach_get("vertices"
 trunks = (Z > hem_z - 0.06) & (Z < band_z + 0.02) & (ax < 0.30)
 # the shorts' legs follow the thighs (the leg inside does; a pelvis-weighted hem lets a raised thigh punch through
 # it), handing over to the bone-heat (pelvis / spine) weights towards the hip joints; left / right blend across x=0
-legs = trunks & (Z < upleg_z + 0.03)
-u = sm(hem_z - 0.02, upleg_z + 0.03, Z)
+legs = trunks & (Z < upleg_z + 0.05)
+u = sm(upleg_z - 0.10, upleg_z + 0.05, Z)       # fully thigh up to ~10 cm below the hip joint
 wl = sm(-0.05, 0.05, X)
 Wleg = np.zeros_like(W)
 Wleg[:, BI["LeftUpLeg"]] = wl
 Wleg[:, BI["RightUpLeg"]] = 1 - wl
 W[legs] = (1 - u[legs])[:, None] * Wleg[legs] + u[legs][:, None] * W[legs]
 deg = np.bincount(E.ravel(), minlength=nv).astype(float)
-for it in range(15):
+for it in range(6):
     acc = np.zeros_like(W)
     np.add.at(acc, E[:, 0], W[E[:, 1]])
     np.add.at(acc, E[:, 1], W[E[:, 0]])
@@ -468,12 +505,6 @@ def new_img(name, n, arr):
     img.colorspace_settings.name = "Non-Color"
     img.pixels.foreach_set(arr.astype(np.float32).ravel())
     return img
-save(C, "c", 88)
-save(Nm, "n", 90)
-rp, mp = px_of(R), px_of(M)
-rm = np.ones_like(rp); rm[..., 1] = rp[..., 0]; rm[..., 2] = mp[..., 0]; rm[..., 0] = rp[..., 0]
-save(new_img("rm", 1024, rm), "r", 90)                        # G roughness, B metalness (glTF packing)
-log("metalness: mean %.3f, texels > 0.2: %.1f%%" % (float(mp[..., 0].mean()), 100 * float((mp[..., 0] > 0.2).mean())))
 
 # region label per UV texel: rasterise the decimated mesh's triangles, labelled by their 3D centroid
 N1 = 1024
@@ -490,6 +521,10 @@ tl[(cz < boot_top + 0.03)] = 3                                # feet (boots)
 tl[(cz > neck_z - 0.02) & (cx < 0.15)] = 4                    # head (hair)
 tl[(cx > cuff - 0.02) & (cz > 1.2)] = 5                       # cuff edge: decided by colour
 tl[(cx > cuff + 0.01) & (cz > 1.2)] = 2                       # glove core
+tn = np.empty(len(me.loop_triangles) * 3, dtype=np.float32); me.loop_triangles.foreach_get("normal", tn); tn = tn.reshape(-1, 3)
+tsw = ((cz > 1.28) & (cz < 1.53) & (cx < 0.30)).astype(np.float32)   # sweat sheen zone: shoulders, upper chest / back
+nyr = np.zeros((N1, N1), dtype=np.float32)                    # facing: + = back (Blender +y)
+swr = np.zeros((N1, N1), dtype=np.float32)
 UVp = uvl[LT] * N1 - 0.5
 for ti in range(len(TV)):
     a, b, c = UVp[ti]
@@ -503,6 +538,8 @@ for ti in range(len(TV)):
     l2 = ((c[1] - a[1]) * (gx - c[0]) + (a[0] - c[0]) * (gy - c[1])) / d
     ins = (l1 >= -0.02) & (l2 >= -0.02) & (1 - l1 - l2 >= -0.02)
     lab[gy[ins], gx[ins]] = tl[ti]
+    nyr[gy[ins], gx[ins]] = tn[ti, 1]
+    swr[gy[ins], gx[ins]] = tsw[ti]
 cover = lab >= 0
 log("uv coverage %.1f%%" % (100 * cover.mean()))
 cp = px_of(C).reshape(N1, 2, N1, 2, 4).mean((1, 3))[..., :3]   # base colour at 1024
@@ -548,6 +585,36 @@ sk = np.ones((N1, N1, 4), dtype=np.float32); sk[..., 0], sk[..., 1], sk[..., 2] 
 save(new_img("skinmask", N1, sk), "skin", 100)
 log("mask coverage of uv: trunks %.1f%% gloves %.1f%% boots %.1f%% skin %.1f%% hair %.1f%%"
     % tuple(100 * float((c > 0.5).sum()) / max(1, int(cover.sum())) for c in ch))
+
+def blur(a, k=3, r=2):
+    for _ in range(k): a = box(a, r)
+    return a
+# even out the baked front / back skin tone: the back's skin is pulled to the front's mean colour (per channel)
+skin1 = ch[3] > 0.5
+front, back = skin1 & (nyr < -0.4), skin1 & (nyr > 0.4)
+gain = cp[front].mean(0) / np.maximum(cp[back].mean(0), 1e-4)
+wb = blur(ch[3] * sm(-0.1, 0.5, bleed(nyr, 6)))
+cpx = px_of(C)
+w2 = np.repeat(np.repeat(wb, 2, 0), 2, 1)[..., None]
+cpx[..., :3] = np.clip(cpx[..., :3] * (1 + w2 * (gain - 1)), 0, 1)
+C.pixels.foreach_set(cpx.ravel())
+log("back skin gain", np.round(gain, 3).tolist(), "front mean", np.round(cp[front].mean(0), 3).tolist())
+save(C, "c", 88)
+save(Nm, "n", 90)
+# roughness: skin matte ("sweaty, not varnished"), a little sheen on shoulders / upper chest; satin trunks and
+# gloves; metal dropped (Meshy fakes satin with ~0.5 metal, which reads as vinyl once tinted)
+rp = px_of(R)[..., 0]
+def around(m, base, k, lo, hi):
+    med = float(np.median(rp[m > 0.5])) if (m > 0.5).any() else 0.5
+    return np.clip(base + k * (rp - med), lo, hi)
+sw = blur(bleed(swr, 6)) * ch[3]
+r_skin = around(ch[3], 0.66, 0.3, 0.45, 0.9) - 0.16 * sw
+r_tr, r_gl = around(ch[0], 0.5, 0.3, 0.38, 0.75), around(ch[1], 0.46, 0.3, 0.34, 0.7)
+wsum = np.clip(ch[3] + ch[0] + ch[1], 0, 1)
+rough = rp * (1 - wsum) + (ch[3] * r_skin + ch[0] * r_tr + ch[1] * r_gl) / np.maximum(ch[3] + ch[0] + ch[1], 1e-6) * wsum
+rm = np.ones((N1, N1, 4), dtype=np.float32); rm[..., 0] = rough; rm[..., 1] = rough; rm[..., 2] = 0
+save(new_img("rm", N1, rm), "r", 90)                          # G roughness, B metalness 0 (glTF packing)
+log("roughness means: skin %.2f trunks %.2f gloves %.2f" % (float(rough[ch[3] > 0.5].mean()), float(rough[ch[0] > 0.5].mean()), float(rough[ch[1] > 0.5].mean())))
 
 # ---------------------------------------------------------------- 7. export
 mat = bpy.data.materials.new("meshy")

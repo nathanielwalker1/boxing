@@ -174,13 +174,14 @@ function kitV2(src: THREE.MeshStandardMaterial, kt: KitTex): THREE.MeshPhysicalM
 
 /** Tunables of the Meshy-built body (render-only). */
 const MESHY = {
-  metalness: 0.15,          // scales the baked metal map (Meshy fakes the satin trunks with ~0.5 metal: vinyl at 0.4)
-  normalScale: 1.0,
+  metalness: 0,             // the build zeroes the metal map (Meshy's ~0.5 metal on the trunks read as vinyl)
+  normalScale: 0.75,        // fine pores at full strength gave hard white streaks on the back
   darkSkin: [88, 56, 40] as const,   // sRGB target mean of the skin for the 'dark' tone (the baked skin's mean maps here)
   gloveGain: 0.85,          // kit glove colour lands at this x the glove's mean shading (keeps the leather deep)
-  gloveContrast: 0.55,      // exponent on the glove's shading ratio: the dark leather's grain turns to speckle at 1
-  trunksGain: 1.0,          // kit trunks colour at the trunks' mean shading
-  trunksContrast: 0.85,
+  gloveContrast: 0.75,      // exponent on the glove's shading ratio: crease detail kept, grain not turned to speckle
+  trunksGain: 0.95,         // kit trunks colour at the trunks' mean shading
+  trunksContrast: 1.0,      // the baked folds multiply through the tint unchanged
+  kitDesaturate: 0.15,      // kit colours pulled this far towards their own grey: satin, not flat plastic
 };
 
 /**
@@ -223,7 +224,11 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
     const hit = cache.get(key);
     if (hit) return hit;
     const out = new Uint8ClampedArray(src);
-    const rgb = (css: string): [number, number, number] => { const h = new THREE.Color(css).getHex(); return [(h >> 16) & 255, (h >> 8) & 255, h & 255]; };
+    const rgb = (css: string): [number, number, number] => {
+      const h = new THREE.Color(css).getHex(), c = [(h >> 16) & 255, (h >> 8) & 255, h & 255] as const;
+      const g = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2], d = MESHY.kitDesaturate;
+      return [c[0] + d * (g - c[0]), c[1] + d * (g - c[1]), c[2] + d * (g - c[2])];
+    };
     const kt = rgb(kit.trunks), kg = rgb(kit.glove);
     const dark = tone === 'dark';
     const sk = MESHY.darkSkin.map((v, k) => v / skinMean[k]!);
@@ -253,6 +258,7 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
         name: 'meshy', map: colourMap(tone, kit), normalMap: normal,
         normalScale: new THREE.Vector2(MESHY.normalScale, MESHY.normalScale),
         roughness: 1, roughnessMap: rm, metalness: MESHY.metalness, metalnessMap: rm,
+        side: THREE.DoubleSide,   // single-shell cloth: the trunks' side slits open in knee lifts and show the inside
       });
       root.traverse(o => {
         const m = o as THREE.Mesh;
