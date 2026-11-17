@@ -56,6 +56,14 @@ function laneY(f: FighterState, body: boolean, cfg: Config): number {
   return (body ? (f.body.shoulderY + f.body.hipY) / 2 : f.body.headY) - crouch;
 }
 
+// (THE HEAD: with both corners on the `idle` role the drawn head centre stands ~5 cm under the sim's head sphere
+//  (core/mocap.ts mocapRest; the other corner's idle_3 stood it 19 cm under). Moving the sphere down by that was
+//  tried 2026-11-17 and broke the lead uppercut: its contact frame holds the glove ~2.2 m up, the aim pulls it 64 cm
+//  down in front of the chest and the chest capsule stops it. Left for the uppercut contact-frame fix.)
+// (The GUARD is not taken from the drawn idle: its mean lead glove sits on the centre line 33 cm in front of the face,
+//  and as a solid sim glove it stopped every lead uppercut — measured 2026-11-17. The drawn guard hands follow the
+//  sim's guard gloves instead: src/human/view.ts, cfg.humanGuardIK.)
+
 /**
  * This tick's mocap punch for f (after advancePunch): the glove and the lunge. The aim goes to the opponent's
  * STANDING lane (a head punch less the punch's own aim drop — an overhand at a ducked head), never where his head is

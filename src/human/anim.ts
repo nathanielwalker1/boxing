@@ -115,7 +115,9 @@ export class HumanAnim {
     });
     // A second idle for the other corner if one exists; otherwise the same idle half a loop apart.
     // (idle_2 measures the same as idle — likely the same take — so the other corner prefers idle_3, the long guard)
-    this.idle = (side === 1 ? this.find('idle_3') ?? this.find('idle_2') : null) ?? this.find('idle');
+    // (mocapGeo: both corners play `idle` — the sim's head and guard are measured from it, core/mocap.ts mocapRest; the
+    //  other corner's idle_3 stood its head 19 cm under the sim's head sphere)
+    this.idle = (side === 1 && !cfg.mocapGeo ? this.find('idle_3') ?? this.find('idle_2') : null) ?? this.find('idle');
     this.idleT = this.idle ? (side === 1 ? this.idle.clip.duration * 0.47 : 0) : 0;
   }
 

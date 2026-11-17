@@ -320,6 +320,58 @@ export function mocapPunchGeo(lib: MocapLib, cfg: Config, heightM: number, stanc
 }
 
 /**
+ * THE MOCAP BODY at rest, measured once from the baked clips (the drawn fighter's own shape): the mean over the idle
+ * role's loop of the head centre, chest (Spine2), hips and the two glove centres, and the two glove centres at the block
+ * role's hold frame. Native model space (x = his LEFT, y up, z forward; hips pinned over the floor point as drawn),
+ * orthodox (the clips' own stance; mirror x and swap hands for a southpaw). headR = the drawn head's radius (half
+ * Head -> HeadTop_End), or null when the skeleton has no head-top joint. Cached on the lib.
+ */
+export type V3 = [number, number, number];
+export interface MocapRest { head: V3; headR: number | null; chest: V3; hips: V3; guard: [V3, V3]; block: [V3, V3] }
+const REST = new WeakMap<MocapLib, MocapRest | null>();
+export function mocapRest(lib: MocapLib, gloveOffNative: number): MocapRest | null {
+  if (REST.has(lib)) return REST.get(lib)!;
+  const names = lib.fit.skel.names.map(n => n.replace(/^mixamorig\d*[:_]?/, ''));
+  const ix = (n: string): number => names.indexOf(n);
+  const J = { head: ix('Head'), top: ix('HeadTop_End'), chest: ix('Spine2'), hips: ix('Hips'), lh: ix('LeftHand'), lf: ix('LeftForeArm'), rh: ix('RightHand'), rf: ix('RightForeArm') };
+  const idle = lib.roles['idle'], block = lib.roles['block'];
+  if (!idle || !lib.clips.clips.has(idle.slug) || J.head < 0 || J.lh < 0 || J.rh < 0) { REST.set(lib, null); return null; }
+  const pose = makePose(lib.clips.bones.length);
+  const at = (clip: Clip, f: number): Vec3s => {
+    sample(lib.clips, clip, f / clip.fps, { mirror: false }, pose);
+    pose.hips[0] = 0; pose.hips[2] = 0;
+    return worldPositions(lib.fit, applyFit(lib.fit, pose));
+  };
+  const glove = (wp: Vec3s, h: number, e: number): V3 => {
+    const a = wp[h]!, b = wp[e]!, d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]], l = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
+    return [a[0] + d[0]! / l * gloveOffNative, a[1] + d[1]! / l * gloveOffNative, a[2] + d[2]! / l * gloveOffNative];
+  };
+  const acc = { head: [0, 0, 0], chest: [0, 0, 0], hips: [0, 0, 0], gl: [0, 0, 0], gr: [0, 0, 0], r: 0 };
+  const add = (s: number[], v: readonly number[]): void => { s[0]! += v[0]!; s[1]! += v[1]!; s[2]! += v[2]!; };
+  const ic = lib.clips.clips.get(idle.slug)!;
+  let n = 0;
+  for (let f = idle.from; f <= idle.to; f += 2, n++) {
+    const wp = at(ic, f);
+    const h = wp[J.head]!, top = J.top >= 0 ? wp[J.top]! : null;
+    add(acc.head, top ? [(h[0] + top[0]) / 2, (h[1] + top[1]) / 2, (h[2] + top[2]) / 2] : [h[0], h[1] + 0.09, h[2]]);
+    if (top) acc.r += Math.hypot(top[0] - h[0], top[1] - h[1], top[2] - h[2]) / 2;
+    add(acc.chest, wp[J.chest]!); add(acc.hips, wp[J.hips]!);
+    add(acc.gl, glove(wp, J.lh, J.lf)); add(acc.gr, glove(wp, J.rh, J.rf));
+  }
+  const mean = (s: number[]): V3 => [s[0]! / n, s[1]! / n, s[2]! / n];
+  const guard: [V3, V3] = [mean(acc.gl), mean(acc.gr)];
+  let blk: [V3, V3] = guard;
+  if (block && lib.clips.clips.has(block.slug)) {
+    const bc = lib.clips.clips.get(block.slug)!, wp = at(bc, block.contact ?? block.to);
+    blk = [glove(wp, J.lh, J.lf), glove(wp, J.rh, J.rf)];
+  }
+  const out: MocapRest = { head: mean(acc.head), headR: J.top >= 0 ? acc.r / n : null, chest: mean(acc.chest), hips: mean(acc.hips), guard, block: blk };
+  REST.set(lib, out);
+  return out;
+}
+type Vec3s = ReturnType<typeof worldPositions>;
+
+/**
  * The clip's OWN glove at frame f (fractional), his frame (fwd, up, lat + = his right), m, for a man heightM tall: no
  * aim, no lunge, no turn. Measurement helper (the audit's legitimate per-tick hand speed = this glove's displacement
  * between the frames two ticks draw).

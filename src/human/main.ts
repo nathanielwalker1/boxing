@@ -90,12 +90,25 @@ const PRESETS: Record<string, () => void> = {
   // 6: the light boxer's gloves, close, from his front-right
   '6': () => place(55 * deg, 8 * deg, 0.85, 30, new THREE.Vector3(-0.17, 1.38, 0)),
   // 7: the dark boxer's face, close, from his front-left
-  '7': () => place(205 * deg, 2 * deg, 0.75, 30, new THREE.Vector3(0.40, 1.53, 0)),
+  '7': () => place(200 * deg, 3 * deg, 0.75, 30, new THREE.Vector3(0.40, 1.53, 0)),
   // 8: the light boxer's face, close
   '8': () => place(62 * deg, 2 * deg, 0.8, 30, new THREE.Vector3(-0.40, 1.53, 0)),
   // 9: the light boxer's boots, close
   '9': () => place(50 * deg, 10 * deg, 1.0, 30, new THREE.Vector3(-0.425, 0.12, 0)),
+  // b: both boxers' backs / silhouettes from behind the light boxer
+  'b': () => place(180 * deg, 6 * deg, 3.6, 30, new THREE.Vector3(0, 1.0, 0)),
 };
+
+/** Set one face morph (hitWince, jawOpen, cheekL, cheekR) to 1 on every skin mesh, or clear them all (null). */
+function setMorph(name: string | null): void {
+  scene.traverse(o => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.morphTargetDictionary || !m.morphTargetInfluences) return;
+    m.morphTargetInfluences.fill(0);
+    const i = name ? m.morphTargetDictionary[name] : undefined;
+    if (i !== undefined) m.morphTargetInfluences[i] = 1;
+  });
+}
 
 function resize(): void {
   const w = app.clientWidth || innerWidth, h = app.clientHeight || innerHeight;
@@ -135,6 +148,13 @@ function setPose(assets: BoxerAssets, pose: PoseName): void {
 }
 (V2 ? loadBoxer('/fighter/', 'boxer_v2.glb') : loadBoxer()).then(assets => {
   setPose(assets, (params.get('pose') as PoseName) || 'guard');
+  setMorph(params.get('morph'));
+  let morphNames: string[] = [];
+  scene.traverse(o => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && m.morphTargetDictionary && !morphNames.length) morphNames = Object.keys(m.morphTargetDictionary);
+  });
+  console.log('face morphs:', morphNames.join(', ') || 'none');
   let tris = 0;
   scene.traverse(o => {
     const m = o as THREE.Mesh;
@@ -146,6 +166,7 @@ function setPose(assets: BoxerAssets, pose: PoseName): void {
     get fps() { return fps; },
     preset: (k: string) => PRESETS[k]?.(),
     pose: (p: PoseName) => setPose(assets, p),
+    morph: (n: string | null) => setMorph(n),
   };
   console.log('boxer ready, triangles per boxer:', Math.round(tris / 2));
 }).catch(e => console.error('load failed', e));

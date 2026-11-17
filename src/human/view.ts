@@ -201,6 +201,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   let lastEvents: readonly SimEvent[] = [];
   let ikKey = -1;
   const ikOff = new THREE.Vector3();
+  /** The guard tuck applied to each hand last frame (world m), so a punch's press offset starts from the tucked hand. */
+  const tuckD = { Left: new THREE.Vector3(), Right: new THREE.Vector3() };
   const feed: ReplayFeed ={ feed: (p, n, ev) => run(p, n, 1, SIM_DT, ev), freeze: on => { frozen = on; } };
   feeds[side] = feed;
   installRigReplay(cfg, () => feeds);
@@ -308,7 +310,21 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
 
       // ---- fist on target: two-bone IK on the punching arm, bell-weighted round the hit ----
       // (ik2: the previous punch's arm easing off the sim glove while a chained punch with the other arm runs)
-      for (const ik of [out.ik, out.ik2]) if (ik && (cfg.humanHandIK || ik.exact)) {
+      // The guard: every arm not in a live punch sits on the SIM's glove (guard, block, its recovery spring) by
+      // humanGuardIK, so the guard drawn is the guard that blocks; a fading punch tail never drops below it.
+      const reqs: (typeof out.ik)[] = [out.ik, out.ik2];
+      const gw = next.down ? 0 : cfg.humanGuardIK;
+      if (gw > 0.01) {
+        for (const r of reqs) if (r && r.key === undefined) r.w = Math.max(r.w, gw);
+        const leadArm = spec.stance === 'orthodox' ? 'Left' : 'Right';
+        for (const gi of [0, 1] as const) {
+          const a = (gi === 0) === (leadArm === 'Left') ? 'Left' : 'Right';
+          if (reqs.some(r => r && r.arm === a)) continue;
+          const g0 = prev.gloves[gi].pos, g1 = next.gloves[gi].pos;
+          reqs.push({ arm: a, w: gw, exact: true, at: { x: g0.x + (g1.x - g0.x) * alpha, y: g0.y + (g1.y - g0.y) * alpha, z: g0.z + (g1.z - g0.z) * alpha } });
+        }
+      }
+      for (const ik of reqs) if (ik && (cfg.humanHandIK || ik.exact)) {
         group.updateMatrixWorld(true);
         const [up, fore, hand] = arm[ik.arm];
         up.getWorldPosition(vS); fore.getWorldPosition(vE); hand.getWorldPosition(vW);
@@ -316,7 +332,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         // a new punch: the target starts ON the drawn glove (its offset from the sim glove at the press), eased out
         // over the wind-up (pressW 1 -> 0), so the arm never jumps to the sim's guard spot
         if (ik.key !== undefined) {
-          if (ik.key !== ikKey) { ikKey = ik.key; ikOff.fromArray(gloveOf(ik.arm)).sub(vT); }
+          // (the hand drawn LAST frame: the clip hand pulled onto the sim glove by humanGuardIK, plus last frame's tuck)
+          if (ik.key !== ikKey) { ikKey = ik.key; ikOff.fromArray(gloveOf(ik.arm)).sub(vT).multiplyScalar(next.down ? 1 : 1 - cfg.humanGuardIK).add(tuckD[ik.arm]); }
           vT.addScaledVector(ikOff, ik.pressW ?? 0);
         }
         const opp = heads[side === 0 ? 1 : 0];
@@ -359,6 +376,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         fore.quaternion.copy(save[1]!.slerp(fore.quaternion, w));
       }
       // ---- guard tuck (drawn only): close to the other man the guard hands come back toward his own chin, never in a punch ----
+      tuckD.Left.set(0, 0, 0); tuckD.Right.set(0, 0, 0);
       if (cfg.humanGuardTuck > 0 && next.punch.type === null && !next.down && oppSt) {
         const d = Math.hypot(oppSt.next.pos.x - next.pos.x, oppSt.next.pos.z - next.pos.z);
         const span = Math.max(0.01, cfg.humanTuckFar - cfg.humanTuckNear);
@@ -373,7 +391,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             const to = new THREE.Vector3().subVectors(chin, hp);
             const room = to.length() - 0.1;
             if (room <= 0) continue;
-            twoBone(u, m, e, hp.addScaledVector(to.normalize(), Math.min(k, room)));
+            tuckD[a].copy(to.normalize()).multiplyScalar(Math.min(k, room));
+            twoBone(u, m, e, hp.add(tuckD[a]));
             group.updateMatrixWorld(true);
           }
         }

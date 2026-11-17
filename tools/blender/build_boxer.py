@@ -23,22 +23,22 @@ KIT_TEX = 1024                 # kit detail textures (gloves, trunks, boots), px
 LABEL_WORD = "IRONJAW"         # invented maker's mark on the glove and trunks labels (no real brand)
 
 # ---- tunables (this is the one place the look of the body is set) ----
-MACRO = {"gender": 1.0, "age": 0.5, "muscle": 0.95, "weight": 0.30, "proportions": 0.5, "height": 0.52}
+MACRO = {"gender": 1.0, "age": 0.5, "muscle": 0.85, "weight": 0.40, "proportions": 0.5, "height": 0.52}
 DETAILS = {  # MPFB target name -> weight
-    "torso-vshape-incr": 1.0,
-    "torso-muscle-pectoral-incr": 0.85,
-    "torso-muscle-dorsi-incr": 0.9,
-    "torso-scale-depth-decr": 0.10,
-    "torso-scale-horiz-incr": 0.25,
-    "measure-waist-circ-decr": 0.5,
-    "measure-shoulder-dist-incr": 0.6,
+    # a real middleweight, not a wedge: modest lats, a thick straight waist, a deep rib cage (girth ratio ~1.4)
+    "torso-vshape-incr": 0.15,
+    "torso-muscle-pectoral-incr": 0.7,
+    "torso-muscle-dorsi-incr": 0.25,
+    "torso-scale-depth-incr": 0.35,
+    "measure-waist-circ-incr": 0.6,
     "neck-scale-horiz-incr": 0.65,
     "neck-scale-vert-decr": 0.10,
-    "l-upperarm-muscle-incr": 0.8, "r-upperarm-muscle-incr": 0.8,
-    "l-upperarm-shoulder-muscle-incr": 1.0, "r-upperarm-shoulder-muscle-incr": 1.0,
+    "l-upperarm-muscle-incr": 0.7, "r-upperarm-muscle-incr": 0.7,
+    "l-upperarm-shoulder-muscle-incr": 0.6, "r-upperarm-shoulder-muscle-incr": 0.6,
     "l-lowerarm-muscle-incr": 0.8, "r-lowerarm-muscle-incr": 0.8,
-    "l-upperleg-muscle-incr": 0.55, "r-upperleg-muscle-incr": 0.55,
-    "l-lowerleg-muscle-incr": 0.6, "r-lowerleg-muscle-incr": 0.6,
+    "l-upperleg-muscle-incr": 0.85, "r-upperleg-muscle-incr": 0.85,
+    "l-lowerleg-muscle-incr": 0.75, "r-lowerleg-muscle-incr": 0.75,
+    "buttocks-volume-incr": 0.4, "hip-scale-horiz-incr": 0.15,
     "head-scale-vert-incr": 0.3, "head-scale-horiz-incr": 0.2, "head-scale-depth-incr": 0.2,   # ~7.4 heads tall
     # a weathered fighter's face: heavy brow ridge, deep-set narrowed eyes, mouth corners down (scowl)
     "eyebrows-trans-forward": 0.7, "eyebrows-trans-down": 0.35, "eyebrows-angle-down": 0.45,
@@ -201,6 +201,46 @@ for name, w in DETAILS.items():
         print("MISSING TARGET", name)
         continue
     TargetService.load_target(base, path, weight=w)
+
+# ---- 1b. face reaction morphs: MPFB expression units, captured as per-vertex deltas in a mesh attribute (survives
+# the mask / cut / bmesh passes below) and turned into shape keys on the skin just before export ----
+EXP_DIR = os.path.join(os.path.dirname(os.path.dirname(TargetService.target_full_path("torso-vshape-incr"))),
+                       "expression", "units", "caucasian")
+MORPHS = {
+    "hitWince": {"eye-left-closure": 1.0, "eye-right-closure": 1.0, "eyebrows-left-down": 1.0, "eyebrows-right-down": 1.0,
+                 "nose-left-elevation": 0.7, "nose-right-elevation": 0.7, "mouth-retraction": 0.7,
+                 "mouth-upward-retraction": 0.4},
+    "jawOpen": {"mouth-open": 1.0},
+}
+
+
+def capture_morph(name, units):
+    me_ = base.data
+    nv = len(me_.vertices)
+    acc = np.zeros(nv * 3, np.float32)
+    keys = me_.shape_keys.key_blocks
+    basis = np.empty(nv * 3, np.float32)
+    keys[0].data.foreach_get("co", basis)
+    for unit, w in units.items():
+        path = os.path.join(EXP_DIR, unit + ".target.gz")
+        if not os.path.exists(path):
+            print("MISSING EXPRESSION", unit)
+            continue
+        before = set(k.name for k in me_.shape_keys.key_blocks)
+        TargetService.load_target(base, path, weight=1.0)
+        new = [k for k in me_.shape_keys.key_blocks if k.name not in before]
+        for k in new:
+            co = np.empty(nv * 3, np.float32)
+            k.data.foreach_get("co", co)
+            acc += w * (co - basis)
+            base.shape_key_remove(k)
+    at = me_.attributes.new("mt_" + name, "FLOAT_VECTOR", "POINT")
+    at.data.foreach_set("vector", acc)
+    print("MORPH %s max offset %.4f" % (name, float(np.abs(acc).max())))
+
+
+for _n, _u in MORPHS.items():
+    capture_morph(_n, _u)
 
 rig = HumanService.add_builtin_rig(base, "mixamo")
 rig.name = "Armature"
@@ -932,17 +972,19 @@ print("body after hand/foot cut", len(base.data.vertices), tris(base))
 # ---- 7. gloves (10 oz lace-ups: about 31 cm with the cuff, padded knuckle volume wider than the wrist) ----
 # axial profile (a = metres from the wrist joint towards the knuckles): half-width across (thumb axis),
 # half-depth (palm axis), palm-ward centre offset. The cuff tapers in to the wrist then swells into the mitt.
+G_SCALE = 1.09                 # overall glove size (section radii); the length grows with GLOVE_TIP
 G_PROF = np.array([
     [-0.100, 0.057, 0.051, 0.004],
     [-0.080, 0.053, 0.048, 0.004],
     [-0.040, 0.049, 0.045, 0.004],
     [0.000, 0.048, 0.044, 0.006],
-    [0.035, 0.055, 0.051, 0.008],
-    [0.080, 0.066, 0.061, 0.010],
-    [0.125, 0.070, 0.066, 0.012],
-    [0.150, 0.070, 0.066, 0.014],
+    [0.035, 0.056, 0.052, 0.008],
+    [0.080, 0.068, 0.064, 0.010],
+    [0.125, 0.072, 0.069, 0.012],
+    [0.158, 0.072, 0.069, 0.014],
 ])
-GLOVE_A0, GLOVE_CAP, GLOVE_TIP = -0.100, 0.150, 0.222
+G_PROF[:, 1:3] *= G_SCALE
+GLOVE_A0, GLOVE_CAP, GLOVE_TIP = -0.100, 0.158, 0.240
 G_EXP = 2.5                    # superellipse exponent of the sections (2 = ellipse, higher = boxier)
 G_V_MAIN, G_V_THUMB = 0.86, 0.87   # UV: shell in v 0..0.86, thumb above
 G_ROWS = np.concatenate([np.linspace(GLOVE_A0, GLOVE_CAP, 24),
@@ -959,7 +1001,7 @@ def g_prof(a):
     c0 = float(np.interp(a, G_PROF[:, 0], G_PROF[:, 3]))
     if a > GLOVE_CAP:
         u = min((a - GLOVE_CAP) / (GLOVE_TIP - GLOVE_CAP), 1.0)
-        k = max(1 - u ** 3, 0.0) ** (1 / 3)        # a flattish padded knuckle face, not a dome
+        k = max(1 - u ** 2.4, 0.0) ** (1 / 2.4)    # a full, round padded knuckle face
         b, c = b * k, c * k
         c0 += 0.020 * u                             # the front curls towards the palm
     return b, c, c0
@@ -1024,7 +1066,7 @@ def make_glove(side):
             lp[uvl_].uv = uv
     # thumb: a separate padded capsule lying along the side of the fist, its tip tucked into the knuckle
     # volume (the 'bar'), so the join reads as a sewn seam rather than a ball
-    tb, tt = at(0.040, 0.054, 0.030), at(0.150, 0.047, 0.050)
+    tb, tt = at(0.040, 0.064, 0.034), at(0.160, 0.054, 0.056)
     axv = (tt - tb).normalized()
     e1 = (p - axv * p.dot(axv)).normalized()
     e2 = axv.cross(e1)
@@ -1032,7 +1074,7 @@ def make_glove(side):
     th_v = []
     for i in range(ntr + 1):
         t = i / ntr
-        rr = (0.025 + (0.020 - 0.025) * t) * max(1 - abs(2 * t - 1) ** 3.5, 0.0) ** (1 / 3.5)
+        rr = (0.028 + (0.022 - 0.028) * t) * max(1 - abs(2 * t - 1) ** 3.5, 0.0) ** (1 / 3.5)
         ctr = tb + (tt - tb) * t
         th_v.append([bm.verts.new(INV @ (ctr + (e1 * math.cos(TAU * k / ntc) + e2 * math.sin(TAU * k / ntc)) * max(rr, 0.0005)))
                      for k in range(ntc)])
@@ -1384,13 +1426,16 @@ def glove_textures():
     rad = (per / TAU)[:, None]
     grain = tnoise(n, 150, 350, 21)
     cr_gen = ridged(tnoise(n, 25, 60, 22), 6)
-    cr_wr = ridged(tnoise(n, 18, 45, 23, ax=3.0), 5)
-    cr_palm = ridged(tnoise(n, 20, 50, 24, ax=2.5), 5)
+    # flex creases: long thin lines running round the glove (strongly anisotropic), not blobs
+    cr_wr = ridged(tnoise(n, 14, 40, 23, ax=7.0), 9)
+    cr_palm = ridged(tnoise(n, 16, 44, 24, ax=7.0), 9)
     mott = tnoise(n, 3, 10, 25)
     scn = tnoise(n, 8, 30, 26)
     wrist_m = np.exp(-((A - 0.012) / 0.03) ** 2) * main
     palm_m = np.clip(np.sin(TH), 0, 1) ** 1.5 * smoothstep(0.08, 0.14, A) * main
-    knuck = smoothstep(0.12, 0.18, A) * (0.55 + 0.45 * np.clip(-np.sin(TH), 0, 1)) * main
+    tipfade = 1 - smoothstep(GLOVE_TIP - 0.05, GLOVE_TIP - 0.02, A)
+    # anything that varies around the axis must go constant at the pole of the knuckle face, or it draws a star
+    knuck = smoothstep(0.12, 0.18, A) * (0.55 + 0.45 * np.clip(-np.sin(TH), 0, 1) * tipfade + 0.2 * (1 - tipfade)) * main
     # seams with double stitching: cuff-to-mitt ring, both side seams, a palm centre seam
     seam = np.zeros((n, n), np.float32)
     stitch = np.zeros((n, n), np.float32)
@@ -1404,19 +1449,21 @@ def glove_textures():
 
     add_seam(A - 0.034, TH * rad, main)
     side_d = np.minimum(np.abs(wrap(TH)), np.abs(wrap(TH - np.pi))) * rad
-    add_seam(side_d, A, main * smoothstep(0.03, 0.04, A) * (1 - smoothstep(0.20, 0.215, A)))
+    add_seam(side_d, A, main * smoothstep(0.03, 0.04, A) * (1 - smoothstep(GLOVE_TIP - 0.04, GLOVE_TIP - 0.025, A)))
     add_seam(np.abs(wrap(TH - np.pi / 2)) * rad, A, main * smoothstep(0.04, 0.05, A) * (1 - smoothstep(0.14, 0.15, A)))
     rim = (1 - smoothstep(GLOVE_A0 + 0.002, GLOVE_A0 + 0.012, A)) * main
-    tipfade = 1 - smoothstep(0.19, 0.214, A)          # no detail converging on the pole of the knuckle face
-    H = (0.00003 * grain - 0.00007 * cr_gen * (1 - 0.5 * knuck) - 0.0004 * cr_wr * wrist_m - 0.00035 * cr_palm * palm_m
+    # general creases stay faint (strong ones read as marble veins); wear concentrates at the wrist bend, the palm
+    # curl, the knuckles, seams and the cuff rim
+    H = (0.00003 * grain - 0.00008 * cr_gen * (1 - 0.4 * knuck) - 0.0007 * cr_wr * wrist_m - 0.0006 * cr_palm * palm_m
          - 0.0007 * seam + 0.00016 * stitch) * tipfade
-    crease = np.clip(0.2 * cr_gen + cr_wr * wrist_m + cr_palm * palm_m, 0, 1) * tipfade
-    scuff = np.clip(knuck * (scn * 0.6 + 0.2), 0, 1) + 0.5 * rim * np.clip(scn + 0.5, 0, 1) + 0.3 * seam
-    scuff = np.clip(scuff, 0, 1)
-    alb = 0.80 * (1 + 0.06 * mott) * (1 - 0.42 * crease) * (1 - 0.45 * seam) * (1 - 0.25 * stitch)
-    alb = alb * (1 - 0.5 * scuff) + 0.98 * 0.5 * scuff
+    crease = np.clip(0.15 * cr_gen + 0.8 * cr_wr * wrist_m + 0.8 * cr_palm * palm_m, 0, 1) * tipfade
+    scuff = np.clip(knuck * (scn * 0.8 + 0.35), 0, 1) + 0.7 * rim * np.clip(scn + 0.6, 0, 1) + 0.45 * seam
+    scuff = np.clip(scuff, 0, 1) * tipfade + 0.3 * (1 - tipfade)
+    alb = 0.80 * (1 + 0.08 * mott * tipfade) * (1 - 0.5 * crease) * (1 - 0.45 * seam) * (1 - 0.25 * stitch)
+    alb = alb * (1 - 0.7 * scuff) + 0.98 * 0.7 * scuff
     thumb = (~main) * 1.0
-    rough = 0.50 + 0.24 * crease - 0.16 * knuck - 0.10 * thumb + 0.12 * scuff * (1 - knuck) + 0.2 * stitch + 0.03 * mott
+    rough = (0.50 + 0.28 * crease - 0.16 * knuck - 0.10 * thumb + 0.16 * scuff * (1 - knuck) + 0.2 * stitch
+             + 0.03 * mott * tipfade)
     save_tex("glove_c", grey4(alb), "sRGB")
     save_tex("glove_n", h2n(H, su, sv), "Non-Color")
     save_tex("glove_r", grey4(rough), "Non-Color")
@@ -1603,6 +1650,44 @@ set_mats(parts["Eyes"], [M_EYE])
 set_mats(parts["Brows"], [M_BROW])
 set_mats(parts["Lashes"], [M_LASH])
 
+# ---- 10b. face reaction morphs on the skin: captured MPFB expressions + cheek pushes, then shape keys ----
+MORPH_ORDER = ["hitWince", "jawOpen", "cheekL", "cheekR"]
+
+
+def finish_morphs():
+    me_ = base.data
+    nv = len(me_.vertices)
+    co = np.empty(nv * 3, np.float32)
+    me_.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    Wm = np.array(W)
+    Vc = co @ Wm[:3, :3].T + Wm[:3, 3]
+    R = np.array(INV.to_3x3())
+    for side, nm in ((1.0, "cheekL"), (-1.0, "cheekR")):
+        # a hook landing on that cheek: cheek and mouth corner shoved across the face, a little up and in
+        c = np.array([side * 0.040, NOSE[1] - FY * 0.035, EYE_Z - 0.050])
+        f = np.exp(-np.sum((Vc - c) ** 2, axis=1) / 0.032 ** 2) * (Vc[:, 2] > neck_z + 0.03)
+        dw = np.outer(f, [-side * 0.011, -FY * 0.002, 0.002])
+        at = me_.attributes.new("mt_" + nm, "FLOAT_VECTOR", "POINT")
+        at.data.foreach_set("vector", (dw @ R.T).astype(np.float32).ravel())
+    base.shape_key_add(name="Basis", from_mix=False)
+    flat = co.ravel()
+    for nm in MORPH_ORDER:
+        an = "mt_" + nm
+        if an not in me_.attributes:
+            continue
+        d = np.empty(nv * 3, np.float32)
+        me_.attributes[an].data.foreach_get("vector", d)
+        sk = base.shape_key_add(name=nm, from_mix=False)
+        sk.data.foreach_set("co", flat + d)
+        sk.value = 0.0
+    for ob in (base, parts["Hair"]):
+        for a in [a.name for a in ob.data.attributes if a.name.startswith("mt_")]:
+            ob.data.attributes.remove(ob.data.attributes[a])
+
+
+finish_morphs()
+
 # ---- 11. tidy: only bone vertex groups, armature modifier, smooth shading ----
 export_objs = [base, trunks, boots, gloves, parts["Hair"], parts["Eyes"], parts["Brows"], parts["Lashes"]]
 for o in export_objs:
@@ -1636,6 +1721,8 @@ print("BONES", len(rig.data.bones))
 
 # ---- 12. export ----
 bpy.ops.object.select_all(action="SELECT")
+OUT_FINAL = OUT
+OUT = OUT[:-4] + "_tmp.glb"     # written whole, then renamed: a hot-reloading game never sees half a file
 bpy.ops.export_scene.gltf(filepath=OUT, export_format="GLB", use_selection=False, export_animations=False,
                           export_skins=True, export_apply=False, export_yup=True, export_image_format="WEBP",
                           export_image_quality=85, export_normals=True,
@@ -1665,4 +1752,5 @@ with open(OUT, "wb") as f:
     f.write(struct.pack("<I4s", len(raw), jtype))
     f.write(raw)
     f.write(rest)
-print("WROTE", OUT, os.path.getsize(OUT))
+os.replace(OUT, OUT_FINAL)
+print("WROTE", OUT_FINAL, os.path.getsize(OUT_FINAL))

@@ -66,6 +66,13 @@ All generated in `build_boxer.py`, no new downloads:
   `trunks_c/n`, `skin_rough` (R = sweat / clearcoat mask, G = roughness), `label` (embedded in the glb).
   The glb's `asset.extras` = `{look: 2, suffix}` tells `src/human/body.ts` to load them.
 - New materials: `label`, `lace`, `sock` (and `guard`, reserved; no mouthguard mesh yet).
+- Body proportions (2026-11-17): middleweight, not a wedge. Shoulder : waist girth 1.44 (was 2.07), bideltoid
+  0.52 m (was 0.62), waist girth 0.84 m (was 0.67). MPFB refits the rig: the arm roots sit 4.5 cm further in.
+  `tools/blender/_debug.mjs` prints these numbers from any built glb.
+- Face morphs on the skin mesh (sparse accessors, ~0.3 MB): `hitWince`, `jawOpen` (MPFB caucasian expression
+  units), `cheekL`, `cheekR` (own displacement: the cheek and mouth corner shoved across the face). Eyes, brows and
+  lashes do not morph. The still page sets one with `human.html?v=2&morph=jawOpen`.
+- The glb is written to `<name>_tmp.glb` and renamed when complete, so a hot-reloading page never loads half a file.
 - About 39k triangles (body 16.2k, trunks 7.0k, boots 7.0k, gloves 6.1k, eyes 2k), 4.2 MB with textures.
 
 - Gotcha: Blender's `materials.clear()` resets every face's `material_index` to 0 and `Image.save_render` applies the
