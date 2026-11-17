@@ -12,6 +12,7 @@
     "legacy": "vite legacy --port 5175",
     "gym": "vite spike/gym --port 5174",
     "asset:boxer": "node tools/blender/build.mjs",
+    "asset:meshy": "node tools/blender/build_meshy.mjs",
     "mocap": "node tools/mocap/run.mjs"
   },
   "dependencies": {

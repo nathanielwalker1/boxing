@@ -56,7 +56,8 @@ type KitTex = Record<(typeof KIT_TEX)[number], THREE.Texture>;
 export async function loadBoxer(base = '/fighter/', file = 'boxer.glb'): Promise<BoxerAssets> {
   const tl = new THREE.TextureLoader();
   const gltf = await new GLTFLoader().loadAsync(base + file);
-  const extras = (gltf.asset as { extras?: { look?: number; suffix?: string } }).extras ?? {};
+  const extras = (gltf.asset as { extras?: { look?: number; suffix?: string; kind?: string; stem?: string } }).extras ?? {};
+  if (extras.kind === 'meshy') return loadMeshy(gltf.scene, base, extras.stem ?? file.replace(/\.glb$/, ''));
   const look = extras.look ?? 1;
   const sfx = look >= 2 ? extras.suffix ?? '' : '';
   const prep = (t: THREE.Texture, srgb: boolean): THREE.Texture => {
@@ -169,6 +170,101 @@ function kitV2(src: THREE.MeshStandardMaterial, kt: KitTex): THREE.MeshPhysicalM
     }
     default: return null;
   }
+}
+
+/** Tunables of the Meshy-built body (render-only). */
+const MESHY = {
+  metalness: 0.15,          // scales the baked metal map (Meshy fakes the satin trunks with ~0.5 metal: vinyl at 0.4)
+  normalScale: 1.0,
+  darkSkin: [88, 56, 40] as const,   // sRGB target mean of the skin for the 'dark' tone (the baked skin's mean maps here)
+  gloveGain: 0.85,          // kit glove colour lands at this x the glove's mean shading (keeps the leather deep)
+  gloveContrast: 0.55,      // exponent on the glove's shading ratio: the dark leather's grain turns to speckle at 1
+  trunksGain: 1.0,          // kit trunks colour at the trunks' mean shading
+  trunksContrast: 0.85,
+};
+
+/**
+ * A Meshy-built body (tools/blender/build_meshy.py): one skinned mesh, one baked texture set next to the glb:
+ * <stem>_c (base colour), _n (normal), _r (G roughness, B metalness), _mask (R trunks, G gloves, B boots),
+ * _skin (R skin, G hair). spawn() recolours a copy of the base colour on a canvas, once per tone + kit, keeping the
+ * baked shading: trunks and gloves take the kit colour scaled by each texel's luminance over the region's mean
+ * (white cloth and red leather both tint cleanly), skin is scaled per channel towards the dark tone. Boots stay.
+ */
+async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Promise<BoxerAssets> {
+  const tl = new THREE.TextureLoader();
+  const il = new THREE.ImageLoader();
+  const [cImg, maskImg, skinImg, normal, rm] = await Promise.all([
+    il.loadAsync(`${base}${stem}_c.webp`), il.loadAsync(`${base}${stem}_mask.webp`), il.loadAsync(`${base}${stem}_skin.webp`),
+    tl.loadAsync(`${base}${stem}_n.webp`), tl.loadAsync(`${base}${stem}_r.webp`),
+  ]);
+  for (const t of [normal, rm]) { t.flipY = false; t.colorSpace = THREE.NoColorSpace; t.anisotropy = 8; }
+  const W = cImg.width, Hh = cImg.height;
+  const pixels = (img: HTMLImageElement): Uint8ClampedArray => {
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = Hh;
+    const g = cv.getContext('2d', { willReadFrequently: true })!;
+    g.drawImage(img, 0, 0, W, Hh);   // masks are 1024: upscaled (bilinear) to the base colour's size
+    return g.getImageData(0, 0, W, Hh).data;
+  };
+  const src = pixels(cImg), mask = pixels(maskImg), skin = pixels(skinImg);
+  // region statistics, mask-weighted: mean luminance of trunks and gloves, mean skin colour
+  let tY = 0, tW = 0, gY = 0, gW = 0, sR = 0, sG = 0, sB = 0, sW = 0;
+  for (let i = 0; i < src.length; i += 4) {
+    const r = src[i]!, g = src[i + 1]!, b = src[i + 2]!, y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const mt = mask[i]! / 255, mg = mask[i + 1]! / 255, ms = skin[i]! / 255;
+    tY += y * mt; tW += mt; gY += y * mg; gW += mg;
+    sR += r * ms; sG += g * ms; sB += b * ms; sW += ms;
+  }
+  tY /= tW || 1; gY /= gW || 1;
+  const skinMean = [sR / (sW || 1), sG / (sW || 1), sB / (sW || 1)];
+  const cache = new Map<string, THREE.Texture>();
+  const colourMap = (tone: SkinTone, kit: KitColors): THREE.Texture => {
+    const key = `${tone}|${kit.trunks}|${kit.glove}`;
+    const hit = cache.get(key);
+    if (hit) return hit;
+    const out = new Uint8ClampedArray(src);
+    const rgb = (css: string): [number, number, number] => { const h = new THREE.Color(css).getHex(); return [(h >> 16) & 255, (h >> 8) & 255, h & 255]; };
+    const kt = rgb(kit.trunks), kg = rgb(kit.glove);
+    const dark = tone === 'dark';
+    const sk = MESHY.darkSkin.map((v, k) => v / skinMean[k]!);
+    for (let i = 0; i < out.length; i += 4) {
+      const r = src[i]!, g = src[i + 1]!, b = src[i + 2]!;
+      const mt = mask[i]! / 255, mg = mask[i + 1]! / 255, ms = dark ? skin[i]! / 255 : 0;
+      if (mt + mg + ms < 0.004) continue;
+      const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      let R = r, G = g, B = b;
+      if (mt > 0) { const f = Math.pow(y / tY, MESHY.trunksContrast) * MESHY.trunksGain; R += mt * (kt[0] * f - R); G += mt * (kt[1] * f - G); B += mt * (kt[2] * f - B); }
+      if (mg > 0) { const f = Math.pow(y / gY, MESHY.gloveContrast) * MESHY.gloveGain; R += mg * (kg[0] * f - R); G += mg * (kg[1] * f - G); B += mg * (kg[2] * f - B); }
+      if (ms > 0) { R += ms * (r * sk[0]! - R); G += ms * (g * sk[1]! - G); B += ms * (b * sk[2]! - B); }
+      out[i] = R; out[i + 1] = G; out[i + 2] = B;
+    }
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = Hh;
+    cv.getContext('2d')!.putImageData(new ImageData(out, W, Hh), 0, 0);
+    const t = new THREE.CanvasTexture(cv);
+    t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    cache.set(key, t);
+    return t;
+  };
+  return {
+    spawn(tone, kit) {
+      const root = cloneSkinned(scene) as THREE.Object3D;
+      const mat = new THREE.MeshStandardMaterial({
+        name: 'meshy', map: colourMap(tone, kit), normalMap: normal,
+        normalScale: new THREE.Vector2(MESHY.normalScale, MESHY.normalScale),
+        roughness: 1, roughnessMap: rm, metalness: MESHY.metalness, metalnessMap: rm,
+      });
+      root.traverse(o => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        m.castShadow = true;
+        m.receiveShadow = true;
+        m.frustumCulled = false;
+        m.material = mat;
+      });
+      return root;
+    },
+  };
 }
 
 export interface FighterLights {

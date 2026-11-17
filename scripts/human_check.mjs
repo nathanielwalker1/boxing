@@ -17,9 +17,20 @@ import { until } from './waits.js';
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), 'output');
 mkdirSync(OUT, { recursive: true });
 const V2 = process.env.V === '2';
+// V=m1 (any m<digits>): a Meshy-built body, posed from the baked clips (src/human/main.ts ?v=m1)
+const MESHY = /^m\d+$/.test(process.env.V || '') ? process.env.V : '';
 const TMV = process.env.TM || '';
-const qs = [V2 ? 'v=2' : '', TMV ? `tm=${TMV}` : ''].filter(Boolean).join('&');
-const tag = (V2 ? 'human_v2' : 'human') + (TMV ? `_${TMV}` : '');
+const qs = [V2 ? 'v=2' : MESHY ? `v=${MESHY}` : '', TMV ? `tm=${TMV}` : ''].filter(Boolean).join('&');
+const tag = (V2 ? 'human_v2' : MESHY ? `human_${MESHY}` : 'human') + (TMV ? `_${TMV}` : '');
+// clip shots for Meshy builds: [name, role, frame, camera presets]
+const CLIP_SHOTS = [
+  ['idle', 'idle', '0', ['1', '2', 'c', 'd', 'e', '3']],
+  ['jab', 'jab', 'contact', ['1', 'c', 'e']],
+  ['hook', 'lead_hook', 'contact', ['1', 'c', 'e']],
+  ['duck', 'duck', 'mid', ['1', 'c', 'f']],
+  ['hit_heavy', 'hit_head_heavy', '20', ['1', 'c']],
+  ['kd_settle', 'knockdown', 'settle', ['1', 'g']],
+];
 
 async function run() {
   const browser = await chromium.launch();
@@ -51,7 +62,29 @@ async function run() {
         }
       }
     };
-    for (const pose of ['guard', 'reach']) {
+    const clipShot = async (role, f, key, path) => {
+      for (;;) {
+        try {
+          await until(page, () => window.__human && window.__human.ready, undefined, { label: 'boxer loaded', timeout: 280_000 });
+          await page.evaluate(([r, fr, k]) => window.__human.clip(r, fr).then(() => window.__human.preset(k)), [role, f, key]);
+          await raf(6);
+          await page.screenshot({ path, timeout: 120_000 });
+          return;
+        } catch (e) {
+          if (!/Execution context was destroyed|navigation|undefined|Timeout/i.test(e.message) || ++reloads > 6) throw e;
+        }
+      }
+    };
+    if (MESHY) {
+      for (const [nm, role, f, cams] of CLIP_SHOTS) {
+        for (const k of cams) {
+          const name = `${tag}_${nm}_${k}`;
+          shots[name] = `${OUT}/${name}.png`;
+          await clipShot(role, f, k, shots[name]);
+        }
+      }
+    }
+    for (const pose of MESHY ? [] : ['guard', 'reach']) {
       const cams = pose === 'guard'
         ? [['1', 'play'], ['2', 'side'], ['b', 'back'], ['3', 'upper'], ['4', 'lower'], ['5', 'head'], ['6', 'glove'], ['7', 'face_dark'], ['8', 'face_light'], ['9', 'boots']]
         : [['1', 'play'], ['2', 'side'], ['3', 'upper'], ['6', 'glove']];
