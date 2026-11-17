@@ -24,8 +24,11 @@ import { ESCAPE_AT, addHop, guardOf, hurtMods } from './footing';
 import { rated } from './ratings';
 import { gradeHit, punchReach } from './grade';
 import { addHitStop, addHitStopTicks, applyKnock, followStep, hitNerf, hitZone, openHitWindow, seededUnit, throwWeight, typeWeight } from './flow';
+import { contactPoint, predictOutcome, type Outcome } from './outcome';
 
 const DEG = Math.PI / 180;
+/** Scratch for the outcome rule (never read across ticks). */
+const OC: Outcome = { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0 };
 /** The pose unwind (poseSettleRate is the twist's, rad/s): the lean and the crouch come home in proportion. Shape. */
 const POSE_LEAN = 0.35, POSE_CROUCH = 0.08;
 /** No block absorbs more than this, whatever the defense rating. Shape. */
@@ -91,6 +94,11 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   let cock = (f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1) * (chained ? cfg.comboCockScale : 1) * v.time(cfg) * (loaded ? cfg.slipLoadedCock : 1) / hands;
   // The tell: a heavy punch that opens an attack is always readable.
   if (cfg.tellsOn && type !== 'jab' && !chained && ph.cock > 0) cock = Math.max(cock, (cfg.tellMinHeavy / slow - ph.extend) / ph.cock);
+  // Outcome first (human mode): a punch you can READ — the wind-up (never the extension) is long enough for the tell.
+  if (cfg.mocapOutcome && cfg.mocapGeo && ph.cock > 0) {
+    const want = (type === 'jab' ? cfg.mocapTellJab : cfg.mocapTellHeavy) * (chained ? cfg.mocapTellChained : 1);
+    cock = Math.max(cock, (want / slow - ph.extend) / ph.cock);
+  }
   // Thrown while being hit, or hurt (polish phase): it comes out — slower, shorter (gloves.ts) and weaker by `nerf`.
   const nerf = hitNerf(f, cfg);
   cock *= 1 + cfg.hitNerfSlow * nerf;
@@ -489,7 +497,9 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // came out, fell short — the jab had moved its thrower back 26 cm — and held him 367 ms; the old stuff held him 133.)
   const knockedOff = cfg.hitNerfOn && brokenMult(a) < 1;
   const whiff = (): void => { events.push({ type: 'punchWhiff', side, punch: type, variant }); setWhiffMult(a, knockedOff ? 1 : whiffRecoveryMult(def, cfg)); missed(a, cfg, !knockedOff, type); s.round.control[target] += 1; };
-  if (dist > cfg.rangeMax) { whiff(); return; }
+  // OUTCOME FIRST (sim/outcome.ts): the rule decides; no sphere test below decides anything in this mode.
+  const oc = cfg.mocapOutcome && cfg.mocapGeo ? predictOutcome(a, d, cfg, OC) : null;
+  if (oc ? oc.kind === 'whiff' : dist > cfg.rangeMax) { whiff(); return; }
 
   const g = a.gloves[a.punch.hand === 'lead' ? 0 : 1];
   const glove = { x: g.pos.x, y: g.pos.y, z: g.pos.z, r: a.body.gloveR };
@@ -517,8 +527,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // BLOCKED head punch, not a whiff. A guard hand knocked freely aside sets
   // no flag, and a slipped head is off the line, so those stay what they are.
   const hand = a.punch.hand === 'lead' ? 0 : 1;
-  const stoppedByGuard = touchedBlock(a, hand) && (d.block || targetCut(a, hand));
-  const headHit = sphereCapsuleOverlap(d.headBox, sweep);
+  const stoppedByGuard = !oc && touchedBlock(a, hand) && (d.block || targetCut(a, hand));
+  const headHit = oc ? oc.kind !== 'dodge' && oc.part === 'head' : sphereCapsuleOverlap(d.headBox, sweep);
   // (A BODY punch stopped on the guard — the shell's forearm lies across the ribs — is a body shot on the arms, not a head shot.)
   // The shoulder he brought with him (phase 3): a head punch that goes past a head slipped TOWARD the punching hand is
   // caught by that shoulder, counted wrongWayShoulder higher than the capsule — it hunches up into the lane as he
@@ -534,7 +544,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     }
     return false;
   };
-  const part: BodyPart | null = headHit ? 'head' : bodyHit() || shoulderHit() ? 'body' : stoppedByGuard ? (v.body ? 'body' : 'head') : null;
+  const part: BodyPart | null = oc ? (oc.kind === 'dodge' ? null : oc.part)
+    : headHit ? 'head' : bodyHit() || shoulderHit() ? 'body' : stoppedByGuard ? (v.body ? 'body' : 'head') : null;
   if (part === null) {
     whiff();
     // Slip classification (legacy main.js Stage 19 part 1): a punch that missed
@@ -544,12 +555,13 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // UN-slipped position: if the glove would have found it there, the slip is
     // the only thing that took the punch away. A classification layered on,
     // not a new outcome — the whiff above still stands for recovery and stamina.
-    if (d.slip.active && d.slip.dir !== 0) {
+    // (Outcome first: the rule already said it was a slip, pull or roll in its window, in range.)
+    if (d.slip.dir !== 0 && (oc ? oc.slip : d.slip.active)) {
       const fr = frameOf(d.yaw), lat = slipLateral(d), back = slipBack(d);
       // A roll's U is part of the move too: the head's un-rolled height is where the hook was going.
       const up = d.slip.kind === 'roll' ? d.slip.dip : 0;
       const home = { x: d.headBox.x - fr.right.x * lat + fr.fwd.x * back, y: d.headBox.y + up, z: d.headBox.z - fr.right.z * lat + fr.fwd.z * back, r: d.headBox.r };
-      if (sphereCapsuleOverlap(home, sweep)) {
+      if (oc || sphereCapsuleOverlap(home, sweep)) {
         events.push({ type: 'slip', side: target, dir: d.slip.dir, dodged: true, kind: d.slip.kind, chain: d.slip.chain });
         // The read (2026-09-18): a beat of hit-stop as the fist passes the
         // ear, so a well-timed slip is felt — Fight Night's brief slow moment
@@ -648,6 +660,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const nlen = Math.hypot(nx, ny, nz);
   if (nlen > 1e-6) { nx /= nlen; ny /= nlen; nz /= nlen; } else { nx = -adX; ny = 0; nz = -adZ; }
   a.punch.contact = { x: centre.x + nx * r, y: centre.y + ny * r, z: centre.z + nz * r };
+  // Outcome first: the contact is ON THE DRAWN BODY (sim/outcome.ts): the head or torso surface facing him, or the guard glove.
+  if (oc) contactPoint(a, d, d.block && d.guardBroken <= 0 ? 'block' : 'land', part, cfg, a.punch.contact);
 
   // Exposure: the target's vulnerability this tick (0 while blocking, by
   // construction) scales the ONE impulse value damage, stagger and reaction
@@ -686,8 +700,9 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const perfect = d.block && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight) && d.blockT >= guardOf(d, cfg).raise * 0.5;
   // The guard's shape and wear (overhaul): how much of it this punch meets. A perfect block meets all of it.
   // A RESTING guard that the fist pinned against the face is not a block: the hands were in the way (guardPinnedCover).
-  const cover = !guarded ? 0 : perfect ? 1 : !d.block ? (cfg.guardShapeOn ? cfg.guardPinnedCover : 1) : guardCover(d, type, part, dirX, dirZ, cfg);
-  const through = guarded && !perfect && cfg.guardShapeOn && cover < cfg.guardThroughAt;   // it came round or through: a land, at what the guard left of it
+  // (Outcome first: full block while held — no geometric guard holes; wear still breaks the guard, below.)
+  const cover = !guarded ? 0 : perfect || oc ? 1 : !d.block ? (cfg.guardShapeOn ? cfg.guardPinnedCover : 1) : guardCover(d, type, part, dirX, dirZ, cfg);
+  const through = guarded && !perfect && !oc && cfg.guardShapeOn && cover < cfg.guardThroughAt;   // it came round or through: a land, at what the guard left of it
   const blocked = guarded && !through;
   // A jab is a jab (phase 3): whatever stacked on it — the step, his walking onto it, his exposure, the combination —
   // it carries at most jabImpulseCap. MEASURED before: step jabs landing at 310–480 N·s (a standing cross is 272) on
@@ -701,7 +716,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   let grade: HitGrade = 'clean';
   let combo = 0, finisher = false;
   if (!blocked) {
-    const res = gradeHit({ a, d, def, v, part, dist, centre, glove: g.pos, line: afr.fwd, rising: type === 'uppercut', retreat, closing, wrongWay }, cfg);
+    // (Outcome first: the range is read against the band's far end and the punch is square — it landed by rule.)
+    const res = gradeHit({ a, d, def, v, part, dist, centre, glove: g.pos, line: afr.fwd, rising: type === 'uppercut', retreat, closing, wrongWay, reach: oc ? oc.far : undefined, square: oc ? 1 : undefined }, cfg);
     grade = through && res.grade === 'flush' ? 'clean' : res.grade;
     // Glancing: the larger of this and the losses already taken, never both. Flush: on top.
     if (grade === 'glancing') mag *= Math.min(1, cfg.gradeGlancingPower / Math.max(1e-6, soft));
@@ -725,7 +741,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const rawPower = raw / cfg.punchImpulseBase;
   const dir: Vec3 = { x: dirX, y: 0, z: dirZ };
   const impulse: Vec3 = { x: dirX * mag, y: 0, z: dirZ * mag };
-  const at: Vec3 = { x: g.pos.x, y: g.pos.y, z: g.pos.z };
+  const at: Vec3 = oc ? { ...a.punch.contact! } : { x: g.pos.x, y: g.pos.y, z: g.pos.z };
   // The seeded variation of this land (polish phase): rides on the event and scales the reaction springs a little.
   const vary = seededUnit(s.seed, s.tick, side);
 

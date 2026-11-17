@@ -36,27 +36,37 @@ async function run() {
     const shots = {};
     let reloads = 0;
     // each shot is self-contained (pose + camera), so a dev-server reload only repeats that shot
-    const shot = async (pose, key, path) => {
+    const shot = async (pose, key, path, morph = null) => {
       for (;;) {
         try {
           await until(page, () => window.__human && window.__human.ready, undefined, { label: 'boxer loaded', timeout: 280_000 });
-          await page.evaluate(([p, k]) => { window.__human.pose(p); window.__human.preset(k); }, [pose, key]);
+          await page.evaluate(([p, k, mo]) => {
+            window.__human.pose(p); window.__human.morph?.(mo); window.__human.preset(k);
+          }, [pose, key, morph]);
           await raf(6);
-          await page.screenshot({ path });
+          await page.screenshot({ path, timeout: 120_000 });   // software GL at 1-3 fps on a shared server
           return;
         } catch (e) {
-          if (!/Execution context was destroyed|navigation|undefined/i.test(e.message) || ++reloads > 6) throw e;
+          if (!/Execution context was destroyed|navigation|undefined|Timeout/i.test(e.message) || ++reloads > 6) throw e;
         }
       }
     };
     for (const pose of ['guard', 'reach']) {
       const cams = pose === 'guard'
-        ? [['1', 'play'], ['2', 'side'], ['3', 'upper'], ['4', 'lower'], ['5', 'head'], ['6', 'glove'], ['7', 'face_dark'], ['8', 'face_light'], ['9', 'boots']]
-        : [['1', 'play'], ['2', 'side'], ['3', 'upper'], ['4', 'lower'], ['6', 'glove']];
+        ? [['1', 'play'], ['2', 'side'], ['b', 'back'], ['3', 'upper'], ['4', 'lower'], ['5', 'head'], ['6', 'glove'], ['7', 'face_dark'], ['8', 'face_light'], ['9', 'boots']]
+        : [['1', 'play'], ['2', 'side'], ['3', 'upper'], ['6', 'glove']];
       for (const [key, cam] of cams) {
         const name = pose === 'guard' && (cam === 'play' || cam === 'side') ? `${tag}_${cam}` : `${tag}_${pose}_${cam}`;
         shots[name] = `${OUT}/${name}.png`;
         await shot(pose, key, shots[name]);
+      }
+    }
+    // face morphs (look-2 builds): one close-up of the dark boxer's face per morph at weight 1
+    if (V2) {
+      for (const mo of ['hitWince', 'jawOpen', 'cheekL', 'cheekR']) {
+        const name = `${tag}_morph_${mo}`;
+        shots[name] = `${OUT}/${name}.png`;
+        await shot('guard', '7', shots[name], mo);
       }
     }
     if (reloads) console.log(`(page reloaded ${reloads} time(s) during the run; shots repeated)`);

@@ -84,6 +84,15 @@ SCENARIOS.kd_cross_full = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], 
 SCENARIOS.kd_hook_full = { dist: 0.79, s0: at({ 2: { hook: true, move: { x: -1, y: 0 } } }), s1: [], cfg: KD, from: 12, to: 204, step: 8, focus: 1 };
 SCENARIOS.kd_upper ={ dist: 0.65, s0: at({ 2: { uppercut: true, move: { x: 1, y: 0 } } }), s1: [], cfg: KD, from: 12, to: 100, step: 4 };
 
+// The level held (crouch) for a second at fighting distance.
+SCENARIOS.crouch = { dist: 1.0, s0: hold([], 'level', 0, 60), s1: [], from: 0, to: 60, step: 6 };
+// Outcome first (human mode): a cross on a held block, a jab slipped, a 1-2, a body hook, an exchange at the separation.
+SCENARIOS.block_cross_h = { dist: 1.0, s0: at({ 2: { cross: true } }), s1: hold([], 'block', 0, 60), from: 2, to: 40, step: 2 };
+SCENARIOS.slip_jab = { dist: 1.0, s0: at({ 2: { jab: true } }), s1: at({ ...flick(-1, 5) }), from: 2, to: 30, step: 2 };
+SCENARIOS.jab_cross = { dist: 1.0, s0: at({ 2: { jab: true }, 10: { cross: true } }), s1: [], from: 2, to: 46, step: 2 };
+SCENARIOS.body_hook_h = { dist: 0.9, s0: hold(at({ 4: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], from: 2, to: 44, step: 3 };
+SCENARIOS.close_exchange = { dist: 0.7, s0: at({ 2: { jab: true }, 22: { hook: true, move: { x: -1, y: 0 } } }), s1: at({ 10: { cross: true }, 30: { uppercut: true, move: { x: 1, y: 0 } } }), from: 2, to: 60, step: 3 };
+
 const SIDE = { camFollow: 0, camAzimuthDeg: 90, camElevationDeg: 12, camDistMin: 2.6, camLookY: 1.05 };
 
 const args = process.argv.slice(2);
@@ -103,8 +112,12 @@ const page = await browser.newPage({ viewport: { width: W, height: H }, deviceSc
 const logs = [];
 page.on('console', m => { if ((m.type() === 'error' || m.type() === 'warning') && !/GPU stall due to ReadPixels/.test(m.text())) logs.push(m.text()); });
 page.on('pageerror', e => logs.push(e.message));
-await page.goto(`${DEV_URL}/?ai=0`, { waitUntil: 'networkidle', timeout: 20_000 });
+// --human: the mocap fighters (?human=1); --raw: with cfg.humanRawPose (the pure clips, the "natural" reference)
+const HUMAN = args.includes('--human');
+await page.goto(`${DEV_URL}/?ai=0${HUMAN ? '&human=1&menu=0' : ''}`, { waitUntil: HUMAN ? 'domcontentloaded' : 'networkidle', timeout: 60_000 });
 await bootReady(page);
+if (HUMAN) await page.waitForFunction(() => typeof window.__humanProbe === 'function', undefined, { timeout: 150_000 });
+if (args.includes('--raw')) await page.evaluate(() => { window.__cfg.humanRawPose = true; });
 
 // fps: headless software GL, reported not asserted.
 await page.evaluate(() => { window.__cfg.debugFps = true; });

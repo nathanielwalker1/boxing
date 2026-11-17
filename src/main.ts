@@ -99,6 +99,7 @@ if (params.get('human') === '1') cfg.humanBody = true;
 if (cfg.humanBody && !(await preloadHuman())) cfg.humanBody = false;
 if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; }
 if (cfg.humanBody) cfg.mocapGeo = await loadMocapGeo();   // the sim's punching glove = the drawn mocap glove (core/mocap.ts)
+if (cfg.mocapGeo) cfg.mocapOutcome = true;   // outcome first: the sim decides by rule, the drawing conforms (sim/outcome.ts)
 // The human fighters' own key + rims (human/body.ts), aimed each frame at the pair's midpoint.
 const fighterLights = cfg.humanBody ? addFighterLights(stage.scene) : null;
 const lightFocus = new THREE.Vector3();

@@ -372,6 +372,53 @@ export function mocapRest(lib: MocapLib, gloveOffNative: number): MocapRest | nu
 type Vec3s = ReturnType<typeof worldPositions>;
 
 /**
+ * OUTCOME FIRST (cfg.mocapOutcome): where the DRAWN body's head and torso are for a fighter in this sim state, world m.
+ * The drawn idle's mean head / hips / chest (mocapRest, scaled to his height, stood humanBackShift behind `pos` as the
+ * view stands him) plus how far the sim's own head sphere / body capsule has moved off its standing place (slip, level,
+ * reaction, sink), so a slipped or rocked head is where the picture has it. Radii are config (the drawn mesh, measured).
+ * Without the library: the sim's own boxes. Pure; writes `out`.
+ */
+export interface DrawnTargets { head: { x: number; y: number; z: number }; headR: number; torsoA: { x: number; y: number; z: number }; torsoB: { x: number; y: number; z: number }; torsoR: number }
+export function makeDrawnTargets(): DrawnTargets { return { head: { x: 0, y: 0, z: 0 }, headR: 0.1, torsoA: { x: 0, y: 0, z: 0 }, torsoB: { x: 0, y: 0, z: 0 }, torsoR: 0.15 }; }
+interface TargetState {
+  pos: { x: number; z: number }; yaw: number; stance: Stance;
+  body: { heightM: number; headY: number; hipY: number; shoulderY: number };
+  headBox: { x: number; y: number; z: number }; bodyBox: { a: { x: number; y: number; z: number }; b: { x: number; y: number; z: number } };
+}
+export function mocapDrawnTargets(lib: MocapLib | null, cfg: Config, f: TargetState, guardCrouch: number, out: DrawnTargets): DrawnTargets {
+  const k = f.body.heightM / cfg.mocapBandRefHeight;
+  out.headR = cfg.mocapHeadR * k; out.torsoR = cfg.mocapTorsoR * k;
+  const rest = lib ? mocapRest(lib, cfg.humanGloveOffset * cfg.humanNativeHeight / f.body.heightM) : null;
+  const c = Math.cos(f.yaw), sn = Math.sin(f.yaw);   // fwd = (c, sn), right = (-sn, c) (core/math frameOf)
+  const at = (o: { x: number; y: number; z: number }, fwd: number, up: number, lat: number): void => {
+    o.x = f.pos.x + c * fwd - sn * lat; o.y = up; o.z = f.pos.z + sn * fwd + c * lat;
+  };
+  if (!rest) {
+    out.head.x = f.headBox.x; out.head.y = f.headBox.y; out.head.z = f.headBox.z;
+    out.torsoA.x = f.bodyBox.a.x; out.torsoA.y = f.bodyBox.a.y; out.torsoA.z = f.bodyBox.a.z;
+    out.torsoB.x = f.bodyBox.b.x; out.torsoB.y = f.bodyBox.b.y; out.torsoB.z = f.bodyBox.b.z;
+    return out;
+  }
+  const s = f.body.heightM / cfg.humanNativeHeight, mir = f.stance === 'southpaw' ? 1 : -1, back = cfg.humanBackShift;
+  // the sim's boxes off their standing place (the guard's constant crouch is the sim's own; the drawn idle has its own)
+  const nom = { x: 0, y: 0, z: 0 };
+  at(nom, 0, f.body.headY - guardCrouch, 0);
+  const dhx = f.headBox.x - nom.x, dhy = f.headBox.y - nom.y, dhz = f.headBox.z - nom.z;
+  at(out.head, rest.head[2] * s - back + cfg.mocapHeadFwd * k, rest.head[1] * s, rest.head[0] * s * mir);
+  out.head.x += dhx; out.head.y += dhy; out.head.z += dhz;
+  at(nom, 0, f.body.shoulderY - guardCrouch, 0);
+  const dbx = f.bodyBox.b.x - nom.x, dby = f.bodyBox.b.y - nom.y, dbz = f.bodyBox.b.z - nom.z;
+  at(nom, 0, f.body.hipY - guardCrouch, 0);
+  const dax = f.bodyBox.a.x - nom.x, day = f.bodyBox.a.y - nom.y, daz = f.bodyBox.a.z - nom.z;
+  const fw = cfg.mocapTorsoFwd * k;
+  at(out.torsoA, rest.hips[2] * s - back + fw, rest.hips[1] * s, rest.hips[0] * s * mir);
+  out.torsoA.x += dax; out.torsoA.y += day; out.torsoA.z += daz;
+  at(out.torsoB, rest.chest[2] * s - back + fw, rest.chest[1] * s, rest.chest[0] * s * mir);
+  out.torsoB.x += dbx; out.torsoB.y += dby; out.torsoB.z += dbz;
+  return out;
+}
+
+/**
  * The clip's OWN glove at frame f (fractional), his frame (fwd, up, lat + = his right), m, for a man heightM tall: no
  * aim, no lunge, no turn. Measurement helper (the audit's legitimate per-tick hand speed = this glove's displacement
  * between the frames two ticks draw).

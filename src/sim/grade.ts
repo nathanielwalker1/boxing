@@ -51,12 +51,14 @@ export interface GradeInput {
   retreat: number; closing: number;
   /** The target slipped into it. */
   wrongWay: boolean;
+  /** Outcome first (sim/outcome.ts): the band's far end stands in for the reach, and the squareness is given (the rule landed it). */
+  reach?: number | undefined; square?: number | undefined;
 }
 
 export function gradeHit(g: GradeInput, cfg: Config): GradeResult {
   const { a, d, def, v, part, dist } = g;
   // ── range
-  const reach = punchReach(a, d, def, v, part, cfg);
+  const reach = g.reach ?? punchReach(a, d, def, v, part, cfg);
   const q = reach > 1e-6 ? dist / reach : 1;
   let range = q <= cfg.gradeSweetHi ? 1 : clamp(1 - (q - cfg.gradeSweetHi) / Math.max(1e-6, cfg.gradeFarZero - cfg.gradeSweetHi), 0, 1);
   if (def.smotherable && dist < cfg.smotherDist) {
@@ -71,7 +73,7 @@ export function gradeHit(g: GradeInput, cfg: Config): GradeResult {
   const along = cx * g.line.x + cz * g.line.z;
   const px = cx - along * g.line.x, pz = cz - along * g.line.z;
   const off = Math.hypot(px, cy, pz) / ((part === 'head' ? d.headBox.r : d.bodyBox.r) + a.body.gloveR);
-  const square = clamp((cfg.gradeSquareZero - off) / Math.max(1e-6, cfg.gradeSquareZero - cfg.gradeSquareFull), 0, 1);
+  const square = g.square ?? clamp((cfg.gradeSquareZero - off) / Math.max(1e-6, cfg.gradeSquareZero - cfg.gradeSquareFull), 0, 1);
   // ── timing
   const timing = clamp(brokenMult(a), 0, 1) * (1 - cfg.gradeFatigueWeight * a.fatigue) * (1 - cfg.gradeRollWeight * g.retreat);
   // ── exposure and closing

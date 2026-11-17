@@ -77,11 +77,15 @@ import { defaultStyle, type ComboStep, type StyleParams } from './style';
 /** mocapGeo: a style's distances × mocapRangeScale (cached per style object and scale; the source is never changed). */
 const MOCAP_STYLE = new WeakMap<StyleParams, { s: number; st: StyleParams }>();
 function mocapStyle(st: StyleParams, cfg: Config): StyleParams {
-  const s = cfg.mocapRangeScale, hit = MOCAP_STYLE.get(st);
-  if (hit && hit.s === s) return hit.st;
+  // (outcome first: the engage distances are the bands' far ends — sim/outcome.ts — less a margin, so what he commits lands)
+  const oc = cfg.mocapOutcome, s = cfg.mocapRangeScale, key = oc ? -(cfg.mocapFarCross + cfg.mocapFarLeadHook * 3 + cfg.mocapFarLeadUpper * 7 + cfg.mocapFarRearHook * 11 + cfg.mocapFarRearUpper * 13) : s, hit = MOCAP_STYLE.get(st);
+  if (hit && hit.s === key) return hit.st;
+  const k = 0.95;
   const out: StyleParams = { ...st, standoff: st.standoff * s, standoffBand: st.standoffBand * s, probeDist: st.probeDist * s, resetDist: st.resetDist * s,
-    engageStraight: st.engageStraight * s, engageHook: st.engageHook * s, engageUppercut: st.engageUppercut * s };
-  MOCAP_STYLE.set(st, { s, st: out });
+    engageStraight: oc ? cfg.mocapFarCross * k : st.engageStraight * s,
+    engageHook: oc ? Math.min(cfg.mocapFarLeadHook, cfg.mocapFarRearHook) * k : st.engageHook * s,
+    engageUppercut: oc ? Math.min(cfg.mocapFarLeadUpper, cfg.mocapFarRearUpper) * k : st.engageUppercut * s };
+  MOCAP_STYLE.set(st, { s: key, st: out });
   return out;
 }
 

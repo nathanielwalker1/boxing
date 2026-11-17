@@ -15,11 +15,14 @@
  * in the clip (the crossfade covers the cut).
  */
 import type { Config } from '../core/config';
+import { SIM_DT } from '../core';
 import type { BodyPart, FighterState, HitGrade, PunchType, SimEvent, Side, Vec3 } from '../core/types';
 import { punchPhases } from '../sim/punches';
-import { mocapPunchNow } from '../sim/mocap';
-import { mocapClipGlove, mocapRoleNames, type ChainedFrom } from '../core/mocap';
-const CG1 = { x: 0, y: 0, z: 0 };   // scratch
+import { mocapCfg, mocapPunchNow } from '../sim/mocap';
+import { contactPoint, predictOutcome, type Outcome, type OutcomeKind } from '../sim/outcome';
+import { mocapClipGlove, mocapRoleNames, type ChainedFrom, type MocapPick } from '../core/mocap';
+const CG1 = { x: 0, y: 0, z: 0 }, CG2 = { x: 0, y: 0, z: 0 }, TP = { x: 0, y: 0, z: 0 };   // scratch
+const OCS: Outcome = { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0 };
 import { makePose, sample, type Clip, type ClipLib, type Pose, type Role, type Roles } from './clip';
 
 interface Pick { name: string; role: Role; clip: Clip; mirror: boolean }
@@ -28,12 +31,14 @@ interface Track {
   key: string; pick: Pick; t: number; loop: boolean;
   w: number; target: number; fadeIn: number; fadeOut: number;
   upper: boolean; seq: number;
+  /** Legs, hips and lower spine only (the crouch): the complement of the upper mask. */
+  lower?: boolean;
 }
 
 export interface AnimOut {
   pose: Pose;
   /** Hand IK ask: pull this arm's hand so the glove centre sits at `at` (world), by weight w. */
-  ik: { arm: 'Left' | 'Right'; w: number; at: Vec3; exact?: boolean; key?: number; pressW?: number } | null;
+  ik: { arm: 'Left' | 'Right'; w: number; at: Vec3; exact?: boolean; key?: number; pressW?: number; outcome?: boolean } | null;
   /** The previous punch's arm easing off the sim glove while a chained punch with the other arm runs (null otherwise). */
   ik2: AnimOut['ik'];
   /** mocapGeo: the body offset of the punch's lunge (world floor m) and its turn (rad, + = toward his right), from the sim. */
@@ -152,10 +157,10 @@ export class HumanAnim {
     return want.filter(n => !this.roles[n]).map(n => (this.find(n) ? n + ' (label fallback)' : n));
   }
 
-  private want(key: string, pick: Pick, t: number, o: { loop?: boolean; fadeIn?: number; fadeOut?: number; upper?: boolean; w?: number; target?: number } = {}): void {
+  private want(key: string, pick: Pick, t: number, o: { loop?: boolean; fadeIn?: number; fadeOut?: number; upper?: boolean; lower?: boolean; w?: number; target?: number } = {}): void {
     let tr = this.tracks.find(x => x.key === key);
     if (!tr) {
-      tr = { key, pick, t, loop: !!o.loop, w: o.w ?? 0, target: 1, fadeIn: o.fadeIn ?? this.cfg.humanFadeIn, fadeOut: o.fadeOut ?? this.cfg.humanFadeOut, upper: !!o.upper, seq: this.seq++ };
+      tr = { key, pick, t, loop: !!o.loop, w: o.w ?? 0, target: 1, fadeIn: o.fadeIn ?? this.cfg.humanFadeIn, fadeOut: o.fadeOut ?? this.cfg.humanFadeOut, upper: !!o.upper, lower: !!o.lower, seq: this.seq++ };
       this.tracks.push(tr);
     }
     tr.t = t; tr.target = o.target ?? 1;
@@ -176,6 +181,64 @@ export class HumanAnim {
     const fps = pk.clip.fps;
     const impact = (pk.role.impact ?? pk.clip.impact ?? pk.role.from) / fps;
     this.hit = { pick: pk, t: impact + age, end: pk.role.to / fps, n: ++this.hitN, fromState };
+  }
+
+  /** Outcome mode (read by tests / the audit): what the punching hand is steered to this frame. */
+  conformInfo: { kind: OutcomeKind | 'none'; w: number; at: Vec3 | null } = { kind: 'none', w: 0, at: null };
+  private ocKindW = 0;
+  private readonly ocT = { x: 0, y: 0, z: 0 };
+  private ocKey = -1;
+  /**
+   * OUTCOME FIRST (cfg.mocapOutcome): steer the punching hand onto the sim's contact point. Before the hit tick the
+   * target comes from the sim's own rule evaluated on this state (predictOutcome), after it from punch.contact (set on
+   * a land or a block). Weight: 0 until the extension starts, 1 at the hit tick, held through the hit-stop, out over
+   * the first mocapIKOut of the recovery. The arm takes at most about mocapIKArmMax of the correction; the rest is the
+   * drawn lunge (forward) and a body turn (across). A whiff or a dodge leaves the clip free (the view keeps it out of
+   * the other body).
+   */
+  private conform(me: FighterState, opp: FighterState, u: number, cockEnd: number, peak: number, hold: number, total: number, pick: MocapPick, frame: number, lunge0: { x: number; z: number }, dt: number):
+    { ik: NonNullable<AnimOut['ik']>; turn: number; lunge: { x: number; z: number } } {
+    const cfg = this.cfg, mc = mocapCfg(cfg), p = me.punch;
+    if (this.ocKey !== this.punchN) { this.ocKey = this.punchN; this.ocKindW = 0; this.ocT.x = NaN; }
+    let kind: OutcomeKind, T: Vec3 | null = null;
+    if (!p.resolved) {
+      const o = predictOutcome(me, opp, mc, OCS);
+      kind = o ? o.kind : 'whiff';
+      if (o && (kind === 'land' || kind === 'block')) T = contactPoint(me, opp, kind, o.part, mc, TP);
+    } else if (p.contact) { kind = 'land'; T = p.contact; }
+    else kind = 'whiff';
+    const hits = kind === 'land' || kind === 'block';
+    const kw = 1 - Math.exp(-dt / 0.05);
+    this.ocKindW += ((hits ? 1 : 0) - this.ocKindW) * (p.resolved ? 1 : kw);
+    if (T) {
+      if (Number.isNaN(this.ocT.x) || p.resolved) { this.ocT.x = T.x; this.ocT.y = T.y; this.ocT.z = T.z; }
+      else { const k = 1 - Math.exp(-dt / 0.03); this.ocT.x += (T.x - this.ocT.x) * k; this.ocT.y += (T.y - this.ocT.y) * k; this.ocT.z += (T.z - this.ocT.z) * k; }
+    }
+    // (out only after the punch's own hold: the glove stays on the contact through the hold and the hit-stop)
+    // (in only over the last mocapIKTicks before the hit: the clip's wind-up and most of its extension are untouched)
+    const out0 = peak + hold * (1 - peak), in0 = Math.max(cockEnd, peak - cfg.mocapIKTicks * SIM_DT / Math.max(1e-6, total));
+    const wIn = u <= peak ? smooth((u - in0) / Math.max(1e-6, peak - in0)) : 1 - smooth((u - out0) / Math.max(1e-6, (1 - peak) * cfg.mocapIKOut));
+    const w = Number.isNaN(this.ocT.x) ? 0 : wIn * this.ocKindW;
+    const at = { x: this.ocT.x, y: this.ocT.y, z: this.ocT.z };
+    let turn = 0, lunge = lunge0;
+    if (w > 1e-3) {
+      // where the clip glove is now (his frame, from the drawn origin), and where the target is
+      mocapClipGlove(pick, frame, cfg, me.body.heightM, CG2);
+      const c = Math.cos(me.yaw), s = Math.sin(me.yaw);
+      const L = lunge0.x * c + lunge0.z * s;
+      const ox = me.pos.x - c * cfg.humanBackShift + lunge0.x, oz = me.pos.z - s * cfg.humanBackShift + lunge0.z;
+      const tF = (at.x - ox) * c + (at.z - oz) * s, tL = (at.x - ox) * -s + (at.z - oz) * c;
+      const gF = CG2.z, gL = -CG2.x;   // native x = his left
+      const m = cfg.mocapIKArmMax;
+      const dF = tF - gF, dL = tL - gL;
+      const exF = dF - clamp(dF, -m, m), exL = dL - clamp(dL, -m, m);
+      const Ln = L + exF * w;
+      lunge = { x: c * Ln, z: s * Ln };
+      // (no body turn: Nate 2026-11-17, every layer earns its way back; the across error stays, reported by the audit)
+      void exL; turn = 0;
+    }
+    this.conformInfo = { kind, w, at: Number.isNaN(at.x) ? null : at };
+    return { ik: { arm: pick.arm, w, at, exact: true, outcome: true }, turn, lunge };
   }
 
   /** `opp`: the opponent's states this frame (mocapGeo needs them for the aim, exactly as the sim does), or null. */
@@ -298,11 +361,18 @@ export class HumanAnim {
           // the SIM's glove (the clip glove, stopped where it met a head, a body or a guard), not the free clip glove
           const gi = p.hand === 'lead' ? 0 : 1, g0 = prev.gloves[gi].pos, g1 = next.gloves[gi].pos;
           const gl = { x: ip(g0.x, g1.x), y: ip(g0.y, g1.y), z: ip(g0.z, g1.z) };
-          if (w > 0.01) ik = { arm: g.arm, w, at: gl, exact: true, key: this.punchN, pressW: this.pressW };
+          if (cfg.mocapOutcome && opp) {
+            // OUTCOME FIRST: the hand is steered onto the sim's contact point (or left free on a whiff / dodge)
+            const c = this.conform(next, opp.next, u, ph.cockEnd, peak, ph.hold, ph.total * Math.max(1, p.timeMult), gp, f, lunge, dt);
+            ik = c.ik; turn = c.turn; lunge = c.lunge;
+          } else if (w > 0.01) ik = { arm: g.arm, w, at: gl, exact: true, key: this.punchN, pressW: this.pressW };
           // a chained punch with the OTHER arm: the last arm keeps its own tail (it was lost here: a 30 cm pop of the jab hand when the cross started)
-          if (this.ikTail && this.ikTail.arm !== g.arm) this.tailOld = { ...this.ikTail };
-          if (this.tailOld && this.tailOld.arm === g.arm) this.tailOld = null;
-          this.ikTail = { arm: g.arm, gi, w };
+          // (outcome first: no tails onto the sim glove — the arm is the clip's once the conform IK has ramped out)
+          if (!cfg.mocapOutcome) {
+            if (this.ikTail && this.ikTail.arm !== g.arm) this.tailOld = { ...this.ikTail };
+            if (this.tailOld && this.tailOld.arm === g.arm) this.tailOld = null;
+            this.ikTail = { arm: g.arm, gi, w };
+          }
         } else {
           const names = mocapRoleNames(this.roles, type, p.hand, low, this.chainedFrom);
           const twin = names[names.length - 1]!;   // the other hand's role: mirrored onto this arm
@@ -378,6 +448,14 @@ export class HumanAnim {
           label = label || name + ' (procedural)';
         }
       }
+      // ---- crouch (outcome mode): the held level drawn as the duck clip's lowest frame, legs and hips only, by the level ----
+      if (cfg.mocapOutcome && !cfg.humanRawPose && cfg.humanCrouchClip > 0 && !(s.active && !punching)) {
+        const lv = ip(prev.level, next.level);
+        const dk = this.find('duck');
+        if (dk && (lv > 0.02 || this.tracks.some(x => x.key === 'loco:crouch'))) {
+          this.want('loco:crouch', dk, (dk.role.contact ?? dk.role.to) / dk.clip.fps, { lower: true, fadeIn: 0.12, fadeOut: 0.15, target: clamp(lv, 0, 1) * cfg.humanCrouchClip });
+        }
+      }
       // ---- hurt ----
       if (next.hurt > 0 && !punching) {
         const st = this.find('stunned');
@@ -428,10 +506,10 @@ export class HumanAnim {
       const t = tr.loop ? from + ((((tr.t - from) % span) + span) % span) : clamp(tr.t, from, to);
       sample(this.lib, c, t, { root: 'inPlace', mirror: this.southpaw !== tr.pick.mirror }, this.tmp);
       for (let b = 0; b < this.nb; b++) {
-        const wb = tr.upper ? w * this.upperMask[b]! : w;
+        const wb = tr.upper ? w * this.upperMask[b]! : tr.lower ? w * (1 - this.upperMask[b]!) : w;
         if (wb > 1e-3) nlerp(this.pose.rot, b * 4, this.tmp.rot, b * 4, wb, this.pose.rot, b * 4);
       }
-      if (!tr.upper) this.pose.hips[1] = lerp(this.pose.hips[1]!, this.tmp.hips[1]!, w);
+      if (!tr.upper) this.pose.hips[1] = lerp(this.pose.hips[1]!, this.tmp.hips[1]!, w);   // (the crouch's lower mask carries the hips height too)
     }
     // after a mocapGeo punch the arm leaves the sim's glove gradually (it is on its way back to the guard), never in one frame
     if (!ik && this.ikTail) {
@@ -469,6 +547,10 @@ export class HumanAnim {
       + (punching ? 0 : Math.max(0, ipn(prev.crouch, next.crouch))) + (slipClip || !next.slip.active ? 0 : ipn(prev.slip.dip, next.slip.dip)))
       + cfg.humanSinkGain * Math.max(0, ipn(prev.reaction.sink.x, next.reaction.sink.x));
     if (!slipClip && next.slip.active && !next.down) lean.fwd = 0;   // the dip is now the hips going down, not a bow
+    // THE REFERENCE (humanRawPose): the clips alone, placed at the sim's pos / yaw
+    if (cfg.humanRawPose) return { pose: this.pose, ik: null, ik2: null, aim: null, lean: { lat: 0, back: 0, fwd: 0 }, drop: 0, label, lunge: { x: 0, z: 0 }, turn: 0 };
+    // outcome first: no hips drop with leg IK (the crouch is the duck clip, above); the lunge and the conform IK stay
+    if (cfg.mocapOutcome) return { pose: this.pose, ik, ik2: null, aim: null, lean, drop: 0, label, lunge, turn };
     return { pose: this.pose, ik, ik2, aim, lean, drop, label, lunge, turn };
   }
 }

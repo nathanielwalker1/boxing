@@ -1,0 +1,105 @@
+/**
+ * sim/outcome.ts — OUTCOME FIRST (cfg.mocapOutcome, with mocapGeo; ?human=1). At a punch's hit tick the sim decides
+ * it by RULE, exactly as the locked mechanics say, and the drawing is then made to show that outcome (src/human).
+ * No sphere test decides anything here. Pure and deterministic: state in, outcome out.
+ *
+ *   d = centre-to-centre distance at the hit tick; [near, far] = the punch's band (config, × his height)
+ *   d > far                                  WHIFF
+ *   head punch, target slipped / pulled / rolled in its window, or ducked under the press aim
+ *                                            DODGED (a wrong-way lateral slip, toward the punching hand, is caught on
+ *                                            the shoulder instead: a body land — the existing wrongWay rule)
+ *   body punch, target rolling / slipping    still LANDS (a roll or a slip beats head punches only)
+ *   target holding block (not guard-broken)  BLOCKED (full block while held)
+ *   otherwise                                LAND, on the head or body as THROWN (the variant)
+ *   d < near (straights)                     still lands, the power ramps down (combat.ts, the smother ramp)
+ *
+ * predictOutcome is the same rule on any state: the drawn side calls it a few ticks early to steer the hand.
+ */
+import type { BodyPart, Config, FighterState, Hand, PunchType, PunchVariant } from '../core';
+import { GUARDS, handLateralSign, v2dist } from '../core';
+import { makeDrawnTargets, mocapDrawnTargets, mocapLib, type DrawnTargets } from '../core/mocap';
+import { VARIANTS } from './variants';
+import { slipLateral } from './slip';
+
+export type OutcomeKind = 'land' | 'block' | 'dodge' | 'whiff';
+export interface Outcome {
+  kind: OutcomeKind;
+  /** What was thrown at (a wrong-way slip turns a head punch into a body land). */
+  part: BodyPart;
+  /** The dodge was a slip / pull / roll (the slip event and the counter window fire), not a duck. */
+  slip: boolean;
+  near: number; far: number; d: number;
+}
+
+/** The punch's band, centre to centre, m. Straights: near = smotherDist (the power ramp starts); hooks and uppercuts: the separation. */
+export function punchBand(a: FighterState, type: PunchType, hand: Hand, variant: PunchVariant, cfg: Config): { near: number; far: number } {
+  const v = VARIANTS[variant];
+  const lead = hand === 'lead';
+  const far0 = type === 'jab' ? (v.body ? cfg.mocapFarBodyJab : cfg.mocapFarJab)
+    : type === 'cross' ? (v.body ? cfg.mocapFarBodyCross : cfg.mocapFarCross)
+    : type === 'hook' ? (v.body ? cfg.mocapFarBodyHook : lead ? cfg.mocapFarLeadHook : cfg.mocapFarRearHook)
+    : lead ? cfg.mocapFarLeadUpper : cfg.mocapFarRearUpper;
+  // (not × the variant's reach: that shaped the procedural arm; the drawn clip is the same for a shovel hook or an inside uppercut)
+  const far = far0 * a.body.heightM / cfg.mocapBandRefHeight;
+  const near = type === 'jab' || type === 'cross' ? cfg.smotherDist : cfg.separationDist;
+  return { near: Math.min(near, far), far };
+}
+
+/** How far the target's head is down from where the punch was aimed at the press, m (variants.ts aimAtPress measures the same). */
+function duckedBy(a: FighterState, d: FighterState): number {
+  return Math.max(0, d.body.headY - d.headBox.y) - a.punch.aim;
+}
+
+/** The rule, on this state, for a's punch in flight (null: no punch). */
+export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, out?: Outcome): Outcome | null {
+  const p = a.punch;
+  if (p.type === null) return null;
+  const o = out ?? { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0 };
+  const band = punchBand(a, p.type, p.hand, p.variant, cfg);
+  const v = VARIANTS[p.variant];
+  o.near = band.near; o.far = band.far; o.d = v2dist(a.pos, d.pos); o.slip = false;
+  o.part = v.body ? 'body' : 'head';
+  if (o.d > band.far) { o.kind = 'whiff'; return o; }
+  if (o.part === 'head') {
+    const s = d.slip;
+    if (s.active && s.dir !== 0) {
+      const lateral = s.dir === 1 || s.dir === -1;
+      // the wrong way: a lateral slip toward the punching hand walks the shoulder into it (combat.ts wrongWayShoulder)
+      const intoHand = lateral && s.kind !== 'roll' && cfg.wrongWayOn && cfg.wrongWayShoulder > 0 && slipLateral(d) * -handLateralSign(p.hand, a.stance) > 0;
+      if (intoHand) o.part = 'body';
+      else { o.kind = 'dodge'; o.slip = true; return o; }
+    } else if (duckedBy(a, d) > cfg.mocapDuckDodge + GUARDS[cfg.stylesOn ? d.guardShape : 'high'].crouch) { o.kind = 'dodge'; return o; }
+  }
+  o.kind = d.block && d.guardBroken <= 0 ? 'block' : 'land';
+  return o;
+}
+
+const TG = makeDrawnTargets();
+/**
+ * The contact point (world): where the punching glove's CENTRE rests on the DRAWN target, on the side facing the
+ * attacker — head (sphere) or torso (at the body lane), one glove radius less the contact squash off the surface; a
+ * blocked punch on the defender's nearer guard glove. Writes `out`.
+ */
+export function contactPoint(a: FighterState, d: FighterState, kind: OutcomeKind, part: BodyPart, cfg: Config, out: { x: number; y: number; z: number }): { x: number; y: number; z: number } {
+  const t: DrawnTargets = mocapDrawnTargets(mocapLib(), cfg, d, GUARDS[cfg.stylesOn ? d.guardShape : 'high'].crouch, TG);
+  const gr = a.body.gloveR, rest = gr * (1 - cfg.contactSquash);
+  let cx: number, cy: number, cz: number, r: number;
+  if (part === 'head') { cx = t.head.x; cy = t.head.y; cz = t.head.z; r = t.headR; }
+  else {
+    // the body lane: half way up the torso line
+    cx = (t.torsoA.x + t.torsoB.x) / 2; cy = (t.torsoA.y + t.torsoB.y) / 2; cz = (t.torsoA.z + t.torsoB.z) / 2; r = t.torsoR;
+  }
+  // toward the attacker's shoulders, on the floor plane (a straight meets the face from the front, a hook from its side)
+  let nx = a.pos.x - cx, nz = a.pos.z - cz;
+  const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+  if (kind === 'block') {
+    // the guard glove on the punch's side: the nearer of his two to the head point, the fist resting against it
+    const g0 = d.gloves[0].pos, g1 = d.gloves[1].pos;
+    const n0 = Math.hypot(g0.x - (cx + nx * r), g0.y - cy, g0.z - (cz + nz * r)), n1 = Math.hypot(g1.x - (cx + nx * r), g1.y - cy, g1.z - (cz + nz * r));
+    const g = n0 <= n1 ? g0 : g1, R = d.body.gloveR + rest;
+    out.x = g.x + nx * R; out.y = g.y; out.z = g.z + nz * R;
+    return out;
+  }
+  out.x = cx + nx * (r + rest); out.y = cy; out.z = cz + nz * (r + rest);
+  return out;
+}

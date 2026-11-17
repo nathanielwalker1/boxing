@@ -42,11 +42,13 @@ export function mocapCfg(cfg: Config): Config {
   const s = cfg.mocapRangeScale;
   for (const k of MOCAP_SCALED_KEYS) dst[k] = (cfg[k] as number) * s;
   for (const k of MOCAP_CLOSE_KEYS) dst[k] = (cfg[k] as number) * cfg.mocapCloseScale;
+  // outcome first (sim/outcome.ts): the separation is the measured one for two mocap bodies; the straights' ramp starts outside it
+  if (cfg.mocapOutcome) { c.separationDist = cfg.mocapSeparation; c.smotherDist = cfg.mocapSeparation + cfg.mocapSmotherSpan; c.clinchHoldDist = Math.max(c.clinchHoldDist, cfg.mocapSeparation); }
   return c;
 }
 
-interface MocapTick { owner: FighterState | null; on: boolean; lunge: { x: number; z: number }; glove: Vec3; geo: MocapPunchGeo }
-const POOL: [MocapTick, MocapTick] = [0, 1].map(() => ({ owner: null, on: false, lunge: { x: 0, z: 0 }, glove: { x: 0, y: 0, z: 0 }, geo: makeMocapGeo() })) as [MocapTick, MocapTick];
+interface MocapTick { owner: FighterState | null; on: boolean; drawOnly: boolean; lunge: { x: number; z: number }; glove: Vec3; geo: MocapPunchGeo }
+const POOL: [MocapTick, MocapTick] = [0, 1].map(() => ({ owner: null, on: false, drawOnly: false, lunge: { x: 0, z: 0 }, glove: { x: 0, y: 0, z: 0 }, geo: makeMocapGeo() })) as [MocapTick, MocapTick];
 const OF = new WeakMap<FighterState, MocapTick>();
 const tickOf = (f: FighterState): MocapTick | null => { const t = OF.get(f); return t && t.owner === f && t.on ? t : null; };
 
@@ -120,16 +122,19 @@ function computeMocap(f: FighterState, other: FighterState, cfg: Config, t: Moca
   // so a slip still takes the punch away), the glove sunk by the contact squash as the hit test expects
   const d = v2dist(f.pos, other.pos);
   const reachTo = d - (low ? other.body.bodyR : other.body.headR) - f.body.gloveR + f.body.gloveR * cfg.contactSquash;
-  const g = mocapPunchGeo(lib, cfg, f.body.heightM, f.stance, p.type, p.hand, low, p.progress, ph.cockEnd, ph.peakAt, p.tell, targetY, selfY, t.geo, mocapChainedFrom(f), reachTo);
+  // outcome first: the clip as authored (no height aim, no body turn, no reach fit); the drawing conforms to the outcome
+  const oc = cfg.mocapOutcome;
+  const g = mocapPunchGeo(lib, cfg, f.body.heightM, f.stance, p.type, p.hand, low, p.progress, ph.cockEnd, ph.peakAt, p.tell, oc ? null : targetY, oc ? null : selfY, t.geo, mocapChainedFrom(f), oc ? null : reachTo);
   if (!g.ok) return;
   // a chained punch takes over the lunge the last one was carrying and lets it go over its own wind-up and extension
   const L0 = f.moveHist[HIST_MOCAP + 6] ?? 0, kIn = Math.min(1, p.progress / Math.max(1e-6, ph.peakAt));
   let L = g.lunge + L0 * (1 - kIn * kIn * (3 - 2 * kIn));
   // never closer than the body separation (the sim owns pos; the lunge may not overrule it)
-  if (L > 0) L = Math.min(L, Math.max(0, d - Math.max(cfg.mocapLungeMin, cfg.separationDist)));
+  if (L > 0 && !oc) L = Math.min(L, Math.max(0, d - Math.max(cfg.mocapLungeMin, cfg.separationDist)));
   const fr = frameOf(f.yaw);
   // (the turn rotated the glove about the lunged origin; a clamped lunge moves that origin, and the glove with it, along the facing)
-  let fwd = g.fwd - g.lunge + L, up = g.up, lat = g.lat;
+  // (outcome first: the lunge is drawn only — the sim's glove and body stay on pos)
+  let fwd = g.fwd - g.lunge + (oc ? 0 : L), up = g.up, lat = g.lat;
   // in from the glove's place at the press over the wind-up (cockEnd); the clip glove alone from there (contact untouched)
   const h = f.moveHist, s0 = h[HIST_MOCAP + 3];
   if (s0 !== undefined && ph.cockEnd > 1e-6 && p.progress < ph.cockEnd) {
@@ -137,6 +142,7 @@ function computeMocap(f: FighterState, other: FighterState, cfg: Config, t: Moca
     fwd = s0 + (fwd - s0) * w; up = h[HIST_MOCAP + 4]! + (up - h[HIST_MOCAP + 4]!) * w; lat = h[HIST_MOCAP + 5]! + (lat - h[HIST_MOCAP + 5]!) * w;
   }
   t.on = true;
+  t.drawOnly = oc;
   t.lunge.x = fr.fwd.x * L; t.lunge.z = fr.fwd.z * L;
   t.glove.x = f.pos.x + fr.fwd.x * fwd + fr.right.x * lat;
   t.glove.y = up;
@@ -144,7 +150,7 @@ function computeMocap(f: FighterState, other: FighterState, cfg: Config, t: Moca
 }
 
 /** The body offset (world, on the floor) f lunges by this tick, or null (no mocap punch). */
-export function mocapLunge(f: FighterState): { x: number; z: number } | null { const t = tickOf(f); return t ? t.lunge : null; }
+export function mocapLunge(f: FighterState): { x: number; z: number } | null { const t = tickOf(f); return t && !t.drawOnly ? t.lunge : null; }
 /** The mocap punching glove's centre this tick (world), or null. */
 export function mocapGlove(f: FighterState): Vec3 | null { const t = tickOf(f); return t ? t.glove : null; }
 /** The full mocap punch result this tick (frame, local glove, unclamped lunge, aim), or null. */
@@ -155,7 +161,7 @@ export function mocapGeoOf(f: FighterState): MocapPunchGeo | null { const t = ti
  * glove (world), the lunge (world floor offset, clamped as the sim clamps it) and the clip frame, or null.
  */
 export function mocapPunchNow(f: FighterState, other: FighterState, cfg: Config): { glove: Vec3; lunge: { x: number; z: number }; frame: number; geo: MocapPunchGeo } | null {
-  const t: MocapTick = { owner: null, on: false, lunge: { x: 0, z: 0 }, glove: { x: 0, y: 0, z: 0 }, geo: makeMocapGeo() };
+  const t: MocapTick = { owner: null, on: false, drawOnly: false, lunge: { x: 0, z: 0 }, glove: { x: 0, y: 0, z: 0 }, geo: makeMocapGeo() };
   computeMocap(f, other, mocapCfg(cfg), t);
   return t.on ? { glove: t.glove, lunge: t.lunge, frame: t.geo.frame, geo: t.geo } : null;
 }

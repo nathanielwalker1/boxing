@@ -73,7 +73,10 @@ const punchSc = (actor, punch, hand, zone, dist, opp) => {
 if (QUICK) {
   for (const [punch, hand] of PH) for (const dist of [1.0, 1.25]) punchSc(0, punch, hand, 'head', dist, 'idle');
   for (const [punch, hand] of PH) punchSc(0, punch, hand, 'body', 1.0, 'idle');
-  punchSc(0, 'jab', 'lead', 'head', 1.0, 'block'); punchSc(0, 'cross', 'rear', 'head', 1.0, 'block');
+  // every punch on a held block at three distances (expect blocked, or a whiff beyond its band; never a land)
+  for (const [punch, hand] of PH) for (const dist of [0.8, 1.0, 1.2]) punchSc(0, punch, hand, 'head', dist, 'block');
+  // body variants (level held) at three distances (expect the body clip, landing on the body, or a whiff beyond the band)
+  for (const [punch, hand] of PH.filter(([p]) => p !== 'uppercut')) for (const dist of [0.9, 1.1, 1.3]) punchSc(0, punch, hand, 'body', dist, 'idle');
   punchSc(0, 'jab', 'lead', 'head', 0.75, 'idle'); punchSc(0, 'hook', 'lead', 'head', 0.75, 'idle');
   punchSc(1, 'jab', 'lead', 'head', 1.0, 'idle'); punchSc(1, 'cross', 'rear', 'head', 1.0, 'idle');
   for (const [p1, h1, p2, h2] of CHAINS) addSc({ name: `s0 chain ${p1}-${p2} gap8 d1`, kind: 'chain', actor: 0, dist: 1.0, punch: p1, hand: h1, zone: 'head', opp: 'idle',
@@ -148,7 +151,7 @@ async function runScenario(page, sc) {
         if (t === 0 && side === 0) bodyDims = null;
         const hb = f.headBox, bb = f.bodyBox;
         row.push({
-          p: { head: p.head, hips: p.hips, gl: p.gloves, feet: p.feet, clip: p.clip, pc: p.punchClip, fr: p.frame, org: p.origin, legit: p.legitHand,
+          p: { head: p.head, hips: p.hips, gl: p.gloves, feet: p.feet, clip: p.clip, pc: p.punchClip, fr: p.frame, org: p.origin, legit: p.legitHand, dr: p.drawn, cf: p.conform, lb: p.label, knees: p.knees, ikMax: p.ikMax,
             ev: (p.events ?? []).filter(e => /^punch/.test(e.type)).map(e => ({ type: e.type, side: e.side, target: e.target, part: e.part })) },
           hb: [hb.x, hb.y, hb.z, hb.r], bb: [[bb.a.x, bb.a.y, bb.a.z], [bb.b.x, bb.b.y, bb.b.z], bb.r],
           s: { x: f.pos.x, z: f.pos.z, yaw: f.yaw, hp: f.health, blk: f.block, down: f.down, burst: f.burstT, lvl: f.level, hurt: f.hurt,
@@ -165,7 +168,8 @@ async function runScenario(page, sc) {
       }
     }
     Object.assign(w.__cfg, was);
-    return { out, cfg: { sep: w.__cfg.separationDist, scale: w.__cfg.mocapGeo ? w.__cfg.mocapCloseScale : 1 } };
+    const oc = !!(w.__cfg.mocapOutcome && w.__cfg.mocapGeo);
+    return { out, cfg: { sep: oc ? w.__cfg.mocapSeparation : w.__cfg.separationDist, scale: oc ? 1 : w.__cfg.mocapGeo ? w.__cfg.mocapCloseScale : 1, outcome: oc, squash: w.__cfg.contactSquash } };
   }, { sc });
 }
 
@@ -187,6 +191,7 @@ const GL = { lead: 0, rear: 1 };
 
 function analyse(sc, run) {
   const rows = run.out;
+  const OC = !!run.cfg.outcome;
   const N = rows.length;
   const V = {};   // check -> { count, worst, thr, over, tick, note }
   const flag = (check, tick, value, thr, over, note = '') => {
@@ -291,7 +296,8 @@ function analyse(sc, run) {
       if (S.pt === null) continue;
       const dd = dist3(handOf(A[t], S.hand), S.g[GL[S.hand]]);
       if (dd > maxPic) { maxPic = dd; picWhere = `t${t} ${S.ph} p=${S.prog.toFixed(2)} ${S.pt}/${S.hand}`; }
-      if (dd > 0.05) flag('drawn glove vs sim glove', t, +dd.toFixed(3), 0.05, dd / 0.05, `phase ${S.ph} p=${S.prog.toFixed(2)} ${A[t].p.clip}`);
+      // (outcome first: the sim's punching glove decides nothing and is not drawn; the contact checks below are the truth)
+      if (dd > 0.05 && !OC) flag('drawn glove vs sim glove', t, +dd.toFixed(3), 0.05, dd / 0.05, `phase ${S.ph} p=${S.prog.toFixed(2)} ${A[t].p.clip}`);
     }
     info.maxPic = { cm: +(maxPic * 100).toFixed(1), at: picWhere };
 
@@ -308,7 +314,25 @@ function analyse(sc, run) {
         const g = handOf(A[t], hand), gp = gap(g, d, t);
         const part = e.part ?? (gp.hg <= gp.bg ? 'head' : 'body');
         const m = part === 'head' ? gp.hg : gp.bg;
-        info.resolves.push({ t, punch: C.pt, hand, kind, part, gloveGapCm: +(m * 100).toFixed(1), simGap: C.pt ? +(dist3(g, C.g[GL[hand]]) * 100).toFixed(1) : null });
+        info.resolves.push({ t, punch: C.pt, hand, kind, part, variant: C.variant, gloveGapCm: +(m * 100).toFixed(1), simGap: C.pt ? +(dist3(g, C.g[GL[hand]]) * 100).toFixed(1) : null });
+        if (OC) {
+          // OUTCOME FIRST: the drawn glove ON the sim's contact point at the hit tick (land: on the drawn head / torso; block: on the guard glove)
+          // (a block is steered onto the DRAWN guard glove — checked below against the drawn gloves)
+          if (kind === 'land' && C.con) {
+            const off = dist3(g, C.con);
+            if (off > 0.04) flag('landed: drawn glove off the contact point', t, +off.toFixed(3), 0.04, off / 0.04, `${C.pt}/${hand} ${part} d${sc.dist}`);
+          }
+          if (kind === 'block') {
+            const dg = Math.min(dist3(g, rows[t][d].p.gl.left), dist3(g, rows[t][d].p.gl.right)) - 2 * C.body.gr;
+            if (dg > 0.08) flag('blocked but glove away from the guard', t, +dg.toFixed(3), 0.08, dg / 0.08, `${C.pt}/${hand} d${sc.dist}`);
+          }
+          if (kind === 'land') holdTicks.push(t);
+          // expectations by scenario
+          if (sc.opp === 'block' && kind === 'land') flag('landed through a held block', t, 1, 0, 1, `${C.pt}/${hand} ${part} d${sc.dist}`);
+          if (sc.zone === 'body' && kind === 'land' && part !== 'body') flag('body punch landed on the head', t, 1, 0, 1, `${C.pt}/${hand} ${C.variant} d${sc.dist}`);
+          if (sc.zone === 'body' && sc.punch !== 'uppercut' && !/body/.test(A[t].p.lb ?? '')) flag('body punch not playing a body clip', t, 1, 0, 1, `${C.pt}/${hand} ${C.variant} clip ${A[t].p.lb}`);
+          continue;
+        }
         if (kind === 'land') {
           if (m > 0.06) flag('landed but glove away from target', t, +m.toFixed(3), 0.06, m / 0.06, `${C.pt}/${hand} ${part} d${sc.dist}`);
           holdTicks.push(t);
@@ -327,6 +351,15 @@ function analyse(sc, run) {
       if (!inWin) continue;
       for (const hk of ['left', 'right']) {
         const g = A[t].p.gl[hk];
+        const D = rows[t][d].p.dr;
+        if (OC && D) {
+          // outcome first: the DRAWN head sphere / torso capsule; inside = the glove centre over 2 cm closer than where a landed glove rests
+          const rest = A[t].s.body.gr * (1 - run.cfg.squash);
+          const inH = D.headR + rest - dist3(g, D.head), inB = D.r + rest - segDist(g, D.a, D.b);
+          if (inH > 0.02) flag('glove inside drawn head', t, +inH.toFixed(3), 0.02, inH / 0.02, `${hk} hand, ${A[t].s.pt}/${A[t].s.ph}`);
+          if (inB > 0.02) flag('glove inside drawn torso', t, +inB.toFixed(3), 0.02, inB / 0.02, `${hk} hand, ${A[t].s.pt}/${A[t].s.ph}`);
+          continue;
+        }
         const H = headOf(d, t), B = bodyOf(d, t);
         const inH = H.r - dist3(g, H.c), inB = B.r - segDist(g, B.a, B.b);   // centre depth inside the surface
         // the glove CENTRE inside the sim's head sphere / body capsule (2 cm for the skin): half a glove sunk in
@@ -380,6 +413,33 @@ function analyse(sc, run) {
     }
   }
 
+  // 9 what Nate saw (2026-11-17): guard hands over the head or in his own head, a knee on the floor, the hips sunk, big IK shoves
+  for (const s of bothSides) {
+    const run = { left: 0, right: 0 };
+    for (let t = 0; t < N; t++) {
+      const R = rows[t][s];
+      if (R.s.down) { run.left = 0; run.right = 0; continue; }
+      const H = R.p.dr ? R.p.dr.head : [R.p.head[0], R.p.head[1] + 0.09, R.p.head[2]], hr = R.p.dr ? R.p.dr.headR : 0.11;
+      const punching = R.s.pt !== null ? (R.s.hand === 'lead' ? R.p.gl.lead : R.p.gl.rear) : null;
+      for (const hk of ['left', 'right']) {
+        const g = R.p.gl[hk];
+        const mine = punching && g[0] === punching[0] && g[1] === punching[1] && g[2] === punching[2];
+        const over = g[1] - (H[1] + hr), inside = hr + R.s.body.gr - dist3(g, H);
+        if (!mine && (over > 0 || inside > 0.10)) {
+          run[hk]++;
+          if (run[hk] > 3) flag(over > 0 ? 'guard hand above top of head' : 'hand inside own head', t, +(over > 0 ? over : inside).toFixed(3), over > 0 ? 0 : 0.1, run[hk] / 3, `s${s} ${hk} ${R.p.lb ?? R.p.clip}`);
+        } else run[hk] = 0;
+      }
+      if (R.p.knees) {
+        const k = Math.min(R.p.knees[0][1], R.p.knees[1][1]) - floor[s];
+        if (k < 0.12) flag('knee near the floor', t, +k.toFixed(3), 0.12, 0.12 / Math.max(k, 0.01), `s${s} ${R.p.lb ?? R.p.clip}`);
+      }
+      const hipsLow = R.p.hips[1] / rows[0][s].p.hips[1];
+      if (hipsLow < 0.6 && !R.s.slip) flag('hips below 60% of standing', t, +hipsLow.toFixed(3), 0.6, 0.6 / Math.max(hipsLow, 0.05), `s${s} ${R.p.lb ?? R.p.clip}`);
+      if ((R.p.ikMax ?? 0) > 0.15) flag('hand IK displacement over 15 cm', t, +R.p.ikMax.toFixed(3), 0.15, R.p.ikMax / 0.15, `s${s} ${R.p.lb ?? R.p.clip}`);
+    }
+  }
+
   // 8 return to idle
   if (sc.kind !== 'knockdown') {
     const chk = sc.lastInput + 45;
@@ -420,6 +480,8 @@ async function boot() {
     c.camDistMin = 2.4; c.camLookY = 1.25;
     window.__focus = -1;
   });
+  // --raw: the pure clips (cfg.humanRawPose), the reference for "natural"
+  if (ARGS.includes('--raw')) await page.evaluate(() => { window.__cfg.humanRawPose = true; });
   // the probe must answer after one replay
   await until(page, () => { window.__rigReplay(1.0, [], 1, []); return !!window.__humanProbe(0) && !!window.__humanProbe(1); }, undefined, { label: 'probe answers', timeout: 60_000 });
 }
