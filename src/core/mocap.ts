@@ -121,9 +121,16 @@ export function mocapRoleNames(roles: Roles, type: PunchType, hand: Hand, low: b
   // (a combination authored to the BODY is not used for a head punch: its second hand comes in low and the height aim
   //  then lifts it straight up — "a really weird animation upwards"; the head-height single clip reads right)
   if (chainedFrom) { const c = `combo_${baseRole(chainedFrom.type, chainedFrom.hand)}_${base}`; const r = roles[c] as (Role & { body?: boolean }) | null | undefined; if (r && !!r.body === low) out.push(c); }
-  out.push(...(low ? [`body_${base}`, `body_${type}`, base, twin] : [base, twin]));
+  // A head punch whose own role is a BODY-height clip (roles.json body: true; the rear uppercut's only clip ends 61 cm
+  // short of the head) takes its other-hand twin, mirrored, first: mirroring is exact, stretching a clip is not.
+  const ownBody = !!(roles[base] as (Role & { body?: boolean }) | null | undefined)?.body;
+  const twinHead = !!roles[twin] && !(roles[twin] as Role & { body?: boolean }).body;
+  out.push(...(low ? [`body_${base}`, `body_${type}`, base, twin] : ownBody && twinHead ? [twin, base] : [base, twin]));
   return out;
 }
+
+/** The other hand's role for a punch (a clip found under it is mirrored onto this arm). */
+export const mocapTwinRole = (type: PunchType, hand: Hand): string => (type === 'jab' ? 'cross' : type === 'cross' ? 'jab' : `${hand === 'lead' ? 'rear' : 'lead'}_${type}`);
 
 const PUNCH_CODES: PunchType[] = ['jab', 'cross', 'hook', 'uppercut'];
 /** A punch as a number (moveHist; 0 = none) and back. */

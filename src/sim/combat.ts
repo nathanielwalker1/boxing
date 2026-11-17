@@ -418,7 +418,9 @@ function blockFeel(a: FighterState, d: FighterState, at: Vec3, dirX: number, dir
     if (rl < minDist && rl > 1e-9) { const k = minDist / rl; g.pos.x = hb.x + rx * k; g.pos.y = hb.y + ry * k; g.pos.z = hb.z + rz * k; }
   }
   const p = a.punch;
-  if (p.type !== null && cfg.blockFeelFistSkip > 0) {
+  // (outcome first, mocapBlockNoSkip: no skip — a jump in progress is a 68 cm jump of the drawn mocap glove; the fist
+  //  stays on the guard through its hold and comes home along the clip's own recovery)
+  if (p.type !== null && cfg.blockFeelFistSkip > 0 && !(cfg.mocapOutcome && cfg.mocapGeo && cfg.mocapBlockNoSkip)) {
     const total = whiffPhases(a, PUNCHES[p.type].phases(cfg)).total;
     const p0 = p.progress, p1 = Math.min(0.98, p0 + cfg.blockFeelFistSkip / Math.max(1e-6, total));
     p.progress = p1;

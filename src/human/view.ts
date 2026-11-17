@@ -18,6 +18,7 @@ import { Spray } from '../rig/spray';
 import { installRigReplay, type ReplayFeed } from '../rig/replay';
 import { SIM_DT } from '../core';
 import { mocapCfg } from '../sim/mocap';
+import { createImpact, impactOnEvents, impactPose, impactStep, makeImpactPose, type ImpactBone } from './impact';
 
 interface Assets { boxer: BoxerAssets; lib: ClipLib; roles: Roles; index: BakeIndex }
 let assets: Assets | null = null;
@@ -157,6 +158,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   const headRel = new THREE.Vector3(), headSlow = new THREE.Vector3();
   let headInit = false, struck = 0, frozen = false;
   const anim = new HumanAnim(lib, roles, side, spec.stance, cfg);
+  // the hit impact (impact.ts): additive head whip / body fold / face on a land, outcome mode only
+  const imp = createImpact(), impOut = makeImpactPose();
+  const impBones: [ImpactBone, THREE.Bone][] = (['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head'] as const).map(n => [n, n === 'Head' ? head : bone(n)]);
+  const faces: { m: THREE.Mesh; idx: Record<string, number> }[] = [];
+  model.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && m.morphTargetDictionary && m.morphTargetInfluences) faces.push({ m, idx: m.morphTargetDictionary }); });
+  const qF = new THREE.Quaternion(), qFi = new THREE.Quaternion(), qB = new THREE.Quaternion();
   if (side === 0) {
     const miss = anim.missing();
     if (miss.length) console.info(`human fighters: roles not in roles.json: ${miss.join(', ')}`);
@@ -204,7 +211,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   probes[side] = () => {
     const lead = spec.stance === 'orthodox' ? 'Left' : 'Right', rear = lead === 'Left' ? 'Right' : 'Left';
     return {
-      head: v3(head), hips: v3(hips),
+      head: v3(head), hips: v3(hips), headQ: head.getWorldQuaternion(new THREE.Quaternion()).toArray(), headTop: headTop ? v3(headTop) : null,
       gloves: { left: gloveOf('Left'), right: gloveOf('Right'), lead: gloveOf(lead), rear: gloveOf(rear) },
       feet: { left: v3(leg.Left[2]), right: v3(leg.Right[2]) }, knees: [v3(leg.Left[1]), v3(leg.Right[1])], ikMax,
       clip: anim.info.slug, frame: anim.info.frame, punchClip: anim.info.punch, label,
@@ -367,6 +374,32 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           }
         }
         struck = Math.max(0, struck - dt);
+      }
+
+      // ---- the hit impact (impact.ts), outcome mode: additive head whip / body fold after the clip, before the hand ----
+      if (cfg.mocapOutcome && !cfg.humanRawPose) {
+        if (events.length) impactOnEvents(imp, side, events, next, cfg);
+        impactStep(imp, Math.min(dt, 0.1));
+        impactPose(imp, yaw, impOut);
+        if (cfg.impactOn) {
+          group.getWorldQuaternion(qF); qFi.copy(qF).invert();
+          for (const [n, b] of impBones) {
+            const r = impOut.rot[n];
+            if (Math.abs(r[3]) > 1 - 1e-9) continue;
+            qB.set(r[0], r[1], r[2], r[3]);
+            rotateWorld(b, qR.copy(qF).multiply(qB).multiply(qFi));
+          }
+          if (Math.abs(impOut.hips[2]) > 1e-5) {
+            const hp = hips.getWorldPosition(new THREE.Vector3()).add(vA.set(impOut.hips[0], impOut.hips[1], impOut.hips[2]).applyQuaternion(qF));
+            hips.position.copy(hips.parent!.worldToLocal(hp));
+          }
+          group.updateMatrixWorld(true);
+        }
+        const f = impOut.face;
+        for (const { m, idx } of faces) {
+          const inf = m.morphTargetInfluences!;
+          for (const k of ['hitWince', 'jawOpen', 'cheekL', 'cheekR'] as const) { const i = idx[k]; if (i !== undefined) inf[i] = cfg.impactOn ? f[k] : 0; }
+        }
       }
 
       // ---- fist on target: two-bone IK on the punching arm, bell-weighted round the hit ----

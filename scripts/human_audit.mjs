@@ -57,7 +57,9 @@ const lastInput = sc => {
 };
 
 const scenarios = [];
-const addSc = sc => { sc.lastInput = lastInput(sc); Object.assign(sc, build(sc)); if (!FILTER || sc.name.includes(FILTER)) scenarios.push(sc); };
+// AUDIT_CFG='{"key":value}': config overrides for every scenario (an on / off comparison of one layer)
+const OVER = process.env.AUDIT_CFG ? JSON.parse(process.env.AUDIT_CFG) : null;
+const addSc = sc => { if (OVER) sc.cfg = { ...OVER, ...(sc.cfg ?? {}) }; sc.lastInput = lastInput(sc); Object.assign(sc, build(sc)); if (!FILTER || sc.name.includes(FILTER)) scenarios.push(sc); };
 const DISTS = [0.75, 1.0, 1.25, 1.6];
 const PH = [['jab', 'lead'], ['cross', 'rear'], ['hook', 'lead'], ['hook', 'rear'], ['uppercut', 'lead'], ['uppercut', 'rear']];
 const CHAINS = [['jab', 'lead', 'cross', 'rear'], ['jab', 'lead', 'jab', 'lead'], ['cross', 'rear', 'hook', 'lead'], ['hook', 'lead', 'cross', 'rear'], ['jab', 'lead', 'uppercut', 'rear']];

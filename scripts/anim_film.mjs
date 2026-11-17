@@ -86,12 +86,33 @@ SCENARIOS.kd_upper ={ dist: 0.65, s0: at({ 2: { uppercut: true, move: { x: 1, y:
 
 // The level held (crouch) for a second at fighting distance.
 SCENARIOS.crouch = { dist: 1.0, s0: hold([], 'level', 0, 60), s1: [], from: 0, to: 60, step: 6 };
+SCENARIOS.crouch_full = { ...SCENARIOS.crouch, cfg: { humanCrouchClip: 1, humanCrouchUpper: 0 } };   // the old full-duck legs, for the on / off pair
 // Outcome first (human mode): a cross on a held block, a jab slipped, a 1-2, a body hook, an exchange at the separation.
 SCENARIOS.block_cross_h = { dist: 1.0, s0: at({ 2: { cross: true } }), s1: hold([], 'block', 0, 60), from: 2, to: 40, step: 2 };
 SCENARIOS.slip_jab = { dist: 1.0, s0: at({ 2: { jab: true } }), s1: at({ ...flick(-1, 5) }), from: 2, to: 30, step: 2 };
 SCENARIOS.jab_cross = { dist: 1.0, s0: at({ 2: { jab: true }, 10: { cross: true } }), s1: [], from: 2, to: 46, step: 2 };
 SCENARIOS.body_hook_h = { dist: 0.9, s0: hold(at({ 4: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], from: 2, to: 44, step: 3 };
 SCENARIOS.close_exchange = { dist: 0.7, s0: at({ 2: { jab: true }, 22: { hook: true, move: { x: -1, y: 0 } } }), s1: at({ 10: { cross: true }, 30: { uppercut: true, move: { x: 1, y: 0 } } }), from: 2, to: 60, step: 3 };
+
+// outcome_v2 (human mode): the set at the AI's distance (1.2) and close (0.9). Side 0 (red, back to camera) throws at
+// side 1 (blue, face to camera); blue holds the block / crouch so his front is seen.
+const V2 = { jab: 22, cross: 34, hook: 38, upper: 40 };
+for (const D of [1.2, 0.9]) {
+  const tag = `_${String(D).replace('.', '')}`;
+  SCENARIOS[`v2_idle${tag}`] = { dist: D, s0: [], s1: [], from: 0, to: 30, step: 15 };
+  SCENARIOS[`v2_block${tag}`] = { dist: D, s0: [], s1: hold([], 'block', 0, 60), from: 6, to: 30, step: 12 };
+  SCENARIOS[`v2_crouch${tag}`] = { dist: D, s0: [], s1: hold([], 'level', 0, 60), from: 0, to: 40, step: 8 };
+  for (const [name, key, punch, x] of [['jab', 'jab', 'jab', 0], ['cross', 'cross', 'cross', 0], ['hook_lead', 'hook', 'hook', -1], ['hook_rear', 'hook', 'hook', 1], ['upper_lead', 'uppercut', 'upper', -1], ['upper_rear', 'uppercut', 'upper', 1]]) {
+    SCENARIOS[`v2_${name}${tag}`] = { dist: D, s0: at({ 2: { [key]: true, move: { x, y: 0 } } }), s1: [], from: 2, to: V2[punch], step: 4 };
+  }
+  SCENARIOS[`v2_body_hook${tag}`] = { dist: D, s0: hold(at({ 4: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], from: 4, to: 44, step: 4 };
+  SCENARIOS[`v2_jab_cross${tag}`] = { dist: D, s0: at({ 2: { jab: true }, 10: { cross: true } }), s1: [], from: 2, to: 46, step: 4 };
+  SCENARIOS[`v2_blocked_cross${tag}`] = { dist: D, s0: at({ 2: { cross: true } }), s1: hold([], 'block', 0, 60), from: 2, to: 38, step: 4 };
+  SCENARIOS[`v2_slipped_jab${tag}`] = { dist: D, s0: at({ 2: { jab: true } }), s1: at({ ...flick(-1, 5) }), from: 2, to: 30, step: 4 };
+}
+// the struck head, closer: a clean cross landing, every tick round the contact
+SCENARIOS.v2_cross_head_close = { dist: 1.0, s0: at({ 2: { cross: true } }), s1: [], from: 18, to: 28, step: 1, cfg: { camDistMin: 1.3, camLookY: 1.55 } };
+SCENARIOS.v2_cross_head_close_off = { ...SCENARIOS.v2_cross_head_close, cfg: { ...SCENARIOS.v2_cross_head_close.cfg, impactOn: false } };   // the impact layer off: the on / off pair
 
 const SIDE = { camFollow: 0, camAzimuthDeg: 90, camElevationDeg: 12, camDistMin: 2.6, camLookY: 1.05 };
 

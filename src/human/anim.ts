@@ -20,7 +20,7 @@ import type { BodyPart, FighterState, HitGrade, PunchType, SimEvent, Side, Vec3 
 import { punchPhases } from '../sim/punches';
 import { mocapCfg, mocapPunchNow } from '../sim/mocap';
 import { contactPoint, predictOutcome, type Outcome, type OutcomeKind } from '../sim/outcome';
-import { mocapClipGlove, mocapRoleNames, type ChainedFrom, type MocapPick } from '../core/mocap';
+import { mocapClipGlove, mocapRoleNames, mocapTwinRole, type ChainedFrom, type MocapPick } from '../core/mocap';
 const CG1 = { x: 0, y: 0, z: 0 }, CG2 = { x: 0, y: 0, z: 0 }, TP = { x: 0, y: 0, z: 0 };   // scratch
 const OCS: Outcome = { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0 };
 import { makePose, sample, type Clip, type ClipLib, type Pose, type Role, type Roles } from './clip';
@@ -33,6 +33,8 @@ interface Track {
   upper: boolean; seq: number;
   /** Legs, hips and lower spine only (the crouch): the complement of the upper mask. */
   lower?: boolean;
+  /** The upper body without the head (the crouch's forward lean). */
+  lean?: boolean;
 }
 
 export interface AnimOut {
@@ -79,6 +81,7 @@ export class HumanAnim {
   private readonly pose: Pose;
   private readonly tmp: Pose;
   private readonly upperMask: Float32Array;
+  private readonly leanMask: Float32Array;
   private tracks: Track[] = [];
   private seq = 0;
   private readonly southpaw: boolean;
@@ -89,7 +92,7 @@ export class HumanAnim {
   private punchN = 0;
   private lastProgress = 0;
   // hit reaction: own clock from the impact frame
-  private hit: { pick: Pick; t: number; end: number; n: number; fromState: boolean } | null = null;
+  private hit: { pick: Pick; t: number; end: number; n: number; fromState: boolean; t0: number; rate: number; fit: boolean } | null = null;
   private hitN = 0;
   private jolt = 0;   // procedural flinch of a blocked shot, 1 -> 0
   private wasDown = false;
@@ -114,9 +117,13 @@ export class HumanAnim {
     this.tmp = makePose(this.nb);
     this.southpaw = stance === 'southpaw';
     this.upperMask = new Float32Array(this.nb);
+    this.leanMask = new Float32Array(this.nb);
     lib.bones.forEach((n, i) => {
       const s = n.replace(/^mixamorig\d*[:_]?/, '');
       this.upperMask[i] = s === 'Spine' ? 0.35 : s === 'Spine1' ? 0.7 : /^(Spine2|Neck|Head|Left(Shoulder|Arm|ForeArm|Hand)|Right(Shoulder|Arm|ForeArm|Hand))/.test(s) ? 1 : 0;
+      // the crouch's lean: the upper body without the head (eyes stay on the man, not on the floor)
+      // (and without the arms: the duck take's arms are a long guard with the rear elbow up — the idle guard rides the lean)
+      this.leanMask[i] = /^(Head|Left(Shoulder|Arm|ForeArm|Hand)|Right(Shoulder|Arm|ForeArm|Hand))/.test(s) ? 0 : s === 'Neck' ? 0.3 : this.upperMask[i]!;
     });
     // A second idle for the other corner if one exists; otherwise the same idle half a loop apart.
     // (idle_2 measures the same as idle — likely the same take — so the other corner prefers idle_3, the long guard)
@@ -157,13 +164,14 @@ export class HumanAnim {
     return want.filter(n => !this.roles[n]).map(n => (this.find(n) ? n + ' (label fallback)' : n));
   }
 
-  private want(key: string, pick: Pick, t: number, o: { loop?: boolean; fadeIn?: number; fadeOut?: number; upper?: boolean; lower?: boolean; w?: number; target?: number } = {}): void {
+  private want(key: string, pick: Pick, t: number, o: { loop?: boolean; fadeIn?: number; fadeOut?: number; upper?: boolean; lower?: boolean; lean?: boolean; w?: number; target?: number; fixW?: number } = {}): void {
     let tr = this.tracks.find(x => x.key === key);
     if (!tr) {
-      tr = { key, pick, t, loop: !!o.loop, w: o.w ?? 0, target: 1, fadeIn: o.fadeIn ?? this.cfg.humanFadeIn, fadeOut: o.fadeOut ?? this.cfg.humanFadeOut, upper: !!o.upper, lower: !!o.lower, seq: this.seq++ };
+      tr = { key, pick, t, loop: !!o.loop, w: o.w ?? 0, target: 1, fadeIn: o.fadeIn ?? this.cfg.humanFadeIn, fadeOut: o.fadeOut ?? this.cfg.humanFadeOut, upper: !!o.upper || !!o.lean, lower: !!o.lower, lean: !!o.lean, seq: this.seq++ };
       this.tracks.push(tr);
     }
     tr.t = t; tr.target = o.target ?? 1;
+    if (o.fixW !== undefined) { tr.target = Math.min(tr.target, o.fixW); tr.w = Math.min(tr.w, tr.target); }
     if (o.fadeOut !== undefined) tr.fadeOut = o.fadeOut;
     this.wanted.add(key);
   }
@@ -172,7 +180,10 @@ export class HumanAnim {
   private startHit(part: BodyPart, punch: PunchType | null, grade: HitGrade | null, sev: number, age: number, fromState: boolean): void {
     const g = grade ?? (sev < 0.4 ? 'glancing' : sev < 0.75 ? 'clean' : 'flush');
     const level = g === 'glancing' ? 'light' : g === 'clean' ? 'medium' : 'heavy';
-    const head = level === 'heavy' ? ['hit_head_heavy', 'hit_head_medium', 'hit_head_light'] : level === 'medium' ? ['hit_head_medium', 'hit_head_light', 'hit_head_heavy'] : ['hit_head_light', 'hit_head_medium'];
+    const head0 = level === 'heavy' ? ['hit_head_heavy', 'hit_head_medium', 'hit_head_light'] : level === 'medium' ? ['hit_head_medium', 'hit_head_light', 'hit_head_heavy'] : ['hit_head_light', 'hit_head_medium'];
+    // outcome mode: light and medium hits play the calm takes (guard stays up; the impact layer carries the head);
+    // the flailing takes are for heavy only
+    const head = this.cfg.mocapOutcome && this.cfg.humanCalmHits && level !== 'heavy' ? [`hit_head_${level}_calm`, ...head0] : head0;
     const names = part === 'body'
       ? (punch === 'uppercut' ? ['hit_body_uppercut', 'hit_body'] : ['hit_body'])
       : punch === 'uppercut' ? [`hit_uppercut_${level}`, 'hit_uppercut', ...head] : head;
@@ -180,7 +191,11 @@ export class HumanAnim {
     if (!pk) return;
     const fps = pk.clip.fps;
     const impact = (pk.role.impact ?? pk.clip.impact ?? pk.role.from) / fps;
-    this.hit = { pick: pk, t: impact + age, end: pk.role.to / fps, n: ++this.hitN, fromState };
+    const end = pk.role.to / fps;
+    // fitted (outcome mode): at most humanRecoverRateMax × the clip's speed, the rest eased into the idle guard
+    const fit = this.cfg.mocapOutcome && !this.cfg.humanRawPose && this.cfg.humanRecoverRateMax > 0 && !fromState;
+    const rate = fit ? clamp((end - impact) / Math.max(0.05, this.cfg.humanHitReactTime), 1, this.cfg.humanRecoverRateMax) : 1;
+    this.hit = { pick: pk, t: impact + age, end, n: ++this.hitN, fromState, t0: impact, rate, fit };
   }
 
   /** Outcome mode (read by tests / the audit): what the punching hand is steered to this frame. */
@@ -188,6 +203,8 @@ export class HumanAnim {
   private ocKindW = 0;
   private readonly ocT = { x: 0, y: 0, z: 0 };
   private ocKey = -1;
+  /** punchN of the last punch of his that the other man blocked (punchBlock event with side = him). */
+  private blockedN = -1;
   /**
    * OUTCOME FIRST (cfg.mocapOutcome): steer the punching hand onto the sim's contact point. Before the hit tick the
    * target comes from the sim's own rule evaluated on this state (predictOutcome), after it from punch.contact (set on
@@ -205,7 +222,7 @@ export class HumanAnim {
       const o = predictOutcome(me, opp, mc, OCS);
       kind = o ? o.kind : 'whiff';
       if (o && (kind === 'land' || kind === 'block')) T = contactPoint(me, opp, kind, o.part, mc, TP);
-    } else if (p.contact) { kind = 'land'; T = p.contact; }
+    } else if (p.contact) { kind = this.blockedN === this.punchN ? 'block' : 'land'; T = p.contact; }   // (a blocked punch stays 'block': the view puts it on the drawn guard)
     else kind = 'whiff';
     const hits = kind === 'land' || kind === 'block';
     const kw = 1 - Math.exp(-dt / 0.05);
@@ -270,6 +287,7 @@ export class HumanAnim {
         if (bh) this.want('blockhit#' + this.seq, bh, (bh.role.impact ?? bh.role.contact ?? bh.role.from) / bh.clip.fps, { fadeIn: 0.04, upper: true });
         this.jolt = 1;
       }
+      else if (e.type === 'punchBlock' && e.side === this.side) this.blockedN = this.punchN;
     }
     // ---- hit from state (frozen replays carry no events): hitT is set to hitWindow on the landing tick ----
     if (!hitByEvent && next.hitT > 0) {
@@ -341,8 +359,23 @@ export class HumanAnim {
           const g = geoB.geo, gp = g.pick!;
           pk = { name: gp.name, role: gp.role, clip: gp.clip, mirror: gp.mirror !== this.southpaw };   // core's mirror is absolute
           const same = geoA?.geo.pick === gp;
-          const f = same ? ip(geoA!.frame, geoB.frame) : geoB.frame;
-          this.want('punch#' + this.punchN, pk, f / gp.clip.fps);
+          let f = same ? ip(geoA!.frame, geoB.frame) : geoB.frame;
+          // RECOVERY FITTED (outcome mode): the clip's recovery plays at most humanRecoverRateMax × its own speed; a
+          // recovery longer than that is cut short by easing the clip out into the idle guard over the sim's recovery
+          let fixW: number | undefined;
+          if (cfg.mocapOutcome && !cfg.humanRawPose && cfg.humanRecoverRateMax > 0 && u > peak) {
+            const T = ph.total * Math.max(1, p.timeMult), simRec = Math.max(1e-3, (1 - peak) * T), sec = (u - peak) * T;
+            const clipRec = (gp.endF - gp.contactF) / gp.clip.fps;
+            if (clipRec / simRec > cfg.humanRecoverRateMax) {
+              // the LEGS keep the clip stretched over the sim's recovery (a stepped-in foot comes home at the clip's
+              // own pace: cutting it slid the foot 26 cm in a tick); the arms and body take the fitted, eased-out frame
+              this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, w: 1, fadeOut: cfg.humanFadeOut });
+              f = gp.contactF + sec * cfg.humanRecoverRateMax * gp.clip.fps;
+              const sec0 = ph.hold * simRec;   // the glove stays on the contact through the punch's hold
+              fixW = 1 - smooth((sec - sec0) / Math.max(1e-3, simRec - sec0));
+            }
+          }
+          this.want('punch#' + this.punchN, pk, f / gp.clip.fps, fixW !== undefined ? { fixW } : {});
           label = `${gp.name} f${f.toFixed(0)} (contact ${gp.contactF})`;
           // (audit) how far the clip's own glove moves between the frames drawn last tick and this one
           mocapClipGlove(gp, f, cfg, next.body.heightM, CG1);
@@ -375,7 +408,7 @@ export class HumanAnim {
           }
         } else {
           const names = mocapRoleNames(this.roles, type, p.hand, low, this.chainedFrom);
-          const twin = names[names.length - 1]!;   // the other hand's role: mirrored onto this arm
+          const twin = mocapTwinRole(type, p.hand);   // the other hand's role: mirrored onto this arm
           for (const n of names) { const f = this.find(n); if (f) { pk = { ...f, mirror: n === twin }; break; } }
         }
         if (pk && !geoB?.geo.pick) {
@@ -425,10 +458,13 @@ export class HumanAnim {
       }
       // ---- hit reaction ----
       if (this.hit && !punching) {
-        this.hit.t += this.hit.fromState && next.hitT > 0 ? 0 : dt;
+        this.hit.t += this.hit.fromState && next.hitT > 0 ? 0 : dt * this.hit.rate;
         const h = this.hit;
-        if (h.t < h.end) {
-          this.want('hit#' + h.n, h.pick, h.t, { fadeIn: cfg.humanHitFadeIn, fadeOut: 0.25, target: h.t > h.end - 0.25 ? 0 : 1 });
+        // fitted: real seconds since the impact; past half the react time the clip eases out if it is still going
+        const age = (h.t - h.t0) / h.rate, R = cfg.humanHitReactTime;
+        const cut = h.fit && (h.end - h.t0) / h.rate > R + 1e-3;
+        if (h.t < h.end && !(cut && age >= R)) {
+          this.want('hit#' + h.n, h.pick, h.t, { fadeIn: cfg.humanHitFadeIn, fadeOut: 0.25, target: h.t > h.end - 0.25 * h.rate ? 0 : 1, ...(cut ? { fixW: 1 - smooth((age - 0.5 * R) / (0.5 * R)) } : {}) });
           label = label || 'hit ' + h.pick.name;
         } else this.hit = null;
       }
@@ -454,6 +490,10 @@ export class HumanAnim {
         const dk = this.find('duck');
         if (dk && (lv > 0.02 || this.tracks.some(x => x.key === 'loco:crouch'))) {
           this.want('loco:crouch', dk, (dk.role.contact ?? dk.role.to) / dk.clip.fps, { lower: true, fadeIn: 0.12, fadeOut: 0.15, target: clamp(lv, 0, 1) * cfg.humanCrouchClip });
+        }
+        // the upper body leans with the legs (a boxer's level change is knees AND a forward lean from the hips), by its own share
+        if (dk && cfg.humanCrouchUpper > 0 && (lv > 0.02 || this.tracks.some(x => x.key === 'loco:crouchU'))) {
+          this.want('loco:crouchU', dk, (dk.role.contact ?? dk.role.to) / dk.clip.fps, { lean: true, fadeIn: 0.12, fadeOut: 0.15, target: clamp(lv, 0, 1) * cfg.humanCrouchUpper });
         }
       }
       // ---- hurt ----
@@ -506,7 +546,7 @@ export class HumanAnim {
       const t = tr.loop ? from + ((((tr.t - from) % span) + span) % span) : clamp(tr.t, from, to);
       sample(this.lib, c, t, { root: 'inPlace', mirror: this.southpaw !== tr.pick.mirror }, this.tmp);
       for (let b = 0; b < this.nb; b++) {
-        const wb = tr.upper ? w * this.upperMask[b]! : tr.lower ? w * (1 - this.upperMask[b]!) : w;
+        const wb = tr.lean ? w * this.leanMask[b]! : tr.upper ? w * this.upperMask[b]! : tr.lower ? w * (1 - this.upperMask[b]!) : w;
         if (wb > 1e-3) nlerp(this.pose.rot, b * 4, this.tmp.rot, b * 4, wb, this.pose.rot, b * 4);
       }
       if (!tr.upper) this.pose.hips[1] = lerp(this.pose.hips[1]!, this.tmp.hips[1]!, w);   // (the crouch's lower mask carries the hips height too)
