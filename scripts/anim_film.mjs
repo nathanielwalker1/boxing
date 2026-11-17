@@ -132,6 +132,18 @@ SCENARIOS.v3_cross_whiff = { dist: 1.2, s0: at({ 2: { cross: true } }), s1: [], 
 SCENARIOS.v3_cross_head_close = { dist: 1.0, s0: at({ 2: { cross: true } }), s1: [], from: 20, to: 26, step: 1, cfg: { camDistMin: 1.3, camLookY: 1.55 } };
 SCENARIOS.v3_cross_head_close_off = { ...SCENARIOS.v3_cross_head_close, cfg: { ...SCENARIOS.v3_cross_head_close.cfg, impactOn: false } };
 
+// outcome_v4: the procedural slips (blue defends an incoming jab at 1.1 m) and the trimmed uppercuts
+{
+  const J = at({ 2: { jab: true } }), back = { 5: { move: { x: 0, y: -1 } }, 6: { move: { x: 0, y: -1 } } };
+  SCENARIOS.v4_slip_left = { dist: 1.1, s0: J, s1: at({ ...flick(-1, 5) }), from: 4, to: 28, step: 3 };
+  SCENARIOS.v4_slip_right = { dist: 1.1, s0: J, s1: at({ ...flick(1, 5) }), from: 4, to: 28, step: 3 };
+  SCENARIOS.v4_pull = { dist: 1.1, s0: J, s1: at(back), from: 4, to: 28, step: 3 };
+  SCENARIOS.v4_roll = { dist: 1.1, s0: J, s1: hold(at({ ...flick(-1, 5) }), 'level', 0, 9), from: 4, to: 28, step: 3 };
+  SCENARIOS.v4_upper_lead = { dist: 0.85, s0: at({ 2: { uppercut: true, move: { x: -1, y: 0 } } }), s1: [], from: 2, to: 40, step: 3 };
+  SCENARIOS.v4_upper_rear = { dist: 0.85, s0: at({ 2: { uppercut: true, move: { x: 1, y: 0 } } }), s1: [], from: 2, to: 40, step: 3 };
+  SCENARIOS.v4_jab_cross = { dist: 1.1, s0: at({ 2: { jab: true }, 10: { cross: true } }), s1: [], from: 2, to: 46, step: 4 };
+}
+
 const SIDE = { camFollow: 0, camAzimuthDeg: 90, camElevationDeg: 12, camDistMin: 2.6, camLookY: 1.05 };
 
 const args = process.argv.slice(2);

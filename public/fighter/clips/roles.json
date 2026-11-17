@@ -37,6 +37,14 @@
  },
  "lead_uppercut": {
   "slug": "lead_uppercut",
+  "seq": [[19, 24]],
+  "from": 0,
+  "to": 5,
+  "contact": 5,
+  "easeIn": 0.22
+ },
+ "lead_uppercut_full": {
+  "slug": "lead_uppercut",
   "from": 0,
   "to": 36,
   "contact": 24

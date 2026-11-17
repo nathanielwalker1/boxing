@@ -49,7 +49,7 @@ export interface AnimOut {
   /** Aim lift: a body-flagged clip thrown at the head: raise the punching hand toward world height y (spine pitch + shoulder), by weight w. */
   aim: { arm: 'Left' | 'Right'; w: number; y: number } | null;
   /** Procedural spine lean, as the head displacement wanted, m, in his own frame (lat + = to his left, back + = backward, fwd + = forward bend). */
-  lean: { lat: number; back: number; fwd: number };
+  lean: { lat: number; back: number; fwd: number; twist?: number };
   /** Drop the hips this far, m, feet pinned (level, crouch, posture, slip dip, the sink of a hit). */
   drop: number;
   /** What is playing (debug / checks). */
@@ -268,10 +268,11 @@ export class HumanAnim {
     this.legitHand = -1;
     if (next.punch.type === null) this.legitPick = null;
     let label = '';
-    const lean = { lat: 0, back: 0, fwd: 0 };
+    const lean = { lat: 0, back: 0, fwd: 0, twist: 0 };
     let ik: AnimOut['ik'] = null;
     let aim: AnimOut['aim'] = null;
     let slipClip = false;
+    let slipLv = 0;   // outcome mode: the slip's dip drawn through the crouch blend (0..1 of a held level)
     let lunge = { x: 0, z: 0 }, turn = 0;
     const p = next.punch;
     const punching = p.type !== null;
@@ -376,7 +377,8 @@ export class HumanAnim {
           if (cfg.mocapOutcome && !cfg.humanRawPose && cfg.humanRecoverRateMax > 0 && u > peak) {
             const T = ph.total * Math.max(1, p.timeMult), simRec = Math.max(1e-3, (1 - peak) * T), sec = (u - peak) * T;
             const clipRec = (gp.endF - gp.contactF) / gp.clip.fps;
-            if (clipRec / simRec > cfg.humanRecoverRateMax) {
+            // (a take trimmed to end at its contact has no recovery of its own: always eased home from the contact pose)
+            if (clipRec / simRec > cfg.humanRecoverRateMax || gp.role.to - gp.contactF < 2) {
               // the LEGS keep the clip stretched over the sim's recovery (a stepped-in foot comes home at the clip's
               // own pace: cutting it slid the foot 26 cm in a tick); the arms and body take the fitted, eased-out frame
               this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, w: 1, fadeOut: cfg.humanFadeOut });
@@ -385,7 +387,8 @@ export class HumanAnim {
               fixW = 1 - smooth((sec - sec0) / Math.max(1e-3, simRec - sec0));
             }
           }
-          this.want('punch#' + this.punchN, pk, f / gp.clip.fps, fixW !== undefined ? { fixW } : {});
+          const easeIn = cfg.mocapOutcome && !cfg.humanRawPose ? gp.role.easeIn : undefined;
+          this.want('punch#' + this.punchN, pk, f / gp.clip.fps, { ...(fixW !== undefined ? { fixW } : {}), ...(easeIn ? { fadeIn: easeIn } : {}) });
           label = `${gp.name} f${f.toFixed(0)} (contact ${gp.contactF})`;
           // (audit) how far the clip's own glove moves between the frames drawn last tick and this one
           mocapClipGlove(gp, f, cfg, next.body.heightM, CG1);
@@ -484,8 +487,18 @@ export class HumanAnim {
         const off = ip(prev.slip.offset, s.offset), dip = ip(prev.slip.dip, s.dip);
         const leftward = s.dir === 2 ? 0 : -off * (this.southpaw ? -1 : 1);   // offset < 0 = toward the lead side
         const name = s.kind === 'roll' || (s.dir !== 2 && dip > 0.06 && Math.abs(off) < 0.05) ? 'duck' : s.dir === 2 ? 'lean_back' : leftward > 0 ? 'slip_left' : 'slip_right';
-        const pk = name === 'lean_back' && !cfg.humanLeanBackClip ? null : this.pick(name);   // a missing slip side = the other side mirrored
-        if (pk) {
+        // outcome mode, humanSlipProcedural: the slip and the pull are the IDLE (guard up) bent by the sim's own numbers
+        // (the `dodging` take drops both hands and squats wide); the duck / roll is the crouch's partial duck blend
+        const proc = cfg.mocapOutcome && cfg.humanSlipProcedural && !cfg.humanRawPose;
+        const pk = proc || (name === 'lean_back' && !cfg.humanLeanBackClip) ? null : this.pick(name);   // a missing slip side = the other side mirrored
+        if (proc) {
+          slipLv = clamp(dip / Math.max(0.01, cfg.levelDrop), 0, 1) * (name === 'duck' ? 1 : cfg.humanSlipKnee);
+          if (name !== 'duck') {
+            lean.lat = leftward; lean.back = s.dir === 2 ? off : 0;
+            lean.twist = s.dir === 2 ? 0 : leftward * cfg.humanSlipTwist;
+          }
+          label = label || name + ' (procedural)';
+        } else if (pk) {
           slipClip = true;
           this.want('slip:' + name + ':' + s.chain, pk, pk.role.from / pk.clip.fps + s.t, { fadeIn: 0.05, fadeOut: 0.15 });
           label = label || name;
@@ -495,8 +508,8 @@ export class HumanAnim {
         }
       }
       // ---- crouch (outcome mode): the held level drawn as the duck clip's lowest frame, legs and hips only, by the level ----
-      if (cfg.mocapOutcome && !cfg.humanRawPose && cfg.humanCrouchClip > 0 && !(s.active && !punching)) {
-        const lv = ip(prev.level, next.level);
+      if (cfg.mocapOutcome && !cfg.humanRawPose && cfg.humanCrouchClip > 0 && (!(s.active && !punching) || slipLv > 0)) {
+        const lv = Math.max(ip(prev.level, next.level), slipLv);
         const dk = this.find('duck');
         if (dk && (lv > 0.02 || this.tracks.some(x => x.key === 'loco:crouch'))) {
           this.want('loco:crouch', dk, (dk.role.contact ?? dk.role.to) / dk.clip.fps, { lower: true, fadeIn: 0.12, fadeOut: 0.15, target: clamp(lv, 0, 1) * cfg.humanCrouchClip });

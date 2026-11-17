@@ -38,6 +38,9 @@ export interface Role {
    *  segment with from > to played backwards (a straight punch reversed is still a straight punch). from / to /
    *  contact then count frames of the synthesised take. */
   seq?: [number, number][];
+  /** Seconds the drawn body takes to blend from the guard into this take's first frame (a trimmed take that starts
+   *  mid-move, e.g. the uppercut entered at hip height: the wind-up is spent easing into it). */
+  easeIn?: number;
 }
 
 /**

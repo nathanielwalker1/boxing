@@ -324,13 +324,13 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       }
 
       // ---- procedural lean (slips without a clip, the blocked-shot jolt): spread over the three spine bones ----
-      const { lat, back, fwd } = out.lean;
-      if (Math.abs(lat) + Math.abs(back) + Math.abs(fwd) > 1e-4) {
+      const { lat, back, fwd } = out.lean, twist = out.lean.twist ?? 0;
+      if (Math.abs(lat) + Math.abs(back) + Math.abs(fwd) + Math.abs(twist) > 1e-4) {
         const H = 0.62;   // head above the lower spine, m
         const roll = Math.asin(Math.max(-0.9, Math.min(0.9, lat / H)));       // model +Z forward, +X his left
         const pitch = Math.asin(Math.max(-0.9, Math.min(0.9, back / H))) - Math.acos(Math.max(0, 1 - Math.min(0.5, fwd) / H));
         // model-space rotation: -roll about +Z puts the head to +X; -pitch about +X puts it back (-Z)
-        qR.setFromEuler(new THREE.Euler(-pitch, 0, -roll, 'XYZ'));
+        qR.setFromEuler(new THREE.Euler(-pitch, twist, -roll, 'XYZ'));   // (twist + = turn toward his left)
         group.getWorldQuaternion(qG);
         qR.premultiply(qG).multiply(qI.copy(qG).invert());   // to world
         const part = new THREE.Quaternion().slerp(qR, 1 / 3);
