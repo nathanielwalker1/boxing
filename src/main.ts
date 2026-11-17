@@ -12,7 +12,8 @@ import {
 import { createState, hurtLevel, step } from './sim';
 import { aiStep, createAi, type AiState, type StyleParams } from './ai';
 import * as aiModule from './ai';
-import { createFighterView, type RigView } from './rig';
+import { createFighterView as createRigView, type RigView } from './rig';
+import { createHumanView, humanReady, preloadHuman } from './human/view';
 import { FightFlow, type StartOpts } from './ui/flow';
 import { ReplayBuffer, ReplayPlayer } from './ui/replay';
 import { Referee } from './ui/referee';
@@ -89,6 +90,13 @@ let rigTier = stage.tier;
 cfg.rigQuality = rigTier === 2 ? 1 : 0;
 const fps = new FpsOverlay(document.getElementById('fps')!);
 if (params.get('tune') === '1') mountTuningPanel(cfg);
+// Human fighters (?human=1): the realistic skinned boxer on mocap clips instead of the procedural rig. The
+// assets load before the first view is built; with the switch off nothing below changes.
+if (params.get('human') === '1') cfg.humanBody = true;
+if (cfg.humanBody && !(await preloadHuman())) cfg.humanBody = false;
+function createFighterView(side: Side, spec: FighterSpec, c: Config, parent: Stage['scene']): RigView {
+  return c.humanBody && humanReady() ? createHumanView(side, spec, c, parent) : createRigView(side, spec, c, parent);
+}
 
 // ── Sim + views ──────────────────────────────────────────────────────────────
 let specs: readonly [FighterSpec, FighterSpec] = [ROSTER[0]!, ROSTER[1]!];
