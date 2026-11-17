@@ -10,7 +10,8 @@
     "test": "node scripts/run_tests.mjs",
     "test:quick": "node scripts/run_tests.mjs",
     "legacy": "vite legacy --port 5175",
-    "gym": "vite spike/gym --port 5174"
+    "gym": "vite spike/gym --port 5174",
+    "asset:boxer": "node tools/blender/build.mjs"
   },
   "dependencies": {
     "lil-gui": "^0.19.2",
