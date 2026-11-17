@@ -4,5 +4,11 @@ scripts/output/
 scripts/_debug.mjs
 legacy/scripts/output/
 legacy/scripts/_debug.mjs
+tools/blender/_debug.mjs
+tools/blender/_debug.py
+tools/mocap/_debug.mjs
+tools/human_debug.mjs
+*.fbx
+.cache/
 .DS_Store
 .claude/settings.local.json

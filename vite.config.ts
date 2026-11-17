@@ -9,6 +9,6 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: true,
-    rollupOptions: { input: { main: resolve(__dirname, 'index.html'), human: resolve(__dirname, 'human.html') } },
+    rollupOptions: { input: { main: resolve(__dirname, 'index.html'), human: resolve(__dirname, 'human.html'), proof: resolve(__dirname, 'proof.html') } },
   },
 });

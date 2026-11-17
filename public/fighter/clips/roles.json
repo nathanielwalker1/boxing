@@ -1,0 +1,233 @@
+{
+ "idle": {
+  "slug": "boxing_2",
+  "from": 0,
+  "to": 132
+ },
+ "jab": {
+  "slug": "lead_jab_copy",
+  "from": 0,
+  "to": 90,
+  "contact": 24
+ },
+ "cross": {
+  "slug": "boxing_7",
+  "from": 0,
+  "to": 127,
+  "contact": 39,
+  "body": true
+ },
+ "lead_hook": {
+  "slug": "hook",
+  "from": 0,
+  "to": 78,
+  "contact": 33
+ },
+ "rear_hook": {
+  "slug": "hook_punch",
+  "from": 0,
+  "to": 130,
+  "contact": 68
+ },
+ "lead_uppercut": {
+  "slug": "boxing_5",
+  "from": 0,
+  "to": 132,
+  "contact": 41,
+  "body": true
+ },
+ "rear_uppercut": {
+  "slug": "boxing_3",
+  "from": 0,
+  "to": 131,
+  "contact": 42,
+  "body": true
+ },
+ "body_jab": {
+  "slug": "lead_jab",
+  "from": 0,
+  "to": 64,
+  "contact": 27
+ },
+ "body_cross": {
+  "slug": "boxing_7",
+  "from": 0,
+  "to": 127,
+  "contact": 39
+ },
+ "body_hook": {
+  "slug": "bodyhook2",
+  "from": 0,
+  "to": 113,
+  "contact": 46
+ },
+ "block": {
+  "slug": "block",
+  "from": 0,
+  "to": 171,
+  "contact": 108
+ },
+ "body_block": {
+  "slug": "body_block",
+  "from": 0,
+  "to": 206
+ },
+ "block_hit": null,
+ "hit_head_light": {
+  "slug": "light_hit_to_head_copy",
+  "from": 0,
+  "to": 49,
+  "impact": 5
+ },
+ "hit_head_medium": {
+  "slug": "big_hit_to_head_1",
+  "from": 0,
+  "to": 78,
+  "impact": 6
+ },
+ "hit_head_heavy": {
+  "slug": "head_hit",
+  "from": 0,
+  "to": 92,
+  "impact": 7
+ },
+ "hit_body": {
+  "slug": "kidney_hit",
+  "from": 0,
+  "to": 67,
+  "impact": 10
+ },
+ "hit_uppercut": {
+  "slug": "receive_uppercut_to_the_face",
+  "from": 0,
+  "to": 74,
+  "impact": 4
+ },
+ "knockdown": {
+  "slug": "knockdown1",
+  "from": 0,
+  "to": 144,
+  "settle": 99
+ },
+ "knockdown_2": {
+  "slug": "knockdown5",
+  "from": 0,
+  "to": 154,
+  "settle": 93
+ },
+ "knockdown_3": {
+  "slug": "knockdown3",
+  "from": 0,
+  "to": 231,
+  "settle": 108
+ },
+ "knockdown_4": {
+  "slug": "knockdown4",
+  "from": 0,
+  "to": 156,
+  "settle": 95
+ },
+ "knockdown_5": {
+  "slug": "knockdown6",
+  "from": 0,
+  "to": 234,
+  "settle": 234
+ },
+ "knockdown_6": {
+  "slug": "knockdown2",
+  "from": 0,
+  "to": 155,
+  "settle": 99
+ },
+ "down_idle": {
+  "slug": "floored",
+  "from": 0,
+  "to": 412
+ },
+ "getup": null,
+ "stunned": {
+  "slug": "dizzy_idle",
+  "from": 0,
+  "to": 256
+ },
+ "walk_fwd": {
+  "slug": "long_step_forward",
+  "from": 0,
+  "to": 60,
+  "travel": 1.09
+ },
+ "walk_back": {
+  "slug": "step_backward_1",
+  "from": 0,
+  "to": 48,
+  "travel": 0.6
+ },
+ "walk_left": {
+  "slug": "walking_1",
+  "from": 0,
+  "to": 62,
+  "travel": 0.18
+ },
+ "walk_right": {
+  "slug": "walking",
+  "from": 0,
+  "to": 61,
+  "travel": 0.29
+ },
+ "step_fwd": {
+  "slug": "medium_step_forward",
+  "from": 0,
+  "to": 55,
+  "travel": 0.92
+ },
+ "step_back": {
+  "slug": "step_backward",
+  "from": 0,
+  "to": 49,
+  "travel": 0.69
+ },
+ "step_left": {
+  "slug": "long_left_side_step",
+  "from": 0,
+  "to": 47,
+  "travel": 0.52
+ },
+ "step_right": {
+  "slug": "short_right_side_step",
+  "from": 0,
+  "to": 52,
+  "travel": 0.26
+ },
+ "slip_left": null,
+ "slip_right": {
+  "slug": "dodging",
+  "from": 31,
+  "to": 73,
+  "contact": 52,
+  "amount": 0.53
+ },
+ "duck": {
+  "slug": "dodging_copy",
+  "from": 22,
+  "to": 64,
+  "contact": 43,
+  "amount": 0.39
+ },
+ "lean_back": {
+  "slug": "dodging",
+  "from": 28,
+  "to": 70,
+  "contact": 49,
+  "amount": 0.28
+ },
+ "win": {
+  "slug": "victory",
+  "from": 0,
+  "to": 270
+ },
+ "lose": {
+  "slug": "defeat",
+  "from": 0,
+  "to": 285
+ }
+}
