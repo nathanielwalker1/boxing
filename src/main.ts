@@ -97,7 +97,7 @@ if (params.get('tune') === '1') mountTuningPanel(cfg);
 // assets load before the first view is built; with the switch off nothing below changes.
 if (params.get('human') === '1') cfg.humanBody = true;
 if (cfg.humanBody && !(await preloadHuman(cfg.humanBodyFile))) cfg.humanBody = false;
-if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; }
+if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; if (cfg.humanStamina) { cfg.staminaLandRefund = cfg.humanStaminaLandRefund; cfg.staminaWhiffCost = cfg.humanStaminaWhiffCost; cfg.staminaWhiffDelay = cfg.humanStaminaWhiffDelay; cfg.staminaRegenDelay = cfg.humanStaminaRegenDelay; cfg.lowStaminaCockMult = cfg.humanLowStaminaCockMult; cfg.workCapLoss = cfg.humanWorkCapLoss; cfg.whiffCapLoss = cfg.humanWhiffCapLoss; } }
 if (cfg.humanBody) cfg.mocapGeo = await loadMocapGeo();   // the sim's punching glove = the drawn mocap glove (core/mocap.ts)
 if (cfg.mocapGeo) cfg.mocapOutcome = true;   // outcome first: the sim decides by rule, the drawing conforms (sim/outcome.ts)
 // The human fighters' own key + rims (human/body.ts), aimed each frame at the pair's midpoint.
@@ -412,7 +412,7 @@ function loop(nowMs: number): void {
   const dt = Math.min(MAX_FRAME, (nowMs - lastMs) / 1000);
   lastMs = nowMs;
   // Human fighters: their own punch speed (panel-tunable) and no referee (he is still the old body and walks across the camera).
-  if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; }
+  if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; if (cfg.humanStamina) { cfg.staminaLandRefund = cfg.humanStaminaLandRefund; cfg.staminaWhiffCost = cfg.humanStaminaWhiffCost; cfg.staminaWhiffDelay = cfg.humanStaminaWhiffDelay; cfg.staminaRegenDelay = cfg.humanStaminaRegenDelay; cfg.lowStaminaCockMult = cfg.humanLowStaminaCockMult; cfg.workCapLoss = cfg.humanWorkCapLoss; cfg.whiffCapLoss = cfg.humanWhiffCapLoss; } }
   const paused = posed[0] !== null || posed[1] !== null;
   const held = paused || replay !== null || (flow !== null && flow.holdsSim);   // a menu / card / replay is up: the sim waits
   frameEvents.length = 0;

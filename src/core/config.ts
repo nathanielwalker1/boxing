@@ -1107,6 +1107,7 @@ export const SCHEMA = {
   staminaLandRefund: num(0.015, 0, 0.1, 0.005, 'fatigue', 'stamina a clean or flush land gives back'),
   whiffCapLoss:     num(0.004, 0, 0.05, 0.001, 'fatigue', 'stamina ceiling lost per missed punch (FighterState.staminaCap) — the round has an arc. Relief tune 2026-11-15: was 0.006'),
   wearRestore:      num(0.5, 0, 1, 0.05, 'fatigue', 'fraction of that work-rate wear that comes back on the stool between rounds (body wear never does)'),
+  workCapLoss:      num(0, 0, 0.02, 0.0005, 'fatigue', 'stamina ceiling lost per punch THROWN, landed or not, x the punch\'s weight (0 = off, the sim as before; human mode sets it from humanWorkCapLoss): a busy fighter tires over the round whether or not he lands'),
   staminaCapFloor:  num(0.45, 0.1, 1, 0.05, 'fatigue', 'the stamina ceiling never falls below this'),
 
   // ── ratings (SIM, sim/ratings.ts) — phase 2: the five 0–100 ratings do something. effect = 1 + span × (rating − ratingNeutral) / ratingRange, clamped ±1 ──
@@ -2003,6 +2004,14 @@ export const SCHEMA = {
   humanNativeHeight: num(1.759, 1.5, 2.0, 0.001, 'human', 'the boxer model\'s own height, m (public/fighter/boxer.glb); it is scaled by the fighter\'s height over this'),
   humanFadeIn:       num(0.08, 0.01, 0.4, 0.01, 'human', 'crossfade into a punch (and the default for other actions), s'),
   humanFadeOut:      num(0.15, 0.01, 0.6, 0.01, 'human', 'crossfade out of a punch back to the idle, s'),
+  humanStamina:      bool(true, 'human', 'human mode sets the stamina rules below every frame (like humanPunchTimeScale): work wears the tank whether it lands or not, a miss costs less extra, the wind pauses for less after a miss or a hit taken. Measured 2026-11-17 (scripts/_debug_sim.mjs): a scripted 3-punch-combination player sat under half stamina 21-27% of the time while the AI throwing 7-9 per 10 s never did; with these 0% and the AI\'s ceiling wears about 10% a minute'),
+  humanStaminaLandRefund: num(0.005, 0, 0.1, 0.005, 'human', 'human mode: staminaLandRefund (was 0.015: a landed punch was nearly free, so a fighter who lands never tired)'),
+  humanStaminaWhiffCost: num(0.02, 0, 0.2, 0.005, 'human', 'human mode: staminaWhiffCost (was 0.035)'),
+  humanStaminaWhiffDelay: num(0.45, 0, 3, 0.05, 'human', 'human mode: staminaWhiffDelay, s x the punch\'s weight (was 0.9)'),
+  humanStaminaRegenDelay: num(0.35, 0, 3, 0.05, 'human', 'human mode: staminaRegenDelay after a hit taken, s (was 0.6: under steady fire the wind never came back)'),
+  humanLowStaminaCockMult: num(1.6, 1, 5, 0.1, 'human', 'human mode: lowStaminaCockMult (was 2.5; the wind-ups are already long)'),
+  humanWorkCapLoss:  num(0.004, 0, 0.02, 0.0005, 'human', 'human mode: workCapLoss, stamina ceiling lost per punch thrown x its weight'),
+  humanWhiffCapLoss: num(0.002, 0, 0.05, 0.001, 'human', 'human mode: whiffCapLoss, the extra ceiling a miss costs (was 0.004)'),
   humanInertia:      bool(true, 'human', 'CONTINUITY: a new action (punch, hit reaction, knockdown, get-up, slip, block flinch) cuts in at full weight and the difference to the pose and joint speed that were on screen is carried over and decayed (inertial blend), instead of a crossfade from the new clip\'s own first frame. The punch\'s drawn body offset (lunge) moves on a spring, never switched'),
   humanInertiaHalf:  num(0.07, 0.01, 0.3, 0.005, 'human', 'continuity: half-life of the carried-over pose difference when a punch / slip / get-up starts, s (smaller = snappier, larger = smoother)'),
   humanInertiaHalfHit: num(0.035, 0.01, 0.3, 0.005, 'human', 'continuity: the same half-life when a hit reaction or block flinch starts, s (short: a hit is abrupt)'),

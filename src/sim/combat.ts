@@ -113,6 +113,8 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // (Polish phase: also out of a pose still unwinding after a feint or a stuff — the hands are free, the body is not home yet.)
   setChainCarry(f, { on: chained || (cfg.carryFadeOn && (f.torsoTwist !== 0 || f.lean.fwd !== 0)), twist: f.torsoTwist, fwd: f.lean.fwd, lat: f.lean.lat, crouch: f.crouch });
   f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost * throwWeight(type, cfg) * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg));   // (polish phase: by the punch's weight)
+  // WORK TIRES (workCapLoss, 0 = off): every punch thrown, landed or not, wears the stamina ceiling by its weight
+  if (cfg.workCapLoss > 0) f.wear += cfg.workCapLoss * throwWeight(type, cfg);
   f.punch = {
     ...idlePunch(hand), type, phase: 'cock', variant,
     tell: (ph.cock * cock + ph.extend) * slow, timeMult: slow,
