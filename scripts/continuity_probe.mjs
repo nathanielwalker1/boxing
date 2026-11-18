@@ -51,6 +51,9 @@ const SC = [
   { name: 'cross_miss', dist: 1.55, s0: at(two(4, P('cross'))), n: 80 },
   { name: 'hook_miss', dist: 1.4, s0: at(two(4, P('hook', 'lead'))), n: 80 },
   { name: 'knockdown', dist: 0.79, s0: [], s1: at({ ...two(2, P('hook', 'rear')), ...two(40, P('hook', 'rear')), ...two(80, P('hook', 'rear')) }), n: 300, cfg: { healthDamagePerImpulse: 0.006 } },
+  // counted out (the roll forced past ten): the flat falls, by a head shot and by a body shot
+  { name: 'ko_head', dist: 0.79, s0: [], s1: at(two(2, P('hook', 'rear'))), n: 200, cfg: { healthDamagePerImpulse: 0.006, getUpCountBest: 12, getUpCountWorst: 12 } },
+  { name: 'ko_body', dist: 0.9, s0: [], s1: hold(at(two(4, P('hook', 'lead', { level: true }))), { level: true }, 0, 6), n: 200, cfg: { healthDamagePerImpulse: 0.012, getUpCountBest: 12, getUpCountWorst: 12 } },
 ].filter(s => !FILTER || s.name.includes(FILTER));
 
 const browser = await chromium.launch();
@@ -144,7 +147,7 @@ for (const { sc, rows } of runs) {
     for (const [k, [p, q]] of Object.entries(items)) {
       const ex = len(sub(sub(q, p), dS));
       // a walking foot moves faster than the body it carries; a falling or rising head is a fall, not a jump (12 cm a tick)
-      const lim = k.startsWith('foot') ? LIM[k] + len(dS) : k === 'head' && B.down ? 0.12 : LIM[k];
+      const lim = k.startsWith('foot') ? (B.down ? 0.15 : LIM[k] + len(dS)) : k === 'head' && B.down ? 0.12 : LIM[k];
       const kk = k.startsWith('foot') ? 'foot' : k.startsWith('glove') ? 'glove' : k;
       maxEx[kk] = Math.max(maxEx[kk], ex);
       // a head driven by a punch that just landed on it is meant to move fast: counted apart (up to 25 cm a tick)
