@@ -306,7 +306,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       // stand back along his facing so the leaning mocap head sits over the sim's head (cfg.humanBackShift); with
       // mocapGeo the punch's lunge moves the body (the sim moves his head and body boxes by the same) and its turn turns it
       // CONTINUITY (humanInertia): the lunge is a weight shift, the hips travelling over PLANTED feet (below), not the whole man sliding
-      const shift = cfg.humanInertia && cfg.mocapOutcome && !cfg.humanRawPose && !next.down;
+      const shift = cfg.humanShiftPlanted && cfg.humanInertia && cfg.mocapOutcome && !cfg.humanRawPose && !next.down;
       const lx = shift ? out.lunge.x : 0, lz = shift ? out.lunge.z : 0;
       group.position.set(x - Math.cos(yaw) * cfg.humanBackShift + out.lunge.x - lx, 0, z - Math.sin(yaw) * cfg.humanBackShift + out.lunge.z - lz);
       group.rotation.y = Math.PI / 2 - yaw - out.turn;
@@ -434,6 +434,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       // (outcome mode and the raw pose: the guard is the CLIP's guard — no hand is ever pulled to a sim glove)
       const gw = next.down || cfg.mocapOutcome || cfg.humanRawPose ? 0 : cfg.humanGuardIK;
       ikMax = 0;
+      let outcomeT: THREE.Vector3 | null = null;   // the uncapped contact point of this frame's punch
       // outcome first: the punching hand moves at most mocapIKArmMax off the clip (clip elbow as pole); a BLOCKED punch
       // is steered onto the other man's DRAWN guard glove, not the sim's
       if (out.ik?.outcome && out.ik.w > 1e-3) {
@@ -444,6 +445,17 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           const dir = new THREE.Vector3(x - gp.x, 0, z - gp.z).normalize();
           T.copy(gp).addScaledVector(dir, next.body.gloveR * (2 - cfg.contactSquash));
         }
+        // CONTACT: a landed glove rests on the other man's DRAWN head / torso surface (the rules' point, moved onto the picture)
+        if (cfg.humanInertia && anim.conformInfo.kind === 'land' && oppBody) {
+          const rest = next.body.gloveR * (1 - cfg.contactSquash);
+          const P = closestOn(oppBody.a, oppBody.b, T);
+          const dh = T.distanceTo(oppBody.head) - oppBody.headR, dt = T.distanceTo(P) - oppBody.r;
+          const c = dh <= dt ? oppBody.head : P, r = dh <= dt ? oppBody.headR : oppBody.r;
+          const dir = T.clone().sub(c);
+          if (dir.lengthSq() < 1e-8) dir.set(x - c.x, 0, z - c.z);
+          T.copy(c).add(dir.setLength(r + rest));
+        }
+        outcomeT = T.clone();
         group.updateMatrixWorld(true);
         const G = new THREE.Vector3().fromArray(gloveOf(out.ik.arm));
         const D = T.clone().sub(G);
@@ -514,6 +526,13 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         fore.quaternion.copy(save[1]!.slerp(fore.quaternion, w));
       };
       for (const ik of reqs) if (ik && ik.w > 1e-3 && (cfg.humanHandIK || ik.exact)) solveIK(ik);
+      // CONTACT, closed loop: what the arm could not close (a straight arm, the capped correction) goes to the body travel
+      if (cfg.humanInertia && outcomeT && out.ik && out.ik.w > 1e-3 && (anim.conformInfo.kind === 'land' || anim.conformInfo.kind === 'block')) {
+        group.updateMatrixWorld(true);
+        const G = vA.fromArray(gloveOf(out.ik.arm));
+        // (only on the way in: after the hit the glove leaves the contact by itself, and the body must not chase it)
+        anim.feedReach(next.punch.resolved ? 0 : (outcomeT.x - G.x) * Math.cos(yaw) + (outcomeT.z - G.z) * Math.sin(yaw), out.ik.w);
+      }
       // ---- guard tuck (drawn only): close to the other man the guard hands come back toward his own chin, never in a punch ----
       tuckD.Left.set(0, 0, 0); tuckD.Right.set(0, 0, 0);
       if (cfg.humanGuardTuck > 0 && !cfg.mocapOutcome && !cfg.humanRawPose && next.punch.type === null && !next.down && oppSt) {
@@ -566,11 +585,13 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       {
         const ob = drawnBodies[side === 0 ? 1 : 0];
         if (ob && !next.down && cfg.mocapOutcome && !cfg.humanRawPose) {
-          const rest = next.body.gloveR * (1 - cfg.contactSquash);
+          const rest0 = next.body.gloveR * (1 - cfg.contactSquash);
           for (const a of ['Left', 'Right'] as const) {
             group.updateMatrixWorld(true);
             const G = new THREE.Vector3().fromArray(gloveOf(a));
             let push: THREE.Vector3 | null = null;
+            // A MISS IS VISIBLY SHORT: the glove of a punch the rules call a whiff never comes within humanMissGap of him
+            const rest = rest0 + (cfg.humanInertia && next.punch.type !== null && out.ik?.arm === a && anim.conformInfo.kind === 'whiff' ? cfg.humanMissGap : 0);
             const hd = G.distanceTo(ob.head), hmin = ob.headR + rest;
             if (hd < hmin) push = ob.head.clone().add(G.clone().sub(ob.head).setLength(hmin));
             const P = closestOn(ob.a, ob.b, push ?? G), td = (push ?? G).distanceTo(P), tmin = ob.r + rest;

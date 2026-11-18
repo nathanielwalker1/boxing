@@ -199,6 +199,13 @@ export class HumanAnim {
   // the drawn lunge (world floor m) and its speed: moved by a spring, never switched
   private lungeX = 0; private lungeZ = 0; private lungeVX = 0; private lungeVZ = 0;
 
+  // CONTACT, closed loop: what the drawn arm could not close last frame (forward, m) is added to the body travel
+  private lungeBias = 0; private biasFed = false;
+  /** The view reports, after its hand IK, how far the punching glove still is from its contact point along his facing (m, + = short), and the IK weight. */
+  feedReach(resF: number, w: number): void {
+    this.lungeBias = clamp(this.lungeBias + clamp(resF, -0.08, 0.08) * this.cfg.humanReachGain * w, -this.cfg.humanShiftBack, this.cfg.humanShiftFwd);
+    this.biasFed = true;
+  }
   /** The view reads this once a frame: > 0 = an action switched this frame (the half-life to carry the on-screen pose over with). */
   takeCut(): number { const c = this.cutHalf; this.cutHalf = 0; return c; }
   /** The punch's wanted body offset -> the drawn one, on a critically damped spring (it is never switched on or off). */
@@ -295,8 +302,10 @@ export class HumanAnim {
         // (the sim's own lunge is NOT drawn: with hits by rule it only shoved the body out and the correction pulled it back)
         mocapClipGlove(pick, pick.contactF, cfg, me.body.heightM, CG2);
         const dC = tF + L - CG2.z;
-        exF = clamp(dC - clamp(dC, -m, m), -cfg.humanShiftBack, cfg.humanShiftFwd) - L;
-        wL = (u <= peak ? smooth((u - cockEnd * 0.5) / Math.max(1e-6, peak - cockEnd * 0.5)) : 1 - smooth((u - out0) / Math.max(1e-6, 1 - out0))) * this.ocKindW;
+        // (the body carries the punch there first, as a step; the arm correction only closes what is left)
+        // (only a forward step is predicted from the clip; the closed loop, feedReach, does the rest from the drawn glove)
+        exF = clamp(dC, 0, cfg.humanShiftFwd) * cfg.humanShiftPredict - L;
+        wL = (u <= peak ? smooth(u / Math.max(1e-6, peak)) :1 - smooth((u - out0) / Math.max(1e-6, 1 - out0))) * this.ocKindW;
       }
       const Ln = cfg.humanInertia ? (L + exF) * wL : L + exF * wL;
       this.lungeDbg = [L, exF, wL];
@@ -656,7 +665,12 @@ export class HumanAnim {
       : { slug: this.idle?.clip.slug ?? '', frame: this.idleT * (this.idle?.clip.fps ?? 60), punch: false };
     // The sim owns the floor position: no horizontal hips travel from any clip.
     this.pose.hips[0] = 0; this.pose.hips[2] = 0;
-    if (cfg.humanInertia && !cfg.humanRawPose) lunge = this.lungeStep(lunge.x, lunge.z, dt);
+    if (cfg.humanInertia && !cfg.humanRawPose) {
+      lunge = this.lungeStep(lunge.x, lunge.z, dt);
+      if (!this.biasFed) this.lungeBias *= Math.exp(-dt * Math.LN2 / Math.max(1e-3, cfg.humanLungeHalfBack));
+      this.biasFed = false;
+      lunge = { x: lunge.x + Math.cos(next.yaw) * this.lungeBias, z: lunge.z + Math.sin(next.yaw) * this.lungeBias };
+    }
 
     // A blocked shot: a short flinch back (no block_hit clip, or on top of it).
     if (this.jolt > 0) { lean.back += cfg.humanBlockJolt * this.jolt; this.jolt = Math.max(0, this.jolt - dt / 0.18); }

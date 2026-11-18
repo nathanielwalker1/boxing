@@ -43,6 +43,13 @@ const SC = [
   { name: 'hit_body', dist: 1.0, s0: [], s1: hold(at(two(4, P('cross', 'rear', { level: true }))), { level: true }, 0, 6), n: 90 },
   { name: 'block_jab', dist: 1.0, s0: hold([], { block: true }, 2, 50), s1: at(two(12, P('jab'))), n: 90 },
   { name: 'slip', dist: 1.0, s0: at(two(4, { move: { x: -1, y: 0 } })), n: 60 },
+  { name: 'jab_close', dist: 0.78, s0: at(two(4, P('jab'))), n: 70 },
+  { name: 'cross_close', dist: 0.78, s0: at(two(4, P('cross'))), n: 80 },
+  { name: 'jab_far', dist: 1.12, s0: at(two(4, P('jab'))), n: 70 },
+  { name: 'lhook_close', dist: 0.75, s0: at(two(4, P('hook', 'lead'))), n: 80 },
+  { name: 'jab_miss', dist: 1.5, s0: at(two(4, P('jab'))), n: 70 },
+  { name: 'cross_miss', dist: 1.55, s0: at(two(4, P('cross'))), n: 80 },
+  { name: 'hook_miss', dist: 1.4, s0: at(two(4, P('hook', 'lead'))), n: 80 },
   { name: 'knockdown', dist: 0.79, s0: [], s1: at({ ...two(2, P('hook', 'rear')), ...two(40, P('hook', 'rear')), ...two(80, P('hook', 'rear')) }), n: 300, cfg: { healthDamagePerImpulse: 0.006 } },
 ].filter(s => !FILTER || s.name.includes(FILTER));
 
@@ -175,17 +182,36 @@ for (const { sc, rows } of runs) {
     }
   }
 }
+// misses: every punch with no land / block event; the closest the glove surface came to the target's drawn head or torso
+const misses = [];
+for (const { sc, rows } of runs) for (const s of [0, 1]) {
+  let cur = null;
+  for (let t = 1; t < rows.length; t++) {
+    const R = rows[t][s], A = rows[t - 1][s];
+    if (R.pt && (!A.pt || R.prog < A.prog - 0.2)) { if (cur && !cur.hit) misses.push(cur); cur = { sc: sc.name, s, t, pt: R.pt, hit: false, min: 9 }; }
+    if (cur && R.ev.some(e => (e.type === 'punchLand' || e.type === 'punchBlock') && e.side === s)) cur.hit = true;
+    if (cur && R.pt) {
+      const D = rows[t][1 - s].dr, g = R.hand === 'lead' ? R.gl.lead : R.gl.rear;
+      if (D) cur.min = Math.min(cur.min, len(sub(g, D.head)) - D.headR - R.gr, segDist(g, D.a, D.b) - D.r - R.gr);
+    }
+    if (cur && !R.pt) { if (!cur.hit) misses.push(cur); cur = null; }
+  }
+}
 flags.sort((a, b) => b.cm - a.cm);
 console.log(`JUMPS flagged: ${flags.length} (hips > 4 cm, head / feet > 8 cm beyond the sim's own move in one frame)`);
 console.log(`  (struck-head frames over 8 cm, counted apart: ${snaps.length}, max ${Math.max(0, ...snaps)} cm)`);
-for (const f of flags.slice(0, 30)) console.log(`  ${f.sc.padEnd(16)} t${String(f.t).padStart(3)} s${f.s} ${f.k.padEnd(5)} ${String(f.cm).padStart(5)} cm (sim ${f.simMove})  ${f.lb}  | ${f.st}`);
-console.log('\nper scenario max excess cm (hips / head / foot) and max joint deg per tick:');
-for (const [k, v] of Object.entries(summary)) console.log(`  ${k.padEnd(16)} ${String(v.hips).padStart(5)} ${String(v.head).padStart(5)} ${String(v.foot).padStart(5)}   joint ${v.maxJointDegPerTick}`);
+for (const f of flags.slice(0, 10)) console.log(`  ${f.sc.padEnd(16)} t${String(f.t).padStart(3)} s${f.s} ${f.k.padEnd(5)} ${String(f.cm).padStart(5)} cm (sim ${f.simMove})  ${f.lb}  | ${f.st}`);
+if (process.env.FULL) console.log('\nper scenario max excess cm (hips / head / foot) and max joint deg per tick:');
+if (process.env.FULL) for (const [k, v] of Object.entries(summary)) console.log(`  ${k.padEnd(16)} ${String(v.hips).padStart(5)} ${String(v.head).padStart(5)} ${String(v.foot).padStart(5)}   joint ${v.maxJointDegPerTick}`);
 angAt.sort((a, b) => b.maxDegPerTick - a.maxDegPerTick);
 console.log(`\nTRANSITIONS: ${angAt.length}; worst 25 by max joint deg/tick over the 5 ticks after:`);
-for (const a of angAt.slice(0, 25)) console.log(`  ${a.sc.padEnd(16)} s${a.s} t${String(a.t).padStart(3)} ${String(a.maxDegPerTick).padStart(5)} ${a.joint.padEnd(16)} ${a.from} -> ${a.to}`);
+for (const a of angAt.slice(0, 5)) console.log(`  ${a.sc.padEnd(16)} s${a.s} t${String(a.t).padStart(3)} ${String(a.maxDegPerTick).padStart(5)} ${a.joint.padEnd(16)} ${a.from} -> ${a.to}`);
 console.log('\nCONTACTS (landed; glove surface gap to the drawn target, cm, hit tick then 4 after; negative = inside):');
 for (const c of contacts) console.log(`  ${c.sc.padEnd(16)} t${c.t} s${c.s} ${c.hand}/${c.part}: ${c.gapCm.join(' ')}`);
+console.log('\nMISSES (no land / block; closest glove surface to the drawn target, cm):');
+for (const m of misses) console.log(`  ${m.sc.padEnd(16)} t${m.t} s${m.s} ${m.pt}: ${(m.min * 100).toFixed(1)}`);
+const hitGaps = contacts.map(c => c.gapCm[0]);
+console.log(`\nSUMMARY jumps ${flags.length} | landed gap at hit tick: min ${Math.min(...hitGaps)} max ${Math.max(...hitGaps)} cm over ${hitGaps.length} | misses closest ${misses.length ? Math.min(...misses.map(m => m.min * 100)).toFixed(1) : '-'} cm`);
 writeFileSync(`${OUT}/${TAG}.json`, JSON.stringify({ flags, summary, angAt, contacts }, null, 1));
 await browser.close();
 const bad = logs.filter(m => (m.type === 'error' || m.type === 'pageerror' || m.type === 'warning') && !/GPU stall/.test(m.text));
