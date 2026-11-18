@@ -119,8 +119,8 @@ for (const low of [false, true]) for (const p of P) {
     dodged === 1 && (wrong === 1 || !(base.wrongWayOn && base.wrongWayShoulder > 0)));
   const late = throwAt(1.0, P[0], { opp: flick(-1, 40) }), late2 = throwAt(1.0, P[0], { opp: flick(1, 40) });
   check('a slip long after the punch landed does not change it (both land on the head)', late.type === 'punchLand' && late.part === 'head' && late2.type === 'punchLand' && late2.part === 'head');
-  // the pull: straight back
-  const pull = throwAt(1.0, P[1], { opp: i => inp({ move: { x: 0, y: i >= 6 && i < 8 ? -1 : 0 } }) });
+  // the pull: straight back (timed for the cross's 0.42 s tell, 2026-11-17: 6 ticks later than for the old 0.32 s)
+  const pull = throwAt(1.0, P[1], { opp: i => inp({ move: { x: 0, y: i >= 12 && i < 14 ? -1 : 0 } }) });
   check(`a pull in its window dodges the cross (${pull.type}, ${pull.slips.length} slip event)`, pull.type === 'punchWhiff' && pull.slips.length === 1);
   // a body punch is not dodged by a slip
   const bodySlip = [-1, 1].map(x => throwAt(0.95, P[0], { low: true, opp: flick(x, 3) }));
@@ -130,10 +130,10 @@ for (const low of [false, true]) for (const p of P) {
 // ── 5. the contact point is on the drawn target, facing the attacker ──
 {
   const o = throwAt(1.0, P[0]), d1 = o.s.fighters[1], a0 = o.s.fighters[0];
-  // (the state is after the land tick: the hit has already moved his head a little, hence 3 cm)
+  // (the state is after the land tick: the hit has already moved his head a little, hence the tolerance: 6 cm since the 0.28 s jab, which lands harder and moves the head further in its land tick)
   const t = mocap.mocapDrawnTargets(mocap.mocapLib(), cfg, d1, core.GUARDS[cfg.stylesOn ? d1.guardShape : 'high'].crouch, mocap.makeDrawnTargets());
   const dh = Math.hypot(o.at.x - t.head.x, o.at.y - t.head.y, o.at.z - t.head.z);
-  const ok = Math.abs(dh - (t.headR + a0.body.gloveR * (1 - base.contactSquash))) < 0.03 && o.at.x < t.head.x && Math.abs(o.at.y - t.head.y) < 0.03;
+  const ok = Math.abs(dh - (t.headR + a0.body.gloveR * (1 - base.contactSquash))) < 0.06 && o.at.x < t.head.x && Math.abs(o.at.y - t.head.y) < 0.03;
   check(`a jab's contact point rests on the drawn head's front at head-centre height (${(dh * 100).toFixed(1)} cm from its centre, y ${o.at.y.toFixed(2)} vs ${t.head.y.toFixed(2)})`, ok);
   check('…and punch.contact is that point', a0.punch.contact && Math.hypot(a0.punch.contact.x - o.at.x, a0.punch.contact.y - o.at.y, a0.punch.contact.z - o.at.z) < 1e-9);
   const b = throwAt(1.0, P[0], { opp: () => inp({ block: true }) });

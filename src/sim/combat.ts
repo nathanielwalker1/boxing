@@ -96,7 +96,8 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   if (cfg.tellsOn && type !== 'jab' && !chained && ph.cock > 0) cock = Math.max(cock, (cfg.tellMinHeavy / slow - ph.extend) / ph.cock);
   // Outcome first (human mode): a punch you can READ — the wind-up (never the extension) is long enough for the tell.
   if (cfg.mocapOutcome && cfg.mocapGeo && ph.cock > 0) {
-    const want = (type === 'jab' ? cfg.mocapTellJab : cfg.mocapTellHeavy) * (chained ? cfg.mocapTellChained : 1);
+    // (per punch, Nate 2026-11-17: readable wind-ups, so a punch can be seen, leaned away from and countered)
+    const want = (type === 'jab' ? cfg.mocapTellJab : type === 'cross' ? cfg.mocapTellHeavy : type === 'hook' ? cfg.mocapTellHook : cfg.mocapTellUppercut) * (chained ? cfg.mocapTellChained : 1);
     cock = Math.max(cock, (want / slow - ph.extend) / ph.cock);
   }
   // Thrown while being hit, or hurt (polish phase): it comes out — slower, shorter (gloves.ts) and weaker by `nerf`.
@@ -259,7 +260,7 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   // The variant's time scale is in the cock multiplier (set at the press) and
   // applies again to the recovery; fatigue (timeMult) slows every phase.
   const rate = rewinding ? -(p.feint ? cfg.feintRewindRate : cfg.interruptRewindRate)
-    : (was < ph.cock - PHASE_EPS ? 1 / cockMult(f) : was >= ph.cock + ph.extend - PHASE_EPS ? rated(f, 'speed', cfg.ratingSpeedHands, cfg) / (whiffMult(f) * VARIANTS[p.variant].time(cfg)) : 1) / Math.max(1e-6, p.timeMult);
+    : (was < ph.cock - PHASE_EPS ? 1 / cockMult(f) : was >= ph.cock + ph.extend - PHASE_EPS ? rated(f, 'speed', cfg.ratingSpeedHands, cfg) / (whiffMult(f) * VARIANTS[p.variant].time(cfg) * (cfg.mocapOutcome && cfg.mocapGeo && p.type !== 'jab' ? cfg.mocapRecoverHeavy : 1)) : 1) / Math.max(1e-6, p.timeMult);
   const elapsed = clamp(was + dt * rate, 0, ph.total);
   p.progress = elapsed / ph.total;
   if (rewinding && elapsed <= 0) {

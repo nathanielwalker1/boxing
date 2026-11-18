@@ -138,13 +138,15 @@ for (const { sc, rows } of runs) {
     const items = { hips: [A.hips, B.hips], head: [A.head, B.head], footL: [A.feet.left, B.feet.left], footR: [A.feet.right, B.feet.right] };
     for (const [k, [p, q]] of Object.entries(items)) {
       const ex = len(sub(sub(q, p), dS));
+      // a walking foot moves faster than the body it carries; a falling or rising head is a fall, not a jump (12 cm a tick)
+      const lim = k.startsWith('foot') ? LIM[k] + len(dS) : k === 'head' && B.down ? 0.12 : LIM[k];
       const kk = k.startsWith('foot') ? 'foot' : k;
       maxEx[kk] = Math.max(maxEx[kk], ex);
       // a head driven by a punch that just landed on it is meant to move fast: counted apart (up to 25 cm a tick)
       let struck = false;
       for (let u = Math.max(1, t - 5); u <= t; u++) if (rows[u][s].ev.some(e => e.type === 'punchLand' && e.target === s)) struck = true;
       if (k === 'head' && struck && ex > LIM[k] && ex < 0.25) { snaps.push(+(ex * 100).toFixed(1)); continue; }
-      if (ex > LIM[k]) flags.push({ sc: sc.name, t, s, k, cm: +(ex * 100).toFixed(1), simMove: +(len(dS) * 100).toFixed(1), lb: `${A.lb} -> ${B.lb}`, st: `${B.pt ?? '-'} ${B.ph ?? ''} p${(B.prog ?? 0).toFixed(2)} down=${B.down} hitT=${(B.hitT ?? 0).toFixed(2)}` });
+      if (ex > lim) flags.push({ sc: sc.name, t, s, k, cm: +(ex * 100).toFixed(1), simMove: +(len(dS) * 100).toFixed(1), lb: `${A.lb} -> ${B.lb}`, st: `${B.pt ?? '-'} ${B.ph ?? ''} p${(B.prog ?? 0).toFixed(2)} down=${B.down} hitT=${(B.hitT ?? 0).toFixed(2)}` });
     }
   }
   summary[sc.name] = { hips: +(maxEx.hips * 100).toFixed(1), head: +(maxEx.head * 100).toFixed(1), foot: +(maxEx.foot * 100).toFixed(1) };
@@ -183,7 +185,7 @@ for (const { sc, rows } of runs) {
   }
 }
 // misses: every punch with no land / block event; the closest the glove surface came to the target's drawn head or torso
-const misses = [];
+const misses = [], timing = [];
 for (const { sc, rows } of runs) for (const s of [0, 1]) {
   let cur = null;
   for (let t = 1; t < rows.length; t++) {
@@ -194,10 +196,13 @@ for (const { sc, rows } of runs) for (const s of [0, 1]) {
       const D = rows[t][1 - s].dr, g = R.hand === 'lead' ? R.gl.lead : R.gl.rear;
       if (D) cur.min = Math.min(cur.min, len(sub(g, D.head)) - D.headR - R.gr, segDist(g, D.a, D.b) - D.r - R.gr);
     }
-    if (cur && !R.pt) { if (!cur.hit) misses.push(cur); cur = null; }
+    if (cur && R.pt && R.res && cur.tHit === undefined) cur.tHit = t;
+    if (cur && !R.pt) { timing.push(`${cur.sc}/${cur.pt}: press->hit ${((cur.tHit - cur.t + 1) / 60).toFixed(2)} s, hit->free ${((t - cur.tHit) / 60).toFixed(2)} s`); if (!cur.hit) misses.push(cur); cur = null; }
   }
 }
 flags.sort((a, b) => b.cm - a.cm);
+const BRIEF = process.argv[7] === 'brief';
+const _log = console.log; if (BRIEF) console.log = (...x) => { const l = String(x[0]); if (/press->hit|SUMMARY|JUMPS flagged|console errors|^film|^  \S+ +t ?\d+ s\d (hips|head|foot)/.test(l)) _log(...x); };
 console.log(`JUMPS flagged: ${flags.length} (hips > 4 cm, head / feet > 8 cm beyond the sim's own move in one frame)`);
 console.log(`  (struck-head frames over 8 cm, counted apart: ${snaps.length}, max ${Math.max(0, ...snaps)} cm)`);
 for (const f of flags.slice(0, 10)) console.log(`  ${f.sc.padEnd(16)} t${String(f.t).padStart(3)} s${f.s} ${f.k.padEnd(5)} ${String(f.cm).padStart(5)} cm (sim ${f.simMove})  ${f.lb}  | ${f.st}`);
@@ -210,6 +215,8 @@ console.log('\nCONTACTS (landed; glove surface gap to the drawn target, cm, hit 
 for (const c of contacts) console.log(`  ${c.sc.padEnd(16)} t${c.t} s${c.s} ${c.hand}/${c.part}: ${c.gapCm.join(' ')}`);
 console.log('\nMISSES (no land / block; closest glove surface to the drawn target, cm):');
 for (const m of misses) console.log(`  ${m.sc.padEnd(16)} t${m.t} s${m.s} ${m.pt}: ${(m.min * 100).toFixed(1)}`);
+console.log('\nTIMING (side 0 single punches):');
+for (const l of timing.filter(l => /^(jab|cross|lhook|rhook|lupper|rupper|jab2_g10|jab_cross_hook)\//.test(l))) console.log('  ' + l);
 const hitGaps = contacts.map(c => c.gapCm[0]);
 console.log(`\nSUMMARY jumps ${flags.length} | landed gap at hit tick: min ${Math.min(...hitGaps)} max ${Math.max(...hitGaps)} cm over ${hitGaps.length} | misses closest ${misses.length ? Math.min(...misses.map(m => m.min * 100)).toFixed(1) : '-'} cm`);
 writeFileSync(`${OUT}/${TAG}.json`, JSON.stringify({ flags, summary, angAt, contacts }, null, 1));
