@@ -229,7 +229,8 @@ export class HumanAnim {
     const calm = this.cfg.mocapOutcome && this.cfg.humanCalmHits;
     const head = !calm ? head0 : rocked ? ['hit_head_heavy', 'hit_head_medium'] : level === 'heavy' ? ['hit_head_heavy_calm', 'hit_head_medium'] : [`hit_head_${level}_calm`, ...head0];
     const names = part === 'body'
-      ? (punch === 'uppercut' ? ['hit_body_uppercut', 'hit_body'] : ['hit_body'])
+      // (a body shot FOLDS him: hit_body = the stomach take; a flush or rocking one the deep fold. The kidney take turned his back on the puncher)
+      ? (punch === 'uppercut' ? ['hit_body_uppercut', 'hit_body'] : level === 'heavy' || rocked ? ['hit_body_heavy', 'hit_body'] : ['hit_body'])
       : punch === 'uppercut' && !(calm && !rocked) ? [`hit_uppercut_${level}`, 'hit_uppercut', ...head] : head;
     const pk = this.pick(...names);
     if (!pk) return;

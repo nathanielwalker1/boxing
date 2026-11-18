@@ -12,7 +12,16 @@
  },
  "cross": {
   "slug": "cross",
-  "seq": [[18, 3], [3, 21]],
+  "seq": [
+   [
+    18,
+    3
+   ],
+   [
+    3,
+    21
+   ]
+  ],
   "from": 0,
   "to": 33,
   "contact": 15
@@ -37,7 +46,12 @@
  },
  "lead_uppercut": {
   "slug": "lead_uppercut",
-  "seq": [[19, 24]],
+  "seq": [
+   [
+    19,
+    24
+   ]
+  ],
   "from": 0,
   "to": 5,
   "contact": 5,
@@ -128,10 +142,10 @@
   "impact": 7
  },
  "hit_body": {
-  "slug": "kidney_hit",
+  "slug": "stomach_hit",
   "from": 0,
-  "to": 67,
-  "impact": 10
+  "to": 71,
+  "impact": 5
  },
  "hit_uppercut": {
   "slug": "receive_uppercut_to_the_face",
@@ -328,5 +342,17 @@
    "contact": 60
   },
   "body": true
+ },
+ "hit_body_turn": {
+  "slug": "kidney_hit",
+  "from": 0,
+  "to": 67,
+  "impact": 10
+ },
+ "hit_body_heavy": {
+  "slug": "hit_to_body",
+  "from": 0,
+  "to": 72,
+  "impact": 6
  }
 }

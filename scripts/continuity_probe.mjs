@@ -101,11 +101,16 @@ if (process.argv[6]) {
     for (let t = +a; t <= +b; t += +st) {
       await page.evaluate(([sc, t]) => window.__rigReplay(sc.dist, Array.from(sc.s0 ?? [], x => x ?? {}), t, Array.from(sc.s1 ?? [], x => x ?? {})), [sc, t]);
       await frames(page, 2);
-      shots.push({ t, b64: (await page.screenshot({ clip: { x: 120, y: 60, width: 400, height: 300 } })).toString('base64') });
+      // (headless WebGL readback fails now and then on this machine: retry the capture, never the run)
+      let buf = null;
+      for (let k = 0; k < 6 && !buf; k++) { try { buf = await page.screenshot({ clip: { x: 120, y: 60, width: 400, height: 300 } }); } catch { await frames(page, 4); } }
+      if (buf) shots.push({ t, b64: buf.toString('base64') }); else console.log('film: frame t' + t + ' could not be captured');
     }
     const sheet = await browser.newPage({ viewport: { width: 1600, height: Math.ceil(shots.length / 4) * 300 } });
     await sheet.setContent(`<body style="margin:0;background:#111;display:grid;grid-template-columns:repeat(4,400px);font:14px monospace;color:#fff">${shots.map(s => `<div style="position:relative"><img src="data:image/png;base64,${s.b64}" style="display:block"><span style="position:absolute;left:4px;top:2px;background:#000a">t${s.t}</span></div>`).join('')}</body>`);
-    await sheet.screenshot({ path: `${OUT}/${TAG}_${nm}.png` });
+    let done = false;
+    for (let k = 0; k < 5 && !done; k++) { try { await sheet.screenshot({ path: `${OUT}/${TAG}_${nm}.png` }); done = true; } catch { await sheet.waitForLoadState('load'); await sheet.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))); } }
+    if (!done) { shots.forEach(s => writeFileSync(`${OUT}/${TAG}_${nm}_t${s.t}.png`, Buffer.from(s.b64, 'base64'))); console.log('film: sheet failed, frames written singly'); }
     await sheet.close();
     console.log(`film: ${OUT}/${TAG}_${nm}.png (${shots.length} frames)`);
   }
@@ -117,7 +122,7 @@ if (process.argv[5]) {
   const c = v => (v * 100).toFixed(1).padStart(7);
   if (run) for (let t = +a; t <= +b && t < run.rows.length; t++) {
     const R = run.rows[t][+sd];
-    console.log(`t${String(t).padStart(3)} sim${c(R.pos[0])} org${c(R.org[0])} hips${c(R.hips[0])} hipsY${c(R.hips[1])} head${c(R.head[0])} fL${c(R.feet.left[0])} fR${c(R.feet.right[0])} L0${c(R.ld[0])} ex${c(R.ld[1])} wL ${R.ld[2].toFixed(2)} ${R.cf.kind}  ${R.lb} | ${R.ph ?? ''} p${(R.prog ?? 0).toFixed(2)}`);
+    console.log(`t${String(t).padStart(3)} sim${c(R.pos[0])} org${c(R.org[0])} hips${c(R.hips[0])} hipsY${c(R.hips[1])} head${c(R.head[0])} fL${c(R.feet.left[0])} fR${c(R.feet.right[0])} fLy${c(R.feet.left[1])} fRy${c(R.feet.right[1])} L0${c(R.ld[0])} ex${c(R.ld[1])} wL ${R.ld[2].toFixed(2)} ${R.cf.kind}  ${R.lb} | ${R.ph ?? ''} p${(R.prog ?? 0).toFixed(2)}`);
   }
 }
 // ---------- analysis ----------
