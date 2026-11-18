@@ -2016,6 +2016,7 @@ export const SCHEMA = {
   humanDownClear:    num(0.6, 0, 1.5, 0.05, 'human', 'knockdown: the man going down travels this far back from the other man as he falls (drawn only), so he does not fold into him or lie under his feet; he comes back as he rises'),
   humanDownClearHalf: num(0.2, 0.02, 1, 0.01, 'human', 'knockdown: half-life of that travel, s'),
   humanExtendRate:   num(1.5, 0, 4, 0.1, 'human', 'a punch\'s swing (the clip frames into its contact) plays at most this many times the clip\'s own speed (0 = off). Measured 2026-11-17: the rear hook\'s glove covered 56 cm in one tick with the swing squeezed into the sim\'s 4-tick extension'),
+  humanHeavyHold:    num(0.45, 0, 1, 0.05, 'human', 'drawn: a power shot\'s glove stays pressed on the contact for this share of the sim\'s hold (mocapRecoverHeavy stretched the hold too: the rear hook rested on the face for a quarter second)'),
   humanInertia:      bool(true, 'human', 'CONTINUITY: a new action (punch, hit reaction, knockdown, get-up, slip, block flinch) cuts in at full weight and the difference to the pose and joint speed that were on screen is carried over and decayed (inertial blend), instead of a crossfade from the new clip\'s own first frame. The punch\'s drawn body offset (lunge) moves on a spring, never switched'),
   humanInertiaHalf:  num(0.07, 0.01, 0.3, 0.005, 'human', 'continuity: half-life of the carried-over pose difference when a punch / slip / get-up starts, s (smaller = snappier, larger = smoother)'),
   humanInertiaHalfHit: num(0.035, 0.01, 0.3, 0.005, 'human', 'continuity: the same half-life when a hit reaction or block flinch starts, s (short: a hit is abrupt)'),
@@ -2112,7 +2113,7 @@ export const SCHEMA = {
   mocapIKOut:        num(0.4, 0.05, 1, 0.05, 'mocapGeo', 'outcome, drawn: the arm IK onto the contact point ramps out over this share of the recovery'),
   mocapIKTicks:      num(8, 1, 20, 1, 'mocapGeo', 'outcome, drawn: the punching hand is steered onto the contact only over this many ticks before the hit tick (the clip is untouched before that)'),
   mocapBlockNoSkip:  bool(true, 'mocapGeo', 'outcome: a blocked punch does NOT skip ahead in its progress (blockFeelFistSkip): the skip drew a 68 cm one-tick jump of the mocap glove; the punch advances continuously instead'),
-  mocapIKArmMax:     num(0.2, 0, 0.4, 0.01, 'mocapGeo', 'outcome, drawn: the punching hand is moved by the arm IK at most this far, m (clip elbow as pole); the forward remainder is the drawn lunge (whole body, pose untouched); no body turn'),
+  mocapIKArmMax:     num(0.3, 0, 0.4, 0.01, 'mocapGeo', 'outcome, drawn: the punching hand is moved by the arm IK at most this far, m (clip elbow as pole); the forward remainder is the drawn lunge (whole body, pose untouched); no body turn'),
   // ── Impact layer (human/impact.ts): the head and body react at the instant of contact, drawn only ──
   impactOn:          bool(true, 'impact', 'master switch for the drawn impact layer (head whip, body fold, face morphs on a land; a small shove on a block)'),
   impactGlance:      num(0.35, 0, 1.5, 0.01, 'impact', 'size of the reaction to a GLANCING land, share of a flush one'),

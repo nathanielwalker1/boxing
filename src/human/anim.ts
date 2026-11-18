@@ -465,8 +465,9 @@ export class HumanAnim {
             if (clipRec / simRec > cfg.humanRecoverRateMax || gp.role.to - gp.contactF < 2) {
               // the LEGS keep the clip stretched over the sim's recovery (a stepped-in foot comes home at the clip's
               // own pace: cutting it slid the foot 26 cm in a tick); the arms and body take the fitted, eased-out frame
-              if (!(cfg.humanInertia && pk.mirror)) this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, w: 1, fadeOut: cfg.humanFadeOut });
-              f = gp.contactF + sec * cfg.humanRecoverRateMax * gp.clip.fps;
+              if (!cfg.humanInertia) this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, w: 1, fadeOut: cfg.humanFadeOut });
+              // (a jab's short recovery plays the take at its own speed, never faster: the body jab bobbed 12 cm in six ticks; what is left goes home on the carry-over)
+              f = gp.contactF + sec * (cfg.humanInertia && type === 'jab' ? Math.min(1, cfg.humanRecoverRateMax) : cfg.humanRecoverRateMax) * gp.clip.fps;
               const sec0 = ph.hold * simRec;   // the glove stays on the contact through the punch's hold
               // (continuity on: no ease-out squeezed into the sim's recovery; when the punch ends, what is left of the way home is carried over and decays)
               // (a take with no recovery of its own, the trimmed uppercuts, is still eased home: it would hang at its contact pose)
@@ -498,7 +499,7 @@ export class HumanAnim {
           const gl = { x: ip(g0.x, g1.x), y: ip(g0.y, g1.y), z: ip(g0.z, g1.z) };
           if (cfg.mocapOutcome && opp) {
             // OUTCOME FIRST: the hand is steered onto the sim's contact point (or left free on a whiff / dodge)
-            const c = this.conform(next, opp.next, u, ph.cockEnd, peak, ph.hold, ph.total * Math.max(1, p.timeMult), gp, f, lunge, dt);
+            const c = this.conform(next, opp.next, u, ph.cockEnd, peak, ph.hold * (cfg.humanInertia && type !== 'jab' ? cfg.humanHeavyHold : 1), ph.total * Math.max(1, p.timeMult), gp, f, lunge, dt);
             ik = c.ik; turn = c.turn; lunge = c.lunge;
           } else if (w > 0.01) ik = { arm: g.arm, w, at: gl, exact: true, key: this.punchN, pressW: this.pressW };
           // a chained punch with the OTHER arm: the last arm keeps its own tail (it was lost here: a 30 cm pop of the jab hand when the cross started)
