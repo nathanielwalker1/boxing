@@ -164,11 +164,18 @@ export class HumanAnim {
     return want.filter(n => !this.roles[n]).map(n => (this.find(n) ? n + ' (label fallback)' : n));
   }
 
-  private want(key: string, pick: Pick, t: number, o: { loop?: boolean; fadeIn?: number; fadeOut?: number; upper?: boolean; lower?: boolean; lean?: boolean; w?: number; target?: number; fixW?: number } = {}): void {
+  private want(key: string, pick: Pick, t: number, o: { loop?: boolean; fadeIn?: number; fadeOut?: number; upper?: boolean; lower?: boolean; lean?: boolean; w?: number; target?: number; fixW?: number; halfMax?: number } = {}): void {
     let tr = this.tracks.find(x => x.key === key);
+    // CONTINUITY (humanInertia): an action cuts in at full weight; the view carries the on-screen pose and speed over
+    const half0 = this.cutHalfFor(key);
+    const half = half0 > 0 && o.halfMax !== undefined ? Math.max(0.012, Math.min(half0, o.halfMax)) : half0;
     if (!tr) {
-      tr = { key, pick, t, loop: !!o.loop, w: o.w ?? 0, target: 1, fadeIn: o.fadeIn ?? this.cfg.humanFadeIn, fadeOut: o.fadeOut ?? this.cfg.humanFadeOut, upper: !!o.upper || !!o.lean, lower: !!o.lower, lean: !!o.lean, seq: this.seq++ };
+      tr = { key, pick, t, loop: !!o.loop, w: half > 0 ? (o.target ?? 1) : o.w ?? 0, target: 1, fadeIn: o.fadeIn ?? this.cfg.humanFadeIn, fadeOut: o.fadeOut ?? this.cfg.humanFadeOut, upper: !!o.upper || !!o.lean, lower: !!o.lower, lean: !!o.lean, seq: this.seq++ };
       this.tracks.push(tr);
+      if (half > 0) this.cutHalf = this.cutHalf > 0 ? Math.min(this.cutHalf, half) : half;
+    } else if (half > 0 && !tr.loop && (t < tr.t - 0.05 || t > tr.t + 0.2)) {
+      // the same track jumping in its own clip (the fall reversed into the rise, a re-timed recovery): also a cut
+      this.cutHalf = this.cutHalf > 0 ? Math.min(this.cutHalf, half) : half;
     }
     tr.t = t; tr.target = o.target ?? 1;
     if (o.fixW !== undefined) { tr.target = Math.min(tr.target, o.fixW); tr.w = Math.min(tr.w, tr.target); }
@@ -176,6 +183,34 @@ export class HumanAnim {
     this.wanted.add(key);
   }
   private wanted = new Set<string>();
+
+  // ---- CONTINUITY (humanInertia): the pose drawn = the blend + a carried-over difference that decays ----
+  /** > 0: an action cut in this frame; the half-life (s) its carried difference decays with. */
+  private cutHalf = 0;
+  /** The half-life an action's start is carried over with (0 = this track crossfades by weight as before). */
+  private cutHalfFor(key: string): number {
+    const c = this.cfg;
+    return !c.humanInertia || c.humanRawPose ? 0
+      : /^(hit#|blockhit#)/.test(key) ? c.humanInertiaHalfHit
+      : key === 'down' ? c.humanInertiaHalfDown
+      : /^(punch#|punchL#|getup|slip:)/.test(key) ? c.humanInertiaHalf : 0;
+  }
+  private leanS = [0, 0, 0, 0]; private leanV = [0, 0, 0, 0];
+  // the drawn lunge (world floor m) and its speed: moved by a spring, never switched
+  private lungeX = 0; private lungeZ = 0; private lungeVX = 0; private lungeVZ = 0;
+
+  /** The view reads this once a frame: > 0 = an action switched this frame (the half-life to carry the on-screen pose over with). */
+  takeCut(): number { const c = this.cutHalf; this.cutHalf = 0; return c; }
+  /** The punch's wanted body offset -> the drawn one, on a critically damped spring (it is never switched on or off). */
+  private lungeStep(gx: number, gz: number, dt: number): { x: number; z: number } {
+    if (dt > 1e-5) {
+      const back = Math.hypot(gx, gz) < Math.hypot(this.lungeX, this.lungeZ);
+      const y = 2 * Math.LN2 / Math.max(1e-3, back ? this.cfg.humanLungeHalfBack : this.cfg.humanLungeHalf), e = Math.exp(-y * dt);
+      const ax = this.lungeX - gx, bx = this.lungeVX + ax * y; this.lungeX = e * (ax + bx * dt) + gx; this.lungeVX = e * (this.lungeVX - bx * y * dt);
+      const az = this.lungeZ - gz, bz = this.lungeVZ + az * y; this.lungeZ = e * (az + bz * dt) + gz; this.lungeVZ = e * (this.lungeVZ - bz * y * dt);
+    }
+    return { x: this.lungeX, z: this.lungeZ };
+  }
 
   private startHit(part: BodyPart, punch: PunchType | null, grade: HitGrade | null, sev: number, age: number, fromState: boolean, rocked = false): void {
     const g = grade ?? (sev < 0.4 ? 'glancing' : sev < 0.75 ? 'clean' : 'flush');
@@ -202,6 +237,8 @@ export class HumanAnim {
 
   /** Outcome mode (read by tests / the audit): what the punching hand is steered to this frame. */
   conformInfo: { kind: OutcomeKind | 'none'; w: number; at: Vec3 | null } = { kind: 'none', w: 0, at: null };
+  /** (audit) the punch's body travel this frame along his facing, m: the sim's own, what the contact frame lacks, and the envelope on that. */
+  lungeDbg: [number, number, number] = [0, 0, 0];
   private ocKindW = 0;
   private readonly ocT = { x: 0, y: 0, z: 0 };
   private ocKey = -1;
@@ -239,8 +276,8 @@ export class HumanAnim {
     const wIn = u <= peak ? smooth((u - in0) / Math.max(1e-6, peak - in0)) : 1 - smooth((u - out0) / Math.max(1e-6, (1 - peak) * cfg.mocapIKOut));
     const w = Number.isNaN(this.ocT.x) ? 0 : wIn * this.ocKindW;
     const at = { x: this.ocT.x, y: this.ocT.y, z: this.ocT.z };
-    let turn = 0, lunge = lunge0;
-    if (w > 1e-3) {
+    let turn = 0, lunge = cfg.humanInertia ? { x: 0, z: 0 } : lunge0;
+    if (w > 1e-3 || (cfg.humanInertia && !Number.isNaN(this.ocT.x))) {
       // where the clip glove is now (his frame, from the drawn origin), and where the target is
       mocapClipGlove(pick, frame, cfg, me.body.heightM, CG2);
       const c = Math.cos(me.yaw), s = Math.sin(me.yaw);
@@ -250,8 +287,19 @@ export class HumanAnim {
       const gF = CG2.z, gL = -CG2.x;   // native x = his left
       const m = cfg.mocapIKArmMax;
       const dF = tF - gF, dL = tL - gL;
-      const exF = dF - clamp(dF, -m, m), exL = dL - clamp(dL, -m, m);
-      const Ln = L + exF * w;
+      let exF = dF - clamp(dF, -m, m), wL = w;
+      const exL = dL - clamp(dL, -m, m);
+      if (cfg.humanInertia) {
+        // CONTINUITY: the body travel is the weight shift of the whole punch, not a shove in the last ticks: what the
+        // clip's CONTACT frame lacks to the target, eased in over the whole extension and out over the whole recovery
+        // (the sim's own lunge is NOT drawn: with hits by rule it only shoved the body out and the correction pulled it back)
+        mocapClipGlove(pick, pick.contactF, cfg, me.body.heightM, CG2);
+        const dC = tF + L - CG2.z;
+        exF = clamp(dC - clamp(dC, -m, m), -cfg.humanShiftBack, cfg.humanShiftFwd) - L;
+        wL = (u <= peak ? smooth((u - cockEnd * 0.5) / Math.max(1e-6, peak - cockEnd * 0.5)) : 1 - smooth((u - out0) / Math.max(1e-6, 1 - out0))) * this.ocKindW;
+      }
+      const Ln = cfg.humanInertia ? (L + exF) * wL : L + exF * wL;
+      this.lungeDbg = [L, exF, wL];
       lunge = { x: c * Ln, z: s * Ln };
       // (no body turn: Nate 2026-11-17, every layer earns its way back; the across error stays, reported by the audit)
       void exL; turn = 0;
@@ -381,14 +429,18 @@ export class HumanAnim {
             if (clipRec / simRec > cfg.humanRecoverRateMax || gp.role.to - gp.contactF < 2) {
               // the LEGS keep the clip stretched over the sim's recovery (a stepped-in foot comes home at the clip's
               // own pace: cutting it slid the foot 26 cm in a tick); the arms and body take the fitted, eased-out frame
-              this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, w: 1, fadeOut: cfg.humanFadeOut });
+              if (!(cfg.humanInertia && pk.mirror)) this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, w: 1, fadeOut: cfg.humanFadeOut });
               f = gp.contactF + sec * cfg.humanRecoverRateMax * gp.clip.fps;
               const sec0 = ph.hold * simRec;   // the glove stays on the contact through the punch's hold
-              fixW = 1 - smooth((sec - sec0) / Math.max(1e-3, simRec - sec0));
+              // (continuity on: no ease-out squeezed into the sim's recovery; when the punch ends, what is left of the way home is carried over and decays)
+              if (!cfg.humanInertia) fixW = 1 - smooth((sec - sec0) / Math.max(1e-3, simRec - sec0));
             }
           }
           const easeIn = cfg.mocapOutcome && !cfg.humanRawPose ? gp.role.easeIn : undefined;
-          this.want('punch#' + this.punchN, pk, f / gp.clip.fps, { ...(fixW !== undefined ? { fixW } : {}), ...(easeIn ? { fadeIn: easeIn } : {}) });
+          // (continuity on: a take mirrored from the other hand stands in the other stance; only its upper body is used, the legs stay his own)
+          this.want('punch#' + this.punchN, pk, f / gp.clip.fps, { ...(fixW !== undefined ? { fixW } : {}), ...(easeIn ? { fadeIn: easeIn } : {}), ...(cfg.humanInertia && pk.mirror ? { upper: true } : {}),
+            // (what is carried over from the last action must be gone by the hit: its half-life is at most a fifth of the time to the hit)
+            halfMax: Math.max(0, peak - u) * ph.total * Math.max(1, p.timeMult) * cfg.humanInertiaHitShare });
           label = `${gp.name} f${f.toFixed(0)} (contact ${gp.contactF})`;
           // (audit) how far the clip's own glove moves between the frames drawn last tick and this one
           mocapClipGlove(gp, f, cfg, next.body.heightM, CG1);
@@ -553,7 +605,11 @@ export class HumanAnim {
 
     // ---- weights, then the blend (loco first, then actions in start order) ----
     for (const tr of this.tracks) {
-      if (!this.wanted.has(tr.key)) tr.target = 0;
+      if (!this.wanted.has(tr.key)) {
+        tr.target = 0;
+        // CONTINUITY: an action that ends is dropped whole; the way home from the pose on screen is carried over and decays
+        if (tr.w > 1e-3 && this.cutHalfFor(tr.key) > 0) { tr.w = 0; this.cutHalf = this.cutHalf > 0 ? Math.min(this.cutHalf, cfg.humanInertiaHalfOut) : cfg.humanInertiaHalfOut; }
+      }
       const up = tr.target > tr.w;
       const rate = dt / Math.max(1e-3, up ? tr.fadeIn : tr.fadeOut);
       tr.w = up ? Math.min(tr.target, tr.w + rate) : Math.max(tr.target, tr.w - rate);
@@ -600,6 +656,7 @@ export class HumanAnim {
       : { slug: this.idle?.clip.slug ?? '', frame: this.idleT * (this.idle?.clip.fps ?? 60), punch: false };
     // The sim owns the floor position: no horizontal hips travel from any clip.
     this.pose.hips[0] = 0; this.pose.hips[2] = 0;
+    if (cfg.humanInertia && !cfg.humanRawPose) lunge = this.lungeStep(lunge.x, lunge.z, dt);
 
     // A blocked shot: a short flinch back (no block_hit clip, or on top of it).
     if (this.jolt > 0) { lean.back += cfg.humanBlockJolt * this.jolt; this.jolt = Math.max(0, this.jolt - dt / 0.18); }
@@ -610,6 +667,15 @@ export class HumanAnim {
       + (punching ? 0 : Math.max(0, ipn(prev.crouch, next.crouch))) + (slipClip || !next.slip.active ? 0 : ipn(prev.slip.dip, next.slip.dip)))
       + cfg.humanSinkGain * Math.max(0, ipn(prev.reaction.sink.x, next.reaction.sink.x));
     if (!slipClip && next.slip.active && !next.down) lean.fwd = 0;   // the dip is now the hips going down, not a bow
+    // CONTINUITY: the procedural lean (slip, pull, block flinch) moves on a spring; the sim's slip offset ends in one tick, the picture does not
+    if (cfg.humanInertia && !cfg.humanRawPose && dt > 1e-5) {
+      const g = [lean.lat, lean.back, lean.fwd, lean.twist], y = 2 * Math.LN2 / Math.max(1e-3, cfg.humanLeanHalf), e = Math.exp(-y * dt);
+      for (let i = 0; i < 4; i++) {
+        const a = this.leanS[i]! - g[i]!, b = this.leanV[i]! + a * y;
+        this.leanS[i] = e * (a + b * dt) + g[i]!; this.leanV[i] = e * (this.leanV[i]! - b * y * dt);
+      }
+      lean.lat = this.leanS[0]!; lean.back = this.leanS[1]!; lean.fwd = this.leanS[2]!; lean.twist = this.leanS[3]!;
+    }
     // THE REFERENCE (humanRawPose): the clips alone, placed at the sim's pos / yaw
     if (cfg.humanRawPose) return { pose: this.pose, ik: null, ik2: null, aim: null, lean: { lat: 0, back: 0, fwd: 0 }, drop: 0, label, lunge: { x: 0, z: 0 }, turn: 0 };
     // outcome first: no hips drop with leg IK (the crouch is the duck clip, above); the lunge and the conform IK stay

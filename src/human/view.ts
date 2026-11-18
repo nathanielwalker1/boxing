@@ -14,6 +14,7 @@ import { loadBoxer, type BoxerAssets, type KitColors } from './body';
 import { decode, synthClips, type BakeIndex, type ClipLib, type Roles } from './clip';
 import { applyFit, buildFit, type Fit, type FitOut, type Skeleton } from './retarget';
 import { HumanAnim } from './anim';
+import { PoseInertia } from './inertia';
 import { Spray } from '../rig/spray';
 import { installRigReplay, type ReplayFeed } from '../rig/replay';
 import { SIM_DT } from '../core';
@@ -214,6 +215,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     const h = arm[a][2].getWorldPosition(new THREE.Vector3()), e = arm[a][1].getWorldPosition(new THREE.Vector3());
     return h.addScaledVector(h.clone().sub(e).normalize(), cfg.humanGloveOffset).toArray();
   };
+  const probeBones = (['Hips', 'Spine', 'Spine2', 'Neck', 'Head', 'LeftArm', 'LeftForeArm', 'LeftHand', 'RightArm', 'RightForeArm', 'RightHand', 'LeftUpLeg', 'LeftLeg', 'RightUpLeg', 'RightLeg'] as const)
+    .map(n => [n, n === 'Head' ? head : n === 'Hips' ? hips : bone(n)] as const);
   probes[side] = () => {
     const lead = spec.stance === 'orthodox' ? 'Left' : 'Right', rear = lead === 'Left' ? 'Right' : 'Left';
     return {
@@ -224,9 +227,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       origin: [group.position.x, group.position.y, group.position.z], legitHand: anim.legitHand,
       // outcome mode: the drawn head sphere / torso line (what the other man's gloves are kept out of) and the hand's target
       drawn: drawnBodies[side] ? { head: drawnBodies[side]!.head.toArray(), headR: drawnBodies[side]!.headR, a: drawnBodies[side]!.a.toArray(), b: drawnBodies[side]!.b.toArray(), r: drawnBodies[side]!.r } : null,
+      lungeDbg: [...anim.lungeDbg],
       conform: { kind: anim.conformInfo.kind, w: anim.conformInfo.w, at: anim.conformInfo.at ? [anim.conformInfo.at.x, anim.conformInfo.at.y, anim.conformInfo.at.z] : null },
       // the sim events this view was fed on its last tick (the replay filters them to this side), as plain data
       events: lastEvents.map(e => ({ ...e })),
+      // (transition audit) each tracked joint's LOCAL rotation (x, y, z, w) as drawn, and the body's drawn yaw
+      lq: Object.fromEntries(probeBones.map(([n, b]) => [n, b.quaternion.toArray()])), yaw: group.rotation.y,
     };
   };
   // Read-only measurement hook (tests): the drawn MESH's head and torso extents about the drawn head sphere / torso line,
@@ -260,6 +266,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     return { headFront, headSide, headTop, torsoFront, torsoBack, torsoSide, model: { headR: db.headR, torsoR: db.r } };
   };
   let lastEvents: readonly SimEvent[] = [];
+  // continuity (inertia.ts): scratch + which joints are hips / legs (they settle slower)
+  const inRot = new Float32Array(bones.length * 4), inPos = new Float32Array(3), inSlow = new Float32Array(bones.length).fill(1);
+  const inLeg = bones.map(b => (/(Spine|Neck|Head|Shoulder|Arm|Hand)/.test(b.name) ? 0 : 1));
+  const inertia = new PoseInertia(bones.length, inSlow);
   /** The largest hand displacement any IK made this frame (outcome mode: the conform and the keep-out), m. */
   let ikMax = 0;
   let ikKey = -1;
@@ -295,7 +305,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       } else drawnLunge[side] = 0;
       // stand back along his facing so the leaning mocap head sits over the sim's head (cfg.humanBackShift); with
       // mocapGeo the punch's lunge moves the body (the sim moves his head and body boxes by the same) and its turn turns it
-      group.position.set(x - Math.cos(yaw) * cfg.humanBackShift + out.lunge.x, 0, z - Math.sin(yaw) * cfg.humanBackShift + out.lunge.z);
+      // CONTINUITY (humanInertia): the lunge is a weight shift, the hips travelling over PLANTED feet (below), not the whole man sliding
+      const shift = cfg.humanInertia && cfg.mocapOutcome && !cfg.humanRawPose && !next.down;
+      const lx = shift ? out.lunge.x : 0, lz = shift ? out.lunge.z : 0;
+      group.position.set(x - Math.cos(yaw) * cfg.humanBackShift + out.lunge.x - lx, 0, z - Math.sin(yaw) * cfg.humanBackShift + out.lunge.z - lz);
       group.rotation.y = Math.PI / 2 - yaw - out.turn;
       group.visible = true;
       group.updateMatrixWorld(true);
@@ -306,15 +319,20 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       group.updateMatrixWorld(true);
 
       // ---- level / crouch / dip / hit sink: the hips go down by the sim's head drop, feet pinned by leg IK ----
-      if (out.drop > 0.002) {
+      if (out.drop > 0.002 || Math.hypot(lx, lz) > 0.002) {
         const feet = (['Left', 'Right'] as const).map(s => ({ s, p: leg[s][2].getWorldPosition(new THREE.Vector3()), q: leg[s][2].getWorldQuaternion(new THREE.Quaternion()) }));
         const hp = hips.getWorldPosition(new THREE.Vector3());
-        hp.y -= Math.min(0.45, out.drop);
+        hp.y -= Math.min(0.45, Math.max(0, out.drop));
+        hp.x += lx; hp.z += lz;
         hips.parent!.worldToLocal(hp);
         hips.position.copy(hp);
         group.updateMatrixWorld(true);
         for (const f of feet) {
           const [u, m, e] = leg[f.s];
+          // soft reach: near full stretch the foot gives a little (comes with the hip) instead of the knee snapping straight
+          u.getWorldPosition(vS); m.getWorldPosition(vE); e.getWorldPosition(vW);
+          const L = vE.distanceTo(vS) + vW.distanceTo(vE), da = L * cfg.humanLegSoft, d = f.p.distanceTo(vS);
+          if (d > da && L > da) f.p.sub(vS).setLength(da + (L - da) * (1 - Math.exp(-(d - da) / (L - da)))).add(vS);
           twoBone(u, m, e, f.p);
           group.updateMatrixWorld(true);
           e.parent!.getWorldQuaternion(qP);
@@ -444,7 +462,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           reqs.push({ arm: a, w: gw, exact: true, at: { x: g0.x + (g1.x - g0.x) * alpha, y: g0.y + (g1.y - g0.y) * alpha, z: g0.z + (g1.z - g0.z) * alpha } });
         }
       }
-      for (const ik of reqs) if (ik && ik.w > 1e-3 && (cfg.humanHandIK || ik.exact)) {
+      const solveIK = (ik: NonNullable<typeof out.ik>): void => {
         group.updateMatrixWorld(true);
         const [up, fore, hand] = arm[ik.arm];
         up.getWorldPosition(vS); fore.getWorldPosition(vE); hand.getWorldPosition(vW);
@@ -494,7 +512,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         // weight
         up.quaternion.copy(save[0]!.slerp(up.quaternion, w));
         fore.quaternion.copy(save[1]!.slerp(fore.quaternion, w));
-      }
+      };
+      for (const ik of reqs) if (ik && ik.w > 1e-3 && (cfg.humanHandIK || ik.exact)) solveIK(ik);
       // ---- guard tuck (drawn only): close to the other man the guard hands come back toward his own chin, never in a punch ----
       tuckD.Left.set(0, 0, 0); tuckD.Right.set(0, 0, 0);
       if (cfg.humanGuardTuck > 0 && !cfg.mocapOutcome && !cfg.humanRawPose && next.punch.type === null && !next.down && oppSt) {
@@ -513,6 +532,30 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             if (room <= 0) continue;
             tuckD[a].copy(to.normalize()).multiplyScalar(Math.min(k, room));
             twoBone(u, m, e, hp.add(tuckD[a]));
+            group.updateMatrixWorld(true);
+          }
+        }
+      }
+
+      // ---- CONTINUITY (inertia.ts): the final pose starts every switch from the pose and motion that were on screen ----
+      {
+        const cut = anim.takeCut();
+        if (cfg.humanInertia && !cfg.humanRawPose) {
+          for (let i = 0; i < bones.length; i++) {
+            const q = bones[i]!.quaternion;
+            inRot[i * 4] = q.x; inRot[i * 4 + 1] = q.y; inRot[i * 4 + 2] = q.z; inRot[i * 4 + 3] = q.w;
+            inSlow[i] = 1 + (cfg.humanInertiaLegMult - 1) * inLeg[i]!;
+          }
+          inPos[0] = hips.position.x; inPos[1] = hips.position.y; inPos[2] = hips.position.z;
+          inertia.step(inRot, inPos, cut, dt, cfg.humanInertiaVelMax, cfg.humanInertiaLegMult);
+          for (let i = 0; i < bones.length; i++) bones[i]!.quaternion.set(inRot[i * 4]!, inRot[i * 4 + 1]!, inRot[i * 4 + 2]!, inRot[i * 4 + 3]!);
+          hips.position.set(inPos[0]!, inPos[1]!, inPos[2]!);
+          group.updateMatrixWorld(true);
+          // the punching hand back on its target (what the carried-over difference moved it by; nothing once that has decayed)
+          if (out.ik?.outcome && out.ik.w > 1e-3) {
+            solveIK(out.ik);
+            for (let i = 0; i < bones.length; i++) { const q = bones[i]!.quaternion; inRot[i * 4] = q.x; inRot[i * 4 + 1] = q.y; inRot[i * 4 + 2] = q.z; inRot[i * 4 + 3] = q.w; }
+            inertia.sync(inRot);
             group.updateMatrixWorld(true);
           }
         }
