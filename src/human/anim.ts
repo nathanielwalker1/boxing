@@ -92,7 +92,7 @@ export class HumanAnim {
   private punchN = 0;
   private lastProgress = 0;
   // hit reaction: own clock from the impact frame
-  private hit: { pick: Pick; t: number; end: number; n: number; fromState: boolean; t0: number; rate: number; fit: boolean } | null = null;
+  private hit: { pick: Pick; t: number; end: number; n: number; fromState: boolean; t0: number; rate: number; fit: boolean; mir?: boolean } | null = null;
   private hitN = 0;
   private jolt = 0;   // procedural flinch of a blocked shot, 1 -> 0
   private wasDown = false;
@@ -209,17 +209,17 @@ export class HumanAnim {
   /** The view reads this once a frame: > 0 = an action switched this frame (the half-life to carry the on-screen pose over with). */
   takeCut(): number { const c = this.cutHalf; this.cutHalf = 0; return c; }
   /** The punch's wanted body offset -> the drawn one, on a critically damped spring (it is never switched on or off). */
-  private lungeStep(gx: number, gz: number, dt: number): { x: number; z: number } {
+  private lungeStep(gx: number, gz: number, dt: number, halfOver = 0): { x: number; z: number } {
     if (dt > 1e-5) {
       const back = Math.hypot(gx, gz) < Math.hypot(this.lungeX, this.lungeZ);
-      const y = 2 * Math.LN2 / Math.max(1e-3, back ? this.cfg.humanLungeHalfBack : this.cfg.humanLungeHalf), e = Math.exp(-y * dt);
+      const y = 2 * Math.LN2 / Math.max(1e-3, halfOver > 0 ? halfOver : back ? this.cfg.humanLungeHalfBack : this.cfg.humanLungeHalf), e = Math.exp(-y * dt);
       const ax = this.lungeX - gx, bx = this.lungeVX + ax * y; this.lungeX = e * (ax + bx * dt) + gx; this.lungeVX = e * (this.lungeVX - bx * y * dt);
       const az = this.lungeZ - gz, bz = this.lungeVZ + az * y; this.lungeZ = e * (az + bz * dt) + gz; this.lungeVZ = e * (this.lungeVZ - bz * y * dt);
     }
     return { x: this.lungeX, z: this.lungeZ };
   }
 
-  private startHit(part: BodyPart, punch: PunchType | null, grade: HitGrade | null, sev: number, age: number, fromState: boolean, rocked = false): void {
+  private startHit(part: BodyPart, punch: PunchType | null, grade: HitGrade | null, sev: number, age: number, fromState: boolean, rocked = false, lat = 0): void {
     const g = grade ?? (sev < 0.4 ? 'glancing' : sev < 0.75 ? 'clean' : 'flush');
     const level = g === 'glancing' ? 'light' : g === 'clean' ? 'medium' : 'heavy';
     const head0 = level === 'heavy' ? ['hit_head_heavy', 'hit_head_medium', 'hit_head_light'] : level === 'medium' ? ['hit_head_medium', 'hit_head_light', 'hit_head_heavy'] : ['hit_head_light', 'hit_head_medium'];
@@ -239,7 +239,9 @@ export class HumanAnim {
     // fitted (outcome mode): at most humanRecoverRateMax × the clip's speed, the rest eased into the idle guard
     const fit = this.cfg.mocapOutcome && !this.cfg.humanRawPose && this.cfg.humanRecoverRateMax > 0 && !fromState;
     const rate = fit ? clamp((end - impact) / Math.max(0.05, this.cfg.humanHitReactTime), 1, this.cfg.humanRecoverRateMax) : 1;
-    this.hit = { pick: pk, t: impact + age, end, n: ++this.hitN, fromState, t0: impact, rate, fit };
+    // THE HEAD FOLLOWS THE PUNCH: a hook from the other side plays the take mirrored (upper body only: the mirrored legs stand in the other stance)
+    const mir = this.cfg.humanInertia && this.cfg.humanHitTurn !== 0 && part === 'head' && punch === 'hook' && lat * this.cfg.humanHitTurn < 0;
+    this.hit = { pick: mir ? { ...pk, mirror: !pk.mirror } : pk, t: impact + age, end, n: ++this.hitN, fromState, t0: impact, rate, fit, mir };
   }
 
   /** Outcome mode (read by tests / the audit): what the punching hand is steered to this frame. */
@@ -348,7 +350,7 @@ export class HumanAnim {
           // grade picks the size; a counter or a combination's finisher is one size up
           g = (e.counter || e.finisher) && e.grade !== 'flush' ? (e.grade === 'glancing' ? 'clean' : 'flush') : e.grade;
         }
-        this.startHit(e.part, e.punch, g, 1, 0, false, rocked); hitByEvent = true;
+        this.startHit(e.part, e.punch, g, 1, 0, false, rocked, e.impulse.x * -Math.sin(next.yaw) + e.impulse.z * Math.cos(next.yaw)); hitByEvent = true;
       }
       else if (e.type === 'punchBlock' && e.target === this.side) {
         const bh = this.find('block_hit');
@@ -538,7 +540,7 @@ export class HumanAnim {
         const age = (h.t - h.t0) / h.rate, R = cfg.humanHitReactTime;
         const cut = h.fit && (h.end - h.t0) / h.rate > R + 1e-3;
         if (h.t < h.end && !(cut && age >= R)) {
-          this.want('hit#' + h.n, h.pick, h.t, { fadeIn: cfg.humanHitFadeIn, fadeOut: 0.25, target: h.t > h.end - 0.25 * h.rate ? 0 : 1, ...(cut ? { fixW: 1 - smooth((age - 0.5 * R) / (0.5 * R)) } : {}) });
+          this.want('hit#' + h.n, h.pick, h.t, { fadeIn: cfg.humanHitFadeIn, fadeOut: 0.25, target: h.t > h.end - 0.25 * h.rate ? 0 : 1, ...(h.mir ? { upper: true } : {}), ...(cut ? { fixW: 1 - smooth((age - 0.5 * R) / (0.5 * R)) } : {}) });
           label = label || 'hit ' + h.pick.name;
         } else this.hit = null;
       }
@@ -666,7 +668,10 @@ export class HumanAnim {
     // The sim owns the floor position: no horizontal hips travel from any clip.
     this.pose.hips[0] = 0; this.pose.hips[2] = 0;
     if (cfg.humanInertia && !cfg.humanRawPose) {
-      lunge = this.lungeStep(lunge.x, lunge.z, dt);
+      // KNOCKED DOWN: he goes down AWAY from the other man (drawn only), clear of his legs; he comes back as he rises
+      const clear = next.down && next.getUp.phase !== 'rise' ? cfg.humanDownClear : 0;
+      if (next.down) lunge = { x: -Math.cos(next.yaw) * clear, z: -Math.sin(next.yaw) * clear };
+      lunge = this.lungeStep(lunge.x, lunge.z, dt, next.down ? cfg.humanDownClearHalf : 0);
       if (!this.biasFed) this.lungeBias *= Math.exp(-dt * Math.LN2 / Math.max(1e-3, cfg.humanLungeHalfBack));
       this.biasFed = false;
       lunge = { x: lunge.x + Math.cos(next.yaw) * this.lungeBias, z: lunge.z + Math.sin(next.yaw) * this.lungeBias };

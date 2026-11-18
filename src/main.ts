@@ -493,10 +493,13 @@ function loop(nowMs: number): void {
   } else if (staged) {
     drawPrev = staged.prev; shown = staged.next; alpha = staged.alpha; viewEvents = scene!.events ?? [];
   }
+  // Human mode: the views' own springs (continuity, body travel, hit whip) run on the time the fighters are SHOWN in, so
+  // a slow-motion replay or the knockdown slow motion draws the same picture as live play (contact included), only slower.
+  const viewDt = !cfg.humanBody ? dt : replay && !paused ? dt * cfg.flowReplaySpeed : staged ? dt : dt * slow;
   for (const v of views) {
     const s = v.side;
     const ev = viewEvents.filter(e => !('side' in e) || e.side === s || ('target' in e && e.target === s));
-    v.apply(drawPrev[s], shown[s]!, alpha, dt, ev);
+    v.apply(drawPrev[s], shown[s]!, alpha, viewDt, ev);
   }
 
   const [a, b] = shown as [FighterState, FighterState];
