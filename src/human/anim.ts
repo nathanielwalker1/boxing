@@ -444,7 +444,8 @@ export class HumanAnim {
               f = gp.contactF + sec * cfg.humanRecoverRateMax * gp.clip.fps;
               const sec0 = ph.hold * simRec;   // the glove stays on the contact through the punch's hold
               // (continuity on: no ease-out squeezed into the sim's recovery; when the punch ends, what is left of the way home is carried over and decays)
-              if (!cfg.humanInertia) fixW = 1 - smooth((sec - sec0) / Math.max(1e-3, simRec - sec0));
+              // (a take with no recovery of its own, the trimmed uppercuts, is still eased home: it would hang at its contact pose)
+              if (!cfg.humanInertia || gp.role.to - gp.contactF < 2) fixW =1 - smooth((sec - sec0) / Math.max(1e-3, simRec - sec0));
             }
           }
           const easeIn = cfg.mocapOutcome && !cfg.humanRawPose ? gp.role.easeIn : undefined;
