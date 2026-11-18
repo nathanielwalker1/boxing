@@ -19,6 +19,7 @@ import { SIM_DT } from '../core';
 import type { BodyPart, FighterState, HitGrade, PunchType, SimEvent, Side, Vec3 } from '../core/types';
 import { punchPhases } from '../sim/punches';
 import { mocapCfg, mocapPunchNow } from '../sim/mocap';
+import { getUpAt } from '../sim/state';
 import { contactPoint, predictOutcome, type Outcome, type OutcomeKind } from '../sim/outcome';
 import { mocapClipGlove, mocapRoleNames, mocapTwinRole, type ChainedFrom, type MocapPick } from '../core/mocap';
 const CG1 = { x: 0, y: 0, z: 0 }, CG2 = { x: 0, y: 0, z: 0 }, TP = { x: 0, y: 0, z: 0 };   // scratch
@@ -96,6 +97,7 @@ export class HumanAnim {
   private hitN = 0;
   private jolt = 0;   // procedural flinch of a blocked shot, 1 -> 0
   private wasDown = false;
+  private lastHitPart: BodyPart = 'head';
   private clock = 0;
   private punchStart = 0;
   private ikTail: { arm: 'Left' | 'Right'; gi: number; w: number } | null = null;
@@ -342,6 +344,7 @@ export class HumanAnim {
     const rocked = events.some(e => (e.type === 'rocked' || e.type === 'knockdown') && e.side === this.side);
     for (const e of events) {
       if (e.type === 'punchLand' && e.target === this.side) {
+        this.lastHitPart = e.part;
         let g: HitGrade;
         if (cfg.mocapOutcome && cfg.humanCalmHits) {
           // outcome mode (the impact layer gives the instant snap; the clip is the body's after-life):
@@ -380,9 +383,24 @@ export class HumanAnim {
 
     if (next.down) {
       // ---- down: the fall, held on its last frame; the get-up when he rises ----
-      const kd = this.pick('knockdown');
+      // (a head shot blows him back flat; a body shot folds him forward to his knees and over)
+      const kd = cfg.humanInertia && this.lastHitPart === 'head' ? this.pick('knockdown_4', 'knockdown') : this.pick('knockdown');
+      // HE WILL GET UP (the sim knows at the fall): one take, knocked to his hands and knees and up again, laid over the
+      // time the sim gives him: the fall, the wait on all fours, the rise ending on the tick he is up
+      const upAt = getUpAt(next);
+      const kg = cfg.humanInertia && !cfg.humanRawPose && upAt > 0 ? this.find('knockdown_getup') : null;
       const gu = this.pick('getup');
-      if (next.getUp.phase === 'rise' && gu) {
+      if (kg) {
+        const kr = kg.role as Role & { hold?: number; up?: number }, fps = kg.clip.fps;
+        const F0 = kr.from, FH = kr.hold ?? kr.from, FU = kr.up ?? kr.to, F1 = kr.to;
+        const R = Math.min((F1 - FU) / fps * 0.9, upAt * 0.45), tFall = Math.min((FH - F0) / fps * 0.85, Math.max(0.3, upAt - R));
+        const t = prev.down ? ip(prev.downT, next.downT) : next.downT;
+        const f = t < tFall ? F0 + (FH - F0) * (t / tFall)
+          : t < upAt - R ? FH + (FU - FH) * ((t - tFall) / Math.max(1e-3, upAt - R - tFall))
+          : FU + (F1 - FU) * clamp((t - (upAt - R)) / Math.max(1e-3, R), 0, 1);
+        this.want('down', kg, f / fps, { fadeOut: 0.3 });
+        label = 'down (hands and knees, gets up) f' + f.toFixed(0);
+      } else if (next.getUp.phase === 'rise' && gu) {
         this.want('getup', gu, gu.role.from / gu.clip.fps + next.getUp.t, { fadeIn: 0.3 });
         label = 'getup';
       } else if (next.getUp.phase === 'rise' && kd) {

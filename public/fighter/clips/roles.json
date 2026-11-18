@@ -354,5 +354,12 @@
   "from": 0,
   "to": 72,
   "impact": 6
+ },
+ "knockdown_getup": {
+  "slug": "boxing_8",
+  "from": 14,
+  "to": 225,
+  "hold": 109,
+  "up": 145
  }
 }
