@@ -430,6 +430,12 @@ export class HumanAnim {
           pk = { name: gp.name, role: gp.role, clip: gp.clip, mirror: gp.mirror !== this.southpaw };   // core's mirror is absolute
           const same = geoA?.geo.pick === gp;
           let f = same ? ip(geoA!.frame, geoB.frame) : geoB.frame;
+          // THE SWING IS NEVER FAST-FORWARDED: the frames into the contact play at most humanExtendRate x the clip's speed, so
+          // the swing starts earlier inside the (long) wind-up and still meets the contact frame on the hit tick
+          if (cfg.humanInertia && !cfg.humanRawPose && cfg.humanExtendRate > 0 && u < peak) {
+            const secToHit = (peak - u) * ph.total * Math.max(1, p.timeMult);
+            f = Math.max(f, gp.contactF - cfg.humanExtendRate * secToHit * gp.clip.fps);
+          }
           // RECOVERY FITTED (outcome mode): the clip's recovery plays at most humanRecoverRateMax × its own speed; a
           // recovery longer than that is cut short by easing the clip out into the idle guard over the sim's recovery
           let fixW: number | undefined;

@@ -125,22 +125,22 @@ const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const len = v => Math.hypot(v[0], v[1], v[2]);
 const qang = (a, b) => { const d = Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]); return 2 * Math.acos(Math.min(1, d)) * 180 / Math.PI; };
 const segDist = (p, a, b) => { const ab = sub(b, a), ap = sub(p, a); const L = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2; const t = L ? Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / L)) : 0; return len(sub(p, [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t])); };
-const LIM = { hips: 0.04, head: 0.08, footL: 0.08, footR: 0.08 };
+const LIM = { hips: 0.04, head: 0.08, footL: 0.08, footR: 0.08, gloveLead: 0.3, gloveRear: 0.3 };   // (a glove: 30 cm a tick = 18 m/s, above any real punch)
 const flags = [], snaps = [];
 const angAt = [];   // transitions: max joint speed in the window
 const contacts = [];
 const summary = {};
 for (const { sc, rows } of runs) {
-  let maxEx = { hips: 0, head: 0, foot: 0 };
+  let maxEx = { hips: 0, head: 0, foot: 0, glove: 0 };
   for (let t = 2; t < rows.length; t++) for (const s of [0, 1]) {
     const A = rows[t - 1][s], B = rows[t][s];
     const dS = [B.pos[0] - A.pos[0], 0, B.pos[1] - A.pos[1]];
-    const items = { hips: [A.hips, B.hips], head: [A.head, B.head], footL: [A.feet.left, B.feet.left], footR: [A.feet.right, B.feet.right] };
+    const items = { hips: [A.hips, B.hips], head: [A.head, B.head], footL: [A.feet.left, B.feet.left], footR: [A.feet.right, B.feet.right], gloveLead: [A.gl.lead, B.gl.lead], gloveRear: [A.gl.rear, B.gl.rear] };
     for (const [k, [p, q]] of Object.entries(items)) {
       const ex = len(sub(sub(q, p), dS));
       // a walking foot moves faster than the body it carries; a falling or rising head is a fall, not a jump (12 cm a tick)
       const lim = k.startsWith('foot') ? LIM[k] + len(dS) : k === 'head' && B.down ? 0.12 : LIM[k];
-      const kk = k.startsWith('foot') ? 'foot' : k;
+      const kk = k.startsWith('foot') ? 'foot' : k.startsWith('glove') ? 'glove' : k;
       maxEx[kk] = Math.max(maxEx[kk], ex);
       // a head driven by a punch that just landed on it is meant to move fast: counted apart (up to 25 cm a tick)
       let struck = false;
@@ -149,7 +149,7 @@ for (const { sc, rows } of runs) {
       if (ex > lim) flags.push({ sc: sc.name, t, s, k, cm: +(ex * 100).toFixed(1), simMove: +(len(dS) * 100).toFixed(1), lb: `${A.lb} -> ${B.lb}`, st: `${B.pt ?? '-'} ${B.ph ?? ''} p${(B.prog ?? 0).toFixed(2)} down=${B.down} hitT=${(B.hitT ?? 0).toFixed(2)}` });
     }
   }
-  summary[sc.name] = { hips: +(maxEx.hips * 100).toFixed(1), head: +(maxEx.head * 100).toFixed(1), foot: +(maxEx.foot * 100).toFixed(1) };
+  summary[sc.name] = { hips: +(maxEx.hips * 100).toFixed(1), head: +(maxEx.head * 100).toFixed(1), foot: +(maxEx.foot * 100).toFixed(1), glove: +(maxEx.glove * 100).toFixed(1) };
   // transitions: a change in the label's first word or the clip; max joint speed over [t-1, t+4]
   let maxAll = 0, maxAt = '';
   for (let t = 2; t < rows.length; t++) for (const s of [0, 1]) {
@@ -202,7 +202,7 @@ for (const { sc, rows } of runs) for (const s of [0, 1]) {
 }
 flags.sort((a, b) => b.cm - a.cm);
 const BRIEF = process.argv[7] === 'brief';
-const _log = console.log; if (BRIEF) console.log = (...x) => { const l = String(x[0]); if (/press->hit|SUMMARY|JUMPS flagged|console errors|^film|^  \S+ +t ?\d+ s\d (hips|head|foot)/.test(l)) _log(...x); };
+const _log = console.log; if (BRIEF) console.log = (...x) => { const l = String(x[0]); if (/press->hit|SUMMARY|JUMPS flagged|console errors|^film|^  \S+ +t ?\d+ s\d (hips|head|foot|glove)/.test(l)) _log(...x); };
 console.log(`JUMPS flagged: ${flags.length} (hips > 4 cm, head / feet > 8 cm beyond the sim's own move in one frame)`);
 console.log(`  (struck-head frames over 8 cm, counted apart: ${snaps.length}, max ${Math.max(0, ...snaps)} cm)`);
 for (const f of flags.slice(0, 10)) console.log(`  ${f.sc.padEnd(16)} t${String(f.t).padStart(3)} s${f.s} ${f.k.padEnd(5)} ${String(f.cm).padStart(5)} cm (sim ${f.simMove})  ${f.lb}  | ${f.st}`);
@@ -218,7 +218,7 @@ for (const m of misses) console.log(`  ${m.sc.padEnd(16)} t${m.t} s${m.s} ${m.pt
 console.log('\nTIMING (side 0 single punches):');
 for (const l of timing.filter(l => /^(jab|cross|lhook|rhook|lupper|rupper|jab2_g10|jab_cross_hook)\//.test(l))) console.log('  ' + l);
 const hitGaps = contacts.map(c => c.gapCm[0]);
-console.log(`\nSUMMARY jumps ${flags.length} | landed gap at hit tick: min ${Math.min(...hitGaps)} max ${Math.max(...hitGaps)} cm over ${hitGaps.length} | misses closest ${misses.length ? Math.min(...misses.map(m => m.min * 100)).toFixed(1) : '-'} cm`);
+console.log(`\nSUMMARY jumps ${flags.length} | fastest glove ${Math.max(...Object.values(summary).map(v => v.glove))} cm/tick | landed gap at hit tick: min ${Math.min(...hitGaps)} max ${Math.max(...hitGaps)} cm over ${hitGaps.length} | misses closest ${misses.length ? Math.min(...misses.map(m => m.min * 100)).toFixed(1) : '-'} cm`);
 writeFileSync(`${OUT}/${TAG}.json`, JSON.stringify({ flags, summary, angAt, contacts }, null, 1));
 await browser.close();
 const bad = logs.filter(m => (m.type === 'error' || m.type === 'pageerror' || m.type === 'warning') && !/GPU stall/.test(m.text));
