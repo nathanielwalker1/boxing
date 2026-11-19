@@ -205,7 +205,7 @@ export class HumanAnim {
   private lungeBias = 0; private biasFed = false;
   /** The view reports, after its hand IK, how far the punching glove still is from its contact point along his facing (m, + = short), and the IK weight. */
   feedReach(resF: number, w: number): void {
-    this.lungeBias = clamp(this.lungeBias + clamp(resF, -0.08, 0.08) * this.cfg.humanReachGain * w, -this.cfg.humanShiftBack, this.cfg.humanShiftFwd);
+    this.lungeBias = clamp(this.lungeBias + clamp(resF, -this.cfg.humanReachStep, this.cfg.humanReachStep) * w, -this.cfg.humanShiftBack, this.cfg.humanShiftFwd);
     this.biasFed = true;
   }
   /** The view reads this once a frame: > 0 = an action switched this frame (the half-life to carry the on-screen pose over with). */

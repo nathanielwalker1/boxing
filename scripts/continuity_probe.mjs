@@ -47,6 +47,7 @@ const SC = [
   { name: 'cross_close', dist: 0.78, s0: at(two(4, P('cross'))), n: 80 },
   { name: 'jab_far', dist: 1.12, s0: at(two(4, P('jab'))), n: 70 },
   { name: 'lhook_close', dist: 0.75, s0: at(two(4, P('hook', 'lead'))), n: 80 },
+  { name: 'cross_far', dist: 1.22, s0: at(two(4, P('cross'))), n: 80 },
   { name: 'jab_miss', dist: 1.5, s0: at(two(4, P('jab'))), n: 70 },
   { name: 'cross_miss', dist: 1.55, s0: at(two(4, P('cross'))), n: 80 },
   { name: 'hook_miss', dist: 1.4, s0: at(two(4, P('hook', 'lead'))), n: 80 },

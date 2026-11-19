@@ -43,7 +43,8 @@ export function punchBand(a: FighterState, type: PunchType, hand: Hand, variant:
     : type === 'hook' ? (v.body ? cfg.mocapFarBodyHook : lead ? cfg.mocapFarLeadHook : cfg.mocapFarRearHook)
     : lead ? cfg.mocapFarLeadUpper : cfg.mocapFarRearUpper;
   // (not × the variant's reach: that shaped the procedural arm; the drawn clip is the same for a shovel hook or an inside uppercut)
-  const far = clipFar ?? far0 * a.body.heightM / cfg.mocapBandRefHeight;
+  // (the cross steps in: its take has almost no travel of its own, which left it 29 cm shorter than the jab)
+  const far = (clipFar ?? far0 * a.body.heightM / cfg.mocapBandRefHeight) + (type === 'cross' && !v.body ? cfg.mocapCrossStep * a.body.heightM / cfg.mocapBandRefHeight : 0);
   const near = type === 'jab' || type === 'cross' ? cfg.smotherDist : cfg.separationDist;
   return { near: Math.min(near, far), far };
 }
