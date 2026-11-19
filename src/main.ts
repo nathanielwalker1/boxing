@@ -348,6 +348,8 @@ let lastMs = 0;
 let slowMo = { t: 0, scale: 1 };   // wall seconds of slow motion left, and its rate (knockdown, counter, rocked)
 let referee: Referee | null = null;
 window.__ref = () => referee ? referee.pose : null;
+// (test hook) is the knockdown replay playing right now
+(window as unknown as { __replayOn: () => boolean }).__replayOn = () => !!replay;
 const MAX_FRAME = 0.25;   // clamp so a background tab doesn't spiral
 const frameEvents: SimEvent[] = [];
 let boardText = '';
