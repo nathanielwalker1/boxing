@@ -48,6 +48,8 @@ const SC = [
   { name: 'jab_far', dist: 1.12, s0: at(two(4, P('jab'))), n: 70 },
   { name: 'lhook_close', dist: 0.75, s0: at(two(4, P('hook', 'lead'))), n: 80 },
   { name: 'cross_far', dist: 1.22, s0: at(two(4, P('cross'))), n: 80 },
+  // side 0 worn out (stamina ceiling near its floor), side 1 fresh: the tired look, and a jab thrown through it
+  { name: 'tired', dist: 1.0, s0: at(two(40, P('jab'))), init: [{ stamina: 0.3, wear: 0.45 }, null], n: 90 },
   { name: 'jab_miss', dist: 1.5, s0: at(two(4, P('jab'))), n: 70 },
   { name: 'cross_miss', dist: 1.55, s0: at(two(4, P('cross'))), n: 80 },
   { name: 'hook_miss', dist: 1.4, s0: at(two(4, P('hook', 'lead'))), n: 80 },
@@ -79,7 +81,7 @@ for (const sc of SC) {
     const s0 = Array.from(sc.s0 ?? [], x => x ?? {}), s1 = Array.from(sc.s1 ?? [], x => x ?? {});
     const out = [];
     for (let t = 0; t <= sc.n; t++) {
-      w.__rigReplay(sc.dist, s0, t, s1);
+      w.__rigReplay(sc.dist, s0, t, s1, sc.init ? { init: sc.init } : []);
       const st = w.__states();
       out.push([0, 1].map(s => {
         const f = st[s], p = w.__humanProbe(s);
@@ -103,7 +105,7 @@ if (process.argv[6]) {
     const shots = [];
     await page.evaluate(sc => { for (const k in (sc.cfg ?? {})) window.__cfg[k] = sc.cfg[k]; }, sc);
     for (let t = +a; t <= +b; t += +st) {
-      await page.evaluate(([sc, t]) => window.__rigReplay(sc.dist, Array.from(sc.s0 ?? [], x => x ?? {}), t, Array.from(sc.s1 ?? [], x => x ?? {})), [sc, t]);
+      await page.evaluate(([sc, t]) => window.__rigReplay(sc.dist, Array.from(sc.s0 ?? [], x => x ?? {}), t, Array.from(sc.s1 ?? [], x => x ?? {}), sc.init ? { init: sc.init } : []), [sc, t]);
       await frames(page, 2);
       // (headless WebGL readback fails now and then on this machine: retry the capture, never the run)
       let buf = null;

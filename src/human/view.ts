@@ -13,7 +13,7 @@ import type { RigView } from '../rig';
 import { loadBoxer, type BoxerAssets, type KitColors } from './body';
 import { decode, synthClips, type BakeIndex, type ClipLib, type Roles } from './clip';
 import { applyFit, buildFit, type Fit, type FitOut, type Skeleton } from './retarget';
-import { HumanAnim } from './anim';
+import { HumanAnim, tiredOf } from './anim';
 import { PoseInertia } from './inertia';
 import { Spray } from '../rig/spray';
 import { installRigReplay, type ReplayFeed } from '../rig/replay';
@@ -266,6 +266,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     return { headFront, headSide, headTop, torsoFront, torsoBack, torsoSide, model: { headR: db.headR, torsoR: db.r } };
   };
   let lastEvents: readonly SimEvent[] = [];
+  const droop = { Left: 0, Right: 0 };   // tired: how far each guard hand hangs, m
   // continuity (inertia.ts): scratch + which joints are hips / legs (they settle slower)
   const inRot = new Float32Array(bones.length * 4), inPos = new Float32Array(3), inSlow = new Float32Array(bones.length).fill(1);
   const inLeg = bones.map(b => (/(Spine|Neck|Head|Shoulder|Arm|Hand)/.test(b.name) ? 0 : 1));
@@ -346,7 +347,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       if (Math.abs(lat) + Math.abs(back) + Math.abs(fwd) + Math.abs(twist) > 1e-4) {
         const H = 0.62;   // head above the lower spine, m
         const roll = Math.asin(Math.max(-0.9, Math.min(0.9, lat / H)));       // model +Z forward, +X his left
-        const pitch = Math.asin(Math.max(-0.9, Math.min(0.9, back / H))) - Math.acos(Math.max(0, 1 - Math.min(0.5, fwd) / H));
+        // (a negative forward lean, the out-breath, is a small lean back: acos of more than 1 was NaN and the whole body vanished)
+        const pitch = Math.asin(Math.max(-0.9, Math.min(0.9, (back + Math.max(0, -fwd)) / H))) - Math.acos(Math.max(0, 1 - Math.max(0, Math.min(0.5, fwd)) / H));
         // model-space rotation: -roll about +Z puts the head to +X; -pitch about +X puts it back (-Z)
         qR.setFromEuler(new THREE.Euler(-pitch, twist, -roll, 'XYZ'));   // (twist + = turn toward his left)
         group.getWorldQuaternion(qG);
@@ -554,6 +556,22 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             group.updateMatrixWorld(true);
           }
         }
+      }
+
+      // ---- TIRED (drawn only): the guard hands sink as he tires; never the punching hand, less behind a held block ----
+      if (cfg.humanInertia && cfg.humanTiredOn && !cfg.humanRawPose && !next.down) {
+        const td = tiredOf(next, cfg) * (next.block ? cfg.humanTiredBlockShare : 1);
+        for (const a of ['Left', 'Right'] as const) {
+          const want = next.punch.type !== null && out.ik?.arm === a ? 0 : td * cfg.humanTiredDroop;
+          droop[a] += (want - droop[a]) * (1 - Math.exp(-dt / 0.15));
+          if (droop[a] < 0.003) continue;
+          group.updateMatrixWorld(true);
+          const [u, m, e] = arm[a];
+          const hp = e.getWorldPosition(new THREE.Vector3());
+          hp.y -= droop[a];
+          twoBone(u, m, e, hp);
+        }
+        group.updateMatrixWorld(true);
       }
 
       // ---- CONTINUITY (inertia.ts): the final pose starts every switch from the pose and motion that were on screen ----

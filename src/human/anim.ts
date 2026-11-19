@@ -77,6 +77,12 @@ function nlerp(a: Float32Array, ao: number, b: Float32Array, bo: number, w: numb
   out[oo] = x / l; out[oo + 1] = y / l; out[oo + 2] = z / l; out[oo + 3] = q / l;
 }
 
+/** HOW TIRED HE LOOKS, 0..1 (drawn only): the sim's fatigue right now (low stamina) or the wear on his stamina ceiling over the fight, whichever is more. */
+export function tiredOf(f: FighterState, cfg: Config): number {
+  const worn = (1 - f.staminaCap) / Math.max(1e-3, 1 - cfg.staminaCapFloor);
+  return clamp(Math.max(f.fatigue, worn * cfg.humanTiredFromWear), 0, 1);
+}
+
 export class HumanAnim {
   private readonly nb: number;
   private readonly pose: Pose;
@@ -97,6 +103,7 @@ export class HumanAnim {
   private hitN = 0;
   private jolt = 0;   // procedural flinch of a blocked shot, 1 -> 0
   private wasDown = false;
+  private breath = 0;
   private lastHitPart: BodyPart = 'head';
   private clock = 0;
   private punchStart = 0;
@@ -719,6 +726,13 @@ export class HumanAnim {
       + (punching ? 0 : Math.max(0, ipn(prev.crouch, next.crouch))) + (slipClip || !next.slip.active ? 0 : ipn(prev.slip.dip, next.slip.dip)))
       + cfg.humanSinkGain * Math.max(0, ipn(prev.reaction.sink.x, next.reaction.sink.x));
     if (!slipClip && next.slip.active && !next.down) lean.fwd = 0;   // the dip is now the hips going down, not a bow
+    // TIRED (drawn only): he slumps a little and breathes bigger and faster
+    if (cfg.humanInertia && cfg.humanTiredOn && !next.down) {
+      const td = tiredOf(next, cfg);
+      this.breath += dt * 2 * Math.PI * (cfg.humanBreathRate + cfg.humanBreathRateTired * td);
+      // (on the BACK channel, negative = a small forward lean of the head by that many metres; the fwd channel is a deep bow: 7 cm there bent him 25 degrees and his jab fell 15 cm short)
+      lean.back -= cfg.humanTiredSlump * td + Math.sin(this.breath) * (cfg.humanBreathAmp + cfg.humanBreathAmpTired * td);
+    }
     // CONTINUITY: the procedural lean (slip, pull, block flinch) moves on a spring; the sim's slip offset ends in one tick, the picture does not
     if (cfg.humanInertia && !cfg.humanRawPose && dt > 1e-5) {
       const g = [lean.lat, lean.back, lean.fwd, lean.twist], y = 2 * Math.LN2 / Math.max(1e-3, cfg.humanLeanHalf), e = Math.exp(-y * dt);
