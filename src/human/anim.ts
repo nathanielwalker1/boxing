@@ -318,6 +318,12 @@ export class HumanAnim {
       // (no body turn: Nate 2026-11-17, every layer earns its way back; the across error stays, reported by the audit)
       void exL; turn = 0;
     }
+    // A MISS IS STILL A COMMITTED PUNCH: he steps with it (the view holds the glove humanMissGap short of the other man)
+    if (cfg.humanInertia && cfg.humanWhiffStep > 0) {
+      const env = u <= peak ? smooth(u / Math.max(1e-6, peak)) : 1 - smooth((u - out0) / Math.max(1e-6, 1 - out0));
+      const Lw = cfg.humanWhiffStep * env * (1 - this.ocKindW);
+      lunge = { x: lunge.x + Math.cos(me.yaw) * Lw, z: lunge.z + Math.sin(me.yaw) * Lw };
+    }
     this.conformInfo = { kind, w, at: Number.isNaN(at.x) ? null : at };
     return { ik: { arm: pick.arm, w, at, exact: true, outcome: true }, turn, lunge };
   }

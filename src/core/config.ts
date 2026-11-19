@@ -2028,6 +2028,7 @@ export const SCHEMA = {
   humanShiftFwd:     num(0.4, 0, 0.5, 0.01, 'human', 'continuity: a landing punch carries the hips at most this far forward over planted feet (what the clip lacks to reach the contact point after the arm\'s share), m'),
   humanShiftBack:    num(0.12, 0, 0.4, 0.01, 'human', 'continuity: and at most this far back when the clip would reach past the contact point, m'),
   humanShiftPlanted: bool(false, 'human', 'continuity: the punch\'s body travel drawn as the hips over planted feet (leg IK) instead of the whole man travelling (the mocap punches step in, so the default is the whole man)'),
+  humanWhiffStep:    num(0.18, 0, 0.5, 0.01, 'human', 'drawn: a punch the rules call a miss still carries the body this far forward (in over the wind-up and swing, back over the recovery), m: he commits and falls short, he does not punch on the spot'),
   humanMissGap:      num(0.1, 0, 0.3, 0.01, 'human', 'contact: the glove of a punch the rules call a miss never comes closer than this to the other man\'s drawn head or body, m (a miss is visibly short)'),
   humanReachStep:    num(0.035, 0.005, 0.1, 0.005, 'human', 'contact, closed loop: each frame the body travel takes up at most this much of what the drawn punching arm could not close to its contact point (forward), m: the body arrives with the punch at a walk, not in a lurch'),
   humanShiftPredict: num(1, 0, 1, 0.05, 'human', 'contact: share of the forward step predicted from the clip\'s contact frame that is taken early, over the wind-up and extension (the closed loop finishes it)'),
