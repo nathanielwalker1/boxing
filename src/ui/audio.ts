@@ -27,7 +27,7 @@
  */
 import type { Config, EventBus, SimEvent, SimState } from '../core';
 import { mood, type Reaction } from '../render/mood';
-import { RECIPES } from './audio/recipes';
+import { RECIPES, type Recipe } from './audio/recipes';
 import { CrowdBed } from './audio/crowd';
 import { buildMaster, duckBus, makeNoise, playVoice } from './audio/voice';
 import { duckForEvent, newVoiceMemory, voicesForEvent, voicesForReaction, type VoiceReq } from './audio/map';
@@ -40,6 +40,16 @@ declare global {
     __audio?: { state: () => string | null; bed: () => boolean; paused: () => boolean; emit: (events: readonly SimEvent[]) => void; setPaused: (on: boolean) => void };
   }
 }
+/** The bell's extra partials: a hum an octave under the strike tone and inharmonic overtones (ratios of a struck bell, not a chord), all decaying; the recipe's own layers supply the strike tone and its click. */
+const BELL_PARTIALS: Recipe = {
+  gain: 0.5,
+  layers: [
+    { type: 'tone', gain: 0.45, attack: 0.002, decay: 1.9, wave: 'sine', freq: 590, freqEnd: 585 },
+    { type: 'tone', gain: 0.30, attack: 0.002, decay: 1.3, wave: 'sine', freq: 1180 * 1.51, freqEnd: 1180 * 1.5 },
+    { type: 'tone', gain: 0.22, attack: 0.002, decay: 0.8, wave: 'sine', freq: 1180 * 2.76, freqEnd: 1180 * 2.74 },
+    { type: 'tone', gain: 0.12, attack: 0.002, decay: 0.45, wave: 'sine', freq: 1180 * 5.4, freqEnd: 1180 * 5.35 },
+  ],
+};
 const LOG_MAX = 80;
 const BED_TICK_MS = 100;
 
@@ -213,8 +223,12 @@ export class CombatAudio {
     if (crowd && !c.audioCrowdEnabled) return;
     try {
       const out: AudioNode = (crowd ? this.crowdBus : this.impactBus) ?? this.ctx.destination;
-      playVoice(this.ctx, out, recipe, { noise: this.noise, walla: this.bed?.walla, applause: this.bed?.applause },
-        { when: this.ctx.currentTime + (bend.delay ?? 0), pitch, gain, sub: c.audioFlushSub, length: bend.length ?? 1, seed: bend.seed });
+      const when = this.ctx.currentTime + (bend.delay ?? 0);
+      const bufs = { noise: this.noise, walla: this.bed?.walla, applause: this.bed?.applause };
+      playVoice(this.ctx, out, recipe, bufs,
+        { when, pitch, gain, sub: c.audioFlushSub, length: bend.length ?? 1, seed: bend.seed, vary: c.audioImpactVary, toneNoise: c.audioToneNoise, keepTones: name === 'bell', crowd });
+      // A bell is metal: the recipe's two partials plus inharmonic ones and a low hum, ringing long (the one pitched sound that is allowed).
+      if (name === 'bell') playVoice(this.ctx, out, BELL_PARTIALS, bufs, { when, pitch, gain, sub: 1, length: 1, keepTones: true });
     } catch { /* feedback, never state: a failed sound is a silent one */ }
   }
 }

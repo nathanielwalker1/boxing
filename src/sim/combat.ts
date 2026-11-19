@@ -262,7 +262,7 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   // The variant's time scale is in the cock multiplier (set at the press) and
   // applies again to the recovery; fatigue (timeMult) slows every phase.
   const rate = rewinding ? -(p.feint ? cfg.feintRewindRate : cfg.interruptRewindRate)
-    : (was < ph.cock - PHASE_EPS ? 1 / cockMult(f) : was >= ph.cock + ph.extend - PHASE_EPS ? rated(f, 'speed', cfg.ratingSpeedHands, cfg) / (whiffMult(f) * VARIANTS[p.variant].time(cfg) * (cfg.mocapOutcome && cfg.mocapGeo && p.type !== 'jab' ? cfg.mocapRecoverHeavy : 1)) : 1) / Math.max(1e-6, p.timeMult);
+    : (was < ph.cock - PHASE_EPS ? 1 / cockMult(f) : was >= ph.cock + ph.extend - PHASE_EPS ? rated(f, 'speed', cfg.ratingSpeedHands, cfg) / (whiffMult(f) * VARIANTS[p.variant].time(cfg) * (cfg.mocapOutcome && cfg.mocapGeo && p.type !== 'jab' && was - ph.cock - ph.extend >= (p.contact ? cfg.punchChainOnHit : cfg.punchChainAt) * ph.recover + ph.recover * cfg.mocapRecoverHeavyFrom ? cfg.mocapRecoverHeavy : 1)) : 1) / Math.max(1e-6, p.timeMult);
   const elapsed = clamp(was + dt * rate, 0, ph.total);
   p.progress = elapsed / ph.total;
   if (rewinding && elapsed <= 0) {

@@ -3,8 +3,24 @@
  * BaseAudioContext, so the live game (AudioContext) and the offline renderer
  * (scripts/audio_render.mjs, OfflineAudioContext → WAV + numbers) play
  * EXACTLY the same graph.
+ *
+ * REALISM PASS (2026-11-18, "sounds like mii characters"): a glove on a face is
+ * noise, not a note. So the recipe's layers are VOICED here, whatever the
+ * recipe says:
+ *   noise layers   a short broadband smack, never faster than a 2 ms rise (a
+ *                  click-free transient), with its filter frequency, decay and
+ *                  gain each nudged ± `vary` per hit so no two jabs match
+ *   low tones      (sine / triangle, 200 Hz or under) stay as the THUMP: a
+ *                  pure sine, capped at 160 Hz, that falls to its end pitch in
+ *                  under 90 ms and then just rings out; weight, not a note
+ *   other tones    (anything brighter, or a saw / square at any pitch) become a
+ *                  band of noise with the same sweep and envelope, louder by
+ *                  `toneNoise` to make up for the energy a band of noise lacks
+ *   crowd layers   slower swells (a roar builds, it does not snap on), and no
+ *                  narrow formant peaks (Q capped), so it is a room, not a choir
+ * Only `keepTones` sounds (the bell's partials) keep real oscillators.
  */
-import type { Recipe } from './recipes';
+import type { Layer, Recipe } from './recipes';
 
 export interface VoiceBuffers { noise: AudioBuffer; walla?: AudioBuffer | null | undefined; applause?: AudioBuffer | null | undefined }
 
@@ -21,6 +37,14 @@ export interface VoiceOpts {
   length: number;
   /** 0..1 (polish phase): where each noise layer starts in its buffer, instead of a random offset — an impact carrying the land's seeded variation is the same sound every time that land is replayed. Omitted = random. */
   seed?: number | undefined;
+  /** ± fraction of random variation on each noise layer's filter frequency, decay and gain (0 = as authored). Default 0.12. Seeded when `seed` is. */
+  vary?: number | undefined;
+  /** Gain boost on a recipe tone voiced as noise (band-passed noise carries far less energy than a tone). Default 4. */
+  toneNoise?: number | undefined;
+  /** True for sounds that ARE pitched (the bell's partials): tone layers play as written. */
+  keepTones?: boolean | undefined;
+  /** True for the crowd bus: slower swells, lower-Q bands. */
+  crowd?: boolean | undefined;
 }
 
 /**
@@ -61,39 +85,93 @@ export function buildMaster(ctx: BaseAudioContext, ceilingDb: number): AudioNode
   return comp;
 }
 
-/** One second of white noise for a context. */
+/** Three seconds of white noise for a context (long, so a loop's repeat is not heard as a buzz and each hit can start somewhere different). */
 export function makeNoise(ctx: BaseAudioContext): AudioBuffer {
-  const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+  const buf = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate);
   const data = buf.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
   return buf;
 }
 
+const THUMP_TOP = 200;   // Hz: a sine / triangle layer entirely at or under this is a thump; anything brighter is not allowed to be a note
+const THUMP_CAP = 160;   // Hz: a thump never starts above this
+const THUMP_SWEEP = 0.09; // s: the fall from start to end pitch is over by here
+
 /** Every layer is source → [filter] → gain → `out`, with its own delay / attack / hold / decay envelope. Returns the time the last layer ends. */
 export function playVoice(ctx: BaseAudioContext, out: AudioNode, recipe: Recipe, buffers: VoiceBuffers, o: VoiceOpts): number {
   const nyq = ctx.sampleRate / 2 - 100;
   const clampF = (hz: number): number => Math.min(Math.max(20, hz), nyq);
+  const vary = o.vary ?? 0.12, boost = o.toneNoise ?? 4, crowd = o.crowd === true;
   let last = o.when;
   let li = 0;
   for (const layer of recipe.layers) {
     li++;
-    const t0 = o.when + (layer.delay ?? 0);
-    const attack = layer.attack ?? 0.001, hold = (layer.hold ?? 0) * o.length, decay = (layer.decay ?? 0.1) * o.length;
+    // Variation: random, or derived from the land's seed so a replay sounds the same.
+    const k = li;
+    const rnd = (j: number): number => {
+      if (o.seed === undefined) return Math.random();
+      const x = Math.sin((o.seed + 0.137) * 12.9898 * 100 + k * 78.233 + j * 37.719) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    const nudge = (j: number): number => 1 + (rnd(j) * 2 - 1) * vary;
+
+    // What kind of layer is it, once voiced?
+    const raw: Layer = layer;
+    let thump = false, asNoise = raw.type !== 'tone';
+    let f0 = (raw.freq ?? 200), f1 = (raw.freqEnd ?? raw.freq ?? 200);
+    let filter = raw.filter ? { ...raw.filter } : undefined;
+    let gainMul = 1;
+    if (raw.type === 'tone' && !o.keepTones) {
+      const wave = raw.wave ?? 'sine';
+      if ((wave === 'sine' || wave === 'triangle') && Math.max(f0, f1) <= THUMP_TOP) {
+        thump = true;
+      } else {
+        // Not a thump: voice it as a band of noise sweeping the same way.
+        asNoise = true;
+        gainMul = boost;
+        if (Math.max(f0, f1) > THUMP_TOP) filter = { type: 'bandpass', freq: f0, freqEnd: f1, q: Math.max(1.2, raw.filter?.q ?? 1.4) };
+        else filter = { type: 'bandpass', freq: raw.filter ? raw.filter.freq * 0.6 : f0 * 2.5, ...(raw.filter?.freqEnd !== undefined ? { freqEnd: raw.filter.freqEnd * 0.6 } : {}), q: 1.0 };   // a saw / square groan or creak: its body as a band of breath
+      }
+    }
+    const keepTone = raw.type === 'tone' && !asNoise && !thump;   // keepTones: the bell
+
+    const t0 = o.when + (raw.delay ?? 0);
+    let attack = raw.attack ?? 0.001;
+    let hold = (raw.hold ?? 0) * o.length, decay = (raw.decay ?? 0.1) * o.length;
+    if (crowd) {
+      if (attack >= 0.05) attack = Math.max(0.12, attack * 1.6);   // a swell, not a snap (the short laugh bursts keep theirs)
+      decay *= 1.25;
+      if (filter) filter.q = Math.min(filter.q ?? 1, 0.9);
+    } else if (asNoise && !thump) {
+      attack = Math.max(attack, 0.002);                           // 2 ms rise: a smack, not a click
+    }
+    if (!keepTone) decay *= nudge(1);
+    if (!keepTone && hold > 0) hold *= nudge(2);
     const end = t0 + attack + hold + decay;
     last = Math.max(last, end);
-    const peak = Math.max(0.0001, (layer.gain ?? 1) * o.gain * (layer.sub ? o.sub : 1));
+    const peak = Math.max(0.0001, (raw.gain ?? 1) * o.gain * (raw.sub ? o.sub : 1) * gainMul * (keepTone ? 1 : nudge(3)));
+
     let src: AudioScheduledSourceNode;
-    if (layer.type === 'tone') {
+    if (thump || keepTone) {
       const osc = ctx.createOscillator();
-      osc.type = layer.wave ?? 'sine';
-      const f0 = (layer.freq ?? 200) * o.pitch, f1 = (layer.freqEnd ?? layer.freq ?? 200) * o.pitch;
-      osc.frequency.setValueAtTime(f0, t0);
-      if (f1 !== f0) osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), end);
+      let a = f0 * o.pitch, b = f1 * o.pitch;
+      if (thump) {
+        osc.type = 'sine';
+        const cap = THUMP_CAP * o.pitch * nudge(4);
+        if (a > cap) { b *= cap / a; a = cap; }
+        const sweepEnd = t0 + Math.min(THUMP_SWEEP, Math.max(0.02, (end - t0) * 0.5));
+        osc.frequency.setValueAtTime(a, t0);
+        if (b !== a) osc.frequency.exponentialRampToValueAtTime(Math.max(1, b), sweepEnd);   // the fall is fast; after it the thump just rings out
+      } else {
+        osc.type = raw.wave ?? 'sine';
+        osc.frequency.setValueAtTime(a, t0);
+        if (b !== a) osc.frequency.exponentialRampToValueAtTime(Math.max(1, b), end);
+      }
       osc.start(t0);
       src = osc;
     } else {
       // The crowd's loops, or plain noise until they exist (the walla is rendered just after the first gesture).
-      const buffer = (layer.type === 'walla' ? buffers.walla : layer.type === 'applause' ? buffers.applause : null) ?? buffers.noise;
+      const buffer = (raw.type === 'walla' ? buffers.walla : raw.type === 'applause' ? buffers.applause : null) ?? buffers.noise;
       const n = ctx.createBufferSource();
       n.buffer = buffer;
       n.loop = true;
@@ -103,11 +181,12 @@ export function playVoice(ctx: BaseAudioContext, out: AudioNode, recipe: Recipe,
       src = n;
     }
     let node: AudioNode = src;
-    if (layer.filter) {
+    if (filter) {
       const biq = ctx.createBiquadFilter();
-      biq.type = layer.filter.type;
-      biq.Q.value = layer.filter.q ?? 1;
-      const c0 = layer.filter.freq * o.pitch, c1 = (layer.filter.freqEnd ?? layer.filter.freq) * o.pitch;
+      biq.type = filter.type;
+      biq.Q.value = filter.q ?? 1;
+      const fj = nudge(5);
+      const c0 = filter.freq * o.pitch * fj, c1 = (filter.freqEnd ?? filter.freq) * o.pitch * fj;
       biq.frequency.setValueAtTime(clampF(c0), t0);
       if (c1 !== c0) biq.frequency.linearRampToValueAtTime(clampF(c1), end);
       src.connect(biq);

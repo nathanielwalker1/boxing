@@ -603,6 +603,22 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       {
         const ob = drawnBodies[side === 0 ? 1 : 0];
         if (ob && !next.down && cfg.mocapOutcome && !cfg.humanRawPose) {
+          // ELBOWS TOO: an elbow inside his head or torso swings the upper arm out to the surface (then the glove rule below)
+          if (cfg.humanInertia && cfg.humanElbowClear > 0) {
+            for (const a of ['Left', 'Right'] as const) {
+              group.updateMatrixWorld(true);
+              const [u, m] = arm[a];
+              const S = u.getWorldPosition(new THREE.Vector3()), E = m.getWorldPosition(new THREE.Vector3());
+              let to: THREE.Vector3 | null = null;
+              const hmin = ob.headR + cfg.humanElbowClear;
+              if (E.distanceTo(ob.head) < hmin) to = ob.head.clone().add(E.clone().sub(ob.head).setLength(hmin));
+              const P = closestOn(ob.a, ob.b, to ?? E), tmin = ob.r + cfg.humanElbowClear;
+              if ((to ?? E).distanceTo(P) < tmin) to = P.clone().add((to ?? E).clone().sub(P).setLength(tmin));
+              if (!to) continue;
+              qR.setFromUnitVectors(E.sub(S).normalize(), to.sub(S).normalize());
+              rotateWorld(u, qR);
+            }
+          }
           const rest0 = next.body.gloveR * (1 - cfg.contactSquash);
           for (const a of ['Left', 'Right'] as const) {
             group.updateMatrixWorld(true);
@@ -614,6 +630,14 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             if (hd < hmin) push = ob.head.clone().add(G.clone().sub(ob.head).setLength(hmin));
             const P = closestOn(ob.a, ob.b, push ?? G), td = (push ?? G).distanceTo(P), tmin = ob.r + rest;
             if (td < tmin) push = P.clone().add((push ?? G).clone().sub(P).setLength(tmin));
+            // GLOVE ON GLOVE: two guards never sit inside each other; each man gives half (a punch resting on his guard is left where the block put it)
+            if (cfg.humanInertia && cfg.humanGloveClear > 0 && !(next.punch.type !== null && out.ik?.arm === a)) {
+              const gmin = next.body.gloveR * 2 * cfg.humanGloveClear;
+              for (const og of ob.gloves) {
+                const cur = push ?? G, dg = cur.distanceTo(og);
+                if (dg < gmin && dg > 1e-4) push = cur.clone().add(cur.clone().sub(og).setLength((gmin - dg) * 0.5));
+              }
+            }
             if (!push) continue;
             const [u, m, e] = arm[a];
             const E = m.getWorldPosition(new THREE.Vector3());

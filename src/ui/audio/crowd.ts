@@ -4,9 +4,11 @@
  * (render/mood.ts), so the house never sounds different from how it looks.
  *
  * The raw material is a "walla" loop rendered once, offline, at the first
- * gesture: a few dozen synthetic voices (a sawtooth through two moving formant
- * filters, gated in syllables, panned across the stereo field). Summed, they
- * are a room full of people talking — which filtered noise alone never is.
+ * gesture: a few dozen noise "voices" (noise through two broad moving bands,
+ * gated in syllables that never fully close, panned across the stereo field).
+ * Realism pass 2026-11-18: no oscillators anywhere in it (a sawtooth voice is
+ * a singer, and read as a cartoon crowd). Summed, they are a murmur.
+ * Under it, a steady pink-ish noise bed and three slow-drifting band layers.
  * The bed plays that loop through four layers:
  *   rumble   noise under 120 Hz — the room
  *   murmur   the walla, low-passed; swells slowly on its own (two LFOs)
@@ -20,7 +22,7 @@ import type { Config } from '../../core';
 export class CrowdBed {
   walla: AudioBuffer | null = null;
   applause: AudioBuffer | null = null;
-  private nodes: { rumble: GainNode; murmur: GainNode; chatter: GainNode; roar: GainNode; murmurLp: BiquadFilterNode; chatterHp: BiquadFilterNode; swellA: GainNode; swellB: GainNode } | null = null;
+  private nodes: { rumble: GainNode; murmur: GainNode; chatter: GainNode; roar: GainNode; murmurLp: BiquadFilterNode; chatterHp: BiquadFilterNode; swellA: GainNode; swellB: GainNode; air: GainNode; bands: { base: number; level: GainNode; depth: GainNode; bp: BiquadFilterNode }[] } | null = null;
 
   /** Resolves once the walla loop is rendered and the bed's layers are playing (the offline renderer waits on it). */
   readonly ready: Promise<void>;
@@ -54,15 +56,17 @@ export class CrowdBed {
     const off = new OfflineAudioContext(2, Math.floor(sr * (dur + tail)), sr);
     const total = dur + tail;
     const R = Math.random;
+    // Realism pass: the "voices" are NOISE (no oscillator, so no pitch to hear as a singer), each shaped by two broad moving bands and a syllable rhythm that never fully closes.
+    const nbuf = off.createBuffer(1, sr * 2, sr), nd = nbuf.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = R() * 2 - 1;
+    const FLOOR = 0.25;
     for (let v = 0; v < Math.round(c.audioCrowdVoices); v++) {
-      const osc = off.createOscillator();
-      osc.type = 'sawtooth';
-      const f0 = R() < 0.6 ? 90 + R() * 70 : 170 + R() * 90;       // more low voices than high
-      osc.frequency.setValueAtTime(f0, 0);
+      const osc = off.createBufferSource();
+      osc.buffer = nbuf; osc.loop = true;
       const f1 = off.createBiquadFilter(), f2 = off.createBiquadFilter();
-      f1.type = 'bandpass'; f2.type = 'bandpass'; f1.Q.value = 5; f2.Q.value = 7;
+      f1.type = 'bandpass'; f2.type = 'bandpass'; f1.Q.value = 1.4; f2.Q.value = 1.8;
       const env = off.createGain();
-      env.gain.setValueAtTime(0, 0);
+      env.gain.setValueAtTime(FLOOR, 0);
       const pan = off.createStereoPanner();
       pan.pan.value = R() * 2 - 1;
       const f2g = off.createGain(); f2g.gain.value = 0.6;
@@ -75,16 +79,15 @@ export class CrowdBed {
           const on = 0.07 + R() * 0.16, amp = 0.35 + R() * 0.65;
           f1.frequency.setValueAtTime(380 + R() * 480, t);
           f2.frequency.setValueAtTime(950 + R() * 1300, t);
-          osc.frequency.setValueAtTime(f0 * (0.88 + R() * 0.3), t);
-          env.gain.setValueAtTime(0, t);
+          env.gain.setValueAtTime(FLOOR, t);
           env.gain.linearRampToValueAtTime(amp, t + on * 0.3);
           env.gain.linearRampToValueAtTime(amp * 0.6, t + on * 0.8);
-          env.gain.linearRampToValueAtTime(0, t + on);
+          env.gain.linearRampToValueAtTime(FLOOR, t + on);
           t += on + 0.02 + R() * 0.08;
         }
         t += 0.25 + R() * 1.6;
       }
-      osc.start(0);
+      osc.start(0, R() * 1.9);
     }
     const raw = await off.startRendering();
     const len = Math.floor(sr * dur), tl = Math.floor(sr * tail);
@@ -127,7 +130,19 @@ export class CrowdBed {
     roarA.connect(roar); roarB.connect(roar);
     // Slow random-feeling swells on the murmur: two LFOs at unrelated rates, added to its gain.
     const lfo = (hz: number): GainNode => { const o = ctx.createOscillator(); o.frequency.value = hz; const d = ctx.createGain(); d.gain.value = 0; o.connect(d); d.connect(murmur.gain); o.start(); return d; };
-    this.nodes = { rumble, murmur, chatter, roar, murmurLp, chatterHp, swellA: lfo(0.071), swellB: lfo(0.193) };
+    // The steady bed: pink-ish noise (white through a 1.5 kHz low-pass and a 150 Hz high-pass) — the arena's continuous murmur.
+    const air = g();
+    const airLp = bq('lowpass', 1500, 0.5), airHp = bq('highpass', 150, 0.6);
+    this.loop(this.noise, 1).connect(airLp); airLp.connect(airHp); airHp.connect(air);
+    // Three band-passed noise layers whose levels drift on unrelated multi-second LFOs: many voices coming and going.
+    const bands = ([[400, 6.3, 0.9], [900, 9.1, 0.8], [1600, 13.7, 0.7]] as const).map(([base, period, q]) => {
+      const level = g(), bp = bq('bandpass', base, q);
+      this.loop(this.noise, 0.9 + (base % 7) * 0.03).connect(bp); bp.connect(level);
+      const o = ctx.createOscillator(); o.frequency.value = 1 / period;   // infrasonic: a level drift, never a tone
+      const depth = ctx.createGain(); depth.gain.value = 0; o.connect(depth); depth.connect(level.gain); o.start();
+      return { base, level, depth, bp };
+    });
+    this.nodes = { rumble, murmur, chatter, roar, murmurLp, chatterHp, swellA: lfo(0.071), swellB: lfo(0.193), air, bands };
   }
 
   /** Called ~10×/s: levels and brightness follow the mood. `e` excitement 0..1, `hush` 0..1. */
@@ -146,6 +161,13 @@ export class CrowdBed {
     n.chatterHp.frequency.setTargetAtTime(1700 - 500 * e, t, k);
     n.swellA.gain.setTargetAtTime(murmur * c.audioBedSwell * 0.5, t, k);
     n.swellB.gain.setTargetAtTime(murmur * c.audioBedSwell * 0.5, t, k);
+    n.air.gain.setTargetAtTime(c.audioBedAir * (0.75 + 0.5 * e) * quiet * on, t, k);
+    const bandLevel = c.audioBedBands * (0.6 + 0.8 * e) * quiet * on;
+    for (const b of n.bands) {
+      b.level.gain.setTargetAtTime(bandLevel, t, k);
+      b.depth.gain.setTargetAtTime(bandLevel * Math.min(0.9, c.audioBedSwell * 2.4), t, k);   // the drift: up to ±90% of the layer
+      b.bp.frequency.setTargetAtTime(b.base * (0.9 + 0.4 * e), t, k);                         // the filters open as the house gets excited
+    }
   }
 
   get running(): boolean { return this.nodes !== null; }
