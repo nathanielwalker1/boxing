@@ -92,7 +92,7 @@ export class CombatAudio {
       const duck = duckForEvent(e, this.cfg);
       if (duck && this.ctx && this.crowdBus && this.cfg.audioCrowdEnabled && !this.paused) {
         const t = this.ctx.currentTime;
-        duckBus(this.crowdBus.gain, this.cfg.audioCrowdVolume * this.cfg.audioMasterVolume, t, duck.depth, duck.hold);
+        duckBus(this.crowdBus.gain, this.cfg.audioCrowdVolume * this.cfg.audioMasterVolume * this.cfg.audioCrowdGain, t, duck.depth, duck.hold);
         this.duckUntil = t + duck.hold + 0.3;
       }
       // The bell also reaches the bus from the fight flow, which the stage never sees: tell the mood (it applauds once per bell).
@@ -202,7 +202,7 @@ export class CombatAudio {
     this.impactBus.gain.setTargetAtTime(c.audioImpactVolume, t, 0.05);
     const duck = this.paused ? c.audioPauseDuck : 1;
     if (!this.paused && t < this.duckUntil) return;   // a flush land's duck is on the bus: let it finish
-    this.crowdBus.gain.setTargetAtTime(c.audioCrowdEnabled ? c.audioCrowdVolume * c.audioMasterVolume * duck : 0, t, this.paused ? 0.12 : 0.3);
+    this.crowdBus.gain.setTargetAtTime(c.audioCrowdEnabled ? c.audioCrowdVolume * c.audioMasterVolume * c.audioCrowdGain * duck : 0, t, this.paused ? 0.12 : 0.3);
   }
 
   /** Play one logical sound; `power` scales the gain a little (a hard hit is louder). Jitter is random on purpose: audio is not sim. */

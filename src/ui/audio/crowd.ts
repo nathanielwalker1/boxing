@@ -3,34 +3,33 @@
  * fight. Everything follows the ONE excitement value the stands follow
  * (render/mood.ts), so the house never sounds different from how it looks.
  *
- * The raw material is a "walla" loop rendered once, offline, at the first
- * gesture: a few dozen noise "voices" (noise through two broad moving bands,
- * gated in syllables that never fully close, panned across the stereo field).
- * Realism pass 2026-11-18: no oscillators anywhere in it (a sawtooth voice is
- * a singer, and read as a cartoon crowd). Summed, they are a murmur.
- * Under it, a steady pink-ish noise bed and three slow-drifting band layers.
- * The bed plays that loop through four layers:
- *   rumble   noise under 120 Hz — the room
- *   murmur   the walla, low-passed; swells slowly on its own (two LFOs)
- *   chatter  the walla sped up and high-passed; rises with excitement
- *   roar     walla + noise in the vowel band; silent at rest, rises with excitement²
- * Level and brightness track excitement; the referee's count hushes it.
- * An applause loop (a few hundred synthetic claps) is built here too.
+ * Second realism pass (2026-11-18): every attempt at synthetic VOICES is gone
+ * (the syllable-gated "walla" read as static and chatter). The bed is a plain
+ * ROOM TONE: one looped noise buffer, rendered once offline at the first
+ * gesture through a 900 Hz low-pass and a 120 Hz high-pass, no gating, no
+ * fast modulation. It plays through two layers:
+ *   room    the tone itself; level follows excitement; two very slow shallow
+ *           level drifts (11 s and 14 s periods, about ±2 dB together)
+ *   bright  the same noise through a low-pass that opens with excitement
+ *           (900 Hz at rest, up to 2.5 kHz); quiet, adds air
+ * The referee's count hushes it. Reactions (voice.ts) are swells of this same
+ * room tone. An applause loop (several hundred dense random noise ticks) is
+ * built here too. `walla` keeps its name: the room-tone buffer the reactions use.
  */
 import type { Config } from '../../core';
 
 export class CrowdBed {
   walla: AudioBuffer | null = null;
   applause: AudioBuffer | null = null;
-  private nodes: { rumble: GainNode; murmur: GainNode; chatter: GainNode; roar: GainNode; murmurLp: BiquadFilterNode; chatterHp: BiquadFilterNode; swellA: GainNode; swellB: GainNode; air: GainNode; bands: { base: number; level: GainNode; depth: GainNode; bp: BiquadFilterNode }[] } | null = null;
+  private nodes: { room: GainNode; bright: GainNode; brightLp: BiquadFilterNode; driftA: GainNode; driftB: GainNode } | null = null;
 
-  /** Resolves once the walla loop is rendered and the bed's layers are playing (the offline renderer waits on it). */
+  /** Resolves once the room-tone loop is rendered and the bed's layers are playing (the offline renderer waits on it). */
   readonly ready: Promise<void>;
 
   /** Any BaseAudioContext: the live AudioContext, or an OfflineAudioContext for scripts/audio_render.mjs. */
   constructor(private ctx: BaseAudioContext, private cfg: Config, private out: AudioNode, private noise: AudioBuffer) {
     try { this.applause = this.buildApplause(); } catch { this.applause = null; }
-    this.ready = this.renderWalla().then(buf => { this.walla = buf; this.start(); }).catch(() => { /* no walla: reactions fall back to noise, the bed stays off */ });
+    this.ready = this.renderWalla().then(buf => { this.walla = buf; this.start(); }).catch(() => { /* no room tone: reactions fall back to noise, the bed stays off */ });
   }
 
   /** A few hundred claps scattered over a loop; each a few ms of decaying noise. Claps wrap round the end, so it loops clean. */
@@ -49,45 +48,21 @@ export class CrowdBed {
     return buf;
   }
 
-  /** Render the walla loop offline (native, off the main thread), then fold its tail into its head so the loop has no seam. */
+  /** Render the room-tone loop offline: independent noise per ear through a 900 Hz low-pass and a 120 Hz high-pass; the tail is folded into the head so the loop has no seam. */
   private async renderWalla(): Promise<AudioBuffer> {
-    const c = this.cfg, sr = this.ctx.sampleRate;
-    const dur = c.audioCrowdLoopSeconds, tail = 1;
-    const off = new OfflineAudioContext(2, Math.floor(sr * (dur + tail)), sr);
-    const total = dur + tail;
-    const R = Math.random;
-    // Realism pass: the "voices" are NOISE (no oscillator, so no pitch to hear as a singer), each shaped by two broad moving bands and a syllable rhythm that never fully closes.
-    const nbuf = off.createBuffer(1, sr * 2, sr), nd = nbuf.getChannelData(0);
-    for (let i = 0; i < nd.length; i++) nd[i] = R() * 2 - 1;
-    const FLOOR = 0.25;
-    for (let v = 0; v < Math.round(c.audioCrowdVoices); v++) {
-      const osc = off.createBufferSource();
-      osc.buffer = nbuf; osc.loop = true;
-      const f1 = off.createBiquadFilter(), f2 = off.createBiquadFilter();
-      f1.type = 'bandpass'; f2.type = 'bandpass'; f1.Q.value = 1.4; f2.Q.value = 1.8;
-      const env = off.createGain();
-      env.gain.setValueAtTime(FLOOR, 0);
-      const pan = off.createStereoPanner();
-      pan.pan.value = R() * 2 - 1;
-      const f2g = off.createGain(); f2g.gain.value = 0.6;
-      osc.connect(f1); osc.connect(f2); f1.connect(env); f2.connect(f2g); f2g.connect(env); env.connect(pan); pan.connect(off.destination);
-      // Speech: phrases of a few syllables, each its own vowel and pitch, with pauses between phrases.
-      let t = R() * 1.5;
-      while (t < total) {
-        const syllables = 2 + Math.floor(R() * 6);
-        for (let s = 0; s < syllables && t < total; s++) {
-          const on = 0.07 + R() * 0.16, amp = 0.35 + R() * 0.65;
-          f1.frequency.setValueAtTime(380 + R() * 480, t);
-          f2.frequency.setValueAtTime(950 + R() * 1300, t);
-          env.gain.setValueAtTime(FLOOR, t);
-          env.gain.linearRampToValueAtTime(amp, t + on * 0.3);
-          env.gain.linearRampToValueAtTime(amp * 0.6, t + on * 0.8);
-          env.gain.linearRampToValueAtTime(FLOOR, t + on);
-          t += on + 0.02 + R() * 0.08;
-        }
-        t += 0.25 + R() * 1.6;
-      }
-      osc.start(0, R() * 1.9);
+    const sr = this.ctx.sampleRate;
+    const dur = this.cfg.audioCrowdLoopSeconds, tail = 1, total = Math.floor(sr * (dur + tail));
+    const off = new OfflineAudioContext(2, total, sr);
+    const merger = off.createChannelMerger(2);
+    merger.connect(off.destination);
+    for (let ch = 0; ch < 2; ch++) {
+      const nb = off.createBuffer(1, total, sr), nd = nb.getChannelData(0);
+      for (let i = 0; i < total; i++) nd[i] = Math.random() * 2 - 1;
+      const src = off.createBufferSource(); src.buffer = nb;
+      const lp = off.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 0.5;
+      const hp = off.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 120; hp.Q.value = 0.5;
+      src.connect(lp); lp.connect(hp); hp.connect(merger, 0, ch);
+      src.start(0);
     }
     const raw = await off.startRendering();
     const len = Math.floor(sr * dur), tl = Math.floor(sr * tail);
@@ -97,7 +72,7 @@ export class CrowdBed {
       const src = raw.getChannelData(ch), dst = buf.getChannelData(ch);
       for (let i = 0; i < len; i++) {
         let x = src[i] ?? 0;
-        if (i < tl) { const u = i / tl; x = x * u + (src[len + i] ?? 0) * (1 - u); }
+        if (i < tl) { const u = i / tl, a = Math.sqrt(u), b = Math.sqrt(1 - u); x = x * a + (src[len + i] ?? 0) * b; }   // equal-power: uncorrelated noise keeps its level across the seam
         dst[i] = x;
         if (Math.abs(x) > peak) peak = Math.abs(x);
       }
@@ -117,57 +92,28 @@ export class CrowdBed {
     const ctx = this.ctx, walla = this.walla;
     if (!walla || this.nodes) return;
     const g = (): GainNode => { const n = ctx.createGain(); n.gain.value = 0; n.connect(this.out); return n; };
-    const bq = (type: BiquadFilterType, f: number, q: number): BiquadFilterNode => { const n = ctx.createBiquadFilter(); n.type = type; n.frequency.value = f; n.Q.value = q; return n; };
-    const rumble = g(), murmur = g(), chatter = g(), roar = g();
-    const rumbleLp = bq('lowpass', 115, 0.7);
-    this.loop(this.noise, 0.5).connect(rumbleLp); rumbleLp.connect(rumble);
-    const murmurLp = bq('lowpass', 1100, 0.5);
-    this.loop(walla, 1).connect(murmurLp); this.loop(walla, 0.83).connect(murmurLp); murmurLp.connect(murmur);
-    const chatterHp = bq('highpass', 1500, 0.6);
-    this.loop(walla, 1.34).connect(chatterHp); chatterHp.connect(chatter);
-    const roarA = bq('bandpass', 760, 0.6), roarB = bq('bandpass', 1350, 0.7);
-    this.loop(walla, 1.13).connect(roarA); this.loop(walla, 0.94).connect(roarB); this.loop(this.noise, 0.8).connect(roarA);
-    roarA.connect(roar); roarB.connect(roar);
-    // Slow random-feeling swells on the murmur: two LFOs at unrelated rates, added to its gain.
-    const lfo = (hz: number): GainNode => { const o = ctx.createOscillator(); o.frequency.value = hz; const d = ctx.createGain(); d.gain.value = 0; o.connect(d); d.connect(murmur.gain); o.start(); return d; };
-    // The steady bed: pink-ish noise (white through a 1.5 kHz low-pass and a 150 Hz high-pass) — the arena's continuous murmur.
-    const air = g();
-    const airLp = bq('lowpass', 1500, 0.5), airHp = bq('highpass', 150, 0.6);
-    this.loop(this.noise, 1).connect(airLp); airLp.connect(airHp); airHp.connect(air);
-    // Three band-passed noise layers whose levels drift on unrelated multi-second LFOs: many voices coming and going.
-    const bands = ([[400, 6.3, 0.9], [900, 9.1, 0.8], [1600, 13.7, 0.7]] as const).map(([base, period, q]) => {
-      const level = g(), bp = bq('bandpass', base, q);
-      this.loop(this.noise, 0.9 + (base % 7) * 0.03).connect(bp); bp.connect(level);
-      const o = ctx.createOscillator(); o.frequency.value = 1 / period;   // infrasonic: a level drift, never a tone
-      const depth = ctx.createGain(); depth.gain.value = 0; o.connect(depth); depth.connect(level.gain); o.start();
-      return { base, level, depth, bp };
-    });
-    this.nodes = { rumble, murmur, chatter, roar, murmurLp, chatterHp, swellA: lfo(0.071), swellB: lfo(0.193), air, bands };
+    const room = g(), bright = g();
+    this.loop(walla, 1).connect(room);
+    const brightLp = ctx.createBiquadFilter(); brightLp.type = 'lowpass'; brightLp.frequency.value = 900; brightLp.Q.value = 0.5;
+    this.loop(this.noise, 1).connect(brightLp); brightLp.connect(bright);
+    // Two very slow level drifts on the room (11 s and 14 s periods); infrasonic, never a tone.
+    const drift = (period: number): GainNode => { const o = ctx.createOscillator(); o.frequency.value = 1 / period; const d = ctx.createGain(); d.gain.value = 0; o.connect(d); d.connect(room.gain); o.start(); return d; };
+    this.nodes = { room, bright, brightLp, driftA: drift(11), driftB: drift(14) };
   }
 
-  /** Called ~10×/s: levels and brightness follow the mood. `e` excitement 0..1, `hush` 0..1. */
-  update(e: number, hush: number, when = this.ctx.currentTime, k = 0.18): void {
+  /** Called ~10×/s: level and brightness follow the mood. `e` excitement 0..1, `hush` 0..1. */
+  update(e: number, hush: number, when = this.ctx.currentTime, k = 0.5): void {
     const n = this.nodes;
     if (!n) return;
     const c = this.cfg, t = when;
     const on = c.audioEnabled && c.audioCrowdEnabled ? 1 : 0;
     const quiet = 1 - c.audioHushDepth * hush;
-    const murmur = c.audioBedMurmur * (0.75 + 0.5 * e) * quiet * on;
-    n.rumble.gain.setTargetAtTime(c.audioBedRumble * (0.6 + 0.6 * e) * on, t, k);
-    n.murmur.gain.setTargetAtTime(murmur, t, k);
-    n.chatter.gain.setTargetAtTime(c.audioBedChatter * (0.12 + 0.88 * e * e) * quiet * quiet * on, t, k);
-    n.roar.gain.setTargetAtTime(c.audioBedRoar * Math.pow(e, 2.2) * (1 - hush) * on, t, k);
-    n.murmurLp.frequency.setTargetAtTime(800 + 1500 * e, t, k);
-    n.chatterHp.frequency.setTargetAtTime(1700 - 500 * e, t, k);
-    n.swellA.gain.setTargetAtTime(murmur * c.audioBedSwell * 0.5, t, k);
-    n.swellB.gain.setTargetAtTime(murmur * c.audioBedSwell * 0.5, t, k);
-    n.air.gain.setTargetAtTime(c.audioBedAir * (0.75 + 0.5 * e) * quiet * on, t, k);
-    const bandLevel = c.audioBedBands * (0.6 + 0.8 * e) * quiet * on;
-    for (const b of n.bands) {
-      b.level.gain.setTargetAtTime(bandLevel, t, k);
-      b.depth.gain.setTargetAtTime(bandLevel * Math.min(0.9, c.audioBedSwell * 2.4), t, k);   // the drift: up to ±90% of the layer
-      b.bp.frequency.setTargetAtTime(b.base * (0.9 + 0.4 * e), t, k);                         // the filters open as the house gets excited
-    }
+    const room = c.audioBedMurmur * (0.75 + 0.5 * e) * quiet * on;
+    n.room.gain.setTargetAtTime(room, t, k);
+    n.driftA.gain.setTargetAtTime(room * c.audioBedSwell * 0.5, t, k);    // 0.25 × 0.5 each: about ±2 dB with both at a crest
+    n.driftB.gain.setTargetAtTime(room * c.audioBedSwell * 0.5, t, k);
+    n.bright.gain.setTargetAtTime(c.audioBedAir * (0.3 + 0.7 * e) * quiet * on, t, k);
+    n.brightLp.frequency.setTargetAtTime(900 + 1600 * e, t, k);
   }
 
   get running(): boolean { return this.nodes !== null; }

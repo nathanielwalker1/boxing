@@ -104,8 +104,16 @@ export function playVoice(ctx: BaseAudioContext, out: AudioNode, recipe: Recipe,
   const vary = o.vary ?? 0.12, boost = o.toneNoise ?? 4, crowd = o.crowd === true;
   let last = o.when;
   let li = 0;
+  // Crowd reactions (second pass): size by importance = the recipe's own length, so a gasp is small and the eruption biggest; the whole reaction is about half the level it was.
+  let crowdSize = 1;
+  if (crowd) {
+    let dur = 0;
+    for (const l of recipe.layers) if (!l.delay) dur = Math.max(dur, (l.hold ?? 0) + (l.decay ?? 0.1));
+    crowdSize = 0.5 * (0.5 + 0.25 * Math.min(4, dur));
+  }
   for (const layer of recipe.layers) {
     li++;
+    if (crowd && layer.delay) continue;   // no repeated bursts (the laugh): a reaction is one smooth swell
     // Variation: random, or derived from the land's seed so a replay sounds the same.
     const k = li;
     const rnd = (j: number): number => {
@@ -139,9 +147,13 @@ export function playVoice(ctx: BaseAudioContext, out: AudioNode, recipe: Recipe,
     let attack = raw.attack ?? 0.001;
     let hold = (raw.hold ?? 0) * o.length, decay = (raw.decay ?? 0.1) * o.length;
     if (crowd) {
-      if (attack >= 0.05) attack = Math.max(0.12, attack * 1.6);   // a swell, not a snap (the short laugh bursts keep theirs)
-      decay *= 1.25;
-      if (filter) filter.q = Math.min(filter.q ?? 1, 0.9);
+      // A smooth swell of the room tone: 200-500 ms in, 1.5-3 s out. No formant filters: the walla layers are the room tone opening 900 → 1300 Hz, the noise layers the brighter band opening 1 → 2.5 kHz (Q 0.5); applause keeps its own dense-ticks band.
+      attack = Math.min(0.5, Math.max(0.2, attack * 3));
+      decay = Math.min(3, Math.max(1.5, decay * 1.6));
+      if (raw.type === 'walla') filter = { type: 'lowpass', freq: 900, freqEnd: 1300, q: 0.5 };
+      else if (raw.type === 'noise') filter = { type: 'lowpass', freq: 1000, freqEnd: 2500, q: 0.5 };
+      else if (filter) filter.q = Math.min(filter.q ?? 1, 0.5);
+      gainMul = crowdSize;
     } else if (asNoise && !thump) {
       attack = Math.max(attack, 0.002);                           // 2 ms rise: a smack, not a click
     }
