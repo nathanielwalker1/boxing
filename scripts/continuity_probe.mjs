@@ -65,7 +65,7 @@ const logs = [];
 page.on('console', m => logs.push({ type: m.type(), text: m.text() }));
 page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
 await page.addInitScript(() => { window.WebSocket = class { constructor() { this.readyState = 0; } addEventListener() {} removeEventListener() {} send() {} close() {} }; });
-await page.goto(`${DEV_URL}/?ai=0&menu=0&human=1`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+await page.goto(`${DEV_URL}/?ai=0&menu=0&human=1${process.argv[8] ? '&opp=' + process.argv[8] : ''}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 await bootReady(page);
 await until(page, () => typeof window.__rigReplay === 'function' && typeof window.__humanProbe === 'function', undefined, { label: 'human views', timeout: 150_000 });
 await page.evaluate(() => { const c = window.__cfg; c.debugHitboxes = false; c.refEnabled = false; if (window.__ANIM_CFG) Object.assign(c, window.__ANIM_CFG); });

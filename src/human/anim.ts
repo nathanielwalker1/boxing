@@ -103,6 +103,7 @@ export class HumanAnim {
   private hitN = 0;
   private jolt = 0;   // procedural flinch of a blocked shot, 1 -> 0
   private wasDown = false;
+  private punchF0 = 0;   // the clip frame the current punch started on
   private breath = 0;
   private lastHitPart: BodyPart = 'head';
   private clock = 0;
@@ -462,36 +463,56 @@ export class HumanAnim {
           pk = { name: gp.name, role: gp.role, clip: gp.clip, mirror: gp.mirror !== this.southpaw };   // core's mirror is absolute
           const same = geoA?.geo.pick === gp;
           let f = same ? ip(geoA!.frame, geoB.frame) : geoB.frame;
-          // THE SWING IS NEVER FAST-FORWARDED: the frames into the contact play at most humanExtendRate x the clip's speed, so
-          // the swing starts earlier inside the (long) wind-up and still meets the contact frame on the hit tick
-          if (cfg.humanInertia && !cfg.humanRawPose && cfg.humanExtendRate > 0 && u < peak) {
-            const secToHit = (peak - u) * ph.total * Math.max(1, p.timeMult);
-            f = Math.max(f, gp.contactF - cfg.humanExtendRate * secToHit * gp.clip.fps);
-          }
-          // RECOVERY FITTED (outcome mode): the clip's recovery plays at most humanRecoverRateMax × its own speed; a
-          // recovery longer than that is cut short by easing the clip out into the idle guard over the sim's recovery
           let fixW: number | undefined;
-          if (cfg.mocapOutcome && !cfg.humanRawPose && cfg.humanRecoverRateMax > 0 && u > peak) {
-            const T = ph.total * Math.max(1, p.timeMult), simRec = Math.max(1e-3, (1 - peak) * T), sec = (u - peak) * T;
-            const clipRec = (gp.endF - gp.contactF) / gp.clip.fps;
-            // (a take trimmed to end at its contact has no recovery of its own: always eased home from the contact pose)
-            if (clipRec / simRec > cfg.humanRecoverRateMax || gp.role.to - gp.contactF < 2) {
-              // the LEGS keep the clip stretched over the sim's recovery (a stepped-in foot comes home at the clip's
-              // own pace: cutting it slid the foot 26 cm in a tick); the arms and body take the fitted, eased-out frame
-              if (!cfg.humanInertia) this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, w: 1, fadeOut: cfg.humanFadeOut });
-              // (a jab's short recovery plays the take at its own speed, never faster: the body jab bobbed 12 cm in six ticks; what is left goes home on the carry-over)
-              f = gp.contactF + sec * (cfg.humanInertia && type === 'jab' ? Math.min(1, cfg.humanRecoverRateMax) : cfg.humanRecoverRateMax) * gp.clip.fps;
-              const sec0 = ph.hold * simRec;   // the glove stays on the contact through the punch's hold
-              // (continuity on: no ease-out squeezed into the sim's recovery; when the punch ends, what is left of the way home is carried over and decays)
-              // (a take with no recovery of its own, the trimmed uppercuts, is still eased home: it would hang at its contact pose)
-              if (!cfg.humanInertia || gp.role.to - gp.contactF < 2) fixW =1 - smooth((sec - sec0) / Math.max(1e-3, simRec - sec0));
+          if (cfg.humanInertia && !cfg.humanRawPose && cfg.mocapOutcome) {
+            // NATURAL SPEED (Nate 2026-11-18: "some punches are in literal slow motion"): the frames into the contact play at
+            // humanSwingRate x the clip's own speed, never stretched to fill the wind-up. With time to spare he HOLDS the take's
+            // first frame (the loaded pose: that is the tell) and then throws at full speed; with less, the take starts part-way.
+            const T = ph.total * Math.max(1, p.timeMult);
+            if (this.clock === this.punchStart) this.punchF0 = geoB.frame;
+            if (u <= peak) f = Math.max(Math.min(this.punchF0, gp.contactF), gp.contactF - cfg.humanSwingRate * (peak - u) * T * gp.clip.fps);
+            else {
+              // AFTER THE HIT: a punch that touched something comes straight home from its contact pose (no follow-through
+              // through the man it hit, no lingering); a miss swings through at up to humanRecoverRateMax and is home by the end too.
+              const simRec = Math.max(1e-3, (1 - peak) * T), sec = (u - peak) * T;
+              const sec0 = ph.hold * simRec * (type === 'jab' ? cfg.humanJabHold : cfg.humanHeavyHold);
+              f = p.contact ? gp.contactF : gp.contactF + sec * cfg.humanWhiffSwingRate * gp.clip.fps;
+              fixW = 1 - smooth((sec - sec0) / Math.max(1e-3, simRec * cfg.humanHomeBy - sec0));
+            }
+          } else {
+            // THE SWING IS NEVER FAST-FORWARDED: the frames into the contact play at most humanExtendRate x the clip's speed, so
+            // the swing starts earlier inside the (long) wind-up and still meets the contact frame on the hit tick
+            if (cfg.humanInertia && !cfg.humanRawPose && cfg.humanExtendRate > 0 && u < peak) {
+              const secToHit = (peak - u) * ph.total * Math.max(1, p.timeMult);
+              f = Math.max(f, gp.contactF - cfg.humanExtendRate * secToHit * gp.clip.fps);
+            }
+            // RECOVERY FITTED (outcome mode): the clip's recovery plays at most humanRecoverRateMax × its own speed; a
+            // recovery longer than that is cut short by easing the clip out into the idle guard over the sim's recovery
+            if (cfg.mocapOutcome && !cfg.humanRawPose && cfg.humanRecoverRateMax > 0 && u > peak) {
+              const T = ph.total * Math.max(1, p.timeMult), simRec = Math.max(1e-3, (1 - peak) * T), sec = (u - peak) * T;
+              const clipRec = (gp.endF - gp.contactF) / gp.clip.fps;
+              // (a take trimmed to end at its contact has no recovery of its own: always eased home from the contact pose)
+              if (clipRec / simRec > cfg.humanRecoverRateMax || gp.role.to - gp.contactF < 2) {
+                // the LEGS keep the clip stretched over the sim's recovery (a stepped-in foot comes home at the clip's
+                // own pace: cutting it slid the foot 26 cm in a tick); the arms and body take the fitted, eased-out frame
+                if (!cfg.humanInertia) this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, w: 1, fadeOut: cfg.humanFadeOut });
+                // (a jab's short recovery plays the take at its own speed, never faster: the body jab bobbed 12 cm in six ticks; what is left goes home on the carry-over)
+                f = gp.contactF + sec * (cfg.humanInertia && type === 'jab' ? Math.min(1, cfg.humanRecoverRateMax) : cfg.humanRecoverRateMax) * gp.clip.fps;
+                const sec0 = ph.hold * simRec;   // the glove stays on the contact through the punch's hold
+                // (continuity on: no ease-out squeezed into the sim's recovery; when the punch ends, what is left of the way home is carried over and decays)
+                // (a take with no recovery of its own, the trimmed uppercuts, is still eased home: it would hang at its contact pose)
+                if (!cfg.humanInertia || gp.role.to - gp.contactF < 2) fixW =1 - smooth((sec - sec0) / Math.max(1e-3, simRec - sec0));
+              }
             }
           }
           const easeIn = cfg.mocapOutcome && !cfg.humanRawPose ? gp.role.easeIn : undefined;
           // (continuity on: a take mirrored from the other hand stands in the other stance; only its upper body is used, the legs stay his own)
-          this.want('punch#' + this.punchN, pk, f / gp.clip.fps, { ...(fixW !== undefined ? { fixW } : {}), ...(easeIn ? { fadeIn: easeIn } : {}), ...(cfg.humanInertia && pk.mirror ? { upper: true } : {}),
+          this.want('punch#' + this.punchN, pk, f / gp.clip.fps, { ...(fixW !== undefined ? { fixW } : {}), ...(easeIn ? { fadeIn: easeIn } : {}), ...(cfg.humanInertia ? { upper: true } : {}),
             // (what is carried over from the last action must be gone by the hit: its half-life is at most a fifth of the time to the hit)
             halfMax: Math.max(0, peak - u) * ph.total * Math.max(1, p.timeMult) * cfg.humanInertiaHitShare });
+          // (continuity on: the ARMS AND TRUNK are the track above, eased home after the hit; the LEGS are their own track, which
+          //  keeps the take to the end of the punch and then settles at the legs' pace: a stepped foot does not rush home with the hand)
+          if (cfg.humanInertia && !cfg.humanRawPose && !pk.mirror) this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, halfMax: Math.max(0, peak - u) * ph.total * Math.max(1, p.timeMult) * cfg.humanInertiaHitShare });
           label = `${gp.name} f${f.toFixed(0)} (contact ${gp.contactF})`;
           // (audit) how far the clip's own glove moves between the frames drawn last tick and this one
           mocapClipGlove(gp, f, cfg, next.body.heightM, CG1);
@@ -512,7 +533,7 @@ export class HumanAnim {
           const gl = { x: ip(g0.x, g1.x), y: ip(g0.y, g1.y), z: ip(g0.z, g1.z) };
           if (cfg.mocapOutcome && opp) {
             // OUTCOME FIRST: the hand is steered onto the sim's contact point (or left free on a whiff / dodge)
-            const c = this.conform(next, opp.next, u, ph.cockEnd, peak, ph.hold * (cfg.humanInertia && type !== 'jab' ? cfg.humanHeavyHold : 1), ph.total * Math.max(1, p.timeMult), gp, f, lunge, dt);
+            const c = this.conform(next, opp.next, u, ph.cockEnd, peak, ph.hold * (cfg.humanInertia ? (type === 'jab' ? cfg.humanJabHold : cfg.humanHeavyHold) : 1), ph.total * Math.max(1, p.timeMult), gp, f, lunge, dt);
             ik = c.ik; turn = c.turn; lunge = c.lunge;
           } else if (w > 0.01) ik = { arm: g.arm, w, at: gl, exact: true, key: this.punchN, pressW: this.pressW };
           // a chained punch with the OTHER arm: the last arm keeps its own tail (it was lost here: a 30 cm pop of the jab hand when the cross started)

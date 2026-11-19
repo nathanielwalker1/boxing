@@ -51,7 +51,8 @@ export function stepStamina(f: FighterState, cfg: Config, dt: number): void {
     // still, while a punch that touched something is on its way home. A miss, or being hit, is still a held breath.
     if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * cfg.staminaGuardHold * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * dt);
     const p = f.punch;
-    const rate = f.block ? cfg.staminaGuardRegen : p.type === null ? 1 : p.phase === 'recover' && p.contact !== null && !p.feint ? cfg.staminaPunchRegen : 0;
+    // (staminaBusyRegen, 0 = off: wind also comes back WHILE he punches, at this share: a man who keeps working tires slowly instead of holding his breath until he is empty)
+    const rate = f.block ? cfg.staminaGuardRegen : p.type === null ? 1 : Math.max(cfg.staminaBusyRegen, p.phase === 'recover' && p.contact !== null && !p.feint ? cfg.staminaPunchRegen : 0);
     if (rate > 0 && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + regen * rate);
   } else if (f.block) f.stamina = Math.max(0, f.stamina - cfg.staminaBlockDrain * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * dt);
   else if (f.punch.type === null && delay === 0 && f.stamina < f.staminaCap) f.stamina = Math.min(f.staminaCap, f.stamina + regen);

@@ -72,7 +72,8 @@ export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, ou
       const intoHand = lateral && s.kind !== 'roll' && cfg.wrongWayOn && cfg.wrongWayShoulder > 0 && slipLateral(d) * -handLateralSign(p.hand, a.stance) > 0;
       if (intoHand) o.part = 'body';
       else { o.kind = 'dodge'; o.slip = true; return o; }
-    } else if (duckedBy(a, d) > cfg.mocapDuckDodge + GUARDS[cfg.stylesOn ? d.guardShape : 'high'].crouch) { o.kind = 'dodge'; return o; }
+    // (only a TIMED duck dodges, Nate 2026-11-18: a man who simply stands lower, by build or by a held crouch, is hit where his head is; the punch is aimed there)
+    } else if ((s.active || cfg.mocapDuckDodgeHeld) && duckedBy(a, d) > cfg.mocapDuckDodge + GUARDS[cfg.stylesOn ? d.guardShape : 'high'].crouch) { o.kind = 'dodge'; return o; }
   }
   o.kind = d.block && d.guardBroken <= 0 ? 'block' : 'land';
   return o;
