@@ -20,6 +20,7 @@ import { GUARDS, handLateralSign, v2dist } from '../core';
 import { makeDrawnTargets, mocapBandFar, mocapDrawnTargets, mocapLib, type DrawnTargets } from '../core/mocap';
 import { VARIANTS } from './variants';
 import { slipLateral } from './slip';
+import { duckT } from './state';
 
 export type OutcomeKind = 'land' | 'block' | 'dodge' | 'whiff';
 export interface Outcome {
@@ -66,7 +67,18 @@ export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, ou
   if (o.d > band.far) { o.kind = 'whiff'; return o; }
   if (o.part === 'head') {
     const s = d.slip;
-    if (s.active && s.dir !== 0) {
+    if (cfg.evadeV2) {
+      // THE FORMULA (Nate 2026-11-19: "no formula... nothing predictable my brain can wrap around"), one answer per punch:
+      //   jab / cross -> SLIP (a side tap, either way)     hook -> DUCK (the level input going down)
+      //   uppercut    -> LEAN BACK (a back tap)            a roll (level + side tap) is a duck and a slip at once
+      // Each is live from the tick of its press for evadeWindow. The wrong one is simply hit.
+      const lateral = s.active && (s.dir === 1 || s.dir === -1);
+      const dk = duckT(d);
+      const beaten = p.type === 'uppercut' ? s.active && s.dir === 2
+        : p.type === 'hook' ? (dk > 0 && dk <= cfg.evadeWindow) || (lateral && s.kind === 'roll')
+        : lateral;
+      if (beaten) { o.kind = 'dodge'; o.slip = true; return o; }
+    } else if (s.active && s.dir !== 0) {
       const lateral = s.dir === 1 || s.dir === -1;
       // the wrong way: a lateral slip toward the punching hand walks the shoulder into it (combat.ts wrongWayShoulder)
       const intoHand = lateral && s.kind !== 'roll' && cfg.wrongWayOn && cfg.wrongWayShoulder > 0 && slipLateral(d) * -handLateralSign(p.hand, a.stance) > 0;

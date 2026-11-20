@@ -200,6 +200,13 @@ export function neckMult(f: FighterState): number { return f.moveHist[HIST_NECK]
 export function setNeckMult(f: FighterState, m: number): void { f.moveHist[HIST_NECK] = m; }
 export function reactVary(f: FighterState): number { return f.moveHist[HIST_REACT_VARY] ?? 0; }
 export function setReactVary(f: FighterState, v: number): void { f.moveHist[HIST_REACT_VARY] = v; }
+const HIST_EVADE = 76;        // evadeV2: +0 seconds the level input has been down as a timed DUCK (0 = not held, −1 = held but not an evade), +1 seconds before a new evade may start
+/** evadeV2: seconds the current timed duck has been down (0 = none, −1 = held but spent / refused). */
+export function duckT(f: FighterState): number { return f.moveHist[HIST_EVADE] ?? 0; }
+export function setDuckT(f: FighterState, t: number): void { const h = f.moveHist; while (h.length < HIST_EVADE + 2) h.push(0); h[HIST_EVADE] = t; }
+/** evadeV2: seconds until a new slip / duck / lean may start (its own window plus the cooldown). */
+export function evadeCd(f: FighterState): number { return f.moveHist[HIST_EVADE + 1] ?? 0; }
+export function setEvadeCd(f: FighterState, t: number): void { const h = f.moveHist; while (h.length < HIST_EVADE + 2) h.push(0); h[HIST_EVADE + 1] = t; }
 /** The head at home. */
 export function idleSlip(): SlipState {
   return { active: false, dir: 0, t: 0, offset: 0, kind: 'slip', from: 0, chain: 0, dip: 0 };

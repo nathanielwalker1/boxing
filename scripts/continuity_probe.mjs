@@ -45,6 +45,10 @@ const SC = [
   { name: 'hit_body', dist: 1.0, s0: [], s1: hold(at(two(4, P('cross', 'rear', { level: true }))), { level: true }, 0, 6), n: 90 },
   { name: 'block_jab', dist: 1.0, s0: hold([], { block: true }, 2, 50), s1: at(two(12, P('jab'))), n: 90 },
   { name: 'slip', dist: 1.0, s0: at(two(4, { move: { x: -1, y: 0 } })), n: 60 },
+  // the evade formula (evadeV2): slip a jab, duck a hook, lean back from an uppercut; each starts on its press
+  { name: 'evade_slip_jab', dist: 1.0, s0: hold([], { move: { x: -1, y: 0 } }, 12, 15), s1: at(two(4, P('jab'))), n: 70 },
+  { name: 'evade_duck_hook', dist: 0.95, s0: hold([], { level: true }, 16, 44), s1: at(two(4, P('hook', 'lead'))), n: 80 },
+  { name: 'evade_lean_upper', dist: 0.8, s0: hold([], { move: { x: 0, y: -1 } }, 20, 23), s1: at(two(4, P('uppercut', 'lead'))), n: 80 },
   { name: 'jab_close', dist: 0.78, s0: at(two(4, P('jab'))), n: 70 },
   { name: 'cross_close', dist: 0.78, s0: at(two(4, P('cross'))), n: 80 },
   { name: 'jab_far', dist: 1.12, s0: at(two(4, P('jab'))), n: 70 },

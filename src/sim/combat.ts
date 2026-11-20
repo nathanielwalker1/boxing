@@ -561,13 +561,15 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // the only thing that took the punch away. A classification layered on,
     // not a new outcome — the whiff above still stands for recovery and stamina.
     // (Outcome first: the rule already said it was a slip, pull or roll in its window, in range.)
-    if (d.slip.dir !== 0 && (oc ? oc.slip : d.slip.active)) {
+    // (evadeV2: a timed DUCK under a hook is an evade with no slip state: it earns the same read and counter window; its event says roll.)
+    const ducked = cfg.evadeV2 && oc !== null && oc.slip && d.slip.dir === 0;
+    if (ducked || (d.slip.dir !== 0 && (oc ? oc.slip : d.slip.active))) {
       const fr = frameOf(d.yaw), lat = slipLateral(d), back = slipBack(d);
       // A roll's U is part of the move too: the head's un-rolled height is where the hook was going.
       const up = d.slip.kind === 'roll' ? d.slip.dip : 0;
       const home = { x: d.headBox.x - fr.right.x * lat + fr.fwd.x * back, y: d.headBox.y + up, z: d.headBox.z - fr.right.z * lat + fr.fwd.z * back, r: d.headBox.r };
       if (oc || sphereCapsuleOverlap(home, sweep)) {
-        events.push({ type: 'slip', side: target, dir: d.slip.dir, dodged: true, kind: d.slip.kind, chain: d.slip.chain });
+        events.push({ type: 'slip', side: target, dir: d.slip.dir !== 0 ? d.slip.dir : 1, dodged: true, kind: ducked ? 'roll' : d.slip.kind, chain: d.slip.chain });
         // The read (2026-09-18): a beat of hit-stop as the fist passes the
         // ear, so a well-timed slip is felt — Fight Night's brief slow moment
         // that opens the counter — and the attacker falls into the space:
