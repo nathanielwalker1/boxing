@@ -209,6 +209,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       });
     },
   };
+  // the foot planter's state (humanFootPlant): where the man was last frame, and per foot its pin, its step in progress and its floor height
+  const plant = { on: false, lx: 0, lz: 0, trig: 0.1, f: [0, 1].map(() => ({ step: false, px: 0, pz: 0, fx: 0, fz: 0, s: 0, floor: 0, ax: 0, az: 0, T: 0.14 })) };
   // Read-only test hook: what is DRAWN this frame (world m). The sim beside it: window.__states()[side] (gloves[i].pos, punch, pos).
   const v3 = (o: THREE.Object3D): number[] => o.getWorldPosition(new THREE.Vector3()).toArray();
   const gloveOf = (a: 'Left' | 'Right'): number[] => {
@@ -342,6 +344,61 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         }
         group.updateMatrixWorld(true);
       }
+
+      // ---- THE FEET STAND ON THE CANVAS (humanFootPlant). The sim moves the man at its own speed and the step clips play in
+      //      place, so the drawn feet skated (measured 2026-11-20: strafing, the feet slid the whole 2.5 m and lifted 3.6 cm;
+      //      walking 25-45% of the way; standing, 30 cm of drift a second: "sliding / floating... levitation"). Each foot is
+      //      PINNED where it stands; when the body has carried its place far enough from the pin (further at speed), or the
+      //      clip lifts it, it takes a real step — up, over, down ahead of the body — one foot at a time. ----
+      // (run AFTER the continuity filter below: that filter re-blends the leg joints and put the feet back off their pins for a frame)
+      const plantFeet = (): void => { if (cfg.humanFootPlant && !cfg.humanRawPose && !next.down) {
+        const mvx = x - plant.lx, mvz = z - plant.lz, mv = Math.hypot(mvx, mvz);
+        const fresh = !plant.on || mv > 0.5;
+        const sp = fresh || dt <= 0 ? 0 : mv / Math.max(1e-3, dt);   // (a frozen frame, the hit-stop: the pins simply hold)
+        plant.lx = x; plant.lz = z; plant.on = true;
+        // (a frozen frame keeps the last distance: at dt 0 the speed reads 0 and a walking man's feet would all come due at once)
+        if (dt > 0 || fresh) plant.trig = Math.min(cfg.humanFootStepMax, cfg.humanFootStepMin + cfg.humanFootStepPerSpeed * sp);
+        const trig = plant.trig;
+        group.updateMatrixWorld(true);
+        const sides = ['Left', 'Right'] as const;
+        const want = sides.map(s => ({ p: leg[s][2].getWorldPosition(new THREE.Vector3()), q: leg[s][2].getWorldQuaternion(new THREE.Quaternion()) }));
+        for (let i = 0; i < 2; i++) {
+          const st = plant.f[i]!, C = want[i]!.p, other = plant.f[1 - i]!;
+          if (fresh) { st.step = false; st.px = C.x; st.pz = C.z; st.floor = C.y; st.s = 0; }
+          st.floor = Math.min(st.floor, C.y);
+          const lifted = C.y - st.floor > cfg.humanFootLift;
+          if (!st.step) {
+            const d = Math.hypot(C.x - st.px, C.z - st.pz);
+            if ((d > trig && !other.step) || d > cfg.humanFootStepMax * 1.4 || (lifted && d > 0.03)) {
+              st.step = true; st.fx = st.px; st.fz = st.pz; st.s = 0;
+              // it lands AHEAD of where the clip has the foot, along the way he is going, so the body travels over it. The
+              // lead is fixed at lift-off (recomputed each frame it vanished when a knockback ended: the foot jumped 25 cm
+              // in a tick), and a longer step takes longer (the foot is never faster than about 7 cm a tick).
+              const lead = sp > 0.08 && dt > 0 ? trig * cfg.humanFootStepLead / mv : 0;
+              st.ax = mvx * lead; st.az = mvz * lead;
+              st.T = Math.max(cfg.humanFootStepTime, Math.hypot(C.x + st.ax - st.px, C.z + st.az - st.pz) * cfg.humanFootStepPace);
+            }
+          }
+          let y = C.y;
+          if (st.step) {
+            st.s = Math.min(1, st.s + dt / Math.max(0.03, st.T));
+            const k = st.s * st.s * (3 - 2 * st.s);
+            st.px = st.fx + (C.x + st.ax - st.fx) * k; st.pz = st.fz + (C.z + st.az - st.fz) * k;
+            y = Math.max(C.y, st.floor + cfg.humanFootStepHeight * Math.sin(Math.PI * st.s));
+            if (st.s >= 1) st.step = false;
+          }
+          const T = new THREE.Vector3(st.px, y, st.pz);
+          const [u, m, e] = leg[sides[i]!];
+          u.getWorldPosition(vS); m.getWorldPosition(vE); e.getWorldPosition(vW);
+          const L = vE.distanceTo(vS) + vW.distanceTo(vE), da = L * cfg.humanLegSoft, d = T.distanceTo(vS);
+          if (d > da && L > da) T.sub(vS).setLength(da + (L - da) * (1 - Math.exp(-(d - da) / (L - da)))).add(vS);
+          twoBone(u, m, e, T);
+          group.updateMatrixWorld(true);
+          e.parent!.getWorldQuaternion(qP);
+          e.quaternion.copy(qP.invert().multiply(want[i]!.q));   // the foot keeps the clip's own orientation
+        }
+        group.updateMatrixWorld(true);
+      } else plant.on = false; };
 
       // ---- procedural lean (slips without a clip, the blocked-shot jolt): spread over the three spine bones ----
       const { lat, back, fwd } = out.lean, twist = out.lean.twist ?? 0;
@@ -598,6 +655,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           }
         }
       }
+      plantFeet();
 
       // ---- outcome first: no glove of his ever inside the other man's DRAWN head or torso (a whiff, a dodge, a
       //      follow-through); a landed glove rests on the surface, where the contact point puts it ----
