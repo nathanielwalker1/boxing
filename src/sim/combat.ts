@@ -108,7 +108,11 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
     // the wind-up is evadeCounterTell as long. Measured 2026-11-19: a reply cross took 383 ms, exactly a cold one ("sluggish").
     const counterNow = cfg.evadeV2 && opp !== null && opp.counterWindow > 0 && punishSource(opp) === PUNISH_SLIP;
     const want = (type === 'jab' ? cfg.mocapTellJab : type === 'cross' ? cfg.mocapTellHeavy : type === 'hook' ? cfg.mocapTellHook : cfg.mocapTellUppercut) * (chained ? (type === 'hook' || type === 'uppercut' ? Math.max(cfg.mocapTellChained, cfg.mocapTellChainedArc) : cfg.mocapTellChained) : 1) * (counterNow ? cfg.evadeCounterTell : 1);
-    cock = Math.max(cock, (want / slow - ph.extend) / ph.cock);
+    // mocapTellExact: the tell IS the punch's time, not only its floor. Measured 2026-11-20: with the floor, an uppercut at
+    // normal range still took 0.40 s (its own base wind-up, 300 ms x punchTimeScale) whatever mocapTellUppercut said, and a
+    // hook 0.35: "uppercuts still take so long to load and throw". The variant, a gassed arm, a loaded hand and hand speed still scale it.
+    if (cfg.mocapTellExact) cock = Math.max(0.05, (want * (f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1) * v.time(cfg) * (loaded ? cfg.slipLoadedCock : 1) / hands / slow - ph.extend) / ph.cock);
+    else cock = Math.max(cock, (want / slow - ph.extend) / ph.cock);
   }
   // Thrown while being hit, or hurt (polish phase): it comes out — slower, shorter (gloves.ts) and weaker by `nerf`.
   const nerf = hitNerf(f, cfg);
