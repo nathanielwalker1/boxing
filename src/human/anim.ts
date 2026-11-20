@@ -19,7 +19,7 @@ import { SIM_DT } from '../core';
 import type { BodyPart, FighterState, HitGrade, PunchType, SimEvent, Side, Vec3 } from '../core/types';
 import { punchPhases } from '../sim/punches';
 import { mocapCfg, mocapPunchNow } from '../sim/mocap';
-import { getUpAt } from '../sim/state';
+import { cockMult, getUpAt } from '../sim/state';
 import { contactPoint, predictOutcome, type Outcome, type OutcomeKind } from '../sim/outcome';
 import { mocapClipGlove, mocapRoleNames, mocapTwinRole, type ChainedFrom, type MocapPick } from '../core/mocap';
 const CG1 = { x: 0, y: 0, z: 0 }, CG2 = { x: 0, y: 0, z: 0 }, TP = { x: 0, y: 0, z: 0 };   // scratch
@@ -104,6 +104,7 @@ export class HumanAnim {
   private jolt = 0;   // procedural flinch of a blocked shot, 1 -> 0
   private wasDown = false;
   private punchF0 = 0;   // the clip frame the current punch started on
+  private punchSec0 = 0; // real seconds from its press to its hit
   private breath = 0;
   private lastHitPart: BodyPart = 'head';
   private clock = 0;
@@ -470,7 +471,19 @@ export class HumanAnim {
             // first frame (the loaded pose: that is the tell) and then throws at full speed; with less, the take starts part-way.
             const T = ph.total * Math.max(1, p.timeMult);
             if (this.clock === this.punchStart) this.punchF0 = geoB.frame;
-            if (u <= peak) f = Math.max(Math.min(this.punchF0, gp.contactF), gp.contactF - cfg.humanSwingRate * (peak - u) * T * gp.clip.fps);
+            // (REAL seconds to the hit: the sim's clock runs 1 / cockMult slower through the wind-up. Counting it as plain
+            //  progress played the wind-up frames at 1 / cockMult of their speed — measured 2026-11-19: jab 40%, cross 60%,
+            //  hook 80% of the clip's speed: "jab and cross in slow motion, hooks faster")
+            const secToHit = (Math.max(0, ph.cockEnd - u) * cockMult(next) + (peak - Math.max(u, ph.cockEnd))) * T;
+            if (this.clock === this.punchStart) this.punchSec0 = secToHit;
+            if (u <= peak) {
+              // (the cross's take is its recovery played backwards: at its recorded speed the glove is PUSHED out at a steady
+              //  2.4 m/s for 0.33 s, no drive. humanCrossSwingEase bends the same frames over the same time: slow turn, fast fist)
+              const startF = Math.max(Math.min(this.punchF0, gp.contactF), gp.contactF - cfg.humanSwingRate * this.punchSec0 * gp.clip.fps);
+              const span = gp.contactF - startF, swingSec = span / Math.max(1e-6, cfg.humanSwingRate * gp.clip.fps);
+              const s = swingSec > 1e-6 ? clamp(1 - secToHit / swingSec, 0, 1) : 1;
+              f = startF + span * Math.pow(s, type === 'cross' ? cfg.humanCrossSwingEase : 1);
+            }
             else {
               // AFTER THE HIT: a punch that touched something comes straight home from its contact pose (no follow-through
               // through the man it hit, no lingering); a miss swings through at up to humanRecoverRateMax and is home by the end too.
