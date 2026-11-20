@@ -67,17 +67,30 @@ export function stepLocomotion(f: FighterState, input: Readonly<FrameInput>, cfg
   }
 
   // Stagger: impact velocity, decays on its own clock.
+  // (staggerSpeedMax: a knockback travels the SAME distance but never faster than this. Measured 2026-11-20 in human mode: a
+  //  flush hook moved a man 14.6 cm in one tick, 8.8 m/s, "teleported back a bit". The distance left is stagger / decay;
+  //  while the speed is over the cap he covers it at the cap and the rest waits.)
   const sd = Math.max(0, 1 - cfg.staggerDecay * dt);
-  f.stagger.x *= sd;
-  f.stagger.z *= sd;
+  const sSpd = Math.hypot(f.stagger.x, f.stagger.z);
+  let sMoveX = 0, sMoveZ = 0, sCapped = false;
+  if (cfg.staggerSpeedMax > 0 && cfg.staggerDecay > 0 && sSpd * sd > cfg.staggerSpeedMax) {
+    sCapped = true;
+    const left = sSpd / cfg.staggerDecay - cfg.staggerSpeedMax * dt;   // metres still to travel after this tick
+    sMoveX = f.stagger.x / sSpd * cfg.staggerSpeedMax; sMoveZ = f.stagger.z / sSpd * cfg.staggerSpeedMax;
+    const k = Math.max(0, left) * cfg.staggerDecay / sSpd;
+    f.stagger.x *= k; f.stagger.z *= k;
+  } else {
+    f.stagger.x *= sd;
+    f.stagger.z *= sd;
+  }
   if (Math.abs(f.stagger.x) < cfg.moveStopSpeed) f.stagger.x = 0;
   if (Math.abs(f.stagger.z) < cfg.moveStopSpeed) f.stagger.z = 0;
 
   // The pivot turns the hips about the planted foot; walking is off for it (moveScales).
   stepPivot(f, cfg, dt);
   const hop = stepHop(f, cfg, dt);
-  f.pos.x += (f.vel.x + f.stagger.x) * dt + hop.x;
-  f.pos.z += (f.vel.z + f.stagger.z) * dt + hop.z;
+  f.pos.x += (f.vel.x + (sCapped ? sMoveX : f.stagger.x)) * dt + hop.x;
+  f.pos.z += (f.vel.z + (sCapped ? sMoveZ : f.stagger.z)) * dt + hop.z;
 
   const b = bound(cfg);
   const px = f.pos.x, pz = f.pos.z;

@@ -41,10 +41,11 @@ const H = core.ROSTER[0].heightM / base.mocapBandRefHeight;
 // the far ends the sim uses: measured from the clips (core/mocap.ts mocapBandFar), or the hand-set keys with that off
 const R0 = core.ROSTER[0], G0 = sim.createState([R0, R0], cfg, 1).fighters[0].body.gloveR;
 const TYPE = { jab: ['jab', 'lead'], cross: ['cross', 'rear'], 'lead hook': ['hook', 'lead'], 'rear hook': ['hook', 'rear'], 'lead upper': ['uppercut', 'lead'], 'rear upper': ['uppercut', 'rear'] };
-// (+ the head cross's step, mocapCrossStep: sim/outcome.ts punchBand)
-const farOf = (p, low) => (base.mocapBandsFromClips
-  ? mocap.mocapBandFar(mocap.mocapLib(), cfg, R0.heightM, R0.stance, TYPE[p.name][0], TYPE[p.name][1], low, R0.heightM, R0.stance, G0)
-  : base[low ? p.bodyFar : p.far] * H) + (p.name === 'cross' && !low ? base.mocapCrossStep * R0.heightM / base.mocapBandRefHeight : 0);
+// (+ the head cross's step, mocapCrossStep, and the hook / uppercut floors mocapFarMinHook / Upper: sim/outcome.ts punchBand)
+const farOf = (p, low) => Math.max((TYPE[p.name][0] === 'hook' ? base.mocapFarMinHook : TYPE[p.name][0] === 'uppercut' ? base.mocapFarMinUpper : 0) * H,
+  (base.mocapBandsFromClips
+    ? mocap.mocapBandFar(mocap.mocapLib(), cfg, R0.heightM, R0.stance, TYPE[p.name][0], TYPE[p.name][1], low, R0.heightM, R0.stance, G0)
+    : base[low ? p.bodyFar : p.far] * H) + (p.name === 'cross' && !low ? base.mocapCrossStep * R0.heightM / base.mocapBandRefHeight : 0));
 /** One throw by side 0 from `dist`; opp(i) = side 1's input on tick i. Returns the first outcome event (+ slip events seen). */
 function throwAt(dist, p, { low = false, opp = () => inp(), c = cfg } = {}) {
   const specs = [core.ROSTER[0], { ...core.ROSTER[1], heightM: core.ROSTER[0].heightM, stance: core.ROSTER[0].stance }];

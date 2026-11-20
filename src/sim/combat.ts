@@ -13,7 +13,7 @@
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { SIM_DT, atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist } from './state';
+import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist, pressDist } from './state';
 import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -126,7 +126,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   };
   if (loaded) { f.loaded = 0; f.loadedT = 0; }
   // Phase 1.4 (punch keys): the range at the press, which sizes the keyed body drive for this punch (sim/skel.ts).
-  if (cfg.skelOn && cfg.punchKeysOn) setPressDist(f, opp ? Math.hypot(opp.pos.x - f.pos.x, opp.pos.z - f.pos.z) : 2);
+  if ((cfg.skelOn && cfg.punchKeysOn) || cfg.evadeV2) setPressDist(f, opp ? Math.hypot(opp.pos.x - f.pos.x, opp.pos.z - f.pos.z) : 2);
   const fr = frameOf(f.yaw);
   // The step-in (2026-09-16): a straight thrown with the stick pushed forward
   // takes a short lunge step with it — a burst on the stagger channel (it
@@ -588,7 +588,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
         // The slip punish: the attacker is pinned exposed, and the counter
         // machinery does the rest. Survives the stretched recovery above —
         // the spike is a floor under the curve, on its own clock.
-        applyPunish(a, cfg.slipPunishVuln, cfg.slipPunishDuration, PUNISH_SLIP);
+        // (evadeV2: the lean back is the safe evade, it beats every head punch, so its window is the short one)
+        applyPunish(a, cfg.slipPunishVuln, cfg.evadeV2 && d.slip.dir === 2 ? cfg.evadeLeanCounter : cfg.slipPunishDuration, PUNISH_SLIP);
         // The escape (overhaul): slipping or rolling under a punch with the
         // ropes behind you carries the feet along them, the way the head went.
         if (cfg.ropesOn && d.ropes > ESCAPE_AT && cfg.ropeEscapeHop > 0 && lat !== 0) {
@@ -597,6 +598,12 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
           events.push({ type: 'escape', side: target, how: d.slip.kind === 'roll' ? 'roll' : 'slip' });
         }
       }
+    } else if (cfg.evadeV2 && oc && oc.kind === 'whiff' && pressDist(a) <= oc.far && oc.d - pressDist(a) > cfg.evadeRangeMissStep) {
+      // MADE HIM MISS BY RANGE (Nate 2026-11-20: "I leaned back to avoid a hook and got out of range yet I don't get a
+      // counter window?"): the punch was in range when it was pressed and the gap opened before it arrived. The same
+      // read and the short counter window as a lean back.
+      events.push({ type: 'slip', side: target, dir: 2, dodged: true, kind: 'pull', chain: 0 });
+      applyPunish(a, cfg.slipPunishVuln, cfg.evadeLeanCounter, PUNISH_SLIP);
     }
     return;
   }

@@ -45,7 +45,10 @@ export function punchBand(a: FighterState, type: PunchType, hand: Hand, variant:
     : lead ? cfg.mocapFarLeadUpper : cfg.mocapFarRearUpper;
   // (not × the variant's reach: that shaped the procedural arm; the drawn clip is the same for a shovel hook or an inside uppercut)
   // (the cross steps in: its take has almost no travel of its own, which left it 29 cm shorter than the jab)
-  const far = (clipFar ?? far0 * a.body.heightM / cfg.mocapBandRefHeight) + (type === 'cross' && !v.body ? cfg.mocapCrossStep * a.body.heightM / cfg.mocapBandRefHeight : 0);
+  // (hooks and uppercuts reach at least a floor: measured 2026-11-19, fights happen at 0.9-1.3 m and the clips' own reach
+  //  was 0.98 m lead hook, 0.94 m uppercuts — "so frustrating when my hook and uppercut is out of range". The drawn body steps in for the rest.)
+  const floor = (type === 'hook' ? cfg.mocapFarMinHook : type === 'uppercut' ? cfg.mocapFarMinUpper : 0) * a.body.heightM / cfg.mocapBandRefHeight;
+  const far = Math.max(floor, (clipFar ?? far0 * a.body.heightM / cfg.mocapBandRefHeight) + (type === 'cross' && !v.body ? cfg.mocapCrossStep * a.body.heightM / cfg.mocapBandRefHeight : 0));
   const near = type === 'jab' || type === 'cross' ? cfg.smotherDist : cfg.separationDist;
   return { near: Math.min(near, far), far };
 }
@@ -74,9 +77,9 @@ export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, ou
       // Each is live from the tick of its press for evadeWindow. The wrong one is simply hit.
       const lateral = s.active && (s.dir === 1 || s.dir === -1);
       const dk = duckT(d);
-      const beaten = p.type === 'uppercut' ? s.active && s.dir === 2
-        : p.type === 'hook' ? (dk > 0 && dk <= cfg.evadeWindow) || (lateral && s.kind === 'roll')
-        : lateral;
+      // (the LEAN BACK beats every head punch, Nate 2026-11-20: it is the safe evade and opens only the short counter window)
+      const beaten = (s.active && s.dir === 2)
+        || (p.type === 'hook' ? (dk > 0 && dk <= cfg.evadeWindow) || (lateral && s.kind === 'roll') : p.type !== 'uppercut' && lateral);
       if (beaten) { o.kind = 'dodge'; o.slip = true; return o; }
     } else if (s.active && s.dir !== 0) {
       const lateral = s.dir === 1 || s.dir === -1;

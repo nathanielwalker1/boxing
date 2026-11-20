@@ -36,6 +36,8 @@ interface Track {
   lower?: boolean;
   /** The upper body without the head (the crouch's forward lean). */
   lean?: boolean;
+  /** Head, neck and upper spine only (a hit taken while his own punch is in flight: the arms keep punching, the head goes). */
+  head?: boolean;
 }
 
 export interface AnimOut {
@@ -89,6 +91,7 @@ export class HumanAnim {
   private readonly tmp: Pose;
   private readonly upperMask: Float32Array;
   private readonly leanMask: Float32Array;
+  private readonly headMask: Float32Array;
   private tracks: Track[] = [];
   private seq = 0;
   private readonly southpaw: boolean;
@@ -99,7 +102,7 @@ export class HumanAnim {
   private punchN = 0;
   private lastProgress = 0;
   // hit reaction: own clock from the impact frame
-  private hit: { pick: Pick; t: number; end: number; n: number; fromState: boolean; t0: number; rate: number; fit: boolean; mir?: boolean } | null = null;
+  private hit: { pick: Pick; t: number; end: number; n: number; fromState: boolean; t0: number; rate: number; fit: boolean; mir?: boolean; head?: boolean } | null = null;
   private hitN = 0;
   private jolt = 0;   // procedural flinch of a blocked shot, 1 -> 0
   private wasDown = false;
@@ -129,11 +132,13 @@ export class HumanAnim {
     this.southpaw = stance === 'southpaw';
     this.upperMask = new Float32Array(this.nb);
     this.leanMask = new Float32Array(this.nb);
+    this.headMask = new Float32Array(this.nb);
     lib.bones.forEach((n, i) => {
       const s = n.replace(/^mixamorig\d*[:_]?/, '');
       this.upperMask[i] = s === 'Spine' ? 0.35 : s === 'Spine1' ? 0.7 : /^(Spine2|Neck|Head|Left(Shoulder|Arm|ForeArm|Hand)|Right(Shoulder|Arm|ForeArm|Hand))/.test(s) ? 1 : 0;
       // the crouch's lean: the upper body without the head (eyes stay on the man, not on the floor)
       // (and without the arms: the duck take's arms are a long guard with the rear elbow up — the idle guard rides the lean)
+      this.headMask[i] = s === 'Head' || s === 'Neck' ? 1 : s === 'Spine2' ? 0.6 : s === 'Spine1' ? 0.3 : 0;
       this.leanMask[i] = /^(Head|Left(Shoulder|Arm|ForeArm|Hand)|Right(Shoulder|Arm|ForeArm|Hand))/.test(s) ? 0 : s === 'Neck' ? 0.3 : this.upperMask[i]!;
     });
     // A second idle for the other corner if one exists; otherwise the same idle half a loop apart.
@@ -175,13 +180,13 @@ export class HumanAnim {
     return want.filter(n => !this.roles[n]).map(n => (this.find(n) ? n + ' (label fallback)' : n));
   }
 
-  private want(key: string, pick: Pick, t: number, o: { loop?: boolean; fadeIn?: number; fadeOut?: number; upper?: boolean; lower?: boolean; lean?: boolean; w?: number; target?: number; fixW?: number; halfMax?: number } = {}): void {
+  private want(key: string, pick: Pick, t: number, o: { loop?: boolean; fadeIn?: number; fadeOut?: number; upper?: boolean; lower?: boolean; lean?: boolean; head?: boolean; w?: number; target?: number; fixW?: number; halfMax?: number } = {}): void {
     let tr = this.tracks.find(x => x.key === key);
     // CONTINUITY (humanInertia): an action cuts in at full weight; the view carries the on-screen pose and speed over
     const half0 = this.cutHalfFor(key);
     const half = half0 > 0 && o.halfMax !== undefined ? Math.max(0.012, Math.min(half0, o.halfMax)) : half0;
     if (!tr) {
-      tr = { key, pick, t, loop: !!o.loop, w: half > 0 ? (o.target ?? 1) : o.w ?? 0, target: 1, fadeIn: o.fadeIn ?? this.cfg.humanFadeIn, fadeOut: o.fadeOut ?? this.cfg.humanFadeOut, upper: !!o.upper || !!o.lean, lower: !!o.lower, lean: !!o.lean, seq: this.seq++ };
+      tr = { key, pick, t, loop: !!o.loop, w: half > 0 ? (o.target ?? 1) : o.w ?? 0, target: 1, fadeIn: o.fadeIn ?? this.cfg.humanFadeIn, fadeOut: o.fadeOut ?? this.cfg.humanFadeOut, upper: !!o.upper || !!o.lean || !!o.head, lower: !!o.lower, lean: !!o.lean, head: !!o.head, seq: this.seq++ };
       this.tracks.push(tr);
       if (half > 0) this.cutHalf = this.cutHalf > 0 ? Math.min(this.cutHalf, half) : half;
     } else if (half > 0 && !tr.loop && (t < tr.t - 0.05 || t > tr.t + 0.2)) {
@@ -592,7 +597,9 @@ export class HumanAnim {
             ik = { arm: leftHand ? 'Left' : 'Right', w, at };
           }
         }
-        this.hit = null;   // his own punch overrides the reaction
+        // (his own punch used to override the reaction whole. Measured 2026-11-20: hit mid-punch his head turned 11-28 deg
+        //  against 41-56 standing, "he's not really responding... yet I'm doing damage". Now the head and neck take the hit.)
+        if (!cfg.humanHitThroughPunch) this.hit = null;
       }
       // ---- block (upper body) ----
       if (next.block && !punching) {
@@ -607,14 +614,15 @@ export class HumanAnim {
         }
       }
       // ---- hit reaction ----
-      if (this.hit && !punching) {
+      if (this.hit && (!punching || cfg.humanHitThroughPunch)) {
         this.hit.t += this.hit.fromState && next.hitT > 0 ? 0 : dt * this.hit.rate;
         const h = this.hit;
+        if (punching) h.head = true;   // once his punch is in it, the reaction stays on the head and neck to its end
         // fitted: real seconds since the impact; past half the react time the clip eases out if it is still going
         const age = (h.t - h.t0) / h.rate, R = cfg.humanHitReactTime;
         const cut = h.fit && (h.end - h.t0) / h.rate > R + 1e-3;
         if (h.t < h.end && !(cut && age >= R)) {
-          this.want('hit#' + h.n, h.pick, h.t, { fadeIn: cfg.humanHitFadeIn, fadeOut: 0.25, target: h.t > h.end - 0.25 * h.rate ? 0 : 1, ...(h.mir ? { upper: true } : {}), ...(cut ? { fixW: 1 - smooth((age - 0.5 * R) / (0.5 * R)) } : {}) });
+          this.want((h.head ? 'hith#' : 'hit#') + h.n, h.pick, h.t, { fadeIn: cfg.humanHitFadeIn, fadeOut: 0.25, target: h.t > h.end - 0.25 * h.rate ? 0 : 1, ...(h.head ? { head: true } : h.mir ? { upper: true } : {}), ...(cut ? { fixW: 1 - smooth((age - 0.5 * R) / (0.5 * R)) } : {}) });
           label = label || 'hit ' + h.pick.name;
         } else this.hit = null;
       }
@@ -710,7 +718,7 @@ export class HumanAnim {
       const t = tr.loop ? from + ((((tr.t - from) % span) + span) % span) : clamp(tr.t, from, to);
       sample(this.lib, c, t, { root: 'inPlace', mirror: this.southpaw !== tr.pick.mirror }, this.tmp);
       for (let b = 0; b < this.nb; b++) {
-        const wb = tr.lean ? w * this.leanMask[b]! : tr.upper ? w * this.upperMask[b]! : tr.lower ? w * (1 - this.upperMask[b]!) : w;
+        const wb = tr.head ? w * this.headMask[b]! : tr.lean ? w * this.leanMask[b]! : tr.upper ? w * this.upperMask[b]! : tr.lower ? w * (1 - this.upperMask[b]!) : w;
         if (wb > 1e-3) nlerp(this.pose.rot, b * 4, this.tmp.rot, b * 4, wb, this.pose.rot, b * 4);
       }
       if (!tr.upper) this.pose.hips[1] = lerp(this.pose.hips[1]!, this.tmp.hips[1]!, w);   // (the crouch's lower mask carries the hips height too)
