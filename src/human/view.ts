@@ -34,7 +34,9 @@ const shown: ({ prev: FighterState; next: FighterState } | null)[] = [null, null
 /** Outcome mode: each view's drawn lunge along its facing last frame (the other caps its own by it), m. */
 const drawnLunge = [0, 0];
 /** Outcome mode: each view's DRAWN head sphere and torso capsule last frame (the other keeps its gloves out of them). */
-interface DrawnBody { head: THREE.Vector3; headR: number; a: THREE.Vector3; b: THREE.Vector3; r: number; gloves: [THREE.Vector3, THREE.Vector3] }
+interface DrawnBody { head: THREE.Vector3; headR: number; a: THREE.Vector3; b: THREE.Vector3; r: number; gloves: [THREE.Vector3, THREE.Vector3];
+  /** The shoulder line (joint to joint) and the neck (chest joint to head joint): the torso capsule stops at the chest, so arms went through these. */
+  sl: THREE.Vector3; sr: THREE.Vector3; sR: number; nk: THREE.Vector3; nR: number }
 const drawnBodies: (DrawnBody | null)[] = [null, null];
 
 /** Load the body and the clips once. Resolves to false (and logs) if anything is missing. */
@@ -673,6 +675,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
               if (E.distanceTo(ob.head) < hmin) to = ob.head.clone().add(E.clone().sub(ob.head).setLength(hmin));
               const P = closestOn(ob.a, ob.b, to ?? E), tmin = ob.r + cfg.humanElbowClear;
               if ((to ?? E).distanceTo(P) < tmin) to = P.clone().add((to ?? E).clone().sub(P).setLength(tmin));
+              // (his shoulder line and neck too: the torso capsule stops at the chest joint)
+              for (const [ca, cb, cr] of [[ob.sl, ob.sr, ob.sR], [ob.b, ob.nk, ob.nR]] as const) {
+                if (cr <= 0) continue;
+                const Q = closestOn(ca, cb, to ?? E), qmin = cr + cfg.humanElbowClear;
+                if ((to ?? E).distanceTo(Q) < qmin) to = Q.clone().add((to ?? E).clone().sub(Q).setLength(qmin));
+              }
               if (!to) continue;
               qR.setFromUnitVectors(E.sub(S).normalize(), to.sub(S).normalize());
               rotateWorld(u, qR);
@@ -689,6 +697,11 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             if (hd < hmin) push = ob.head.clone().add(G.clone().sub(ob.head).setLength(hmin));
             const P = closestOn(ob.a, ob.b, push ?? G), td = (push ?? G).distanceTo(P), tmin = ob.r + rest;
             if (td < tmin) push = P.clone().add((push ?? G).clone().sub(P).setLength(tmin));
+            for (const [ca, cb, cr] of [[ob.sl, ob.sr, ob.sR], [ob.b, ob.nk, ob.nR]] as const) {
+              if (cr <= 0) continue;
+              const Q = closestOn(ca, cb, push ?? G), qmin = cr + rest;
+              if ((push ?? G).distanceTo(Q) < qmin) push = Q.clone().add((push ?? G).clone().sub(Q).setLength(qmin));
+            }
             // GLOVE ON GLOVE: two guards never sit inside each other; each man gives half (a punch resting on his guard is left where the block put it)
             if (cfg.humanInertia && cfg.humanGloveClear > 0 && !(next.punch.type !== null && out.ik?.arm === a)) {
               const gmin = next.body.gloveR * 2 * cfg.humanGloveClear;
@@ -707,8 +720,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         }
         // this man's drawn head sphere and torso line, for the other view (and the probe)
         const s = spec.heightM / cfg.mocapBandRefHeight;
-        const db = drawnBodies[side] ?? (drawnBodies[side] = { head: new THREE.Vector3(), headR: 0, a: new THREE.Vector3(), b: new THREE.Vector3(), r: 0, gloves: [new THREE.Vector3(), new THREE.Vector3()] });
+        const db = drawnBodies[side] ?? (drawnBodies[side] = { head: new THREE.Vector3(), headR: 0, a: new THREE.Vector3(), b: new THREE.Vector3(), r: 0, gloves: [new THREE.Vector3(), new THREE.Vector3()], sl: new THREE.Vector3(), sr: new THREE.Vector3(), sR: 0, nk: new THREE.Vector3(), nR: 0 });
         db.gloves[0].fromArray(gloveOf('Left')); db.gloves[1].fromArray(gloveOf('Right'));
+        arm.Left[0].getWorldPosition(db.sl); arm.Right[0].getWorldPosition(db.sr); head.getWorldPosition(db.nk);
+        db.sR = cfg.humanShoulderR * s; db.nR = cfg.humanNeckR * s;
         head.getWorldPosition(db.head);
         if (headTop) db.head.add(headTop.getWorldPosition(vA)).multiplyScalar(0.5); else db.head.y += 0.09 * group.scale.y;
         db.headR = cfg.mocapHeadR * s; db.r = cfg.mocapTorsoR * s;

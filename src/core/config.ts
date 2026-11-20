@@ -2035,6 +2035,8 @@ export const SCHEMA = {
   humanWorkCapLoss:  num(0.0012, 0, 0.02, 0.0005, 'human', 'human mode: workCapLoss, stamina ceiling lost per punch thrown x its weight'),
   humanWhiffCapLoss: num(0.001, 0, 0.05, 0.001, 'human', 'human mode: whiffCapLoss, the extra ceiling a miss costs (was 0.004)'),
   humanStaggerSpeedMax: num(2.6, 0, 10, 0.1, 'human', 'human mode sets staggerSpeedMax to this every frame: a man knocked back is pushed, not teleported (measured: 14.6 cm in one tick on a flush hook; at 2.6 m/s it is 4.3 cm a tick)'),
+  humanShoulderR:    num(0.085, 0, 0.2, 0.005, 'human', 'drawn: radius of the other man\'s SHOULDER LINE (joint to joint) that gloves and elbows are kept out of, m at the reference height (0 = off: the torso capsule stops at the chest, so arms passed through shoulders in a close trade)'),
+  humanNeckR:        num(0.07, 0, 0.15, 0.005, 'human', 'drawn: radius of the other man\'s NECK (chest joint to head joint) that gloves and elbows are kept out of, m (0 = off)'),
   humanFootPlant:    bool(true, 'human', 'drawn: THE FEET STAND ON THE CANVAS. Each foot is pinned where it stands and takes a real step (up, over, down ahead of the body) when the body has carried it far enough, one foot at a time. Off = the step clips play in place while the sim moves the man (the feet skate)'),
   humanFootStepMin:  num(0.1, 0.03, 0.4, 0.01, 'human', 'foot planter: a standing foot steps once its place has moved this far from its pin, m (a slow shuffle: small steps)'),
   humanFootStepPerSpeed: num(0.12, 0, 0.4, 0.01, 'human', 'foot planter: that distance grows by this many metres per m/s of body speed (walking fast: longer steps, not more of them)'),
