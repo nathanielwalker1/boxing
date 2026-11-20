@@ -17,7 +17,7 @@
  */
 import type { BodyPart, Config, FighterState, Hand, PunchType, PunchVariant } from '../core';
 import { GUARDS, handLateralSign, v2dist } from '../core';
-import { makeDrawnTargets, mocapBandFar, mocapDrawnTargets, mocapLib, type DrawnTargets } from '../core/mocap';
+import { makeDrawnTargets, mocapBandFar, mocapBandStep, mocapDrawnTargets, mocapLib, type DrawnTargets } from '../core/mocap';
 import { VARIANTS } from './variants';
 import { slipLateral } from './slip';
 import { duckT } from './state';
@@ -33,7 +33,7 @@ export interface Outcome {
 }
 
 /** The punch's band, centre to centre, m. Straights: near = smotherDist (the power ramp starts); hooks and uppercuts: the separation. */
-export function punchBand(a: FighterState, type: PunchType, hand: Hand, variant: PunchVariant, cfg: Config, d: FighterState | null = null): { near: number; far: number } {
+export function punchBand(a: FighterState, type: PunchType, hand: Hand, variant: PunchVariant, cfg: Config, d: FighterState | null = null): { near: number; far: number; step: number } {
   const v = VARIANTS[variant];
   const lead = hand === 'lead';
   // the far end measured from the clip itself (core/mocap.ts mocapBandFar): the picture and the rule cannot disagree
@@ -50,7 +50,11 @@ export function punchBand(a: FighterState, type: PunchType, hand: Hand, variant:
   const floor = (type === 'hook' ? cfg.mocapFarMinHook : type === 'uppercut' ? cfg.mocapFarMinUpper : 0) * a.body.heightM / cfg.mocapBandRefHeight;
   const far = Math.max(floor, (clipFar ?? far0 * a.body.heightM / cfg.mocapBandRefHeight) + (type === 'cross' && !v.body ? cfg.mocapCrossStep * a.body.heightM / cfg.mocapBandRefHeight : 0));
   const near = type === 'jab' || type === 'cross' ? cfg.smotherDist : cfg.separationDist;
-  return { near: Math.min(near, far), far };
+  // (how much of that far end is the body travelling: the clip's own lunge, plus whatever the cross step and the hook /
+  //  uppercut floor add beyond the clip — predictOutcome gives a punch only as much of it as its time allows)
+  const k = a.body.heightM / cfg.mocapBandRefHeight;
+  const noStep = clipFar !== null && lib ? clipFar - mocapBandStep(lib, cfg, a.body.heightM, a.stance, type, hand, !!v.body) : far - cfg.mocapStepFallback * k;
+  return { near: Math.min(near, far), far, step: Math.max(0, far - noStep) };
 }
 
 /** How far the target's head is down from where the punch was aimed at the press, m (variants.ts aimAtPress measures the same). */
@@ -65,9 +69,14 @@ export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, ou
   const o = out ?? { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0 };
   const band = punchBand(a, p.type, p.hand, p.variant, cfg, d);
   const v = VARIANTS[p.variant];
-  o.near = band.near; o.far = band.far; o.d = v2dist(a.pos, d.pos); o.slip = false;
+  // A STEP TAKES TIME (mocapStepSpeed, 2026-11-20): the far end of a band is the arm PLUS the body travelling in. A
+  // punch that is out in 5 ticks (a tapped or counter jab) has no time to travel: it was scored at 1.2 m while the
+  // drawn body, which moves at a walk, left the glove 5-14 cm short of the face (live fights: every remaining phantom
+  // was this). The body-travel part of the reach is now earned at mocapStepSpeed over the punch's own time, both corners alike.
+  const far = cfg.mocapStepSpeed > 0 ? Math.min(band.far, band.far - band.step + cfg.mocapStepSpeed * p.tell) : band.far;
+  o.near = Math.min(band.near, far); o.far = far; o.d = v2dist(a.pos, d.pos); o.slip = false;
   o.part = v.body ? 'body' : 'head';
-  if (o.d > band.far) { o.kind = 'whiff'; return o; }
+  if (o.d > far) { o.kind = 'whiff'; return o; }
   if (o.part === 'head') {
     const s = d.slip;
     if (cfg.evadeV2) {

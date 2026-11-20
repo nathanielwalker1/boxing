@@ -277,7 +277,16 @@ export function advancePunch(f: FighterState, cfg: Config, dt: number): boolean 
   // applies again to the recovery; fatigue (timeMult) slows every phase.
   const rate = rewinding ? -(p.feint ? cfg.feintRewindRate : cfg.interruptRewindRate)
     : (was < ph.cock - PHASE_EPS ? 1 / cockMult(f) : was >= ph.cock + ph.extend - PHASE_EPS ? rated(f, 'speed', cfg.ratingSpeedHands, cfg) / (whiffMult(f) * VARIANTS[p.variant].time(cfg) * (cfg.mocapOutcome && cfg.mocapGeo && p.type !== 'jab' && was - ph.cock - ph.extend >= (p.contact ? cfg.punchChainOnHit : cfg.punchChainAt) * ph.recover + ph.recover * cfg.mocapRecoverHeavyFrom ? cfg.mocapRecoverHeavy : 1)) : 1) / Math.max(1e-6, p.timeMult);
-  const elapsed = clamp(was + dt * rate, 0, ph.total);
+  let elapsed = clamp(was + dt * rate, 0, ph.total);
+  // NO INSTANT PUNCHES (mocapTellExact, 2026-11-20): a wind-up shorter than one tick (a chained or counter punch whose
+  // wanted tell is under its extension: cock multiplier at its 0.05 floor, a rate of 20x) carried the WHOLE tick at the
+  // wind-up's rate, straight through the extension: the punch started and scored on the same tick, with nothing drawn
+  // (measured in live fights: jabs landing 1 tick after their start, heard and not seen). The tick is now split at the
+  // end of the wind-up; what is left of it runs at the extension's own rate, and never past the hit.
+  if (cfg.mocapTellExact && cfg.mocapOutcome && !rewinding && was < ph.cock - PHASE_EPS && elapsed > ph.cock) {
+    const used = (ph.cock - was) / rate;   // real seconds this tick spent finishing the wind-up
+    elapsed = Math.min(ph.cock + (dt - used) / Math.max(1e-6, p.timeMult), ph.cock + ph.extend - PHASE_EPS * 2, elapsed);
+  }
   p.progress = elapsed / ph.total;
   if (rewinding && elapsed <= 0) {
     f.punch = idlePunch(p.hand);

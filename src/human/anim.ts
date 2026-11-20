@@ -218,10 +218,17 @@ export class HumanAnim {
   // CONTACT, closed loop: what the drawn arm could not close last frame (forward, m) is added to the body travel
   private lungeBias = 0; private biasFed = false;
   /** The view reports, after its hand IK, how far the punching glove still is from its contact point along his facing (m, + = short), and the IK weight. */
-  feedReach(resF: number, w: number): void {
-    this.lungeBias = clamp(this.lungeBias + clamp(resF, -this.cfg.humanReachStep, this.cfg.humanReachStep) * w, -this.cfg.humanShiftBack, this.cfg.humanShiftFwd);
+  feedReach(resF: number, w: number, urgent = false): void {
+    // (urgent: the hit is on this tick or the next and the glove is still short — a guard dropped at the last moment, a
+    //  head knocked back — the body goes with the punch at up to humanReachStepUrgent instead of a walk)
+    const step = urgent ? Math.max(this.cfg.humanReachStep, this.cfg.humanReachStepUrgent) : this.cfg.humanReachStep;
+    this.lungeBias = clamp(this.lungeBias + clamp(resF, -this.cfg.humanReachStep, step) * w, -this.cfg.humanShiftBack, this.cfg.humanShiftFwd);
     this.biasFed = true;
   }
+  // CONTACT (humanContactDrawn): where the view rested (or will rest) the glove on the DRAWN man last frame; the body
+  // travel is planned to THAT, not to where his head would be standing idle (a reeling head is 10-27 cm from it)
+  private fedT = { x: 0, y: 0, z: 0, n: -1 };
+  feedTarget(x: number, y: number, z: number): void { this.fedT.x = x; this.fedT.y = y; this.fedT.z = z; this.fedT.n = this.punchN; }
   /** The view reads this once a frame: > 0 = an action switched this frame (the half-life to carry the on-screen pose over with). */
   takeCut(): number { const c = this.cutHalf; this.cutHalf = 0; return c; }
   /** The punch's wanted body offset -> the drawn one, on a critically damped spring (it is never switched on or off). */
@@ -262,7 +269,9 @@ export class HumanAnim {
   }
 
   /** Outcome mode (read by tests / the audit): what the punching hand is steered to this frame. */
-  conformInfo: { kind: OutcomeKind | 'none'; w: number; at: Vec3 | null } = { kind: 'none', w: 0, at: null };
+  conformInfo: { kind: OutcomeKind | 'none'; w: number; at: Vec3 | null; part: BodyPart; resolved: boolean; toHit: number } = { kind: 'none', w: 0, at: null, part: 'head', resolved: false, toHit: 0 };
+  /** The part the punch in flight is predicted to land on, then the part it was scored on. */
+  private ocPart: BodyPart = 'head';
   /** (audit) the punch's body travel this frame along his facing, m: the sim's own, what the contact frame lacks, and the envelope on that. */
   lungeDbg: [number, number, number] = [0, 0, 0];
   private ocKindW = 0;
@@ -286,7 +295,7 @@ export class HumanAnim {
     if (!p.resolved) {
       const o = predictOutcome(me, opp, mc, OCS);
       kind = o ? o.kind : 'whiff';
-      if (o && (kind === 'land' || kind === 'block')) T = contactPoint(me, opp, kind, o.part, mc, TP);
+      if (o && (kind === 'land' || kind === 'block')) { T = contactPoint(me, opp, kind, o.part, mc, TP); this.ocPart = o.part; }
     } else if (p.contact) { kind = this.blockedN === this.punchN ? 'block' : 'land'; T = p.contact; }   // (a blocked punch stays 'block': the view puts it on the drawn guard)
     else kind = 'whiff';
     const hits = kind === 'land' || kind === 'block';
@@ -298,8 +307,20 @@ export class HumanAnim {
     }
     // (out only after the punch's own hold: the glove stays on the contact through the hold and the hit-stop)
     // (in only over the last mocapIKTicks before the hit: the clip's wind-up and most of its extension are untouched)
-    const out0 = peak + hold * (1 - peak), in0 = Math.max(cockEnd, peak - cfg.mocapIKTicks * SIM_DT / Math.max(1e-6, total));
-    const wIn = u <= peak ? smooth((u - in0) / Math.max(1e-6, peak - in0)) : 1 - smooth((u - out0) / Math.max(1e-6, (1 - peak) * cfg.mocapIKOut));
+    // (humanContactDrawn: and over at least humanContactHomeTicks, into the end of the wind-up if the extension is shorter —
+    //  an uppercut's extension is 4 ticks, and a hand steered 40 cm in 4 ticks is a glove going 30+ cm a tick)
+    const tk = SIM_DT / Math.max(1e-6, total);
+    const out0 = peak + hold * (1 - peak), in0 = Math.max(cfg.humanContactDrawn ? Math.min(cockEnd, peak - cfg.humanContactHomeTicks * tk) : cockEnd, peak - cfg.mocapIKTicks * tk);
+    // REAL seconds to the hit (the wind-up runs 1 / cockMult slower or faster than plain progress: a chained punch's
+    // wind-up is over in a tick, and a window measured in progress switched the hand on in that one tick: 44 cm)
+    const toHit = p.resolved ? 0 : (Math.max(0, cockEnd - u) * cockMult(me) + Math.max(0, peak - Math.max(u, cockEnd))) * total * Math.max(1, p.timeMult);
+    let wIn = u <= peak ? smooth((u - in0) / Math.max(1e-6, peak - in0)) : 1 - smooth((u - out0) / Math.max(1e-6, (1 - peak) * cfg.mocapIKOut));
+    if (cfg.humanContactDrawn && u <= peak) {
+      // steered over the extension, at least humanContactHomeTicks, at most mocapIKTicks, and never longer than the punch itself
+      const ext = (peak - cockEnd) * total * Math.max(1, p.timeMult);
+      const win = Math.max(SIM_DT, Math.min(p.tell > 0 ? p.tell : 1, Math.max(ext, cfg.humanContactHomeTicks * SIM_DT), cfg.mocapIKTicks * SIM_DT));
+      wIn = smooth(clamp(1 - toHit / win, 0, 1));
+    }
     const w = Number.isNaN(this.ocT.x) ? 0 : wIn * this.ocKindW;
     const at = { x: this.ocT.x, y: this.ocT.y, z: this.ocT.z };
     let turn = 0, lunge = cfg.humanInertia ? { x: 0, z: 0 } : lunge0;
@@ -309,7 +330,8 @@ export class HumanAnim {
       const c = Math.cos(me.yaw), s = Math.sin(me.yaw);
       const L = lunge0.x * c + lunge0.z * s;
       const ox = me.pos.x - c * cfg.humanBackShift + lunge0.x, oz = me.pos.z - s * cfg.humanBackShift + lunge0.z;
-      const tF = (at.x - ox) * c + (at.z - oz) * s, tL = (at.x - ox) * -s + (at.z - oz) * c;
+      const aim = cfg.humanContactDrawn && this.fedT.n === this.punchN && kind === 'land' ? this.fedT : at;
+      const tF = (aim.x - ox) * c + (aim.z - oz) * s, tL = (aim.x - ox) * -s + (aim.z - oz) * c;
       const gF = CG2.z, gL = -CG2.x;   // native x = his left
       const m = cfg.mocapIKArmMax;
       const dF = tF - gF, dL = tL - gL;
@@ -338,7 +360,7 @@ export class HumanAnim {
       const Lw = cfg.humanWhiffStep * env * (1 - this.ocKindW);
       lunge = { x: lunge.x + Math.cos(me.yaw) * Lw, z: lunge.z + Math.sin(me.yaw) * Lw };
     }
-    this.conformInfo = { kind, w, at: Number.isNaN(at.x) ? null : at };
+    this.conformInfo = { kind, w, at: Number.isNaN(at.x) ? null : at, part: this.ocPart, resolved: p.resolved, toHit };
     return { ik: { arm: pick.arm, w, at, exact: true, outcome: true }, turn, lunge };
   }
 
@@ -386,6 +408,9 @@ export class HumanAnim {
       }
       else if (e.type === 'punchBlock' && e.side === this.side) this.blockedN = this.punchN;
     }
+    // (the part his own landed punch was scored on: the view rests the glove on that part of the DRAWN man)
+    // (a punch that went THROUGH a guard is scored as a land: it is drawn on the body, not left on the glove)
+    for (const e of events) if (e.type === 'punchLand' && e.side === this.side) { this.ocPart = e.part; if (this.cfg.humanContactDrawn) this.blockedN = -1; }
     // (a big hit breaks the drawing of his own punch once that punch has been resolved: he reels, he does not finish his recovery)
     if (punching && this.hit?.big && p.resolved) punching = false;
     // ---- hit from state (frozen replays carry no events): hitT is set to hitWindow on the landing tick ----

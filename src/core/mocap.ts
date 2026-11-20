@@ -483,6 +483,21 @@ export function mocapBandFar(lib: MocapLib, cfg: Config, heightA: number, stance
   return far;
 }
 
+const STEPS = new Map<string, number>();
+/**
+ * How much of a punch's far reach is BODY TRAVEL (the clip's own drawn lunge at its contact frame), m: the part of the
+ * band a punch can only cover if it has the time to step (sim/outcome.ts, cfg.mocapStepSpeed). Cached. 0: no clip.
+ */
+export function mocapBandStep(lib: MocapLib, cfg: Config, heightA: number, stance: Stance, type: PunchType, hand: Hand, low: boolean): number {
+  const key = `${type}|${hand}|${stance}|${low ? 1 : 0}|${heightA.toFixed(3)}|${cfg.mocapLungeKeep}`;
+  const hit = STEPS.get(key);
+  if (hit !== undefined) return hit;
+  const g = mocapContactGlove(lib, cfg, heightA, stance, type, hand, low);
+  const v = g ? Math.max(0, g.lunge) : 0;
+  STEPS.set(key, v);
+  return v;
+}
+
 /** The native-space height of a clip's glove at its contact frame × s, and its forward reach there (measurement helper). */
 export function mocapContactGlove(lib: MocapLib, cfg: Config, heightM: number, stance: Stance, type: PunchType, hand: Hand, low: boolean): { fwd: number; up: number; lat: number; lunge: number } | null {
   const pick = mocapPunchPick(lib, type, hand, stance, low);

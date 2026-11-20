@@ -338,7 +338,9 @@ window.__look = (id, kind, yawDeg = 0) => {
   window.__focus = 0;
 };
 window.__focus = -1;
-window.__states =() => [posed[0] ?? next.fighters[0], posed[1] ?? next.fighters[1]];
+// (scripts/live_contact_probe.mjs: hold the camera and the HUD on a state the script stepped itself)
+(window as unknown as { __setPosed: (a: FighterState | null, b: FighterState | null) => void }).__setPosed = (a, b) => { posed[0] = a; posed[1] = b; };
+window.__states =() =>[posed[0] ?? next.fighters[0], posed[1] ?? next.fighters[1]];
 window.__camAz = () => stage.inputAzimuth;
 window.__camDist = () => stage.dollyDistance;
 window.__camEl = () => stage.elevation;
