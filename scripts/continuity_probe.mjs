@@ -54,6 +54,9 @@ const SC = [
   { name: 'counter_cross', dist: 1.0, s0: at({ ...two(14, { move: { x: 1, y: 0 } }), ...two(16, { move: { x: 1, y: 0 } }), ...two(24, P('cross')) }), s1: at(two(4, P('cross'))), n: 90 },
   // the mash: one button pressed every 6 ticks, eight times
   { name: 'mash_jab', dist: 1.0, s0: at(Object.assign({}, ...[0, 1, 2, 3, 4, 5, 6, 7].map(i => two(4 + i * 6, P('jab'))))), n: 150 },
+  // (a bare hook press, no direction: lead, then rear, then lead while the last is still in flight)
+  { name: 'mash_hook', dist: 1.0, s0: at(Object.assign({}, ...[0, 1, 2, 3, 4, 5, 6, 7].map(i => two(4 + i * 6, { hook: true })))), n: 170 },
+  { name: 'mash_upper', dist: 0.9, s0: at(Object.assign({}, ...[0, 1, 2, 3, 4, 5, 6, 7].map(i => two(4 + i * 6, { uppercut: true })))), n: 170 },
   { name: 'mash_cross', dist: 1.0, s0: at(Object.assign({}, ...[0, 1, 2, 3, 4, 5, 6, 7].map(i => two(4 + i * 6, P('cross'))))), n: 170 },
   // hooks and uppercuts at the far end of their widened range (mocapFarMinHook / Upper): the body must step in and the glove must arrive
   { name: 'lhook_far', dist: 1.17, s0: at(two(4, P('hook', 'lead'))), n: 80 },

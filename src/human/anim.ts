@@ -102,7 +102,7 @@ export class HumanAnim {
   private punchN = 0;
   private lastProgress = 0;
   // hit reaction: own clock from the impact frame
-  private hit: { pick: Pick; t: number; end: number; n: number; fromState: boolean; t0: number; rate: number; fit: boolean; mir?: boolean; head?: boolean } | null = null;
+  private hit: { pick: Pick; t: number; end: number; n: number; fromState: boolean; t0: number; rate: number; fit: boolean; mir?: boolean; head?: boolean; big?: boolean } | null = null;
   private hitN = 0;
   private jolt = 0;   // procedural flinch of a blocked shot, 1 -> 0
   private wasDown = false;
@@ -357,7 +357,7 @@ export class HumanAnim {
     let slipLv = 0;   // outcome mode: the slip's dip drawn through the crouch blend (0..1 of a held level)
     let lunge = { x: 0, z: 0 }, turn = 0;
     const p = next.punch;
-    const punching = p.type !== null;
+    let punching = p.type !== null;
 
     // ---- events: hits and blocked shots on this man ----
     let hitByEvent = false;
@@ -375,6 +375,9 @@ export class HumanAnim {
           g = (e.counter || e.finisher) && e.grade !== 'flush' ? (e.grade === 'glancing' ? 'clean' : 'flush') : e.grade;
         }
         this.startHit(e.part, e.punch, g, 1, 0, false, rocked, e.impulse.x * -Math.sin(next.yaw) + e.impulse.z * Math.cos(next.yaw)); hitByEvent = true;
+        // (THE COUNTER'S PAYOFF, and the shot that rocks a man: it takes his whole body. Measured 2026-11-20: a counter
+        //  turned his head 44-50 deg, the same as a plain land, while he calmly finished his own punch's recovery.)
+        if (this.hit && cfg.humanCounterBreaks && (e.counter || rocked)) this.hit.big = true;
       }
       else if (e.type === 'punchBlock' && e.target === this.side) {
         const bh = this.find('block_hit');
@@ -383,6 +386,8 @@ export class HumanAnim {
       }
       else if (e.type === 'punchBlock' && e.side === this.side) this.blockedN = this.punchN;
     }
+    // (a big hit breaks the drawing of his own punch once that punch has been resolved: he reels, he does not finish his recovery)
+    if (punching && this.hit?.big && p.resolved) punching = false;
     // ---- hit from state (frozen replays carry no events): hitT is set to hitWindow on the landing tick ----
     if (!hitByEvent && next.hitT > 0) {
       const age = cfg.hitWindow - next.hitT;

@@ -80,7 +80,14 @@ export function canStartPunch(f: FighterState, cfg: Config): boolean {
  */
 function startPunch(f: FighterState, opp: FighterState | null, side: Side, type: PunchType, moveX: number, moveY: number, cfg: Config, events: SimEvent[]): void {
   const def = PUNCHES[type];
-  const hand = punchHand(def, moveX);
+  // handNeutral (human mode): a hook or uppercut pressed with NO sideways push is the natural hand — the lead hook, the
+  // rear uppercut — and, tapped again while the last one of its kind is still in flight, the OTHER hand: tap, tap, tap is
+  // left, right, left. A sideways push still picks the hand (the locked rule). Measured 2026-11-20: a bare hook press was
+  // always the rear hook, and the lead hook needed left held at the press ("why are lead hooks so useless").
+  const neutral = cfg.handNeutral > 0 && def.hand === 'input' && Math.abs(moveX) < cfg.handNeutral;
+  const hand = !neutral ? punchHand(def, moveX)
+    : f.punch.type === type ? (f.punch.hand === 'lead' ? 'rear' : 'lead')
+    : type === 'hook' ? 'lead' : 'rear';
   const variant = pickVariant(f, type, moveY, cfg);
   const v = VARIANTS[variant];
   // Inside a chain the body is already turned and loaded from the last
@@ -100,7 +107,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
     // THE COUNTER COMES OUT FAST (evadeV2): thrown while the man he just made miss is still in the window that evade opened,
     // the wind-up is evadeCounterTell as long. Measured 2026-11-19: a reply cross took 383 ms, exactly a cold one ("sluggish").
     const counterNow = cfg.evadeV2 && opp !== null && opp.counterWindow > 0 && punishSource(opp) === PUNISH_SLIP;
-    const want = (type === 'jab' ? cfg.mocapTellJab : type === 'cross' ? cfg.mocapTellHeavy : type === 'hook' ? cfg.mocapTellHook : cfg.mocapTellUppercut) * (chained ? cfg.mocapTellChained : 1) * (counterNow ? cfg.evadeCounterTell : 1);
+    const want = (type === 'jab' ? cfg.mocapTellJab : type === 'cross' ? cfg.mocapTellHeavy : type === 'hook' ? cfg.mocapTellHook : cfg.mocapTellUppercut) * (chained ? (type === 'hook' || type === 'uppercut' ? Math.max(cfg.mocapTellChained, cfg.mocapTellChainedArc) : cfg.mocapTellChained) : 1) * (counterNow ? cfg.evadeCounterTell : 1);
     cock = Math.max(cock, (want / slow - ph.extend) / ph.cock);
   }
   // Thrown while being hit, or hurt (polish phase): it comes out — slower, shorter (gloves.ts) and weaker by `nerf`.
