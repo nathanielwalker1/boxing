@@ -63,6 +63,10 @@ const SC = [
   { name: 'rhook_far', dist: 1.17, s0: at(two(4, P('hook', 'rear'))), n: 80 },
   { name: 'lupper_far', dist: 1.09, s0: at(two(4, P('uppercut', 'lead'))), n: 80 },
   { name: 'rupper_far', dist: 1.09, s0: at(two(4, P('uppercut', 'rear'))), n: 80 },
+  // the LONG hook: thrown from just under jab range it reaches (Nate 2026-11-20), the arm opening and the body going with it
+  { name: 'lhook_long', dist: 1.33, s0: at(two(4, P('hook', 'lead'))), n: 80 },
+  { name: 'rhook_long', dist: 1.33, s0: at(two(4, P('hook', 'rear'))), n: 80 },
+  { name: 'jab_lhook_long', dist: 1.3, s0: at({ ...two(4, P('jab')), ...two(18, P('hook', 'lead')) }), n: 90 },
   { name: 'jab_close', dist: 0.78, s0: at(two(4, P('jab'))), n: 70 },
   { name: 'cross_close', dist: 0.78, s0: at(two(4, P('cross'))), n: 80 },
   { name: 'jab_far', dist: 1.12, s0: at(two(4, P('jab'))), n: 70 },
