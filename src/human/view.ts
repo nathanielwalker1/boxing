@@ -223,6 +223,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       head: v3(head), hips: v3(hips), headQ: head.getWorldQuaternion(new THREE.Quaternion()).toArray(), headTop: headTop ? v3(headTop) : null,
       gloves: { left: gloveOf('Left'), right: gloveOf('Right'), lead: gloveOf(lead), rear: gloveOf(rear) },
       feet: { left: v3(leg.Left[2]), right: v3(leg.Right[2]) }, knees: [v3(leg.Left[1]), v3(leg.Right[1])], ikMax,
+      elbows: { left: v3(arm.Left[1]), right: v3(arm.Right[1]) }, shoulders: { left: v3(arm.Left[0]), right: v3(arm.Right[0]) },
       clip: anim.info.slug, frame: anim.info.frame, punchClip: anim.info.punch, label,
       origin: [group.position.x, group.position.y, group.position.z], legitHand: anim.legitHand,
       // outcome mode: the drawn head sphere / torso line (what the other man's gloves are kept out of) and the hand's target
