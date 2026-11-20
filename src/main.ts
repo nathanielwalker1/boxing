@@ -97,7 +97,7 @@ if (params.get('tune') === '1') mountTuningPanel(cfg);
 // assets load before the first view is built; with the switch off nothing below changes.
 if (params.get('human') === '1') cfg.humanBody = true;
 if (cfg.humanBody && !(await preloadHuman(cfg.humanBodyFile))) cfg.humanBody = false;
-if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; if (cfg.humanStamina) { cfg.staminaLandRefund = cfg.humanStaminaLandRefund; cfg.staminaWhiffCost = cfg.humanStaminaWhiffCost; cfg.staminaWhiffDelay = cfg.humanStaminaWhiffDelay; cfg.staminaRegenDelay = cfg.humanStaminaRegenDelay; cfg.lowStaminaCockMult = cfg.humanLowStaminaCockMult; cfg.workCapLoss = cfg.humanWorkCapLoss; cfg.whiffCapLoss = cfg.humanWhiffCapLoss; cfg.staminaThrowScale = cfg.humanStaminaThrowScale; cfg.staminaRegen = cfg.humanStaminaRegen; cfg.staminaBusyRegen = cfg.humanStaminaBusyRegen; cfg.tiredPunchSlow = cfg.humanTiredPunchSlow; } if (cfg.humanNoSlowMo) { cfg.readWindowSlowMo = 1; cfg.readCounterSlowMoSeconds = 0; cfg.readRockedSlowMoSeconds = 0; cfg.showFinisherSlowMoSeconds = 0; } }
+if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; cfg.variantOverhand = !cfg.humanNoOverhand; if (cfg.humanStamina) { cfg.staminaLandRefund = cfg.humanStaminaLandRefund; cfg.staminaWhiffCost = cfg.humanStaminaWhiffCost; cfg.staminaWhiffDelay = cfg.humanStaminaWhiffDelay; cfg.staminaRegenDelay = cfg.humanStaminaRegenDelay; cfg.lowStaminaCockMult = cfg.humanLowStaminaCockMult; cfg.workCapLoss = cfg.humanWorkCapLoss; cfg.whiffCapLoss = cfg.humanWhiffCapLoss; cfg.staminaThrowScale = cfg.humanStaminaThrowScale; cfg.staminaRegen = cfg.humanStaminaRegen; cfg.staminaBusyRegen = cfg.humanStaminaBusyRegen; cfg.tiredPunchSlow = cfg.humanTiredPunchSlow; } if (cfg.humanNoSlowMo) { cfg.readWindowSlowMo = 1; cfg.readCounterSlowMoSeconds = 0; cfg.readRockedSlowMoSeconds = 0; cfg.showFinisherSlowMoSeconds = 0; } }
 if (cfg.humanBody) cfg.mocapGeo = await loadMocapGeo();   // the sim's punching glove = the drawn mocap glove (core/mocap.ts)
 if (cfg.mocapGeo) cfg.mocapOutcome = true;   // outcome first: the sim decides by rule, the drawing conforms (sim/outcome.ts)
 // The human fighters' own key + rims (human/body.ts), aimed each frame at the pair's midpoint.
@@ -415,7 +415,7 @@ function loop(nowMs: number): void {
   const dt = Math.min(MAX_FRAME, (nowMs - lastMs) / 1000);
   lastMs = nowMs;
   // Human fighters: their own punch speed (panel-tunable) and no referee (he is still the old body and walks across the camera).
-  if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; if (cfg.humanStamina) { cfg.staminaLandRefund = cfg.humanStaminaLandRefund; cfg.staminaWhiffCost = cfg.humanStaminaWhiffCost; cfg.staminaWhiffDelay = cfg.humanStaminaWhiffDelay; cfg.staminaRegenDelay = cfg.humanStaminaRegenDelay; cfg.lowStaminaCockMult = cfg.humanLowStaminaCockMult; cfg.workCapLoss = cfg.humanWorkCapLoss; cfg.whiffCapLoss = cfg.humanWhiffCapLoss; cfg.staminaThrowScale = cfg.humanStaminaThrowScale; cfg.staminaRegen = cfg.humanStaminaRegen; cfg.staminaBusyRegen = cfg.humanStaminaBusyRegen; cfg.tiredPunchSlow = cfg.humanTiredPunchSlow; } if (cfg.humanNoSlowMo) { cfg.readWindowSlowMo = 1; cfg.readCounterSlowMoSeconds = 0; cfg.readRockedSlowMoSeconds = 0; cfg.showFinisherSlowMoSeconds = 0; } }
+  if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; cfg.variantOverhand = !cfg.humanNoOverhand; if (cfg.humanStamina) { cfg.staminaLandRefund = cfg.humanStaminaLandRefund; cfg.staminaWhiffCost = cfg.humanStaminaWhiffCost; cfg.staminaWhiffDelay = cfg.humanStaminaWhiffDelay; cfg.staminaRegenDelay = cfg.humanStaminaRegenDelay; cfg.lowStaminaCockMult = cfg.humanLowStaminaCockMult; cfg.workCapLoss = cfg.humanWorkCapLoss; cfg.whiffCapLoss = cfg.humanWhiffCapLoss; cfg.staminaThrowScale = cfg.humanStaminaThrowScale; cfg.staminaRegen = cfg.humanStaminaRegen; cfg.staminaBusyRegen = cfg.humanStaminaBusyRegen; cfg.tiredPunchSlow = cfg.humanTiredPunchSlow; } if (cfg.humanNoSlowMo) { cfg.readWindowSlowMo = 1; cfg.readCounterSlowMoSeconds = 0; cfg.readRockedSlowMoSeconds = 0; cfg.showFinisherSlowMoSeconds = 0; } }
   const paused = posed[0] !== null || posed[1] !== null;
   const held = paused || replay !== null || (flow !== null && flow.holdsSim);   // a menu / card / replay is up: the sim waits
   frameEvents.length = 0;
@@ -499,7 +499,11 @@ function loop(nowMs: number): void {
   // Human mode: the views' own springs (continuity, body travel, hit whip) run on the time the fighters are SHOWN in, so
   // a slow-motion replay or the knockdown slow motion draws the same picture as live play (contact included), only slower.
   const viewDt = !cfg.humanBody ? dt : replay && !paused ? dt * cfg.flowReplaySpeed : staged ? dt : dt * slow;
+  // A pause is a literal pause (Nate 2026-11-19): the human views run their clips, springs and idle life on their own clock,
+  // so with the sim held they kept shifting and breathing under the pause menu. They are simply not advanced while it is up.
+  const frozenViews = cfg.humanBody && flow !== null && flow.isPaused;
   for (const v of views) {
+    if (frozenViews) break;
     const s = v.side;
     const ev = viewEvents.filter(e => !('side' in e) || e.side === s || ('target' in e && e.target === s));
     v.apply(drawPrev[s], shown[s]!, alpha, viewDt, ev);
@@ -539,7 +543,8 @@ function loop(nowMs: number): void {
   if (flow) { flow.replaying = replay !== null; flow.replayDue = replayDue; flow.update(next, dt, frameEvents); }
   // The audio's own clock and state (the crowd bed, the corner's voice): once a frame, quiet while the pause is up.
   // (Without the flow there is no pause menu: the audio keeps whatever a test set through window.__audio.setPaused.)
-  audio.update(next, sdt, flow ? flow.isPaused : window.__audio?.paused() ?? false);
+  // (a held sim keeps its last velocities: fed a running clock, the footfall scuffs kept firing under the pause menu)
+  audio.update(next, held ? 0 : sdt, flow ? flow.isPaused : window.__audio?.paused() ?? false);
   const offLive = staged !== null || replay !== null;   // the live fight is not what is on screen
   read.update(next, offLive);
   stage.wobble = offLive ? 0 : hurtLevel(next.fighters[0]) * cfg.readHurtWobble;   // you are rocked: the lens drifts more

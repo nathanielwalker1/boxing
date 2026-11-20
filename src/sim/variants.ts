@@ -91,7 +91,7 @@ export function pickVariant(f: FighterState, type: PunchType, moveY: number, cfg
   const inside = f.range === 'inside';
   switch (type) {
     case 'jab': return low ? 'bodyJab' : fwd && cfg.punchStepIn > 0 ? 'stepJab' : back ? 'retreatJab' : 'jab';
-    case 'cross': return low ? (fwd ? 'overhand' : 'bodyCross') : 'cross';
+    case 'cross': return low ? (fwd && cfg.variantOverhand ? 'overhand' : 'bodyCross') : 'cross';
     case 'hook': return low ? 'bodyHook' : rising ? 'risingHook' : back ? 'checkHook' : inside ? 'shovelHook' : 'hook';
     case 'uppercut': return low || rising ? 'risingUppercut' : inside ? 'insideUppercut' : 'uppercut';
   }
