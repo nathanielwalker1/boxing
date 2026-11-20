@@ -87,7 +87,9 @@ function triggerSlip(f: FighterState, side: Side, dir: -1 | 1 | 2, kind: SlipKin
 /** A flick was released: pick the move from what is held. */
 function flick(f: FighterState, side: Side, dir: -1 | 1 | 2 | 3, input: Readonly<FrameInput>, cfg: Config, events: SimEvent[], req: FlickRequest): void {
   const lateral = dir === -1 || dir === 1;
-  if (input.block) {
+  // (evadeFromBlock: with the guard held a side or back tap is still the slip / lean — the guard is down for its window,
+  //  combat.ts — so a man waiting behind his gloves can make a punch miss and counter. Forward stays the push-off.)
+  if (input.block && !(cfg.evadeV2 && cfg.evadeFromBlock && dir !== 3)) {
     // Mutually exclusive with the slip (the held level: this runs before
     // stepActions). With the guard up a flick is footwork of another kind.
     if (lateral) startPivot(f, side, dir, cfg, events);
@@ -114,7 +116,7 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
     const dk = duckT(f);
     if (!input.level || f.down) { if (dk !== 0) setDuckT(f, 0); }
     else if (dk === 0) {
-      if (evadeCd(f) > 0 || input.block || (cfg.blockStunOn && f.blockStun > 0)) setDuckT(f, -1);
+      if (evadeCd(f) > 0 || (input.block && !cfg.evadeFromBlock) || (cfg.blockStunOn && f.blockStun > 0)) setDuckT(f, -1);
       else { setDuckT(f, dt); setEvadeCd(f, cfg.evadeWindow + cfg.evadeCooldown); }
     } else if (dk > 0) setDuckT(f, dk + dt);
   }
@@ -128,6 +130,14 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
     const mx = input.move.x, my = input.move.y;
     const mag = Math.hypot(mx, my);
     if (mag >= cfg.slipInputThreshold) {
+      // evadeHeldTap: A NEW DIRECTION WHILE ANOTHER IS HELD IS A NEW PUSH. A man backing up or circling (a key held)
+      // who taps to the side, or one moving sideways who taps back, starts the evade on that tap: without it the push
+      // "began" only from a still stick, and a player on the move could never slip (Nate 2026-11-20: three rounds,
+      // "could not slip a single punch"). Going forward is never an evade, and the shared clock stops it being spammed.
+      if (cfg.evadeV2 && cfg.evadeHeldTap && p.t > 0) {
+        const now = Math.abs(mx) >= Math.abs(my) ? ((mx > 0 ? 1 : -1) * handLateralSign('rear', f.stance)) : my < 0 ? 2 : 3;
+        if (now !== p.dir && now !== 3 && evadeCd(f) <= 0) p.t = 0;
+      }
       if (p.t === 0) {
         // Push just began — the direction is captured now, not at release, so
         // a wobble mid-push cannot change which way the head goes. Sideways is
@@ -138,7 +148,7 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
         // evadeV2: THE EVADE STARTS ON THE PUSH, not on its release (measured 2026-11-19: waiting for the release left
         // 200 ms from the other man's press to beat a jab, under human reaction time). A push that turns out to be held
         // is footwork that began with the head going that way; the shared clock (evadeCooldown) stops it being spammed.
-        if (cfg.evadeV2 && !input.block && p.dir !== 3 && evadeCd(f) <= 0 && !(punchMask(input) & ~prevPunchMask(f))) flick(f, side, p.dir, input, cfg, events, req);
+        if (cfg.evadeV2 && (!input.block || cfg.evadeFromBlock) && p.dir !== 3 && evadeCd(f) <= 0 && !(punchMask(input) & ~prevPunchMask(f))) flick(f, side, p.dir, input, cfg, events, req);
       }
       p.t += dt;
       if (p.t > cfg.slipFlickMax) p.hold = true;   // outlived the flick window: footwork
@@ -162,7 +172,7 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
     } else {
       if (p.t > 0 && !p.hold && p.dir !== 0) {   // let go early = flick
         // (evadeV2: the slip / lean already began on the push; the guard-up flicks, pivot and push-off, still fire here)
-        if (!cfg.evadeV2 || input.block) flick(f, side, p.dir, input, cfg, events, req);
+        if (!cfg.evadeV2 || (input.block && !(cfg.evadeFromBlock && p.dir !== 3))) flick(f, side, p.dir, input, cfg, events, req);
         f.tap = { dir: p.dir, t: 0 };
       }
       p.t = 0; p.dir = 0; p.hold = false;

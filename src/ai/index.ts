@@ -199,6 +199,8 @@ export interface AiState {
   readT: number; readMove: 0 | 1 | 2 | 3; readX: number; readPunch: PunchType | null; readHand: number;
   /** Seconds since the opponent last STARTED a punch (phase 3: a combination is punches less than COVER_QUIET apart). */
   oppQuiet: number;
+  /** Seconds it has stood armed, its clock run out, with the man beyond the armed punch's range (aiStepInAfter). */
+  armedWait: number;
   /** Covering up through his combination at close range: seconds since it decided to (the guard is up once that passes its reaction time); -1 = not covering. */
   coverT: number;
   /** Behind the guard: the last push at or over the flick threshold, held through the flick window so it is never a pivot or a shove by accident. */
@@ -250,7 +252,7 @@ export function createAi(side: Side, seed: number, cfg: Config, style: StylePara
     wasHurt: false,
     hurtPlan: 'none',
     hits: 0, shellT: 0,
-    wasInside: false, insideHold: false, oppRate: 0, queue: [], queueT: 0, armedOver: false, armedTold: false, armedBack: false, lastStun: 0, oppResolved: false, pushFollow: 0, resting: false, interceptCd: 0, oppQuiet: 9, coverT: -1, holdX: 0, holdY: 0,
+    wasInside: false, insideHold: false, oppRate: 0, queue: [], queueT: 0, armedOver: false, armedTold: false, armedBack: false, lastStun: 0, oppResolved: false, pushFollow: 0, resting: false, interceptCd: 0, oppQuiet: 9, armedWait: 0, coverT: -1, holdX: 0, holdY: 0,
     checkT: 0, burstInT: 0, jabRes: false, guardT: 0, guardCap: 0, guardOffT: 0,
     learn: [0, 0, 0, 0], since: [60, 60, 60, 60], gap: [0, 0, 0, 0], steady: [0, 0, 0, 0], pre: -1, readT: -1, readMove: 0, readX: 0, readPunch: null, readHand: 0,
     used: { body: 0, slip: 0, roll: 0, pivot: 0, push: 0, burst: 0, feint: 0, clinch: 0, cutOff: 0, read: 0 },
@@ -1002,6 +1004,14 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai:
   if (a.armed !== null && a.attackTimer === 0 && (mode !== 'reset' || crowdedOut || jabOut) && a.macro === null) {
     const t = a.armed;
     const inBand = dist <= engageOf(t, st) && dist >= nearDist(t, cfg);
+    // GO AND GET HIM (aiStepInAfter, 0 = off): armed, its clock run out, and he is beyond the punch's range — it steps
+    // in until he is not. Measured 2026-11-20 (human mode): against a man backed into a corner the outboxer stood at
+    // 1.13-1.14 m, its footwork's own distance, with a jab armed for 1.10 m, and threw NOTHING for 30 s ("I sat on
+    // the ropes waiting to counter and he threw nothing"). Every style's footwork now gives way to a punch it owes.
+    if (cfg.aiStepInAfter > 0 && !inBand && dist > engageOf(t, st)) {
+      a.armedWait += dt;
+      if (a.armedWait > cfg.aiStepInAfter && !input.block) { input.move.x = 0; input.move.y = 1; }
+    } else a.armedWait = 0;
     if (inBand && canThrow && !input.block) {
       // A body shot (and the overhand) drops its level first and throws once it is down.
       const needLevel = a.armedBody || a.armedOver;

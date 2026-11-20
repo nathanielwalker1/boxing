@@ -110,7 +110,9 @@ function twoBone(root: THREE.Bone, mid: THREE.Bone, end: THREE.Bone, target: THR
   const cur = u.angleTo(v);
   const des = Math.acos(Math.max(-1, Math.min(1, (a * a + b * b - c * c) / (2 * a * b))));
   const n = new THREE.Vector3().crossVectors(u, v);
-  if (n.lengthSq() < 1e-10) return;
+  // (a dead-straight arm has no bend plane: it used to return here, so a fully extended jab that had to be pulled back
+  //  out of the other man's head — a miss, measured 10 cm inside for a tick — was left where it was. Bend it outward-down.)
+  if (n.lengthSq() < 1e-10) { n.crossVectors(u, new THREE.Vector3(0, 1, 0)); if (n.lengthSq() < 1e-10) n.set(1, 0, 0); }
   n.normalize();
   const r = new THREE.Quaternion().setFromAxisAngle(n, des - cur);
   rotateWorld(mid, r);
@@ -767,7 +769,9 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             }
           }
           const rest0 = next.body.gloveR * (1 - cfg.contactSquash);
-          for (const a of ['Left', 'Right'] as const) {
+          // (up to three passes an arm with humanContactDrawn: the wrist is aimed with the forearm as it lay BEFORE the bend,
+          //  so one pass left a straight jab that had to fold back up to 10 cm inside his head for a tick)
+          for (const a of (contactDrawn ? ['Left', 'Right', 'Left', 'Right', 'Left', 'Right'] : ['Left', 'Right']) as readonly ('Left' | 'Right')[]) {
             group.updateMatrixWorld(true);
             const G = new THREE.Vector3().fromArray(gloveOf(a));
             let push: THREE.Vector3 | null = null;

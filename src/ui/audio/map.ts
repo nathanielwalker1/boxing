@@ -176,6 +176,9 @@ export function voicesForEvent(e: SimEvent, c: Config, player = 0, mem?: VoiceMe
     case 'feint': out.push({ name: 'whiff', power: 0.25, pitch: 1.25, length: 0.6 }); break;
     case 'punchSmother': case 'punchStuffed': out.push({ name: 'clothMove', power: 0.8 }); break;
     case 'slip': {
+      // (audioSlipOn off, human mode: no cloth rustle on every slip and lean, no whoosh, no counter ping — Nate
+      //  2026-11-20: "a weird sound when slipping. Get rid of it")
+      if (!c.audioSlipOn) break;
       const x = e as Partial<typeof e> & { dodged: boolean; side: number };
       const pitch = SLIP_PITCH[x.kind ?? 'slip'] * (1 + 0.07 * Math.max(0, (x.chain ?? 1) - 1));
       if (x.dodged) {

@@ -357,6 +357,9 @@ export function withDifficulty(st: StyleParams, d: Difficulty): StyleParams {
 export function styleParams(id: AiStyle, cfg: Config, difficulty: number = cfg.aiDifficulty): StyleParams {
   const d = DIFFICULTY[Math.max(0, Math.min(2, Math.round(difficulty)))]!;
   const st = { ...withDifficulty({ ...defaultStyle({ ...cfg, aiToolsOn: true }), ...STYLE_OVERRIDES[id] }, d), styleId: id, diffIdx: Math.max(0, Math.min(2, Math.round(difficulty))) };
+  // (aiHesitateScale, 1 = as written: human mode turns the "set, in range, does not throw" odds down — an easy man is
+  //  slower and easier to hit, never a man who stands and watches)
+  st.hesitate *= cfg.aiHesitateScale;
   if (!cfg.aiHumanV2) return st;
   // aiHumanV2: per-difficulty human layer. Hard (index 2) keeps today's reaction, hold and tempo.
   const i = Math.max(0, Math.min(2, Math.round(difficulty)));
