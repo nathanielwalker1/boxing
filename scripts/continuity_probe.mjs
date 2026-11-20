@@ -49,6 +49,10 @@ const SC = [
   { name: 'evade_slip_jab', dist: 1.0, s0: hold([], { move: { x: -1, y: 0 } }, 12, 15), s1: at(two(4, P('jab'))), n: 70 },
   { name: 'evade_duck_hook', dist: 0.95, s0: hold([], { level: true }, 16, 44), s1: at(two(4, P('hook', 'lead'))), n: 80 },
   { name: 'evade_lean_upper', dist: 0.8, s0: hold([], { move: { x: 0, y: -1 } }, 20, 23), s1: at(two(4, P('uppercut', 'lead'))), n: 80 },
+  { name: 'counter_cross', dist: 1.0, s0: at({ ...two(14, { move: { x: 1, y: 0 } }), ...two(16, { move: { x: 1, y: 0 } }), ...two(24, P('cross')) }), s1: at(two(4, P('cross'))), n: 90 },
+  // the mash: one button pressed every 6 ticks, eight times
+  { name: 'mash_jab', dist: 1.0, s0: at(Object.assign({}, ...[0, 1, 2, 3, 4, 5, 6, 7].map(i => two(4 + i * 6, P('jab'))))), n: 150 },
+  { name: 'mash_cross', dist: 1.0, s0: at(Object.assign({}, ...[0, 1, 2, 3, 4, 5, 6, 7].map(i => two(4 + i * 6, P('cross'))))), n: 170 },
   { name: 'jab_close', dist: 0.78, s0: at(two(4, P('jab'))), n: 70 },
   { name: 'cross_close', dist: 0.78, s0: at(two(4, P('cross'))), n: 80 },
   { name: 'jab_far', dist: 1.12, s0: at(two(4, P('jab'))), n: 70 },

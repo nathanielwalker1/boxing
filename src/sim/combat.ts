@@ -13,7 +13,7 @@
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { SIM_DT, atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist } from './state';
+import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist } from './state';
 import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -97,7 +97,10 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // Outcome first (human mode): a punch you can READ — the wind-up (never the extension) is long enough for the tell.
   if (cfg.mocapOutcome && cfg.mocapGeo && ph.cock > 0) {
     // (per punch, Nate 2026-11-17: readable wind-ups, so a punch can be seen, leaned away from and countered)
-    const want = (type === 'jab' ? cfg.mocapTellJab : type === 'cross' ? cfg.mocapTellHeavy : type === 'hook' ? cfg.mocapTellHook : cfg.mocapTellUppercut) * (chained ? cfg.mocapTellChained : 1);
+    // THE COUNTER COMES OUT FAST (evadeV2): thrown while the man he just made miss is still in the window that evade opened,
+    // the wind-up is evadeCounterTell as long. Measured 2026-11-19: a reply cross took 383 ms, exactly a cold one ("sluggish").
+    const counterNow = cfg.evadeV2 && opp !== null && opp.counterWindow > 0 && punishSource(opp) === PUNISH_SLIP;
+    const want = (type === 'jab' ? cfg.mocapTellJab : type === 'cross' ? cfg.mocapTellHeavy : type === 'hook' ? cfg.mocapTellHook : cfg.mocapTellUppercut) * (chained ? cfg.mocapTellChained : 1) * (counterNow ? cfg.evadeCounterTell : 1);
     cock = Math.max(cock, (want / slow - ph.extend) / ph.cock);
   }
   // Thrown while being hit, or hurt (polish phase): it comes out — slower, shorter (gloves.ts) and weaker by `nerf`.
