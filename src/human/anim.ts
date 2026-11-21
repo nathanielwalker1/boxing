@@ -20,6 +20,7 @@ import type { BodyPart, FighterState, HitGrade, PunchType, SimEvent, Side, Vec3 
 import { punchPhases } from '../sim/punches';
 import { mocapCfg, mocapPunchNow } from '../sim/mocap';
 import { cockMult, getUpAt } from '../sim/state';
+import { VARIANTS } from '../sim/variants';
 import { contactPoint, predictOutcome, type Outcome, type OutcomeKind } from '../sim/outcome';
 import { mocapClipGlove, mocapRoleNames, mocapTwinRole, type ChainedFrom, type MocapPick } from '../core/mocap';
 const CG1 = { x: 0, y: 0, z: 0 }, CG2 = { x: 0, y: 0, z: 0 }, TP = { x: 0, y: 0, z: 0 };   // scratch
@@ -228,6 +229,8 @@ export class HumanAnim {
   // CONTACT (humanContactDrawn): where the view rested (or will rest) the glove on the DRAWN man last frame; the body
   // travel is planned to THAT, not to where his head would be standing idle (a reeling head is 10-27 cm from it)
   private fedT = { x: 0, y: 0, z: 0, n: -1 };
+  /** 0..1: how far he is down into a body punch (humanBodyDip). */
+  private bodyDip = 0;
   feedTarget(x: number, y: number, z: number): void { this.fedT.x = x; this.fedT.y = y; this.fedT.z = z; this.fedT.n = this.punchN; }
   /** The view reads this once a frame: > 0 = an action switched this frame (the half-life to carry the on-screen pose over with). */
   takeCut(): number { const c = this.cutHalf; this.cutHalf = 0; return c; }
@@ -295,7 +298,8 @@ export class HumanAnim {
     if (!p.resolved) {
       const o = predictOutcome(me, opp, mc, OCS);
       kind = o ? o.kind : 'whiff';
-      if (o && (kind === 'land' || kind === 'block')) { T = contactPoint(me, opp, kind, o.part, mc, TP); this.ocPart = o.part; }
+      if (o) this.ocPart = o.part;   // (a miss too: the view keeps its gap off the part the punch was thrown at)
+      if (o && (kind === 'land' || kind === 'block')) T = contactPoint(me, opp, kind, o.part, mc, TP);
     } else if (p.contact) { kind = this.blockedN === this.punchN ? 'block' : 'land'; T = p.contact; }   // (a blocked punch stays 'block': the view puts it on the drawn guard)
     else kind = 'whiff';
     const hits = kind === 'land' || kind === 'block';
@@ -817,7 +821,17 @@ export class HumanAnim {
     // THE REFERENCE (humanRawPose): the clips alone, placed at the sim's pos / yaw
     if (cfg.humanRawPose) return { pose: this.pose, ik: null, ik2: null, aim: null, lean: { lat: 0, back: 0, fwd: 0 }, drop: 0, label, lunge: { x: 0, z: 0 }, turn: 0 };
     // outcome first: no hips drop with leg IK (the crouch is the duck clip, above); the lunge and the conform IK stay
-    if (cfg.mocapOutcome) return { pose: this.pose, ik, ik2: null, aim: null, lean, drop: 0, label, lunge, turn };
+    if (cfg.mocapOutcome) {
+      // GOING TO THE BODY IS A LEVEL CHANGE (humanBodyDip; Nate 2026-11-20: "holding Shift and throwing to the body he
+      // still looks upright; body combinations look the same as head combinations"). The body-punch clips stand almost
+      // as tall as the head ones (measured in live fights: the drawn head 15 cm higher than the sim's through a body
+      // punch). While a body punch is in flight the hips sink and he bends at the waist into it; eased, never switched.
+      const np = next.punch;
+      const want = cfg.humanBodyDip && np.type !== null && !next.down && VARIANTS[np.variant].body && np.progress < cfg.humanBodyDipUntil ? 1 : 0;
+      if (dt > 1e-5) this.bodyDip += (want - this.bodyDip) * (1 - Math.exp(-dt / Math.max(1e-3, want ? cfg.humanBodyDipIn : cfg.humanBodyDipOut)));
+      lean.fwd += cfg.humanBodyDipLean * this.bodyDip;
+      return { pose: this.pose, ik, ik2: null, aim: null, lean, drop: cfg.humanBodyDipDrop * this.bodyDip, label, lunge, turn };
+    }
     return { pose: this.pose, ik, ik2, aim, lean, drop, label, lunge, turn };
   }
 }

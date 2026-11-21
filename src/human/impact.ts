@@ -124,10 +124,12 @@ export function impactOnEvents(s: ImpactState, side: 0 | 1, events: readonly Sim
       if (hook) { const f = clamp(k, 0, 1); if (tr > 0) s.cheekL = Math.max(s.cheekL, f); else s.cheekR = Math.max(s.cheekR, f); }
     } else {
       const ba = cfg.impactBodyAttack;
-      feed(s, BF, cfg.impactBodyFlexDeg * k * D2R, 0, ba);
-      feed(s, BR, -tr * hookW * cfg.impactBodyRollDeg * k * D2R, 0, ba);
-      feed(s, HB, -cfg.impactBodyHipsBack * k, 0, ba);
-      feed(s, HD, cfg.impactBodyHeadDipDeg * k * D2R, 0, ba);
+      // (a body shot is never a small reaction: a glancing one folded him 6 degrees, which nobody could see)
+      const kb = Math.max(k, cfg.impactBodyMin);
+      feed(s, BF, cfg.impactBodyFlexDeg * kb * D2R, 0, ba);
+      feed(s, BR, -tr * hookW * cfg.impactBodyRollDeg * kb * D2R, 0, ba);
+      feed(s, HB, -cfg.impactBodyHipsBack * kb, 0, ba);
+      feed(s, HD, cfg.impactBodyHeadDipDeg * kb * D2R, 0, ba);
       s.jaw = Math.max(s.jaw, clamp(cfg.impactJawBody * k, 0, 1));
     }
   }

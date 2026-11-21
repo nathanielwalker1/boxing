@@ -39,6 +39,8 @@ const SC = [
   // (crouched AND walking in: this was the overhand, to the head, until 2026-11-19)
   { name: 'body_cross_walkin', dist: 1.25, s0: hold(hold(at(two(14, P('cross', 'rear', { level: true }))), { level: true }, 0, 40), { move: { x: 0, y: 1 } }, 2, 16), n: 80 },
   { name: 'body_hook', dist: 0.95, s0: hold(at(two(4, P('hook', 'lead', { level: true }))), { level: true }, 0, 6), n: 80 },
+  // a body combination (level held throughout): it must not look like the head one
+  { name: 'body_combo', dist: 0.95, s0: hold(at({ ...two(4, P('jab', 'lead', { level: true })), ...two(16, P('cross', 'rear', { level: true })), ...two(32, P('hook', 'lead', { level: true })) }), { level: true }, 0, 50), n: 110 },
   { name: 'walk_jab_walk', dist: 1.7, s0: hold(hold(at(two(44, P('jab'))), { move: { x: 0, y: 1 } }, 4, 40), { move: { x: 0, y: -1 } }, 62, 100), n: 130 },
   { name: 'jab_walk', dist: 1.0, s0: hold(at(two(4, P('jab'))), { move: { x: -1, y: 0 } }, 14, 50), n: 80 },
   { name: 'hit_head', dist: 1.0, s0: [], s1: at(two(4, P('cross'))), n: 90 },
