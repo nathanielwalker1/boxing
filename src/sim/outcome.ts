@@ -73,8 +73,19 @@ export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, ou
   // punch that is out in 5 ticks (a tapped or counter jab) has no time to travel: it was scored at 1.2 m while the
   // drawn body, which moves at a walk, left the glove 5-14 cm short of the face (live fights: every remaining phantom
   // was this). The body-travel part of the reach is now earned at mocapStepSpeed over the punch's own time, both corners alike.
-  const far = cfg.mocapStepSpeed > 0 ? Math.min(band.far, band.far - band.step + cfg.mocapStepSpeed * p.tell) : band.far;
-  o.near = Math.min(band.near, far); o.far = far; o.d = v2dist(a.pos, d.pos); o.slip = false;
+  // …and a man GOING AWAY takes it off the step (mocapStepRecede): the body travels in at mocapStepSpeed less the speed
+  // the gap is opening at. Traced 2026-11-22: the fourth cross of a mashed string was scored at 1.11 m on a man still
+  // being driven back at 2.6 m/s by the third; the drawn glove chased him and stopped 12 cm short. A punch thrown after a
+  // man who is leaving reaches only as far as the arm; stepping back out of a punch in time makes it miss.
+  o.d = v2dist(a.pos, d.pos);
+  let stepSpeed = cfg.mocapStepSpeed;
+  if (cfg.mocapStepRecede > 0 && o.d > 1e-6) {
+    const ux = (d.pos.x - a.pos.x) / o.d, uz = (d.pos.z - a.pos.z) / o.d;
+    const opening = (d.vel.x + d.stagger.x - a.vel.x - a.stagger.x) * ux + (d.vel.z + d.stagger.z - a.vel.z - a.stagger.z) * uz;
+    stepSpeed = Math.max(0, stepSpeed - cfg.mocapStepRecede * Math.max(0, opening));
+  }
+  const far = cfg.mocapStepSpeed > 0 ? Math.min(band.far, band.far - band.step + stepSpeed * p.tell) : band.far;
+  o.near = Math.min(band.near, far); o.far = far; o.slip = false;
   o.part = v.body ? 'body' : 'head';
   if (o.d > far) { o.kind = 'whiff'; return o; }
   if (o.part === 'head') {
