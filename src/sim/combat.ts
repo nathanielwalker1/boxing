@@ -28,7 +28,7 @@ import { contactPoint, predictOutcome, type Outcome } from './outcome';
 
 const DEG = Math.PI / 180;
 /** Scratch for the outcome rule (never read across ticks). */
-const OC: Outcome = { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0 };
+const OC: Outcome = { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0, margin: 0, evadeAge: -1, evadeLeft: -1 };
 /** The pose unwind (poseSettleRate is the twist's, rad/s): the lean and the crouch come home in proportion. Shape. */
 const POSE_LEAN = 0.35, POSE_CROUCH = 0.08;
 /** No block absorbs more than this, whatever the defense rating. Shape. */
@@ -524,9 +524,11 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // comes home at the normal rate and pays no whiff cost. MEASURED without this: a hook that a jab caught in its wind-up
   // came out, fell short — the jab had moved its thrower back 26 cm — and held him 367 ms; the old stuff held him 133.)
   const knockedOff = cfg.hitNerfOn && brokenMult(a) < 1;
-  const whiff = (): void => { events.push({ type: 'punchWhiff', side, punch: type, variant }); setWhiffMult(a, knockedOff ? 1 : whiffRecoveryMult(def, cfg)); missed(a, cfg, !knockedOff, type); s.round.control[target] += 1; };
-  // OUTCOME FIRST (sim/outcome.ts): the rule decides; no sphere test below decides anything in this mode.
   const oc = cfg.mocapOutcome && cfg.mocapGeo ? predictOutcome(a, d, cfg, OC) : null;
+  // (HOW CLOSE, measured only:the margin rides on the events, nothing reads it — sim/outcome.ts Outcome.margin)
+  const dodged = oc !== null && oc.kind === 'dodge', timed = oc !== null && oc.evadeAge >= 0;
+  const whiff = (): void => { events.push(oc ? { type: 'punchWhiff', side, punch: type, variant, margin: oc.margin, dodged, ...(timed ? { evadeAge: oc.evadeAge, evadeLeft: oc.evadeLeft } : {}) } : { type: 'punchWhiff', side, punch: type, variant }); setWhiffMult(a, knockedOff ? 1 : whiffRecoveryMult(def, cfg)); missed(a, cfg, !knockedOff, type); s.round.control[target] += 1; };
+  // OUTCOME FIRST (sim/outcome.ts): the rule decides; no sphere test below decides anything in this mode.
   if (oc ? oc.kind === 'whiff' : dist > cfg.rangeMax) { whiff(); return; }
 
   const g = a.gloves[a.punch.hand === 'lead' ? 0 : 1];
@@ -592,7 +594,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
       const up = d.slip.kind === 'roll' ? d.slip.dip : 0;
       const home = { x: d.headBox.x - fr.right.x * lat + fr.fwd.x * back, y: d.headBox.y + up, z: d.headBox.z - fr.right.z * lat + fr.fwd.z * back, r: d.headBox.r };
       if (oc || sphereCapsuleOverlap(home, sweep)) {
-        events.push({ type: 'slip', side: target, dir: d.slip.dir !== 0 ? d.slip.dir : 1, dodged: true, kind: ducked ? 'roll' : d.slip.kind, chain: d.slip.chain });
+        events.push({ type: 'slip', side: target, dir: d.slip.dir !== 0 ? d.slip.dir : 1, dodged: true, kind: ducked ? 'roll' : d.slip.kind, chain: d.slip.chain, ...(oc ? { margin: oc.margin } : {}), ...(timed && oc ? { evadeAge: oc.evadeAge, evadeLeft: oc.evadeLeft } : {}) });
         // The read (2026-09-18): a beat of hit-stop as the fist passes the
         // ear, so a well-timed slip is felt — Fight Night's brief slow moment
         // that opens the counter — and the attacker falls into the space:
@@ -680,9 +682,11 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const rollKeep = cfg.ropesOn ? lerp(1, cfg.ropeRollKeep, d.ropes) : 1;
   // `soft`: the losses a land already carries for being cramped or rolled with — a glancing grade never stacks on them.
   let soft = 1 - retreat * cfg.punchRollWith * rollKeep;
+  let ramp = 1;   // the close-range ramp's share of full power (measured; rides on the land event)
   if (def.smotherable && dist < cfg.smotherDist) {
     const span = Math.max(1e-6, cfg.smotherDist - cfg.separationDist);
-    soft *= lerp(cfg.smotherPowerFloor, 1, clamp((dist - cfg.separationDist) / span, 0, 1));
+    ramp = lerp(cfg.smotherPowerFloor, 1, clamp((dist - cfg.separationDist) / span, 0, 1));
+    soft *= ramp;
   }
   mag *= soft;
 
@@ -805,11 +809,12 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     if (blocked && !light) chip = mag * cfg.healthDamagePerImpulse * (part === 'body' && cfg.bodyDamageOn ? cfg.bodyHealthScale : 1);
   }
 
-  if (perfect) events.push({ type: 'perfectBlock', side, target, punch: type, at, variant });
-  else if (blocked) events.push({ type: 'punchBlock', side, target, punch: type, at, variant, part, chip, guard: d.guardHp, stun });
+  const margin = oc ? { margin: oc.margin } : {};
+  if (perfect) events.push({ type: 'perfectBlock', side, target, punch: type, at, variant, ...margin });
+  else if (blocked) events.push({ type: 'punchBlock', side, target, punch: type, at, variant, part, chip, guard: d.guardHp, stun, ...margin });
   else {
     events.push({ type: 'punchLand', side, target, punch: type, hand: a.punch.hand, part, at, impulse, power, counter, variant, grade, combo, liver, through, wrongWay,
-      finisher, zone: hitZone(d, part, { x: nx, y: ny, z: nz }, centre.y, liver, dir, type === 'uppercut'), vary, nerf: a.punch.nerf });
+      finisher, zone: hitZone(d, part, { x: nx, y: ny, z: nz }, centre.y, liver, dir, type === 'uppercut'), vary, nerf: a.punch.nerf, ...margin, ramp });
     // The judges see clean lands and how hard they were (round.ts scoring).
     s.round.landed[side] += grade === 'glancing' ? cfg.scoreGlancing : 1;
     s.round.power[side] += mag;

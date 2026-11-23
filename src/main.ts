@@ -6,7 +6,7 @@
  * __pose/__focus (pose grid), __states, __input (ui/input.ts).
  */
 import {
-  SIM_DT, NULL_INPUT, EventBus, createConfig, cloneInput, frameOf, punchFixture, restFighterState, ROSTER, v2dist,
+  SIM_DT, NULL_INPUT, EventBus, createConfig, applyHumanMode, cloneInput, frameOf, punchFixture, restFighterState, ROSTER, v2dist,
   type Config, type FighterSpec, type FighterState, type FighterView, type FrameInput, type Hand, type PunchType, type Side, type SimEvent, type SimState,
 } from './core';
 import { createState, hurtLevel, step } from './sim';
@@ -97,7 +97,7 @@ if (params.get('tune') === '1') mountTuningPanel(cfg);
 // assets load before the first view is built; with the switch off nothing below changes.
 if (params.get('human') === '1') cfg.humanBody = true;
 if (cfg.humanBody && !(await preloadHuman(cfg.humanBodyFile))) cfg.humanBody = false;
-if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; cfg.variantOverhand = !cfg.humanNoOverhand; cfg.evadeV2 = cfg.humanEvade; cfg.evadeFromBlock = cfg.humanEvadeFromBlock; cfg.evadeHeldTap = cfg.humanEvadeHeldTap; cfg.audioSlipOn = cfg.humanAudioSlip; cfg.aiHesitateScale = cfg.humanAiHesitate; cfg.aiStepInAfter = cfg.humanAiStepInAfter; cfg.aiHumanTempoEasy = cfg.humanAiTempoEasy; cfg.aiHumanTempoMed = cfg.humanAiTempoMed; cfg.staggerSpeedMax = cfg.humanStaggerSpeedMax; cfg.handNeutral = cfg.humanHandNeutral; cfg.contactSquash = cfg.humanContactSquash; cfg.punchChainAt = cfg.humanChainMiss; cfg.whiffRecoveryMult = cfg.humanWhiffRecovery; cfg.mocapTellChained = cfg.humanTellChained; cfg.comboStepMax = cfg.humanComboStepMax; cfg.comboCockScale = cfg.humanComboCock; cfg.comboHoldKeep = cfg.humanComboHoldKeep; if (cfg.humanStamina) { cfg.staminaLandRefund = cfg.humanStaminaLandRefund; cfg.staminaWhiffCost = cfg.humanStaminaWhiffCost; cfg.staminaWhiffDelay = cfg.humanStaminaWhiffDelay; cfg.staminaRegenDelay = cfg.humanStaminaRegenDelay; cfg.lowStaminaCockMult = cfg.humanLowStaminaCockMult; cfg.workCapLoss = cfg.humanWorkCapLoss; cfg.whiffCapLoss = cfg.humanWhiffCapLoss; cfg.staminaThrowScale = cfg.humanStaminaThrowScale; cfg.staminaRegen = cfg.humanStaminaRegen; cfg.staminaBusyRegen = cfg.humanStaminaBusyRegen; cfg.tiredPunchSlow = cfg.humanTiredPunchSlow; } if (cfg.humanNoSlowMo) { cfg.readWindowSlowMo = 1; cfg.readCounterSlowMoSeconds = 0; cfg.readRockedSlowMoSeconds = 0; cfg.showFinisherSlowMoSeconds = 0; } }
+applyHumanMode(cfg);   // (core/humanMode.ts: does nothing unless cfg.humanBody)
 if (cfg.humanBody) cfg.mocapGeo = await loadMocapGeo();   // the sim's punching glove = the drawn mocap glove (core/mocap.ts)
 if (cfg.mocapGeo) cfg.mocapOutcome = true;   // outcome first: the sim decides by rule, the drawing conforms (sim/outcome.ts)
 // The human fighters' own key + rims (human/body.ts), aimed each frame at the pair's midpoint.
@@ -417,7 +417,7 @@ function loop(nowMs: number): void {
   const dt = Math.min(MAX_FRAME, (nowMs - lastMs) / 1000);
   lastMs = nowMs;
   // Human fighters: their own punch speed (panel-tunable) and no referee (he is still the old body and walks across the camera).
-  if (cfg.humanBody) { cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; cfg.variantOverhand = !cfg.humanNoOverhand; cfg.evadeV2 = cfg.humanEvade; cfg.evadeFromBlock = cfg.humanEvadeFromBlock; cfg.evadeHeldTap = cfg.humanEvadeHeldTap; cfg.audioSlipOn = cfg.humanAudioSlip; cfg.aiHesitateScale = cfg.humanAiHesitate; cfg.aiStepInAfter = cfg.humanAiStepInAfter; cfg.aiHumanTempoEasy = cfg.humanAiTempoEasy; cfg.aiHumanTempoMed = cfg.humanAiTempoMed; cfg.staggerSpeedMax = cfg.humanStaggerSpeedMax; cfg.handNeutral = cfg.humanHandNeutral; cfg.contactSquash = cfg.humanContactSquash; cfg.punchChainAt = cfg.humanChainMiss; cfg.whiffRecoveryMult = cfg.humanWhiffRecovery; cfg.mocapTellChained = cfg.humanTellChained; cfg.comboStepMax = cfg.humanComboStepMax; cfg.comboCockScale = cfg.humanComboCock; cfg.comboHoldKeep = cfg.humanComboHoldKeep; if (cfg.humanStamina) { cfg.staminaLandRefund = cfg.humanStaminaLandRefund; cfg.staminaWhiffCost = cfg.humanStaminaWhiffCost; cfg.staminaWhiffDelay = cfg.humanStaminaWhiffDelay; cfg.staminaRegenDelay = cfg.humanStaminaRegenDelay; cfg.lowStaminaCockMult = cfg.humanLowStaminaCockMult; cfg.workCapLoss = cfg.humanWorkCapLoss; cfg.whiffCapLoss = cfg.humanWhiffCapLoss; cfg.staminaThrowScale = cfg.humanStaminaThrowScale; cfg.staminaRegen = cfg.humanStaminaRegen; cfg.staminaBusyRegen = cfg.humanStaminaBusyRegen; cfg.tiredPunchSlow = cfg.humanTiredPunchSlow; } if (cfg.humanNoSlowMo) { cfg.readWindowSlowMo = 1; cfg.readCounterSlowMoSeconds = 0; cfg.readRockedSlowMoSeconds = 0; cfg.showFinisherSlowMoSeconds = 0; } }
+  applyHumanMode(cfg);   // (core/humanMode.ts: does nothing unless cfg.humanBody)
   const paused = posed[0] !== null || posed[1] !== null;
   const held = paused || replay !== null || (flow !== null && flow.holdsSim);   // a menu / card / replay is up: the sim waits
   frameEvents.length = 0;

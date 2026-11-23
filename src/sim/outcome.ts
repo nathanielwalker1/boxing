@@ -30,6 +30,10 @@ export interface Outcome {
   /** The dodge was a slip / pull / roll (the slip event and the counter window fire), not a duck. */
   slip: boolean;
   near: number; far: number; d: number;
+  /** HOW CLOSE, m (measured; nothing in the sim reads it): whiff = d − far (> 0, short of reach); land / block / dodge = far − d (≥ 0, inside reach). */
+  margin: number;
+  /** A dodge only (evadeV2): seconds from the evade's press to this tick, and the seconds of its window left. −1 when not a dodge or unknown. */
+  evadeAge: number; evadeLeft: number;
 }
 
 /** The punch's band, centre to centre, m. Straights: near = smotherDist (the power ramp starts); hooks and uppercuts: the separation. */
@@ -66,7 +70,7 @@ function duckedBy(a: FighterState, d: FighterState): number {
 export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, out?: Outcome): Outcome | null {
   const p = a.punch;
   if (p.type === null) return null;
-  const o = out ?? { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0 };
+  const o = out ?? { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0, margin: 0, evadeAge: -1, evadeLeft: -1 };
   const band = punchBand(a, p.type, p.hand, p.variant, cfg, d);
   const v = VARIANTS[p.variant];
   // A STEP TAKES TIME (mocapStepSpeed, 2026-11-20): the far end of a band is the arm PLUS the body travelling in. A
@@ -87,7 +91,8 @@ export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, ou
   const far = cfg.mocapStepSpeed > 0 ? Math.min(band.far, band.far - band.step + stepSpeed * p.tell) : band.far;
   o.near = Math.min(band.near, far); o.far = far; o.slip = false;
   o.part = v.body ? 'body' : 'head';
-  if (o.d > far) { o.kind = 'whiff'; return o; }
+  o.margin = far - o.d; o.evadeAge = -1; o.evadeLeft = -1;
+  if (o.d > far) { o.kind = 'whiff'; o.margin = o.d - far; return o; }
   if (o.part === 'head') {
     const s = d.slip;
     if (cfg.evadeV2) {
@@ -100,7 +105,13 @@ export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, ou
       // (the LEAN BACK beats every head punch, Nate 2026-11-20: it is the safe evade and opens only the short counter window)
       const beaten = (s.active && s.dir === 2)
         || (p.type === 'hook' ? (dk > 0 && dk <= cfg.evadeWindow) || (lateral && s.kind === 'roll') : p.type !== 'uppercut' && lateral);
-      if (beaten) { o.kind = 'dodge'; o.slip = true; return o; }
+      if (beaten) {
+        o.kind = 'dodge'; o.slip = true;
+        // how late: a slip / lean / roll is timed off its own clock (slip.t), a duck off the duck clock; both run from the press
+        if (s.active && s.dir !== 0) { o.evadeAge = s.t; o.evadeLeft = (s.kind === 'roll' ? cfg.rollDuration : cfg.evadeWindow) - s.t; }
+        else { o.evadeAge = dk; o.evadeLeft = cfg.evadeWindow - dk; }
+        return o;
+      }
     } else if (s.active && s.dir !== 0) {
       const lateral = s.dir === 1 || s.dir === -1;
       // the wrong way: a lateral slip toward the punching hand walks the shoulder into it (combat.ts wrongWayShoulder)

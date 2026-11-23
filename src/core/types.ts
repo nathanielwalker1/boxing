@@ -447,11 +447,14 @@ export type SimEvent =
   /** grade = glancing / clean / flush (the tier every downstream read keys off); combo = which punch of a clean combination this is (1 = first); liver = a body shot on the liver side; through = it came round or through a held guard; wrongWay = the target slipped INTO it. */
   | { type: 'punchLand';   side: Side; target: Side; punch: PunchType; hand: Hand; part: BodyPart; at: Vec3; impulse: Vec3; power: number; counter: boolean; variant: PunchVariant; grade: HitGrade; combo: number; liver: boolean; through: boolean; wrongWay: boolean;
       /** Polish phase. finisher = the last, biggest punch of a clean combination (its own bonus; sound / camera / crowd key on it). zone = where it found him, from the contact geometry. vary = −1..1, a seeded variation (the same punch never lands identically twice; the reaction springs already carry it). nerf = how nerfed the punch was. */
-      finisher?: boolean; zone?: HitZone; vary?: number; nerf?: number }
+      finisher?: boolean; zone?: HitZone; vary?: number; nerf?: number;
+      /** HOW CLOSE (measured, read by nothing in the sim; outcome-first mode only). margin = far − d, m (how deep inside reach). ramp = 0..1 fraction of full power the close-range ramp left a straight (1 = no ramp). */
+      margin?: number; ramp?: number }
   /** chip = health the guard let through (0 on a light shot); guard = the guard meter after it; stun = block stun, s. */
-  | { type: 'punchBlock';  side: Side; target: Side; punch: PunchType; at: Vec3; variant: PunchVariant; part: BodyPart; chip: number; guard: number; stun: number }
-  | { type: 'perfectBlock'; side: Side; target: Side; punch: PunchType; at: Vec3; variant: PunchVariant }
-  | { type: 'punchWhiff';  side: Side; punch: PunchType; variant: PunchVariant }
+  | { type: 'punchBlock';  side: Side; target: Side; punch: PunchType; at: Vec3; variant: PunchVariant; part: BodyPart; chip: number; guard: number; stun: number; margin?: number }
+  | { type: 'perfectBlock'; side: Side; target: Side; punch: PunchType; at: Vec3; variant: PunchVariant; margin?: number }
+  /** margin (measured only, outcome-first mode): a real whiff d − far > 0, m short of reach; a dodge (dodged = true: the outcome rule said dodge) far − d, m inside reach, with evadeAge / evadeLeft (s) when the evade state is known. */
+  | { type: 'punchWhiff';  side: Side; punch: PunchType; variant: PunchVariant; margin?: number; dodged?: boolean; evadeAge?: number; evadeLeft?: number }
   /** A wind-up cancelled into the guard before its commit point. */
   | { type: 'feint';       side: Side; punch: PunchType; variant: PunchVariant }
   /** A quick hop: x / y in the fighter's own frame (y + = toward the opponent). */
@@ -477,7 +480,7 @@ export type SimEvent =
   /** `side`'s punch was broken mid-flight by a punch from `by` landing on them: it never resolves and rewinds home. */
   | { type: 'punchStuffed'; side: Side; by: Side; punch: PunchType }
   /** Once at the flick (dodged: false), and once more, dodged: true, for each punch the slip takes away. */
-  | { type: 'slip';        side: Side; dir: -1 | 1 | 2; dodged: boolean; kind: SlipKind; chain: number }
+  | { type: 'slip';        side: Side; dir: -1 | 1 | 2; dodged: boolean; kind: SlipKind; chain: number; margin?: number; evadeAge?: number; evadeLeft?: number }
   | { type: 'counter';     side: Side; target: Side; punch: PunchType }
   | { type: 'hurt';        side: Side; part: BodyPart; impulse: Vec3 }
   /** kind / fall (polish phase): see KnockdownKind / FallStyle. `cause` keeps its four values (a knee taken by choice reports cause 'health', an instant KO 'flash'): read `kind` for those. */

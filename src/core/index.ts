@@ -1,6 +1,7 @@
 /** core barrel — workstreams import from '../core' (relative; no path aliases). */
 export * from './types';
 export * from './config';
+export * from './humanMode';
 export * from './rng';
 export * from './math';
 export * from './body';

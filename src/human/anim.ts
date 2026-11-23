@@ -24,7 +24,7 @@ import { VARIANTS } from '../sim/variants';
 import { contactPoint, predictOutcome, type Outcome, type OutcomeKind } from '../sim/outcome';
 import { mocapClipGlove, mocapRoleNames, mocapTwinRole, type ChainedFrom, type MocapPick } from '../core/mocap';
 const CG1 = { x: 0, y: 0, z: 0 }, CG2 = { x: 0, y: 0, z: 0 }, TP = { x: 0, y: 0, z: 0 };   // scratch
-const OCS: Outcome = { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0 };
+const OCS: Outcome = { kind: 'whiff', part: 'head', slip: false, near: 0, far: 0, d: 0, margin: 0, evadeAge: -1, evadeLeft: -1 };
 import { makePose, sample, type Clip, type ClipLib, type Pose, type Role, type Roles } from './clip';
 
 interface Pick { name: string; role: Role; clip: Clip; mirror: boolean }
