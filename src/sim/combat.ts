@@ -13,7 +13,7 @@
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { SIM_DT, atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist, pressDist } from './state';
+import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, iqClass, setIqClass, IQ_BLOCKED, IQ_FAST, IQ_MISSED, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist, pressDist } from './state';
 import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -64,7 +64,9 @@ export function canStartPunch(f: FighterState, cfg: Config): boolean {
   const p = f.punch;
   if (p.type === null) return true;
   if (p.feint) return false;
-  const at = p.contact ? cfg.punchChainOnHit : cfg.punchChainAt;
+  // iqMissCost: only a clean land earns the fast chain; a block or a glancing land, and a miss, wait longer into the recovery.
+  const cls = cfg.iqMissCost ? iqClass(f) : IQ_FAST;
+  const at = cls === IQ_MISSED ? cfg.iqChainMiss : cls === IQ_BLOCKED ? cfg.iqChainBlock : p.contact ? cfg.punchChainOnHit : cfg.punchChainAt;
   return p.phase === 'recover' && p.t >= at * PUNCHES[p.type].phases(cfg).recover;
 }
 
@@ -93,21 +95,23 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // Inside a chain the body is already turned and loaded from the last
   // punch's follow-through, so the wind-up is comboCockScale as long.
   const chained = f.punch.type !== null;
+  // iqMissCost: only a punch chained off a clean land gets the shortened wind-up; off a block, a glance or a miss it is a cold throw.
+  const fastChain = chained && (!cfg.iqMissCost || iqClass(f) === IQ_FAST);
   const loaded = cfg.slipLoadedOn && f.loaded !== 0 && (f.loaded === -1) === (hand === 'lead');
   const slow = cfg.fatigueOn ? f.punchSlow : 1;
   const ph = def.phases(cfg);
   // (Hand speed — the speed rating, and the style's guard for a jab thrown from it — shortens or lengthens the wind-up.)
   const hands = rated(f, 'speed', cfg.ratingSpeedHands, cfg) / (type === 'jab' ? guardOf(f, cfg).jabTime : 1);
-  let cock = (f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1) * (chained ? cfg.comboCockScale : 1) * v.time(cfg) * (loaded ? cfg.slipLoadedCock : 1) / hands;
+  let cock = (f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1) * (fastChain ? cfg.comboCockScale : 1) * v.time(cfg) * (loaded ? cfg.slipLoadedCock : 1) / hands;
   // The tell: a heavy punch that opens an attack is always readable.
-  if (cfg.tellsOn && type !== 'jab' && !chained && ph.cock > 0) cock = Math.max(cock, (cfg.tellMinHeavy / slow - ph.extend) / ph.cock);
+  if (cfg.tellsOn && type !== 'jab' && !fastChain && ph.cock > 0) cock = Math.max(cock, (cfg.tellMinHeavy / slow - ph.extend) / ph.cock);
   // Outcome first (human mode): a punch you can READ — the wind-up (never the extension) is long enough for the tell.
   if (cfg.mocapOutcome && cfg.mocapGeo && ph.cock > 0) {
     // (per punch, Nate 2026-11-17: readable wind-ups, so a punch can be seen, leaned away from and countered)
     // THE COUNTER COMES OUT FAST (evadeV2): thrown while the man he just made miss is still in the window that evade opened,
     // the wind-up is evadeCounterTell as long. Measured 2026-11-19: a reply cross took 383 ms, exactly a cold one ("sluggish").
     const counterNow = cfg.evadeV2 && opp !== null && opp.counterWindow > 0 && punishSource(opp) === PUNISH_SLIP;
-    const want = (type === 'jab' ? cfg.mocapTellJab : type === 'cross' ? cfg.mocapTellHeavy : type === 'hook' ? cfg.mocapTellHook : cfg.mocapTellUppercut) * (chained ? (type === 'hook' || type === 'uppercut' ? Math.max(cfg.mocapTellChained, cfg.mocapTellChainedArc) : cfg.mocapTellChained) : 1) * (counterNow ? cfg.evadeCounterTell : 1);
+    const want = (type === 'jab' ? cfg.mocapTellJab : type === 'cross' ? cfg.mocapTellHeavy : type === 'hook' ? cfg.mocapTellHook : cfg.mocapTellUppercut) * (fastChain ? (type === 'hook' || type === 'uppercut' ? Math.max(cfg.mocapTellChained, cfg.mocapTellChainedArc) : cfg.mocapTellChained) : 1) * (counterNow ? cfg.evadeCounterTell : 1);
     // mocapTellExact: the tell IS the punch's time, not only its floor. Measured 2026-11-20: with the floor, an uppercut at
     // normal range still took 0.40 s (its own base wind-up, 300 ms x punchTimeScale) whatever mocapTellUppercut said, and a
     // hook 0.35: "uppercuts still take so long to load and throw". The variant, a gassed arm, a loaded hand and hand speed still scale it.
@@ -121,6 +125,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   setCockMult(f, cock);
   setWhiffMult(f, 1);
   setStuffed(f, false);
+  if (cfg.iqMissCost) setIqClass(f, IQ_FAST);
   setBrokenMult(f, 1);
   // The body pose the last punch leaves behind (2026-09-22): a chained
   // wind-up blends out of it instead of snapping to zero and reloading.
@@ -496,6 +501,17 @@ export function guardCover(d: FighterState, base: PunchType, part: BodyPart, dir
 }
 
 /**
+ * iqMissCost: how long a missed punch takes to come home, as a multiple of the normal retraction. Off, or without the closeness
+ * margin, it is the plain per-punch whiff multiplier. A dodged punch swung through where the head was (iqDodgeRecovery); a range
+ * miss costs more the further short it fell, up to iqMissRecoveryMax.
+ */
+function iqMissMult(base: number, oc: { margin: number } | null, dodged: boolean, cfg: Config): number {
+  if (!cfg.iqMissCost || oc === null) return base;
+  if (dodged) return Math.max(base, cfg.iqDodgeRecovery);
+  return Math.max(base, Math.min(cfg.iqMissRecoveryMax, base + cfg.iqMissPerMetre * oc.margin));
+}
+
+/**
  * The hit test, run once at the resolve moment against the defender's
  * current boxes. Outcomes: beyond rangeMax = whiff; otherwise the attacking
  * glove sphere against head then body — a miss is a whiff, a hit is a land
@@ -527,7 +543,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const oc = cfg.mocapOutcome && cfg.mocapGeo ? predictOutcome(a, d, cfg, OC) : null;
   // (HOW CLOSE, measured only:the margin rides on the events, nothing reads it — sim/outcome.ts Outcome.margin)
   const dodged = oc !== null && oc.kind === 'dodge', timed = oc !== null && oc.evadeAge >= 0;
-  const whiff = (): void => { events.push(oc ? { type: 'punchWhiff', side, punch: type, variant, margin: oc.margin, dodged, ...(timed ? { evadeAge: oc.evadeAge, evadeLeft: oc.evadeLeft } : {}) } : { type: 'punchWhiff', side, punch: type, variant }); setWhiffMult(a, knockedOff ? 1 : whiffRecoveryMult(def, cfg)); missed(a, cfg, !knockedOff, type); s.round.control[target] += 1; };
+  const whiff = (): void => { events.push(oc ? { type: 'punchWhiff', side, punch: type, variant, margin: oc.margin, dodged, ...(timed ? { evadeAge: oc.evadeAge, evadeLeft: oc.evadeLeft } : {}) } : { type: 'punchWhiff', side, punch: type, variant }); setWhiffMult(a, knockedOff ? 1 : iqMissMult(whiffRecoveryMult(def, cfg), oc, dodged, cfg)); if (cfg.iqMissCost && !knockedOff) setIqClass(a, IQ_MISSED); missed(a, cfg, !knockedOff, type); s.round.control[target] += 1; };
   // OUTCOME FIRST (sim/outcome.ts): the rule decides; no sphere test below decides anything in this mode.
   if (oc ? oc.kind === 'whiff' : dist > cfg.rangeMax) { whiff(); return; }
 
@@ -776,6 +792,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     combo = a.combo;
     if (finisher) { a.combo = 0; a.comboT = 0; }   // the next clean land starts a new count
   } else missed(a, cfg, false);
+  if (cfg.iqMissCost) setIqClass(a, blocked || grade === 'glancing' ? IQ_BLOCKED : IQ_FAST);
   if (type === 'jab' && cfg.jabImpulseCap > 0) mag = Math.min(mag, cfg.jabImpulseCap);   // …and again after the grade and the combination
 
   const power = mag / cfg.punchImpulseBase;

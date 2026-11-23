@@ -152,6 +152,11 @@ export function setHealthCap(f: FighterState, c: number): void { f.moveHist[HIST
 export function healthRegenDelay(f: FighterState): number { return f.moveHist[HIST_HEALTH_DELAY] ?? 0; }
 export function setHealthRegenDelay(f: FighterState, t: number): void { f.moveHist[HIST_HEALTH_DELAY] = t; }
 
+const HIST_IQ_CLASS = 75;     // iqMissCost: how the last punch ended, for the chain rule: 0 = landed clean (or not resolved yet), 1 = blocked or glancing, 2 = missed (range or dodged)
+export const IQ_FAST = 0, IQ_BLOCKED = 1, IQ_MISSED = 2;
+export function iqClass(f: FighterState): number { return f.moveHist[HIST_IQ_CLASS] ?? IQ_FAST; }
+export function setIqClass(f: FighterState, c: number): void { const h = f.moveHist; while (h.length < HIST_IQ_CLASS + 1) h.push(0); h[HIST_IQ_CLASS] = c; }
+
 /** No punch in flight (every punch field at rest). */
 export function idlePunch(hand: Hand): PunchState {
   return { type: null, hand, phase: 'idle', t: 0, progress: 0, resolved: false, contact: null, variant: 'jab', tell: 0, timeMult: 1, powerMult: 1, moveScale: 1, loaded: false, aim: 0, feint: false, nerf: 0 };
