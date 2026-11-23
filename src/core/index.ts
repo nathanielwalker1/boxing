@@ -7,6 +7,7 @@ export * from './math';
 export * from './body';
 export * from './roster';
 export * from './creator';
+export * from './record';
 export * from './events';
 export * from './fixtures';
 export * from './arms';
