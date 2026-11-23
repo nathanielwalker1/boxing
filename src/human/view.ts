@@ -936,6 +936,16 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
               const step = want.sub(armPrev[a]), stepMax = Math.max(cfg.humanArmClearRate * tick, Math.min(cfg.humanArmClearRateMax * tick, cfg.humanArmClearBudget * tick - own));
               if (step.length() > stepMax) step.setLength(stepMax);
               D.copy(armPrev[a]).add(step).sub(armUsed[a]);
+              // NEVER INTO HIM: the move may not take the glove inside his head or torso, nor deeper than it already was
+              // (pushed off his guard, a slipped jab was shoved 2-11 cm into his chest: the body pass above had already run).
+              // Shortened, not turned: what is left of it is given next frame, at the rate.
+              const clearOf = (p: THREE.Vector3): number => Math.min(p.distanceTo(ob.head) - ob.headR, p.distanceTo(closestOn(ob.a, ob.b, p)) - ob.r) - rest0;
+              const floor = Math.min(clearOf(G), 0);
+              if (D.lengthSq() > 1e-8 && clearOf(G.clone().add(D)) < floor) {
+                let lo = 0, hi = 1;
+                for (let i = 0; i < 8; i++) { const mid = (lo + hi) / 2; if (clearOf(G.clone().addScaledVector(D, mid)) >= floor) lo = mid; else hi = mid; }
+                D.multiplyScalar(lo);
+              }
               armUsed[a].add(D);
               if (D.lengthSq() < 1e-8) continue;
               // (the elbow and the glove go together: the whole forearm is moved, not bent round the contact)
