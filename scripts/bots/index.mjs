@@ -1,7 +1,7 @@
 /** Registry: name -> { make, group }. group is 'cheat' or 'honest'. The game's own AI styles are added by bot_ladder.mjs. */
-import { masher_jab, masher_mix } from './masher.mjs';
+import { masher_jab, masher_mix } from './cheat_masher.mjs';
 import { runner_plain, runner_pot } from './runner.mjs';
-import { turtle_plain, turtle_counter } from './turtle.mjs';
+import { turtle_plain, turtle_counter } from './cheat_turtle.mjs';
 import { spam_evade } from './spam_evade.mjs';
 import { boxer, swarmer, counter } from './honest.mjs';
 
