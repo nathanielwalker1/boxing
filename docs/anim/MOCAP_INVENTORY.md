@@ -25,7 +25,8 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 | boxing | Boxing.fbx | 1.75 | body jab | orthodox | lunges 0.52 and returns | yes | with trimming | L body jab @0.42s (f12-52) |
 | center_block | Center Block.fbx | 1.63 | block reaction | orthodox | in place (0.1) | yes | yes | guard up tight, absorbs a shot: head 0.34 m back at f14-21, then back to guard; the blocked-punch reaction [auto: block] |
 | cross_punch | Cross Punch.fbx | 2.03 | cross | orthodox | in place (0.12) | yes | yes | THE head-height cross (picked by picture): straight rear hand at head height f26-34, back to guard by f51; in place. The detector called it a rear hook [auto: rear hook] |
-| defeat | Defeat.fbx | 4.77 | lose | square | in place (0.03) | yes | yes | standing, arms down, dejected; not in stance [auto: hit body] |
+| defeat_1 | Defeat (1).fbx | 4.77 | hit body | square | in place (0.03) | yes | yes | head moves 0.29 m down+forward at 0.9s |
+| defeat | Defeat.fbx | 4.77 | lose | square | in place (0.03) | yes | no (duplicate of defeat_1) | standing, arms down, dejected; not in stance [auto: hit body] |
 | dizzy_idle | Dizzy Idle.fbx | 4.28 | stagger (dizzy idle) | orthodox | in place (0.14) | yes | yes | stunned, wobbling idle (by name; stats show head drifting 0.23 m, no punches) [auto: hit body] |
 | dodging | Dodging.fbx | 2.25 | slips | mixed (mostly southpaw) | back 0.49 / 0.49 | no | with trimming | evasion sequence: bobs, slips and leans, guard low, drifts 0.5 m back; cut single slips / a duck out of it [auto: walk back] |
 | dodging_copy | Dodging.fbx copy | 1.65 | slips | orthodox | in place (0.08) | yes | yes | from a long guard (lead arm out), one deep slip / duck to his right at f30-60, back up; in place [auto: hit head heavy] |
@@ -47,6 +48,7 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 | kidney_hit | Kidney Hit.fbx | 1.13 | hit body | orthodox | in place (0.12) | yes | yes | head moves 0.17 m forward at 0.62s |
 | lead_jab | Lead Jab.fbx | 1.08 | body jab | orthodox | lunges 0.27 and returns | yes | with trimming | L body jab @0.45s (f13-49) |
 | lead_jab_copy | Lead Jab.fbx copy | 1.52 | jab | orthodox | lunges 0.62 and returns | yes | with trimming | L jab @0.4s (f12-40) |
+| left_block | Left Block.fbx | 1.52 | block | orthodox | in place (0.05) | yes | yes | named Left Block.fbx; guard up 78%, head 0.32 m right+down |
 | left_pivot_1 | Left Pivot (1).fbx | 1.27 | pivot (turns left) | orthodox | left 0.73 / 0.73 | no | yes | body turns 77 deg, travel 0.73 m left |
 | left_pivot | Left Pivot.fbx | 1.27 | pivot (turns left) | orthodox | left 0.67 / 0.67 | no | yes | body turns 67 deg, travel 0.67 m left |
 | light_hit_to_head_1 | Light Hit To Head (1).fbx | 0.82 | hit head light | orthodox | in place (0.01) | yes | yes | very small knock (head 9 cm); the subtlest hit clip [auto: fight idle] |
@@ -62,10 +64,13 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 | receiving_a_big_uppercut | Receiving A Big Uppercut.fbx | 2.45 | hit uppercut heavy (staggers back) | orthodox | back 1.45 / 1.62 | no | with trimming | rocked by an uppercut, arms fly up, staggers 1.5 m back then re-guards; also the best stagger [auto: walk back] |
 | receiving_an_uppercut | Receiving An Uppercut.fbx | 1.68 | hit uppercut (staggers back) | orthodox | back 1.09 / 1.2 | no | with trimming | rocked, steps 1.1 m back then re-guards [auto: walk back] |
 | rib_hit | Rib Hit.fbx | 1 | hit body | orthodox | in place (0.1) | yes | yes | head moves 0.16 m forward at 0.43s |
+| right_block_1 | Right Block (1).fbx | 1.45 | block | orthodox | in place (0.16) | yes | yes | named Right Block (1).fbx; guard up 66%, head 0.29 m left+forward |
+| right_block | Right Block.fbx | 1.72 | block | orthodox | in place (0.23) | yes | yes | named Right Block.fbx; guard up 80%, head 0.48 m left+down |
 | right_pivot_1 | Right Pivot (1).fbx | 0.98 | pivot (turns right) | mixed (mostly orthodox) | right 0.53 / 0.53 | no | yes | body turns 57 deg, travel 0.53 m right |
 | right_pivot | Right Pivot.fbx | 1.23 | pivot (turns right) | mixed (mostly southpaw) | forward 0.71 / 0.77 | no | yes | body turns 85 deg, travel 0.71 m forward |
 | short_left_side_step | Short Left Side Step.fbx | 0.8 | step left | orthodox | in place (0.22) | no | yes | travels 0.21 m left in 0.8s, guard 100% |
 | short_right_side_step | Short Right Side Step.fbx | 0.88 | step right | orthodox | right 0.26 / 0.26 | no | yes | travels 0.26 m right in 0.88s, guard 100% |
+| side_hit | Side Hit.fbx | 0.98 | hit body | orthodox | in place (0.16) | yes | yes | head moves 0.22 m forward+right at 0.37s |
 | step_backward_1 | Step Backward (1).fbx | 0.82 | step back | orthodox | back 0.6 / 0.6 | no | yes | travels 0.6 m back in 0.82s, guard 100% |
 | step_backward | Step Backward.fbx | 0.83 | step back | orthodox | back 0.69 / 0.69 | no | yes | travels 0.69 m back in 0.83s, guard 76% |
 | stomach_hit | Stomach Hit.fbx | 1.2 | hit body | orthodox | in place (0.11) | yes | yes | head moves 0.23 m down+forward at 0.28s |
@@ -93,6 +98,7 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 | knockdown4 | knockdown4.fbx | 2.62 | knockdown fall | orthodox | back 0.95 / 0.98 | no | with trimming | blown backwards from guard by a big head shot, flat on the back [auto: knockdown fall] |
 | knockdown5 | knockdown5.fbx | 2.58 | knockdown fall | mixed (mostly southpaw) | forward 0.86 / 0.9 | no | with trimming | spun and dropped forward from guard [auto: knockdown fall] |
 | knockdown6 | knockdown6.fbx | 3.92 | knockdown fall | orthodox | forward 1.01 / 1.05 | no | with trimming | slow sink to the knees, then falls forward; long (3.9 s) [auto: knockdown fall] |
+| lead_uppercut_v2 | lead uppercut v2.fbx | 2.22 | body lead uppercut | orthodox | lunges 0.5 and returns | yes | no (duplicate of boxing_5) | L body lead uppercut @0.68s (f33-59) |
 | lead_uppercut | lead uppercut.fbx | 1.23 | lead uppercut | orthodox | in place (0.2) | no | yes | L lead uppercut @0.8s (f17-28) |
 | rear_uppercut | rear uppercut.fbx | 1.7 | showboat (double uppercut, arms over the head) | orthodox | in place (0.1) | no | yes | filmed as the rear uppercut role: both hands end up over his head for half a second (looks frozen); not a usable punch [auto: combo: rear uppercut, rear uppercut] |
 
@@ -108,12 +114,12 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 - **Body jab:** lead_jab (single), boxing (single), body_jab_cross_1 f10-37, body_jab_cross f13-41
 - **Body cross:** body_cross (single), boxing_7 (single), body_jab_cross_1 f23-47, body_jab_cross f27-54, boxing_1 f26-51
 - **Body hook:** bodyhook2 (single, override), boxing_4 (single), boxing_1 f13-40, hook_1 f60-76, hook_1 f67-112
-- **High guard block (held):** block
+- **High guard block (held):** block, left_block, right_block_1, right_block
 - **Blocked-punch reaction:** center_block
 - **Hit reaction: head light:** head_hit_1_copy, head_hit_2, head_hit_copy, light_hit_to_head_1, light_hit_to_head
 - **Hit reaction: head medium:** big_hit_to_head_1, head_hit_1, medium_hit_to_head, receive_punch_to_the_face
 - **Hit reaction: head heavy:** big_hit_to_head, head_hit
-- **Hit reaction: body:** hit_to_body, kidney_hit, rib_hit, stomach_hit
+- **Hit reaction: body:** defeat_1, hit_to_body, kidney_hit, rib_hit, side_hit
 - **Hit reaction: uppercut:** receive_stomach_uppercut, receive_uppercut_to_the_face, receiving_a_big_uppercut, receiving_an_uppercut
 - **Step forward:** long_step_forward, medium_step_forward, walking_2
 - **Step back:** step_backward_1, step_backward, walking_backwards
@@ -129,7 +135,7 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 - **Down (on the canvas):** floored
 - **Get up (from lying):** _none_
 - **Win:** victory
-- **Lose:** defeat
+- **Lose:** _none_
 - **Walk to corner:** entry, happy_walk_backward, walk_backward, walking_1_copy, walking_copy
 
 ## Roles (public/fighter/clips/roles.json, what the game plays)
@@ -144,13 +150,13 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 - **body_jab:** lead_jab f0-64 (contact f27)
 - **body_cross:** body_cross f0-54 (contact f8)
 - **body_hook:** bodyhook2 f0-113 (contact f46)
-- **block:** block f0-171 (contact f108)
+- **block:** right_block f0-102 (contact f34)
 - **body_block:** body_block f0-206
 - **block_hit:** center_block f0-48 (impact f19)
 - **hit_head_light:** light_hit_to_head_copy f0-49 (impact f5)
 - **hit_head_medium:** big_hit_to_head_1 f0-78 (impact f6)
 - **hit_head_heavy:** head_hit f0-92 (impact f7)
-- **hit_body:** kidney_hit f0-67 (impact f10)
+- **hit_body:** side_hit f0-58 (impact f5)
 - **hit_uppercut:** receive_uppercut_to_the_face f0-74 (impact f4)
 - **knockdown:** knockdown1 f0-144 (settles f99)
 - **knockdown_2:** knockdown5 f0-154 (settles f93)
@@ -174,7 +180,7 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 - **duck:** dodging_copy f22-64 (contact f43)
 - **lean_back:** dodging f28-70 (contact f49)
 - **win:** victory f0-270
-- **lose:** defeat f0-285
+- **lose:** _none_
 - **cross_2:** cross f0-47 (contact f4)
 - **idle_2:** idle f0-132
 - **idle_3:** idle_1 f0-217
@@ -188,9 +194,11 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 - Rear uppercut
 - Lean back
 - Get up (from lying)
+- Lose
 - role rear_uppercut: no head-level clip; the body-level boxing_3 stands in
 - role getup: no clip
 - role slip_left: no clip (mirror slip_right)
+- role lose: no clip
 - role combo_jab_cross: no head-level clip; the body-level body_jab_cross_1 stands in
 - role combo_lead_hook_cross: no head-level clip; the body-level boxing_1 stands in
 - role combo_lead_hook_rear_hook: no head-level clip; the body-level hook_2 stands in
@@ -199,6 +207,8 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 
 Exact = same frames within 1 cm; mirror = left/right swapped within 2 cm; near = same shape after time-normalising and removing travel (mean bone gap in cm).
 
+- defeat: exact duplicate of defeat_1
 - hook_copy: exact duplicate of hook
 - bodyhook: exact duplicate of hook_2
 - bodyjab: exact duplicate of lead_jab
+- lead_uppercut_v2: exact duplicate of boxing_5
