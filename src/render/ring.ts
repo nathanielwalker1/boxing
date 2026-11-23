@@ -14,6 +14,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { RING_HALF, APRON_W, type Config, type Sponsor } from '../core';
 import { SPONSORS, paintSlot } from './sponsors';
 import { makeCanvas, canvasTexture, segmentMatrix, seededRng } from './util';
+import { Ropes } from './ropes';
 
 export const RING_KEYS = ['ropeCount', 'ropeTopY', 'ropeSag', 'postR', 'matColor', 'matLineColor', 'apronColor',
   'ropeColorA', 'ropeColorB', 'ropeColorC', 'padColorRed', 'padColorBlue', 'padColorNeutral',
@@ -275,6 +276,7 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
   const ropeCols = [c.ropeColorA, c.ropeColorB, c.ropeColorC, c.ropeColorA];
   const h = RING_HALF + c.postR;
   const ropeGeos: THREE.BufferGeometry[] = [];
+  const ropeColObjs: THREE.Color[] = [];
   // Turnbuckle covers: a padded sleeve over each rope end, in the colour of the corner it runs into.
   const fittings = new THREE.InstancedMesh(new THREE.CylinderGeometry(1, 1, 1, 8), fade(new THREE.MeshStandardMaterial({ roughness: 0.85 })), 8 * c.ropeCount);
   fittings.castShadow = true;
@@ -292,6 +294,7 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
     // A near-white rope under the warm key and the red corner's back light read pink (phase 1 note). Lean a
     // low-saturation rope cool so it lands on white once the rig has warmed it; coloured ropes are left alone.
     { const hsl = { h: 0, s: 0, l: 0 }; col.getHSL(hsl); if (hsl.s < 0.2 && hsl.l > 0.5) col.multiply(WHITE_ROPE_COOL); }
+    ropeColObjs.push(col);
     for (const [a0, b0] of ends) {
       const a = a0.clone().setY(y), b = b0.clone().setY(y);
       const mid = a.clone().lerp(b, 0.5); mid.y -= c.ropeSag;
@@ -317,6 +320,11 @@ export function buildRing(c: Config, aniso: number): THREE.Group {
     }
   }
   ring.add(spacers);
+  // Ropes that give (ropes.ts): the dynamic rope mesh sits beside the static one; ropesBend picks which is drawn.
+  {
+    const rp = new Ropes(c, h, c.ropeCount, ropeColObjs, ropeMesh, spacers);
+    ring.add(rp.mesh, rp.trigger);
+  }
 
   // Steps at the far neutral corner (+x, −z), descending outward along the diagonal.
   // …and, with ringStools, at the red and blue corners too, where the corner teams work.
