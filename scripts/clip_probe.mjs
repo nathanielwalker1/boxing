@@ -29,6 +29,7 @@ const OPPS = (process.argv[3] || 'blue,boiler,raffle,alambre').split(',');
 const SECONDS = +(process.argv[4] || 40);
 const SEEDS = (process.argv[5] || '1,2').split(',').map(Number);
 const FILM = process.argv[6] && process.argv[6] !== '-' ? process.argv[6].split(':') : null;
+const CFG = process.argv[8] && process.argv[8] !== '-' ? JSON.parse(process.argv[8]) : null;   // '<cfg json>' merged into the page config (as live_contact_probe)
 
 // second head shape (set after measuring the drawn mesh): radius, forward offset, up offset from the drawn head sphere centre, m
 const H2 = process.argv[7] && process.argv[7] !== '-' ? JSON.parse(process.argv[7]) : { r: 0.115, fwd: 0, up: 0.008 };   // measured 2026-11 with _debug.mjs on __humanMeasure: head+neck skin extents about the keep-out sphere centre (front 0.10, side 0.114, top 0.123 m at headR 0.135)
@@ -257,6 +258,7 @@ async function openPage(opp) {
   await bootReady(page);
   await until(page, () => typeof window.__rigReplay === 'function' && typeof window.__humanProbe === 'function' && !!window.__humanFeeds, undefined, { label: 'human views', timeout: 150_000 });
   await page.evaluate(() => { const c = window.__cfg; c.debugHitboxes = false; c.refEnabled = false; });
+  if (CFG) await page.evaluate(o => Object.assign(window.__cfg, o), CFG);
   await until(page, () => { window.__rigReplay(1.0, [], 1, []); return !!window.__humanProbe(0) && !!window.__humanProbe(0).drawn; }, undefined, { label: 'probe', timeout: 60_000 });
   return page;
 }

@@ -39,7 +39,13 @@ interface DrawnBody { head: THREE.Vector3; headR: number; a: THREE.Vector3; b: T
   /** The shoulder line (joint to joint) and the neck (chest joint to head joint): the torso capsule stops at the chest, so arms went through these. */
   sl: THREE.Vector3; sr: THREE.Vector3; sR: number; nk: THREE.Vector3; nR: number;
   /** humanArmClear: the elbows [Left, Right], and what each arm is doing: 0 guard, 1 a punch the rules will not land, 2 a punch that lands. */
-  el: [THREE.Vector3, THREE.Vector3]; act: [number, number] }
+  el: [THREE.Vector3, THREE.Vector3]; act: [number, number];
+  /** humanLandCorridor: per arm, where a landing punch's glove is going (its contact point) while it is on its way, and
+   *  when it lands (s to the hit tick; negative = landed that long ago); NaN = no lane open for that arm. */
+  laneTo: [THREE.Vector3, THREE.Vector3]; laneEta: [number, number];
+  /** humanLandCorridor: whether that lane is past its wind-up (every arm of the other man yields to it) or still in it
+   *  (only his punching arm does: a punch that will not land, or lands later, gets out of an incoming land's way early). */
+  laneLive: [boolean, boolean] }
 const drawnBodies: (DrawnBody | null)[] = [null, null];
 
 /** Load the body and the clips once. Resolves to false (and logs) if anything is missing. */
@@ -260,6 +266,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       // outcome mode: the drawn head sphere / torso line (what the other man's gloves are kept out of) and the hand's target
       drawn: drawnBodies[side] ? { head: drawnBodies[side]!.head.toArray(), headR: drawnBodies[side]!.headR, a: drawnBodies[side]!.a.toArray(), b: drawnBodies[side]!.b.toArray(), r: drawnBodies[side]!.r } : null,
       lungeDbg: [...anim.lungeDbg], reach: [...reachDbg], armAct: drawnBodies[side] ? [...drawnBodies[side]!.act] : null, armDbg: [...armDbg],
+      laneEta: drawnBodies[side] ? [...drawnBodies[side]!.laneEta] : null, toHit: anim.conformInfo.toHit,
       conform: { kind: anim.conformInfo.kind, w: anim.conformInfo.w, at: anim.conformInfo.at ? [anim.conformInfo.at.x, anim.conformInfo.at.y, anim.conformInfo.at.z] : null },
       // the sim events this view was fed on its last tick (the replay filters them to this side), as plain data
       events: lastEvents.map(e => ({ ...e })),
@@ -904,36 +911,87 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
               const [u, m, e] = arm[a];
               const S = u.getWorldPosition(new THREE.Vector3()), E = m.getWorldPosition(new THREE.Vector3()), G = new THREE.Vector3().fromArray(gloveOf(a));
               const D = new THREE.Vector3();
+              const corridor = cfg.humanLandCorridor;
+              // (humanLandCorridor: when my own punch lands, s to its hit tick, negative once landed; a trade goes to the first to land)
+              const myEta = anim.conformInfo.resolved ? -landAge : anim.conformInfo.toHit;
+              let laneOpen = false, laneEta = Infinity;
+              // (humanLandCorridor, the last resort: my landing punch, still on its way, goes ROUND what is left of his arm in
+              //  its path after he has given what he can, square to its own line, less and less as the hit tick comes)
+              const myLane = corridor && mineAct === 2 && !anim.conformInfo.resolved && myEta > 0 && outcomeT && out.ik?.arm === a
+                ? new THREE.Vector3().subVectors(outcomeT, G) : null;
+              const bendW = myLane && myLane.length() > 0.01 ? cfg.humanLandCorridorBend * Math.min(1, myEta / (cfg.humanLandCorridorBendFade + 1e-6)) : 0;
+              if (myLane) myLane.normalize();
               // (a land with right of way still runs the limiter below: a move left from last frame is let go at the rate, not dropped)
-              if (!(mineAct === 2 && ob.act[0] !== 2 && ob.act[1] !== 2)) for (const k of [0, 1] as const) {
+              if (corridor || !(mineAct === 2 && ob.act[0] !== 2 && ob.act[1] !== 2)) for (const k of [0, 1] as const) {
                 const hisAct = ob.act[k];
-                // (two lands crossing, a trade: each gives half)
-                const w = mineAct === hisAct ? 0.5 : mineAct === 2 ? 0 : hisAct === 2 ? 1 : mineAct === 1 ? 1 : 0;
-                if (w <= 0) continue;
-                // (a landing punch's line: the guard yields square to it)
-                const along = hisAct === 2 ? new THREE.Vector3().subVectors(ob.gloves[k], ob.el[k]).normalize() : null;
-                const parts: readonly (readonly [THREE.Vector3, THREE.Vector3, number])[] = [[ob.gloves[k], ob.gloves[k], gr], [ob.el[k], ob.gloves[k], FA], [k === 0 ? ob.sl : ob.sr, ob.el[k], UA]];
-                const mineParts: readonly (readonly [THREE.Vector3, THREE.Vector3, number])[] = [[G, G, gr], [E, G, FA]];
-                for (const [pa, pb, pr] of parts) for (const [qa, qb, qr] of mineParts) {
-                  const [c1, c2] = segSegPts(qa.clone().add(D), qb.clone().add(D), pa, pb);
+                // (two lands crossing, a trade: each gives half; with humanLandCorridor the one that lands first owns the crossing)
+                const hisEta = ob.laneEta[k];
+                // (who lands first: my landing punch keeps its lane against one that lands after it)
+                const iFirst = mineAct === 2 && myEta < hisEta - 1e-6 || (mineAct === 2 && Math.abs(myEta - hisEta) <= 1e-6 && side === 0);
+                const w = corridor && mineAct === 2 && hisAct === 2 && Number.isFinite(hisEta) ? (iFirst ? 0 : 1)
+                  : corridor && mineAct === 2 && hisAct !== 2 ? bendW
+                  : mineAct === hisAct ? 0.5 : mineAct === 2 ? 0 : hisAct === 2 ? 1 : mineAct === 1 ? 1 : 0;
+                // (the lane: every arm of mine gives way to a live one; my PUNCHING arm to one still in its wind-up too —
+                //  a punch of mine that will not land, or lands after his, gets out of his landing punch's way early)
+                const laneHere = corridor && Number.isFinite(hisEta) && (ob.laneLive[k] || mineAct >= 1);
+                const wl = !laneHere ? 0 : mineAct === 2 && iFirst ? 0 : 1;
+                if (w <= 0 && wl <= 0) continue;
+                // (a landing punch's line: the guard yields square to it; my own landing punch bends square to ITS line)
+                const along = hisAct === 2 ? new THREE.Vector3().subVectors(ob.gloves[k], ob.el[k]).normalize() : mineAct === 2 && myLane ? myLane : null;
+                type Cap = readonly [THREE.Vector3, THREE.Vector3, number, THREE.Vector3 | null, number];
+                const parts: Cap[] = w > 0 ? [[ob.gloves[k], ob.gloves[k], gr, along, w], [ob.el[k], ob.gloves[k], FA, along, w], [k === 0 ? ob.sl : ob.sr, ob.el[k], UA, along, w]] : [];
+                const mineParts: (readonly [THREE.Vector3, THREE.Vector3, number])[] = [[G, G, gr], [E, G, FA]];
+                // A LAND OPENS ITS LANE AHEAD OF TIME (humanLandCorridor): the path its glove has still to travel to the contact
+                // point, and its forearm there, are kept clear from the moment it is known to land, at the corridor's pace;
+                // the guard is split before the glove arrives, square to the lane, not run through.
+                let laneLd: THREE.Vector3 | null = null;
+                if (wl > 0) {
+                  const to = ob.laneTo[k], run = new THREE.Vector3().subVectors(to, ob.gloves[k]);
+                  if (run.length() > 0.01) {
+                    laneLd = run.clone().normalize();
+                    const fa = new THREE.Vector3().subVectors(ob.gloves[k], ob.el[k]).normalize();
+                    parts.push([ob.gloves[k], to, gr, laneLd, wl], [ob.el[k].clone().add(run), to, FA, fa, wl]);
+                    mineParts.push([S, E, UA]);
+                    // (my own punch is checked along the way it is STILL GOING, not only where it is: thrown into his lane, a
+                    //  straight covered 20 cm in a tick and was inside it before any push could act. Where they would cross,
+                    //  mine is moved off now, at the corridor's pace)
+                    if (mineAct >= 1 && cfg.humanLandCorridorAhead && !anim.conformInfo.resolved) {
+                      const ci = anim.conformInfo;
+                      const myTo = outcomeT && out.ik?.arm === a ? outcomeT : ci.at ? new THREE.Vector3(ci.at.x, ci.at.y, ci.at.z) : null;
+                      if (myTo && myTo.distanceTo(G) > 0.01) mineParts.push([G, myTo, gr]);
+                    }
+                    laneOpen = true; laneEta = Math.min(laneEta, Math.max(0, hisEta));
+                  }
+                }
+                for (const [pa, pb, pr, al, pw] of parts) for (const [qa, qb, qr] of mineParts) {
+                  // (my upper arm is tested against the lane only: it moves with the elbow)
+                  if ((qr === UA || (qa === G && qb !== G && qb !== E)) && pb !== ob.laneTo[k]) continue;
+                  const [c1, c2] = segSegPts(qa === S ? qa : qa.clone().add(D), qb.clone().add(D), pa, pb);
                   const d = c1.distanceTo(c2), need = qr + pr + mg - d;
                   if (need <= 0 || d < 1e-5) continue;
                   const n = c1.sub(c2).divideScalar(d);
+                  // (my own punch out of his lane is BRUSHED DOWN, not lifted over it nor dragged back through me)
+                  if (pb === ob.laneTo[k] && mineAct >= 1 && cfg.humanLandCorridorDown > 0) { n.y -= cfg.humanLandCorridorDown; n.normalize(); }
                   let k2 = 1;
-                  if (along) { n.addScaledVector(along, -n.dot(along)); const l = n.length(); if (l < 1e-2) n.set(0, -1, 0); else { n.divideScalar(l); k2 = 1 / Math.max(l, 0.4); } }
-                  D.addScaledVector(n, need * w * k2);
+                  if (al) { n.addScaledVector(al, -n.dot(al)); const l = n.length(); if (l < 1e-2) n.set(0, -1, 0); else { n.divideScalar(l); k2 = 1 / Math.max(l, 0.4); } }
+                  D.addScaledVector(n, need * pw * k2);
                 }
               }
               armDbg.push(D.length());
               // CONTINUOUS IN TIME: the whole move this arm wants this frame (given so far + this solve), capped, may differ
               // from the one on screen last frame by humanArmClearRate only; what this solve applies is the rest of it
               const want = armUsed[a].clone().add(D);
-              if (want.length() > cfg.humanArmClearMax) want.setLength(cfg.humanArmClearMax);
+              const wantMax = laneOpen ? Math.max(cfg.humanArmClearMax, cfg.humanLandCorridorMax) : cfg.humanArmClearMax;
+              if (want.length() > wantMax) want.setLength(wantMax);
               // (how much: what the budget leaves after the glove's own move since last frame, between the floor and ceiling rates)
               const tick = Math.max(dt, SIM_DT * 0.5);
               if (!armSeen[a]) { armRaw[a].copy(G).sub(armUsed[a]); armSeen[a] = true; }
               const own = armRaw[a].distanceTo(armRawPrev[a]);
-              const step = want.sub(armPrev[a]), stepMax = Math.max(cfg.humanArmClearRate * tick, Math.min(cfg.humanArmClearRateMax * tick, cfg.humanArmClearBudget * tick - own));
+              const step = want.sub(armPrev[a]);
+              let stepMax = Math.max(cfg.humanArmClearRate * tick, Math.min(cfg.humanArmClearRateMax * tick, cfg.humanArmClearBudget * tick - own));
+              // (humanLandCorridor: a lane must be open by the hit tick: the guard in it is moved at the pace that gets it out
+              //  by then, up to humanLandCorridorRate, knocked aside rather than eased)
+              if (laneOpen) stepMax = Math.max(stepMax, Math.min(cfg.humanLandCorridorRate * tick, step.length() / Math.max(1, laneEta / SIM_DT)));
               if (step.length() > stepMax) step.setLength(stepMax);
               D.copy(armPrev[a]).add(step).sub(armUsed[a]);
               // NEVER INTO HIM: the move may not take the glove inside his head or torso, nor deeper than it already was
@@ -945,6 +1003,17 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
                 let lo = 0, hi = 1;
                 for (let i = 0; i < 8; i++) { const mid = (lo + hi) / 2; if (clearOf(G.clone().addScaledVector(D, mid)) >= floor) lo = mid; else hi = mid; }
                 D.multiplyScalar(lo);
+              }
+              // (humanLandCorridor: and a guard moved out of a lane is never moved into his OWN face or chest, nor deeper)
+              const me = drawnBodies[side];
+              if (laneOpen && me && D.lengthSq() > 1e-8) {
+                const ownOf = (p: THREE.Vector3): number => Math.min(p.distanceTo(me.head) - me.headR, p.distanceTo(closestOn(me.a, me.b, p)) - me.r) - rest0;
+                const f2 = Math.min(ownOf(G), 0);
+                if (ownOf(G.clone().add(D)) < f2) {
+                  let lo = 0, hi = 1;
+                  for (let i = 0; i < 8; i++) { const mid = (lo + hi) / 2; if (ownOf(G.clone().addScaledVector(D, mid)) >= f2) lo = mid; else hi = mid; }
+                  D.multiplyScalar(lo);
+                }
               }
               armUsed[a].add(D);
               if (D.lengthSq() < 1e-8) continue;
@@ -962,10 +1031,24 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         // this man's drawn head sphere and torso line, for the other view (and the probe)
         const s = spec.heightM / cfg.mocapBandRefHeight;
         const db = drawnBodies[side] ?? (drawnBodies[side] = { head: new THREE.Vector3(), headR: 0, a: new THREE.Vector3(), b: new THREE.Vector3(), r: 0, gloves: [new THREE.Vector3(), new THREE.Vector3()], sl: new THREE.Vector3(), sr: new THREE.Vector3(), sR: 0, nk: new THREE.Vector3(), nR: 0,
-          el: [new THREE.Vector3(), new THREE.Vector3()], act: [0, 0] });
+          el: [new THREE.Vector3(), new THREE.Vector3()], act: [0, 0], laneTo: [new THREE.Vector3(), new THREE.Vector3()], laneEta: [NaN, NaN], laneLive: [false, false] });
         db.gloves[0].fromArray(gloveOf('Left')); db.gloves[1].fromArray(gloveOf('Right'));
         arm.Left[1].getWorldPosition(db.el[0]); arm.Right[1].getWorldPosition(db.el[1]);
         db.act[0] = actOf('Left'); db.act[1] = actOf('Right');
+        // (humanLandCorridor) the lane of a landing punch: from its glove now to its contact point, until the hit tick
+        for (const k of [0, 1] as const) {
+          db.laneEta[k] = NaN; db.laneLive[k] = false;
+          const ci = anim.conformInfo;
+          // (in its wind-up already, once it is known to land: then only the other man's punching arm gives way to it)
+          const early = cfg.humanLandCorridorEarly && db.act[k] === 1 && ci.kind === 'land' && !ci.resolved && next.punch.phase === 'cock';
+          if (!cfg.humanLandCorridor || (db.act[k] !== 2 && !early)) continue;
+          db.laneEta[k] = ci.resolved ? -landAge : ci.toHit;
+          db.laneLive[k] = !early;
+          const mineArm = out.ik?.arm === (k === 0 ? 'Left' : 'Right');
+          if (!ci.resolved && outcomeT && mineArm) db.laneTo[k].copy(outcomeT);
+          else if (!ci.resolved && ci.at) db.laneTo[k].set(ci.at.x, ci.at.y, ci.at.z);
+          else db.laneTo[k].copy(db.gloves[k]);
+        }
         arm.Left[0].getWorldPosition(db.sl); arm.Right[0].getWorldPosition(db.sr); head.getWorldPosition(db.nk);
         db.sR = cfg.humanShoulderR * s; db.nR = cfg.humanNeckR * s;
         head.getWorldPosition(db.head);
