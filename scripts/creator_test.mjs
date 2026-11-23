@@ -5,7 +5,7 @@
 import { load } from './load.mjs';
 import { check, done } from './check.js';
 
-const [{ createConfig, defaultDraft, draftToSpec, buildRead, bodyDims }] = await load('/src/core/index.ts');
+const [{ createConfig, defaultDraft, draftToSpec, buildRead, bodyDims, withBodyLock }] = await load('/src/core/index.ts');
 const cfg = createConfig();
 const R = ['power', 'speed', 'chin', 'stamina', 'defense'];
 const sum = (s) => R.reduce((a, k) => a + s[k], 0);
@@ -67,5 +67,19 @@ const reads = new Set();
 for (const h of [1.78, 1.92, 2.06]) for (const w of [91, 108, 125]) reads.add(buildRead({ ...defaultDraft(cfg), heightM: h, massKg: w }, cfg));
 check('build read: one sentence per band, at least 5 variants', reads.size >= 5 && [...reads].every(s => s.length > 20 && s.endsWith('.')), `${reads.size}`);
 check('build read: tall and light matches the brief', buildRead({ ...defaultDraft(cfg), heightM: 2.06, massKg: 91 }, cfg) === 'Tall and light: long reach and quick hands, but easier to hurt.');
+
+// The body lock: a locked save keeps its height and weight whatever an edit says.
+const saved = { ...defaultDraft(cfg), heightM: 2.0, massKg: 120, locked: true, name: 'Old' };
+const hacked = { ...defaultDraft(cfg), heightM: 1.78, massKg: 91, name: 'New', skinTone: 'dark', gloves: '#123456', stance: 'southpaw' };
+const kept = draftToSpec(withBodyLock(saved, hacked), cfg);
+check('locked: an edited draft keeps the saved height and weight', kept.heightM === 2 && kept.massKg === 120, kept.heightM + ' ' + kept.massKg);
+check('locked: ratings and reach follow the saved body, not the incoming one', kept.power === spec({ heightM: 2.0, massKg: 120 }).power && kept.reachM === spec({ heightM: 2.0 }).reachM);
+check('locked: name, stance, skin and kit still change', kept.name === 'New' && kept.stance === 'southpaw' && kept.skin === cfg.createSkinDark && kept.gloves === '#123456');
+check('locked: stays locked whatever the incoming draft claims', withBodyLock(saved, { ...hacked, locked: false }).locked === true);
+check('locked: out-of-range incoming values cannot move it either', draftToSpec(withBodyLock(saved, { ...hacked, heightM: 9, massKg: 999 }), cfg).massKg === 120);
+check('unlocked save: the edit passes through (height and weight move)', draftToSpec(withBodyLock({ ...saved, locked: false }, hacked), cfg).heightM === 1.78 && withBodyLock(null, hacked).heightM === 1.78);
+check('lock flag: stepping in locks, an unlocked try-out does not', withBodyLock(null, hacked, true).locked === true && withBodyLock(null, hacked, false).locked === false);
+check('default draft is unlocked', defaultDraft(cfg).locked === false);
+check('withBodyLock does not mutate its inputs', JSON.stringify(saved) === JSON.stringify({ ...defaultDraft(cfg), heightM: 2.0, massKg: 120, locked: true, name: 'Old' }));
 
 done();

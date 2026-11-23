@@ -20,6 +20,18 @@ export interface FighterDraft {
   heightM: number; massKg: number;
   skinTone: SkinTone;
   trunksPrimary: string; trunksSecondary: string; gloves: string; boots: string; hairColor: string;
+  /** Set when he first steps into the ring: height and weight are then fixed for good (see `withBodyLock`). */
+  locked: boolean;
+}
+
+/**
+ * What a saved fighter lets an edit change. If the saved draft is locked, the edited draft keeps the saved
+ * height and weight whatever it says (and stays locked); everything else (name, stance, skin, kit) passes
+ * through. An unlocked saved draft (or none) lets the edit through untouched. `lock` locks it now.
+ */
+export function withBodyLock(saved: FighterDraft | null, edited: FighterDraft, lock = false): FighterDraft {
+  if (saved && saved.locked) return { ...edited, heightM: saved.heightM, massKg: saved.massKg, locked: true };
+  return { ...edited, locked: lock || edited.locked === true };
 }
 
 export const CREATOR_ID = 'my-fighter';
@@ -51,6 +63,7 @@ export function defaultDraft(cfg: Config): FighterDraft {
     massKg: Math.round((cfg.createMassMin + cfg.createMassMax) / 2),
     skinTone: 'light',
     trunksPrimary: '#b8202a', trunksSecondary: '#f2e6c8', gloves: '#b8202a', boots: '#f2e6c8', hairColor: '#1c1612',
+    locked: false,
   };
 }
 
