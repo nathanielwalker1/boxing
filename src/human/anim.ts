@@ -389,6 +389,7 @@ export class HumanAnim {
     let aim: AnimOut['aim'] = null;
     let slipClip = false;
     let slipLv = 0;   // outcome mode: the slip's dip drawn through the crouch blend (0..1 of a held level)
+    let authOn = false, authHip = 0, authDrop = 0;   // humanSlipAuthored: the authored slip's weight shift (hips, in hip heights) and knee dip (m)
     let lunge = { x: 0, z: 0 }, turn = 0;
     const p = next.punch;
     let punching = p.type !== null;
@@ -720,7 +721,7 @@ export class HumanAnim {
           label = label || 'lean_back (clip v2)';
         } else if (proc) {
           slipLv = clamp(dip / Math.max(0.01, cfg.levelDrop), 0, 1) * (name === 'duck' ? 1 : cfg.humanSlipKnee);
-          if (name !== 'duck') {
+          if (name !== 'duck' && !cfg.humanSlipAuthored) {
             lean.lat = leftward * (cfg.humanCounterLook && leftward > 0 ? cfg.humanCounterLeftLean : 1); lean.back = s.dir === 2 ? off : 0;
             lean.twist = s.dir === 2 ? 0 : leftward * cfg.humanSlipTwist;
           }
@@ -732,6 +733,29 @@ export class HumanAnim {
         } else {
           lean.lat = leftward; lean.back = s.dir === 2 ? off : 0; lean.fwd = dip;
           label = label || name + ' (procedural)';
+        }
+      }
+      // ---- the AUTHORED SLIP (humanSlipAuthored): a boxer's slip drawn from the sim's offset, in every phase (rise, hold, return, and under a counter's
+      //      wind-up): the weight goes onto the slip-side leg (hips across, knees dip, feet stay pinned), the head goes off the line by what the rules
+      //      say, and the shoulders ROTATE (the slip-side one drops and comes round and forward, the other rises behind it): the turn is what reads
+      //      from the side. Both hands ride the guard (they are on the spine). Left and right are the same move (humanSlipLeftGain evens the model).
+      if (cfg.humanSlipAuthored && cfg.mocapOutcome && cfg.humanSlipProcedural && !cfg.humanRawPose && !next.down && (s.dir === 1 || s.dir === -1) && s.kind !== 'roll') {
+        const off = ip(prev.slip.offset, s.offset), leftward = -off * (this.southpaw ? -1 : 1);
+        const k = clamp(Math.abs(off) / Math.max(0.01, cfg.slipHeadOffset), 0, 1), sg = Math.sign(leftward);
+        if (k > 0.01) {
+          authOn = true;
+          const hip = sg * cfg.humanSlipHipShift * k;
+          authHip = hip / Math.max(0.3, cfg.humanSlipHipUnit) * cfg.humanSlipHipSign;
+          authDrop = cfg.humanSlipDipExtra * k;
+          // (outcome mode draws the dip through the crouch blend, not through `drop`)
+          if (!punching) slipLv = Math.max(slipLv, clamp((ip(prev.slip.dip, s.dip) * cfg.humanSlipKnee + authDrop) / Math.max(0.01, cfg.levelDrop), 0, 1));
+          // (a counter keeps the whole slipped pose through its wind-up, fading with the sim's own return; a lead hook / uppercut's coil
+          //  already adds the slip lean at humanCounterLeanKeep, so that much is taken off here and the sum stays continuous)
+          const coil = punching && cfg.humanCounterLook && p.hand === 'lead' && (p.type === 'hook' || p.type === 'uppercut');
+          lean.back += cfg.humanSlipHeadBack * k;   // the shoulder turn carries the slip-side head toward the other man; this takes it back
+          lean.lat = (leftward * (leftward > 0 ? cfg.humanSlipLeftGain : cfg.humanSlipRightGain) + sg * cfg.humanSlipHeadExtra * k) * cfg.humanSlipLeanGain - hip - (coil ? leftward * cfg.humanCounterLeanKeep : 0);
+          lean.twist = -sg * k * cfg.humanSlipTwistDeg * Math.PI / 180;   // + = turn toward his left: the slip-side shoulder comes FORWARD, so the turn is the other way
+          if (!punching) label = label || (leftward > 0 ? 'slip_left' : 'slip_right') + ' (authored)';
         }
       }
       // ---- crouch (outcome mode): the held level drawn as the duck clip's lowest frame, legs and hips only, by the level ----
@@ -839,7 +863,7 @@ export class HumanAnim {
       ? { slug: top.pick.clip.slug, frame: top.t * top.pick.clip.fps, punch: top.key.startsWith('punch#') }
       : { slug: this.idle?.clip.slug ?? '', frame: this.idleT * (this.idle?.clip.fps ?? 60), punch: false };
     // The sim owns the floor position: no horizontal hips travel from any clip.
-    this.pose.hips[0] = 0; this.pose.hips[2] = 0;
+    this.pose.hips[0] = authHip; this.pose.hips[2] = 0;
     if (cfg.humanInertia && !cfg.humanRawPose) {
       // KNOCKED DOWN: he goes down AWAY from the other man (drawn only), clear of his legs; he comes back as he rises
       const clear = next.down && next.getUp.phase !== 'rise' ? cfg.humanDownClear : 0;
@@ -858,7 +882,7 @@ export class HumanAnim {
     const ipn = (a: number, b: number): number => lerp(a, b, alpha);
     const drop = next.down ? 0 : cfg.humanLevelGain * (ipn(prev.level, next.level) * cfg.levelDrop + ipn(prev.posture, next.posture) * cfg.insideCrouch
       + (punching ? 0 : Math.max(0, ipn(prev.crouch, next.crouch))) + (slipClip || !next.slip.active ? 0 : ipn(prev.slip.dip, next.slip.dip)))
-      + cfg.humanSinkGain * Math.max(0, ipn(prev.reaction.sink.x, next.reaction.sink.x)) + this.coil.drop;
+      + cfg.humanSinkGain * Math.max(0, ipn(prev.reaction.sink.x, next.reaction.sink.x)) + this.coil.drop + authDrop;
     if (!slipClip && next.slip.active && !next.down) lean.fwd = 0;   // the dip is now the hips going down, not a bow
     // TIRED (drawn only): he slumps a little and breathes bigger and faster
     if (cfg.humanInertia && cfg.humanTiredOn && !next.down) {
@@ -869,7 +893,7 @@ export class HumanAnim {
     }
     // CONTINUITY: the procedural lean (slip, pull, block flinch) moves on a spring; the sim's slip offset ends in one tick, the picture does not
     if (cfg.humanInertia && !cfg.humanRawPose && dt > 1e-5) {
-      const g = [lean.lat, lean.back, lean.fwd, lean.twist], y = 2 * Math.LN2 / Math.max(1e-3, cfg.humanLeanHalf), e = Math.exp(-y * dt);
+      const g = [lean.lat, lean.back, lean.fwd, lean.twist], y = 2 * Math.LN2 / Math.max(1e-3, authOn ? cfg.humanSlipHalf : cfg.humanLeanHalf), e = Math.exp(-y * dt);
       for (let i = 0; i < 4; i++) {
         const a = this.leanS[i]! - g[i]!, b = this.leanV[i]! + a * y;
         this.leanS[i] = e * (a + b * dt) + g[i]!; this.leanV[i] = e * (this.leanV[i]! - b * y * dt);
