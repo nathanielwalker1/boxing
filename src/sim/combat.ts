@@ -123,6 +123,10 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
     // hook 0.35: "uppercuts still take so long to load and throw". The variant, a gassed arm, a loaded hand and hand speed still scale it.
     if (cfg.mocapTellExact) cock = Math.max(0.05, (want * (f.stamina < cfg.lowStamina ? cfg.lowStaminaCockMult : 1) * v.time(cfg) * (loaded ? cfg.slipLoadedCock : 1) / hands / slow - ph.extend) / ph.cock);
     else cock = Math.max(cock, (want / slow - ph.extend) / ph.cock);
+    // THE FLOOR (tellFloor*): however the shortenings stack, a punch is never out sooner than its floor — the fastest
+    // version of a punch is still one the eye can follow and the arm can be drawn through.
+    const floor = type === 'jab' ? cfg.tellFloorJab : type === 'cross' ? cfg.tellFloorCross : cfg.tellFloorArc;
+    if (floor > 0) cock = Math.max(cock, (floor - ph.extend) / ph.cock);
   }
   // Thrown while being hit, or hurt (polish phase): it comes out — slower, shorter (gloves.ts) and weaker by `nerf`.
   const nerf = hitNerf(f, cfg);
