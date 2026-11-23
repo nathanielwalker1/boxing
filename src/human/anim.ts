@@ -200,6 +200,8 @@ export class HumanAnim {
     this.wanted.add(key);
   }
   private wanted = new Set<string>();
+  /** The fight's decision (cfg.humanDecisionPoses): the winner's side, -1 = a draw, -2 = none (a round has started). */
+  private decision = -2;
 
   // ---- CONTINUITY (humanInertia): the pose drawn = the blend + a carried-over difference that decays ----
   /** > 0: an action cut in this frame; the half-life (s) its carried difference decays with. */
@@ -254,9 +256,10 @@ export class HumanAnim {
     // when this land rocked him or put him down
     const calm = this.cfg.mocapOutcome && this.cfg.humanCalmHits;
     const head = !calm ? head0 : rocked ? ['hit_head_heavy', 'hit_head_medium'] : level === 'heavy' ? ['hit_head_heavy_calm', 'hit_head_medium'] : [`hit_head_${level}_calm`, ...head0];
+    const sideHit = part === 'body' && punch === 'hook' && this.cfg.humanSideHit && !!this.roles['hit_side'];
     const names = part === 'body'
       // (a body shot FOLDS him: hit_body = the stomach take; a flush or rocking one the deep fold. The kidney take turned his back on the puncher)
-      ? (punch === 'uppercut' ? ['hit_body_uppercut', 'hit_body'] : level === 'heavy' || rocked ? ['hit_body_heavy', 'hit_body'] : ['hit_body'])
+      ? (sideHit ? ['hit_side', 'hit_body'] : punch === 'uppercut' ? ['hit_body_uppercut', 'hit_body'] : level === 'heavy' || rocked ? ['hit_body_heavy', 'hit_body'] : ['hit_body'])
       : punch === 'uppercut' && !(calm && !rocked) ? [`hit_uppercut_${level}`, 'hit_uppercut', ...head] : head;
     const pk = this.pick(...names);
     if (!pk) return;
@@ -267,7 +270,7 @@ export class HumanAnim {
     const fit = this.cfg.mocapOutcome && !this.cfg.humanRawPose && this.cfg.humanRecoverRateMax > 0 && !fromState;
     const rate = fit ? clamp((end - impact) / Math.max(0.05, this.cfg.humanHitReactTime), 1, this.cfg.humanRecoverRateMax) : 1;
     // THE HEAD FOLLOWS THE PUNCH: a hook from the other side plays the take mirrored (upper body only: the mirrored legs stand in the other stance)
-    const mir = this.cfg.humanInertia && this.cfg.humanHitTurn !== 0 && part === 'head' && punch === 'hook' && lat * this.cfg.humanHitTurn < 0;
+    const mir = this.cfg.humanInertia && this.cfg.humanHitTurn !== 0 && (part === 'head' || sideHit) && punch === 'hook' && lat * this.cfg.humanHitTurn < 0;
     this.hit = { pick: mir ? { ...pk, mirror: !pk.mirror } : pk, t: impact + age, end, n: ++this.hitN, fromState, t0: impact, rate, fit, mir };
   }
 
@@ -380,6 +383,7 @@ export class HumanAnim {
     this.coil.lat = 0; this.coil.twist = 0; this.coil.drop = 0;
     if (next.punch.type === null) this.legitPick = null;
     let label = '';
+    for (const e of events) { if (e.type === 'decision') this.decision = e.winner ?? -1; else if (e.type === 'roundStart') this.decision = -2; }
     const lean = { lat: 0, back: 0, fwd: 0, twist: 0 };
     let ik: AnimOut['ik'] = null;
     let aim: AnimOut['aim'] = null;
@@ -626,9 +630,9 @@ export class HumanAnim {
             this.ikTail = { arm: g.arm, gi, w };
           }
         } else {
-          const names = mocapRoleNames(this.roles, type, p.hand, low, this.chainedFrom);
+          const names = mocapRoleNames(this.roles, type, p.hand, low, this.chainedFrom, cfg.humanUppercutClipV2);
           const twin = mocapTwinRole(type, p.hand);   // the other hand's role: mirrored onto this arm
-          for (const n of names) { const f = this.find(n); if (f) { pk = { ...f, mirror: n === twin }; break; } }
+          for (const n of names) { const f = this.find(n); if (f) { pk = { ...f, mirror: n === twin || (n === 'lead_uppercut_v2' && p.hand === 'rear') }; break; } }
         }
         if (pk && !geoB?.geo.pick) {
           const c = pk.clip, fps = c.fps, r = pk.role;
@@ -668,7 +672,13 @@ export class HumanAnim {
       // ---- block (upper body) ----
       if (next.block && !punching) {
         const bodyBlock = next.level > 0.5 ? this.find('body_block') : null;
-        const bk = bodyBlock ?? this.find('block');
+        let bk = bodyBlock ?? this.find('block');
+        // cfg.humanSideBlocks: against a HOOK in flight the guard goes to the side it comes from (his left hand lands on my right side)
+        if (cfg.humanSideBlocks && !bodyBlock && opp && opp.next.punch.type === 'hook') {
+          const hisLeft = (opp.next.punch.hand === 'lead') === (opp.next.stance === 'orthodox');
+          const myRight = hisLeft !== this.southpaw;
+          bk = this.find(myRight ? 'block_hook_right' : 'block_hook_left') ?? bk;
+        }
         if (bk) {
           const hold = (bk.role.contact ?? bk.role.to) / bk.clip.fps;
           const tr = this.tracks.find(x => x.key === 'block:' + bk.name);
@@ -700,7 +710,15 @@ export class HumanAnim {
         // (the `dodging` take drops both hands and squats wide); the duck / roll is the crouch's partial duck blend
         const proc = cfg.mocapOutcome && cfg.humanSlipProcedural && !cfg.humanRawPose;
         const pk = proc || (name === 'lean_back' && !cfg.humanLeanBackClip) ? null : this.pick(name);   // a missing slip side = the other side mirrored
-        if (proc) {
+        // cfg.humanLeanBackV2: the pull is the right_block take scrubbed by how far the sim's head has gone back (0 -> its peak frame
+        // at the full slipBackOffset), so the drawn head is never behind the sim's
+        const lbv2 = proc && name === 'lean_back' && cfg.humanLeanBackV2 ? this.find('lean_back_v2') : null;
+        if (lbv2) {
+          const fr = lbv2.role.from + ((lbv2.role.contact ?? lbv2.role.to) - lbv2.role.from) * clamp(off / Math.max(0.01, cfg.slipBackOffset), 0, 1);
+          slipClip = true; slipLv = 0;
+          this.want('slip:lean_back_v2:' + s.chain, lbv2, fr / lbv2.clip.fps, { fadeIn: 0.05, fadeOut: 0.15 });
+          label = label || 'lean_back (clip v2)';
+        } else if (proc) {
           slipLv = clamp(dip / Math.max(0.01, cfg.levelDrop), 0, 1) * (name === 'duck' ? 1 : cfg.humanSlipKnee);
           if (name !== 'duck') {
             lean.lat = leftward * (cfg.humanCounterLook && leftward > 0 ? cfg.humanCounterLeftLean : 1); lean.back = s.dir === 2 ? off : 0;
@@ -726,6 +744,15 @@ export class HumanAnim {
         // the upper body leans with the legs (a boxer's level change is knees AND a forward lean from the hips), by its own share
         if (dk && cfg.humanCrouchUpper > 0 && (lv > 0.02 || this.tracks.some(x => x.key === 'loco:crouchU'))) {
           this.want('loco:crouchU', dk, (dk.role.contact ?? dk.role.to) / dk.clip.fps, { lean: true, fadeIn: 0.12, fadeOut: 0.15, target: clamp(lv, 0, 1) * cfg.humanCrouchUpper });
+        }
+      }
+      // ---- the scorecard (cfg.humanDecisionPoses): the winner of a decision celebrates, the loser takes it; a draw stands ----
+      if (cfg.humanDecisionPoses && this.decision >= 0 && !punching) {
+        const dk = this.find(this.decision === this.side ? 'win' : 'lose');
+        if (dk) {
+          const key = 'decision:' + dk.name, tr = this.tracks.find(x => x.key === key);
+          this.want(key, dk, (tr?.t ?? dk.role.from / dk.clip.fps) + dt, { loop: true, fadeIn: 0.6, fadeOut: 0.3 });
+          label = label || dk.name;
         }
       }
       // ---- hurt ----

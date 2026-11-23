@@ -45,7 +45,7 @@ export interface MocapLib {
 }
 
 const ROW = 13;
-const PUNCH_ROLES = ['jab', 'cross', 'lead_hook', 'rear_hook', 'lead_uppercut', 'rear_uppercut', 'body_jab', 'body_cross', 'body_hook', 'body_lead_hook', 'body_rear_hook', 'body_uppercut', 'body_lead_uppercut', 'body_rear_uppercut'];
+const PUNCH_ROLES = ['lead_uppercut_v2', 'body_rear_uppercut_v2', 'jab', 'cross', 'lead_hook', 'rear_hook', 'lead_uppercut', 'rear_uppercut', 'body_jab', 'body_cross', 'body_hook', 'body_lead_hook', 'body_rear_hook', 'body_uppercut', 'body_lead_uppercut', 'body_rear_uppercut'];
 
 let LIB: MocapLib | null = null;
 /** Inject the decoded library (null clears it). The sim reads it only while cfg.mocapGeo is on. */
@@ -115,10 +115,12 @@ const baseRole = (type: PunchType, hand: Hand): string => (type === 'jab' ? 'jab
  *   2. the body version when the punch goes low (body_<role>, body_<type>),
  *   3. the punch's own role, 4. its other-hand twin (the caller mirrors it onto the right arm).
  */
-export function mocapRoleNames(roles: Roles, type: PunchType, hand: Hand, low: boolean, chainedFrom: ChainedFrom | null): string[] {
+export function mocapRoleNames(roles: Roles, type: PunchType, hand: Hand, low: boolean, chainedFrom: ChainedFrom | null, uppercutV2 = false): string[] {
   const base = baseRole(type, hand);
   const twin = type === 'jab' ? 'cross' : type === 'cross' ? 'jab' : `${hand === 'lead' ? 'rear' : 'lead'}_${type}`;
   const out: string[] = [];
+  // cfg.humanUppercutClipV2: the bent-arm scoop for every uppercut (the rear hand mirrors it); the rear BODY uppercut keeps boxing_3, trimmed
+  if (uppercutV2 && type === 'uppercut' && !chainedFrom) out.push(...(hand === 'rear' && low ? ['body_rear_uppercut_v2'] : []), 'lead_uppercut_v2');
   // (a combination authored to the BODY is not used for a head punch: its second hand comes in low and the height aim
   //  then lifts it straight up — "a really weird animation upwards"; the head-height single clip reads right)
   if (chainedFrom) { const c = `combo_${baseRole(chainedFrom.type, chainedFrom.hand)}_${base}`; const r = roles[c] as (Role & { body?: boolean }) | null | undefined; if (r && !!r.body === low) out.push(c); }
@@ -142,12 +144,12 @@ export const punchOfCode = (c: number): ChainedFrom | null => (c >= 1 && c <= 8 
  * The clip a punch plays (roles from mocapRoleNames); mirrored so the clip's punching arm is the sim's punching hand
  * (orthodox lead = the model's left), which also covers a southpaw and a lead-hand clip standing in for a rear-hand role.
  */
-export function mocapPunchPick(lib: MocapLib, type: PunchType, hand: Hand, stance: Stance, low: boolean, chainedFrom: ChainedFrom | null = null): MocapPick | null {
-  const key = `${type}|${hand}|${stance}|${low ? 1 : 0}|${chainedFrom ? punchCode(chainedFrom.type, chainedFrom.hand) : 0}`;
+export function mocapPunchPick(lib: MocapLib, type: PunchType, hand: Hand, stance: Stance, low: boolean, chainedFrom: ChainedFrom | null = null, uppercutV2 = false): MocapPick | null {
+  const key = `${type}|${hand}|${stance}|${low ? 1 : 0}|${chainedFrom ? punchCode(chainedFrom.type, chainedFrom.hand) : 0}${uppercutV2 && type === 'uppercut' ? '|v2' : ''}`;
   const hit = lib.picks.get(key);
   if (hit !== undefined) return hit;
   const lead = hand === 'lead';
-  const names = mocapRoleNames(lib.roles, type, hand, low, chainedFrom);
+  const names = mocapRoleNames(lib.roles, type, hand, low, chainedFrom, uppercutV2);
   let out: MocapPick | null = null;
   for (const name of names) {
     const r = lib.roles[name];
@@ -268,7 +270,7 @@ function geometricContact(p: MocapPick, from: number, end: number): number {
 export function mocapPunchGeo(lib: MocapLib, cfg: Config, heightM: number, stance: Stance, type: PunchType, hand: Hand, low: boolean,
   u: number, cockEnd: number, peakAt: number, tell: number, targetY: number | null, selfY: number | null, out: MocapPunchGeo, chainedFrom: ChainedFrom | null = null,
   reachTo: number | null = null): MocapPunchGeo {
-  const pick = mocapPunchPick(lib, type, hand, stance, low, chainedFrom);
+  const pick = mocapPunchPick(lib, type, hand, stance, low, chainedFrom, cfg.humanUppercutClipV2);
   out.pick = pick;
   if (!pick) { out.ok = false; out.lunge = 0; return out; }
   const s = heightM / cfg.humanNativeHeight;
@@ -447,7 +449,7 @@ const BANDS = new Map<string, number>();
  */
 export function mocapBandFar(lib: MocapLib, cfg: Config, heightA: number, stance: Stance, type: PunchType, hand: Hand, low: boolean,
   heightT: number, stanceT: Stance, gloveR: number): number | null {
-  const key = `${type}|${hand}|${stance}|${low ? 1 : 0}|${heightA.toFixed(3)}|${heightT.toFixed(3)}|${stanceT}|${gloveR.toFixed(3)}|${cfg.mocapBandMargin}|${cfg.mocapHeadR}|${cfg.mocapTorsoR}|${cfg.mocapHeadFwd}|${cfg.mocapTorsoFwd}`;
+  const key = `${type}|${hand}|${stance}|${low ? 1 : 0}|${heightA.toFixed(3)}|${heightT.toFixed(3)}|${stanceT}|${gloveR.toFixed(3)}|${cfg.mocapBandMargin}|${cfg.mocapHeadR}|${cfg.mocapTorsoR}|${cfg.mocapHeadFwd}|${cfg.mocapTorsoFwd}|${cfg.humanUppercutClipV2 ? 1 : 0}`;
   const hit = BANDS.get(key);
   if (hit !== undefined) return hit;
   const g = mocapContactGlove(lib, cfg, heightA, stance, type, hand, low);
@@ -465,7 +467,7 @@ export function mocapBandFar(lib: MocapLib, cfg: Config, heightA: number, stance
   if (type === 'uppercut' && !low) {
     // a rising punch meets the chin on its way up, not at the top of its arc (its contact frame can hold the glove
     // above the head): the best frame of the rise whose glove is within reach of the head's height and line
-    const pick = mocapPunchPick(lib, type, hand, stance, low);
+    const pick = mocapPunchPick(lib, type, hand, stance, low, null, cfg.humanUppercutClipV2);
     if (pick) {
       const tUp = rest.head[1] * s, sA = heightA / cfg.humanNativeHeight;
       const o = { x: 0, y: 0, z: 0 };
@@ -489,7 +491,7 @@ const STEPS = new Map<string, number>();
  * band a punch can only cover if it has the time to step (sim/outcome.ts, cfg.mocapStepSpeed). Cached. 0: no clip.
  */
 export function mocapBandStep(lib: MocapLib, cfg: Config, heightA: number, stance: Stance, type: PunchType, hand: Hand, low: boolean): number {
-  const key = `${type}|${hand}|${stance}|${low ? 1 : 0}|${heightA.toFixed(3)}|${cfg.mocapLungeKeep}`;
+  const key = `${type}|${hand}|${stance}|${low ? 1 : 0}|${heightA.toFixed(3)}|${cfg.mocapLungeKeep}|${cfg.humanUppercutClipV2 ? 1 : 0}`;
   const hit = STEPS.get(key);
   if (hit !== undefined) return hit;
   const g = mocapContactGlove(lib, cfg, heightA, stance, type, hand, low);
@@ -500,7 +502,7 @@ export function mocapBandStep(lib: MocapLib, cfg: Config, heightA: number, stanc
 
 /** The native-space height of a clip's glove at its contact frame × s, and its forward reach there (measurement helper). */
 export function mocapContactGlove(lib: MocapLib, cfg: Config, heightM: number, stance: Stance, type: PunchType, hand: Hand, low: boolean): { fwd: number; up: number; lat: number; lunge: number } | null {
-  const pick = mocapPunchPick(lib, type, hand, stance, low);
+  const pick = mocapPunchPick(lib, type, hand, stance, low, null, cfg.humanUppercutClipV2);
   if (!pick) return null;
   const o = makeMocapGeo();
   // u = peakAt with any phases: the frame is the contact frame by construction

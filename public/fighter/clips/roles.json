@@ -280,6 +280,63 @@
   "from": 0,
   "to": 285
  },
+ "lead_uppercut_v2": {
+  "slug": "lead_uppercut_v2",
+  "from": 28,
+  "to": 66,
+  "contact": 42
+ },
+ "body_rear_uppercut_v2": {
+  "slug": "boxing_3",
+  "from": 28,
+  "to": 70,
+  "contact": 42,
+  "body": true
+ },
+ "lean_back_v2": {
+  "slug": "right_block",
+  "from": 9,
+  "to": 54,
+  "contact": 32
+ },
+ "block_hook_left": {
+  "slug": "left_block",
+  "from": 8,
+  "to": 48,
+  "contact": 28
+ },
+ "block_hook_right": {
+  "slug": "right_block_1",
+  "from": 8,
+  "to": 48,
+  "contact": 28
+ },
+ "hit_side": {
+  "slug": "side_hit",
+  "from": 0,
+  "to": 58,
+  "impact": 14
+ },
+ "warmup_shadow": {
+  "slug": "warming_up",
+  "from": 64,
+  "to": 112
+ },
+ "warmup_guard": {
+  "slug": "warming_up",
+  "from": 112,
+  "to": 144
+ },
+ "warmup_roll": {
+  "slug": "warming_up",
+  "from": 240,
+  "to": 300
+ },
+ "warmup_settle": {
+  "slug": "warming_up",
+  "from": 320,
+  "to": 377
+ },
  "cross_2": {
   "slug": "cross",
   "from": 0,
