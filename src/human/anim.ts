@@ -272,6 +272,9 @@ export class HumanAnim {
   }
 
   /** Outcome mode (read by tests / the audit): what the punching hand is steered to this frame. */
+  /** The counter coil asked this tick (humanCounterLook): added to the lean and the hips drop. */
+  private ctrKey = -1; private ctrT0 = NaN;
+  private readonly coil = { lat: 0, twist: 0, drop: 0 };
   conformInfo: { kind: OutcomeKind | 'none'; w: number; at: Vec3 | null; part: BodyPart; resolved: boolean; toHit: number } = { kind: 'none', w: 0, at: null, part: 'head', resolved: false, toHit: 0 };
   /** The part the punch in flight is predicted to land on, then the part it was scored on. */
   private ocPart: BodyPart = 'head';
@@ -374,6 +377,7 @@ export class HumanAnim {
     this.clock += dt;
     this.wanted.clear();
     this.legitHand = -1;
+    this.coil.lat = 0; this.coil.twist = 0; this.coil.drop = 0;
     if (next.punch.type === null) this.legitPick = null;
     let label = '';
     const lean = { lat: 0, back: 0, fwd: 0, twist: 0 };
@@ -491,12 +495,24 @@ export class HumanAnim {
         this.lastPunch = { type, hand: p.hand };
         this.lastPunchEnd = this.clock;
         this.lastProgress = p.progress;
-        const u = prev.punch.type === p.type && prev.punch.hand === p.hand ? ip(prev.punch.progress, p.progress) : p.progress;
+        const u0 = prev.punch.type === p.type && prev.punch.hand === p.hand ? ip(prev.punch.progress, p.progress) : p.progress;
         const ph = punchPhases(cfg, type);
         const peak = ph.peakAt;
+        // A COUNTER (humanCounterLook): a loaded hook / uppercut either side. The sim freezes its progress through the hit-stop (about 10 ticks); the DRAWN
+        // recovery runs on real time from the contact, so the glove starts home a few ticks after it and the body unwinds over the rest
+        const ctr = cfg.humanCounterLook && p.loaded && (type === 'hook' || type === 'uppercut');
+        if (ctr) {
+          if (this.ctrKey !== this.punchN) { this.ctrKey = this.punchN; this.ctrT0 = NaN; }
+          if (Number.isNaN(this.ctrT0) && p.resolved && u0 >= peak - 1e-4) this.ctrT0 = this.clock; 
+        }
+        // (the real time from the contact to the end of the punch: the sim's recovery plus the freeze; the drawn recovery is spread over all of it, so it never runs out early)
+        const realRec = (1 - peak) * ph.total * Math.max(1, p.timeMult) + (ctr ? cfg.humanCounterFreeze : 0);
+        const u = ctr && !Number.isNaN(this.ctrT0) ? Math.min(1, Math.max(u0, peak + (this.clock - this.ctrT0) / Math.max(1e-6, realRec) * (1 - peak))) : u0;
         // mocapGeo: the SIM's numbers (core/mocap.ts through sim/mocap.ts): its clip, its frame, its lunge, its turn, its glove
         const geoB = cfg.mocapGeo && opp ? mocapPunchNow(next, opp.next, cfg) : null;
         const geoA = geoB && opp && prev.punch.type === p.type && prev.punch.hand === p.hand ? mocapPunchNow(prev, opp.prev, cfg) : null;
+        const holdK = (type === 'jab' ? cfg.humanJabHold : cfg.humanHeavyHold) * 1;
+        const holdU = ctr ? Math.min(holdK, cfg.humanCounterHomeTicks * SIM_DT / Math.max(1e-6, ph.hold * realRec)) : holdK;
         let pk: Pick | null = null;
         if (geoB?.geo.pick) {
           const g = geoB.geo, gp = g.pick!;
@@ -526,10 +542,10 @@ export class HumanAnim {
             else {
               // AFTER THE HIT: a punch that touched something comes straight home from its contact pose (no follow-through
               // through the man it hit, no lingering); a miss swings through at up to humanRecoverRateMax and is home by the end too.
-              const simRec = Math.max(1e-3, (1 - peak) * T), sec = (u - peak) * T;
-              const sec0 = ph.hold * simRec * (type === 'jab' ? cfg.humanJabHold : cfg.humanHeavyHold);
+              const simRec = Math.max(1e-3, ctr ? realRec : (1 - peak) * T), sec = ctr ? (u - peak) / Math.max(1e-6, 1 - peak) * realRec : (u - peak) * T;
+              const sec0 = ph.hold * simRec * holdU;
               f = p.contact ? gp.contactF : gp.contactF + sec * cfg.humanWhiffSwingRate * gp.clip.fps;
-              fixW = 1 - smooth((sec - sec0) / Math.max(1e-3, simRec * cfg.humanHomeBy - sec0));
+              fixW = 1 - smooth((sec - sec0) / Math.max(1e-3, ctr ? cfg.humanCounterArmTicks * SIM_DT : simRec * cfg.humanHomeBy - sec0));
             }
           } else {
             // THE SWING IS NEVER FAST-FORWARDED: the frames into the contact play at most humanExtendRate x the clip's speed, so
@@ -573,6 +589,20 @@ export class HumanAnim {
           this.legitPick = gp; C0.x = CG1.x; C0.y = CG1.y; C0.z = CG1.z;
           lunge = same ? { x: ip(geoA!.lunge.x, geoB.lunge.x), z: ip(geoA!.lunge.z, geoB.lunge.z) } : { ...geoB.lunge };
           turn = same ? ip(geoA!.geo.turn, g.turn) : g.turn;
+          // THE COUNTER COIL (humanCounterLook): a lead-hand hook / uppercut thrown out of a slip. The slip's lean is KEPT through the wind-up
+          // (it used to vanish the tick the punch started), the shoulders wind back then drive through, and for an uppercut the body dips
+          // into the load and rises with the glove. Drawn only: the sim's slip, glove and contact are untouched.
+          if (cfg.humanCounterLook && p.hand === 'lead' && (type === 'hook' || type === 'uppercut') && next.slip.dir !== 2) {
+            const sgn = this.southpaw ? -1 : 1;   // + = toward his left; the lead hand's side (orthodox)
+            const off = ip(prev.slip.offset, next.slip.offset), left = -off * (this.southpaw ? -1 : 1);
+            const ck = Math.max(1e-6, ph.cockEnd), span = Math.max(1e-6, peak - ph.cockEnd);
+            const c = u < ph.cockEnd ? smooth(u / ck) : 1 - smooth((u - ph.cockEnd) / span);                    // loaded: 0 -> 1 over the wind-up, back to 0 by the contact
+            const q = u <= ph.cockEnd ? 0 : u <= peak ? smooth((u - ph.cockEnd) / span) : 1 - smooth((u - peak) / Math.max(1e-6, 1 - peak));   // driven through: 0 -> 1 at the contact, unwound by the end
+            const keep = u < ph.cockEnd ? 1 : 1 - cfg.humanCounterLeanLetGo * smooth((u - ph.cockEnd) / span);
+            this.coil.lat = left * (cfg.humanCounterLeanKeep * keep * (u <= peak ? 1 : 1 - smooth((u - peak) / Math.max(1e-6, 1 - peak))));
+            this.coil.twist = sgn * cfg.humanCounterCoilTwist * (c - cfg.humanCounterDrive * q);
+            this.coil.drop = type === 'uppercut' ? cfg.humanCounterCoilDip * c : 0;
+          }
           // the drawn arm onto the sim glove: a small correction, in over the flight, held on the target through the hit-stop
           // full weight through the whole punch once the clip has faded in (so the drawn glove IS the scored glove), eased in over the fade
           // Weight 1 from the press: the view starts the target ON the drawn hand (its press offset, eased out over the
@@ -585,7 +615,7 @@ export class HumanAnim {
           const gl = { x: ip(g0.x, g1.x), y: ip(g0.y, g1.y), z: ip(g0.z, g1.z) };
           if (cfg.mocapOutcome && opp) {
             // OUTCOME FIRST: the hand is steered onto the sim's contact point (or left free on a whiff / dodge)
-            const c = this.conform(next, opp.next, u, ph.cockEnd, peak, ph.hold * (cfg.humanInertia ? (type === 'jab' ? cfg.humanJabHold : cfg.humanHeavyHold) : 1), ph.total * Math.max(1, p.timeMult), gp, f, lunge, dt);
+            const c = this.conform(next, opp.next, u, ph.cockEnd, peak, ph.hold * (cfg.humanInertia ? holdU : 1), ph.total * Math.max(1, p.timeMult), gp, f, lunge, dt);
             ik = c.ik; turn = c.turn; lunge = c.lunge;
           } else if (w > 0.01) ik = { arm: g.arm, w, at: gl, exact: true, key: this.punchN, pressW: this.pressW };
           // a chained punch with the OTHER arm: the last arm keeps its own tail (it was lost here: a 30 cm pop of the jab hand when the cross started)
@@ -673,7 +703,7 @@ export class HumanAnim {
         if (proc) {
           slipLv = clamp(dip / Math.max(0.01, cfg.levelDrop), 0, 1) * (name === 'duck' ? 1 : cfg.humanSlipKnee);
           if (name !== 'duck') {
-            lean.lat = leftward; lean.back = s.dir === 2 ? off : 0;
+            lean.lat = leftward * (cfg.humanCounterLook && leftward > 0 ? cfg.humanCounterLeftLean : 1); lean.back = s.dir === 2 ? off : 0;
             lean.twist = s.dir === 2 ? 0 : leftward * cfg.humanSlipTwist;
           }
           label = label || name + ' (procedural)';
@@ -794,13 +824,14 @@ export class HumanAnim {
     }
 
     // A blocked shot: a short flinch back (no block_hit clip, or on top of it).
+    lean.lat += this.coil.lat; lean.twist += this.coil.twist;
     if (this.jolt > 0) { lean.back += cfg.humanBlockJolt * this.jolt; this.jolt = Math.max(0, this.jolt - dt / 0.18); }
     // How far the sim's head is down from level / crouch / inside posture / slip dip, m (the view drops the hips by it,
     // feet pinned). A punch's own crouch is in its clip; a slip clip carries its own dip.
     const ipn = (a: number, b: number): number => lerp(a, b, alpha);
     const drop = next.down ? 0 : cfg.humanLevelGain * (ipn(prev.level, next.level) * cfg.levelDrop + ipn(prev.posture, next.posture) * cfg.insideCrouch
       + (punching ? 0 : Math.max(0, ipn(prev.crouch, next.crouch))) + (slipClip || !next.slip.active ? 0 : ipn(prev.slip.dip, next.slip.dip)))
-      + cfg.humanSinkGain * Math.max(0, ipn(prev.reaction.sink.x, next.reaction.sink.x));
+      + cfg.humanSinkGain * Math.max(0, ipn(prev.reaction.sink.x, next.reaction.sink.x)) + this.coil.drop;
     if (!slipClip && next.slip.active && !next.down) lean.fwd = 0;   // the dip is now the hips going down, not a bow
     // TIRED (drawn only): he slumps a little and breathes bigger and faster
     if (cfg.humanInertia && cfg.humanTiredOn && !next.down) {
