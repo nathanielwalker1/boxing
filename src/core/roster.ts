@@ -50,7 +50,9 @@ const FIGHTERS: FighterSpec[] = [
     gloves: '#d9b43a', gloveCuff: '#16161c', gloveClosure: 'strap', boots: '#16161c', bootHeight: 'low', bootTrim: '#d9b43a',
     hair: 'flatTop', hairColor: '#b0452a', facialHair: 'handlebar',
     tattoos: [{ place: 'forearmL', motif: 'bands', seed: 11 }, { place: 'forearmR', motif: 'bands', seed: 12 }],
-    power: 76, speed: 72, chin: 84, stamina: 86, defense: 46,
+    // (2026-11-23: an EARLY opponent, Nate. Was power 76, speed 72, chin 84: a 70 kg man hitting harder than the 112 kg slugger.
+    //  His engine is still his: stamina 86.)
+    power: 64, speed: 66, chin: 76, stamina: 86, defense: 46,
     style: 'swarmer',
   },
   {

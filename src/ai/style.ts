@@ -271,17 +271,27 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
   swarmer: {
     standoff: 0.58, probeDist: 0.8, stepIn: 3,
     pressWeight: 9, probeWeight: 0.3, circleWeight: 0.3, holdWeight: 0.2,
-    jabWeight: 1.5, crossWeight: 1, hookWeight: 5, uppercutWeight: 3, bodyRate: 0.5, bodyRateHighGuard: 0.8,
-    attackDelayMin: 0.35, attackDelayMax: 0.8, comboChance: 0.85, comboMax: 4,
-    combos: [[bLH, LH, RU], [bLH, bRH, LH], [RU, LH, RH], [bRH, LH], [J, bLH, RH]], comboSignature: 0.85,
+    // (2026-11-23, Nate: "Benny Brask is still impossible. I get hurt every few punches." MEASURED, honest bots in the
+    //  player's body, 9 fights an opponent: hookWeight 5 against jab 1.5 / cross 1 and four of five signatures opening
+    //  with a hook meant EVERY punch he landed was a hook (about 500 N·s; the other pressure man's lands average 372
+    //  because half are jabs and crosses), and a quarter of them counters at 900-1040. The player was rocked 2.6 times a
+    //  fight and down 1.4; against the outboxers 0.1 and 0. He now comes in behind the jab and mixes straights in, and
+    //  takes fewer of the counters his bob opens. Still the inside man: hooks and the body are most of his work.)
+    jabWeight: 3.5, crossWeight: 2.5, hookWeight: 3.5, uppercutWeight: 1.5, bodyRate: 0.5, bodyRateHighGuard: 0.8,
+    // (his rocks were not deliberate counters, which are a cross or a jab: 31 of 35 were his ordinary hooks landing in
+    //  the window a bob or a roll had just opened. So he bobs less: slipShare 0.3 -> 0.15, rollShare 0.6 -> 0.3,
+    //  approachSlip 1.6 -> 0.6, readChance 0.5 -> 0.3; and with jabs now in his work the clock is a little slower.)
+    // (pace: he threw 65 a minute against about 50 for every other style; insideTempo 2.5 -> 1.8, comboChance 0.85 -> 0.7)
+    attackDelayMin: 0.55, attackDelayMax: 1.1, comboChance: 0.7, comboMax: 3,
+    combos: [[J, bLH, RH], [J, X, LH], [J, J, bRH], [bLH, LH, X], [X, LH]], comboSignature: 0.7,
     resetChance: 0, hitResetChance: 0.05, burstChance: 0, feintChance: 0.05,
-    blockChance: 0.45, slipShare: 0.3, rollShare: 0.6, counterChance: 0.4,
+    blockChance: 0.45, slipShare: 0.15, rollShare: 0.3, counterChance: 0.25,
     giveGroundChance: 0, chaseDelay: 0.05,
     cutOff: 0.8, leadPursuit: 0.4, ringUse: 'cutOff', pushOffRate: 0,
     insideGuard: 0.6, insideBlock: 0.6, crowdClinch: 0.2, hurtClinch: 0.7, hurtSwing: 0.2, shellTime: 2,
-    speed: 1, insideTempo: 2.5, blockCounter: 0.5, backFoot: 0, crowdPush: 0.3, pushThen: 'work', approachSlip: 1.6, intercept: 0.2, stumbleSpeed: 2,
+    speed: 1, insideTempo: 1.8, blockCounter: 0.5, backFoot: 0, crowdPush: 0.3, pushThen: 'work', approachSlip: 0.6, intercept: 0.2, stumbleSpeed: 2,
     tiredTempo: 1.7, tiredClinchRate: 0.8, guard: 'peekaboo',
-    readAfter: 2, readChance: 0.5, readReaction: 0.2, pullShare: 0, slipCounter: 0.8,   // (phase 4) bobbing in under a jab he has timed
+    readAfter: 2, readChance: 0.3, readReaction: 0.2, pullShare: 0, slipCounter: 0.5,  // (phase 4) bobbing in under a jab he has timed (0.8 until 2026-11-23: see the weights above)
   },
   // SLUGGER — hands low, feet planted, one punch. Slow, throws heavy singles and the overhand, dips before the big
   // one (the tell), swings back when hurt. Beaten by making him miss and never standing in front of him.
