@@ -33,7 +33,10 @@ const frac = (v: number): number => v - Math.floor(v);
 
 /** The beat of ducked crowd an event asks for (a flush land, a finisher), or null. */
 export function duckForEvent(e: SimEvent, c: Config): { depth: number; hold: number } | null {
-  if (e.type !== 'punchLand' || !c.showSoundTiersOn || c.audioFlushDuck >= 1) return null;
+  if (e.type !== 'punchLand') return null;
+  // A counter: the room never saw it coming, so the crowd drops out harder and for longer than for a flush land.
+  if (c.audioCounterVoice && e.counter === true && e.grade !== 'glancing' && c.audioCounterDuck < 1) return { depth: c.audioCounterDuck, hold: c.audioCounterDuckSeconds };
+  if (!c.showSoundTiersOn || c.audioFlushDuck >= 1) return null;
   const fin = c.showFinisherOn && e.finisher === true && e.grade !== 'glancing';
   if (e.grade !== 'flush' && !fin) return null;
   return { depth: c.audioFlushDuck, hold: c.audioFlushDuckSeconds * (fin ? 1.5 : 1) };
@@ -42,7 +45,14 @@ export function duckForEvent(e: SimEvent, c: Config): { depth: number; hold: num
 /** counterFeelV2: the low thud with the long tail under a counter's impact, scaled by the landed power. */
 function counterThud(out: VoiceReq[], power: number, c: Config, delay: number): void {
   if (!c.counterFeelV2 || c.counterThudGain <= 0) return;
-  out.push({ name: 'counterThud', power, level: c.counterThudGain, delay: delay + c.counterThudDelay });
+  out.push({ name: 'counterThud', power, level: c.counterThudGain * (c.audioCounterVoice ? c.audioCounterBody : 1), delay: delay + c.counterThudDelay });
+}
+
+/** The sounds a counter adds to its land. Voice off = the old square-wave sting and boom; on = the dry crack, the same weight under it. */
+function counterVoices(out: VoiceReq[], power: number, c: Config, delay: number): void {
+  if (!c.audioCounterVoice) { out.push({ name: 'counter', delay }); out.push({ name: 'counterWeight', power, delay }); counterThud(out, power, c, delay); return; }
+  if (c.audioCounterCrack > 0) out.push({ name: 'counterCrack', power, level: c.audioCounterCrack, delay: delay + c.audioCounterCrackDelay });
+  if (c.audioCounterBody > 0) { out.push({ name: 'counterWeight', power, level: c.audioCounterBody, delay }); counterThud(out, power, c, delay); }
 }
 
 /** A landed punch with the tiers pushed apart (showSoundTiersOn). The overhaul's version is the `else` in voicesForEvent. */
@@ -99,7 +109,7 @@ function landVoices(x: Partial<Extract<SimEvent, { type: 'punchLand' }>> & { pow
       const kk = Math.min(combo, 6) - 2;
       out.push({ name: 'comboRise', level: level * (0.45 + 0.18 * kk), pitch: 1 + c.audioComboStep * kk, delay });
     }
-    if (x.counter) { out.push({ name: 'counter', delay }); out.push({ name: 'counterWeight', power: x.power, delay }); counterThud(out, x.power, c, delay); }
+    if (x.counter) counterVoices(out, x.power, c, delay);
   }
   if (seed !== undefined) out.forEach((r, i) => { r.seed = frac(seed + i * 0.137); });
   return out;
@@ -154,7 +164,7 @@ export function voicesForEvent(e: SimEvent, c: Config, player = 0, mem?: VoiceMe
         const k = Math.min(combo, 6) - 2;
         out.push({ name: 'comboRise', power: 0.7 + 0.3 * k, pitch: 1 + c.audioComboStep * k, delay });
       }
-      if (x.counter) { out.push({ name: 'counter', delay }); out.push({ name: 'counterWeight', power: x.power, delay }); counterThud(out, x.power, c, delay); }
+      if (x.counter) counterVoices(out, x.power, c, delay);
       break;
     }
     case 'punchBlock': {
@@ -164,6 +174,14 @@ export function voicesForEvent(e: SimEvent, c: Config, player = 0, mem?: VoiceMe
       const chip = Math.min(1, (x.chip ?? 0) * 25);
       out.push({ name: 'impactBlocked', power: 0.8 + 0.7 * worn + 0.4 * chip, pitch: (x.part === 'body' ? 0.85 : 1) * (1 - 0.28 * Math.min(1, worn)) });
       if (worn > 0.35 || chip > 0) out.push({ name: 'blockHeavy', power: 0.5 + worn + chip });
+      if (c.audioGuardTactile) {
+        // Glove on glove / forearm: a leather thud with a slap on its front and a low push after it; a cross or hook weighs more than a jab. Duller on a worn guard.
+        const w = x.punch === 'jab' ? c.audioGuardWeightJab : x.punch === 'cross' ? c.audioGuardWeightCross : c.audioGuardWeightHook;
+        const pitch = (x.part === 'body' ? 0.88 : 1) * (1 - 0.2 * Math.min(1, worn));
+        out.push({ name: 'guardThud', power: w, pitch, level: c.audioGuardThud * w });
+        out.push({ name: 'guardSlap', power: w, pitch, level: c.audioGuardSlap * w });
+        out.push({ name: 'guardPush', power: w, pitch, level: c.audioGuardPush * w * w, delay: c.audioGuardPushDelay });
+      }
       break;
     }
     case 'perfectBlock': out.push({ name: 'parryTick' }); break;
@@ -254,7 +272,10 @@ export function voicesForReaction(r: Reaction, c?: Config): VoiceReq[] {
     case 'nearMiss': return [{ name: 'crowdGasp', power: s }];
     case 'ole': return [{ name: 'crowdOle', power: s, pitch: 0.9 + 0.12 * s }];
     case 'counter': {
-      const base: VoiceReq[] = [{ name: 'crowdCheer', power: 1.4 * s }, { name: 'crowdRoar', power: s, delay: 0.1 }];
+      // audioCounterVoice: no cheer on the hit (the bus is ducked: nobody saw it coming); a breath in, then the "ooh" a beat later.
+      const base: VoiceReq[] = c && c.audioCounterVoice
+        ? [{ name: 'crowdIntake', power: s, delay: Math.max(0, c.audioCounterOohDelay - 0.19) }, { name: 'crowdOoh', power: 1.4 * s, level: c.audioCounterOohGain, delay: c.audioCounterOohDelay }]
+        : [{ name: 'crowdCheer', power: 1.4 * s }, { name: 'crowdRoar', power: s, delay: 0.1 }];
       // counterFeelV2: a short swell a beat after the hit; the mood sends strength > 1 when the counter rocked him.
       if (c && c.counterFeelV2 && c.counterSwellGain > 0) base.push({ name: 'crowdRoar', power: s, length: 0.6, level: c.counterSwellGain * (s > 1 ? c.counterRockSwell : 1), delay: c.counterSwellDelay });
       return base;

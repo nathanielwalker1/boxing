@@ -247,6 +247,40 @@ export const RECIPES: Record<string, Recipe> = {
       { type: 'noise', gain: 0.45, attack: 0.008, decay: 0.45, filter: { type: 'lowpass', freq: 180, q: 0.8 } },
     ],
   },
+  // audioCounterVoice: the counter's own crack — a shot the man never saw. Dry (no tail), very short, very bright: a slap of bare top end that a plain land does not have.
+  counterCrack: {
+    gain: 2.15,
+    layers: [
+      { type: 'noise', gain: 1.0, attack: 0.001, decay: 0.022, filter: { type: 'highpass', freq: 4200, q: 0.7 } },
+      { type: 'noise', gain: 0.9, attack: 0.001, decay: 0.040, filter: { type: 'bandpass', freq: 3000, q: 2.2 } },
+      { type: 'tone', gain: 0.35, attack: 0.001, decay: 0.030, wave: 'triangle', freq: 2200, freqEnd: 800 },
+    ],
+  },
+  // audioGuardTactile: glove / forearm. Dense leather thud: a dull body knock and a mid leather layer, nothing above ~2.5 kHz.
+  guardThud: {
+    gain: 0.16,
+    layers: [
+      { type: 'tone', gain: 0.9, attack: 0.002, decay: 0.11, wave: 'sine', freq: 130, freqEnd: 62 },
+      { type: 'noise', gain: 0.8, attack: 0.002, decay: 0.075, filter: { type: 'lowpass', freq: 520, q: 0.8 } },
+      { type: 'noise', gain: 0.5, attack: 0.003, decay: 0.05, filter: { type: 'bandpass', freq: 750, q: 0.9 } },
+    ],
+  },
+  // …with a short slap on the front of it: glove leather meeting glove leather. Capped by a low-pass so it can never read as a crack.
+  guardSlap: {
+    gain: 0.14,
+    layers: [
+      { type: 'noise', gain: 1.0, attack: 0.001, decay: 0.022, filter: { type: 'bandpass', freq: 1300, q: 1.0 } },
+      { type: 'noise', gain: 0.5, attack: 0.001, decay: 0.016, filter: { type: 'lowpass', freq: 2300, q: 0.5 } },
+    ],
+  },
+  // …and the push: the low weight the guard takes, arriving a hair after the contact.
+  guardPush: {
+    gain: 0.12,
+    layers: [
+      { type: 'tone', gain: 1.0, attack: 0.012, decay: 0.24, wave: 'sine', freq: 70, freqEnd: 38 },
+      { type: 'noise', gain: 0.35, attack: 0.012, decay: 0.16, filter: { type: 'lowpass', freq: 200, q: 0.7 } },
+    ],
+  },
   // The liver: a sick, wet low thud — lower and longer than any body shot, with a mid "give".
   liverThud: {
     gain: 0.75,
