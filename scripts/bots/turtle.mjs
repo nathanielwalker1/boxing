@@ -1,19 +1,25 @@
-/**
- * bots/turtle.mjs — holds the block and waits. Throws one jab when nothing is
- * coming. NOT a legitimate plan: blocking is safe but it costs (stun, guard
- * wear, chip, the body is open, uppercuts split it) — the turtle should lose.
- */
-import { makeBot, dist, ready } from './util.mjs';
+/** turtle / turtle_counter: hold block the whole fight and walk slowly forward; the counter version answers a punch that landed on its guard with one jab. */
+import { inp, observer } from './_util.mjs';
 
-export const name = 'turtle';
-export const legit = false;
-
-export function create(k, seed, cfg) {
-  return makeBot(k, seed, (b, s) => {
-    const m = b.mem;
-    m.cool = Math.max(0, (m.cool ?? 0) - 1);
-    const opp = s.fighters[1];
-    if (opp.punch.type === null && dist(s) < 0.95 && m.cool === 0 && ready(k, s, cfg) && b.chance(0.08)) { m.cool = 50; return { jab: true }; }
-    return { block: true };
-  });
+function turtle(counter) {
+  return (side, seed, cfg = {}) => {
+    const obs = observer(side, cfg.delay ?? 12);
+    let start = -1;   // tick the reply began (-1 = guard up, not replying)
+    return (s, tick) => {
+      const seen = obs.see(s), me = s.fighters[side];
+      const o = inp({ block: true, move: { x: 0, y: 0.3 } });
+      if (!counter) return o;
+      // His punch has just resolved with contact while I hold the guard: drop it, jab once, raise it again when the jab is over.
+      if (start < 0 && seen.landed && me.block && me.punch.type === null) start = tick;
+      if (start >= 0) {
+        o.block = false;
+        if (tick === start) o.jab = true;
+        else if (tick > start + 2 && me.punch.type === null) { start = -1; o.block = true; }
+      }
+      return o;
+    };
+  };
 }
+
+export const turtle_plain = turtle(false);
+export const turtle_counter = turtle(true);
