@@ -315,6 +315,9 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   let ikKey = -1;
   // CONTACT (humanContactDrawn): seconds since his punch was resolved, and the world point his landed glove holds once it stops following
   let landAge = 0, landHeld = false, earlyS = 0;
+  // (humanLandGap) the head contact's turn off the plain point as eased so far (rad), the candidate held, and whether this frame has eased it yet
+  let gapYaw = 0, gapPitch = 0, gapPick = -1, gapStep = true, gapHitYaw = NaN, gapHitPitch = 0, landPlainOn = false;
+  const landPlain = new THREE.Vector3();
   // the upper-body reach given last frame and so far this frame, m at the shoulder (it grows at humanContactLeanRate)
   let leanPrev = 0, leanUsed = 0;
   /** 0..1: the non-punching hand held home through a body straight (humanOffHandHome). */
@@ -546,6 +549,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       const gw = next.down || cfg.mocapOutcome || cfg.humanRawPose ? 0 : cfg.humanGuardIK;
       ikMax = 0; armDbg.length = 0;
       let outcomeT = null as THREE.Vector3 | null;   // the uncapped contact point of this frame's punch
+      // (humanLandGap) the plain, unturned contact point (uncapped / capped like the hand's): what the body's lean and travel read
+      let outcomePlain = null as THREE.Vector3 | null, plainAt = null as THREE.Vector3 | null;
       // outcome first: the punching hand moves at most mocapIKArmMax off the clip (clip elbow as pole); a BLOCKED punch
       // is steered onto the other man's DRAWN guard glove, not the sim's
       const simAt = out.ik?.outcome ? { ...out.ik.at } : null;   // the rule's own point, before it is moved onto the picture
@@ -562,11 +567,89 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         const want = contactDrawn && out.ik?.outcome && ci.kind === 'land' && !ci.resolved && next.punch.type !== null ? Math.min(cfg.humanContactStandoffMax, ci.toHit * cfg.humanContactCloseSpeed) : 0;
         earlyS = Math.min(want, earlyS + cfg.humanContactStandoffRate * dt);
       }
+      // (humanLandGap: a new frame may ease the chosen contact once; no head land in flight = back to the plain point)
+      gapStep = true;
+      // (let go eased, never at once: reset in a tick it threw the glove of a punch on its way home 30-50 cm)
+      if (!(next.punch.type !== null && anim.conformInfo.kind === 'land' && anim.conformInfo.part === 'head')) {
+        const f = Math.exp(-dt / Math.max(1e-3, cfg.humanLandGapRelease)); gapYaw *= f; gapPitch *= f; gapPick = -1; gapHitYaw = NaN;
+      }
+      /** THE LAND FINDS THE GAP: the unit direction, from his head centre, the landing glove arrives along (see humanLandGap). */
+      const landGap = (c: THREE.Vector3, d0: THREE.Vector3, ob: DrawnBody, rest: number): THREE.Vector3 => {
+        const up = new THREE.Vector3(0, 1, 0), sideV = new THREE.Vector3(d0.z, 0, -d0.x).normalize();
+        const pt = next.punch.type, ci = anim.conformInfo;
+        const pa = out.ik?.arm ?? ((next.punch.hand === 'lead') === (spec.stance === 'orthodox') ? 'Left' : 'Right');
+        const sgn = pt === 'hook' && arm[pa][0].getWorldPosition(new THREE.Vector3()).sub(c).dot(sideV) < 0 ? -1 : 1;
+        const dirOf = (yw: number, pc: number): THREE.Vector3 => new THREE.Vector3().addScaledVector(d0, Math.cos(yw) * Math.cos(pc))
+          .addScaledVector(sideV, sgn * Math.sin(yw) * Math.cos(pc)).addScaledVector(up, Math.sin(pc));
+        if (gapStep) {
+          gapStep = false;
+          const D2R = Math.PI / 180;
+          // the candidates, degrees [yaw toward the side it comes from, pitch up]
+          const cands: [number, number][] = [];
+          if (pt === 'hook') { for (const yf of [0, 0.35, 0.65, 1]) for (const pf of [-0.8, 0, 0.8]) cands.push([yf * cfg.humanLandGapHookYaw, pf * cfg.humanLandGapHookPitch]); }
+          else if (pt === 'uppercut') { for (const yf of [-1, -0.33, 0.33, 1]) for (const pf of [0.4, 0.7, 1]) cands.push([yf * cfg.humanLandGapUpperYaw, -pf * cfg.humanLandGapUpperPitch]); }
+          else { for (const yf of [-1, 0, 1]) for (const p of [-cfg.humanLandGapStraightDown, 0, cfg.humanLandGapStraightUp * 0.5, cfg.humanLandGapStraightUp]) cands.push([yf * cfg.humanLandGapStraightSide, p]); }
+          // clearance of a candidate: the glove resting there, and the last stretch it comes in along, from his gloves / forearms / upper arms
+          const gr = next.body.gloveR, FA = cfg.humanArmClearForearmR, UA = cfg.humanArmClearUpperArmR;
+          const S0 = arm[pa][0].getWorldPosition(new THREE.Vector3()), Pplain = c.clone().addScaledVector(d0, ob.headR + rest);
+          const clear = (yw: number, pc: number): number => {
+            const dd = dirOf(yw * D2R, pc * D2R), P = c.clone().addScaledVector(dd, ob.headR + rest), Q = P.clone().addScaledVector(dd, cfg.humanLandGapApproach);
+            // (the HAND only: a point further from his shoulder than the plain one would need more reach, and the body
+            //  leans and travels for reach — 5-6 cm hip jumps on the hit tick of every straight)
+            if (S0.distanceTo(P) > S0.distanceTo(Pplain) + 0.005) return -Infinity;
+            let m = Infinity;
+            for (const k of [0, 1] as const) for (const [p1, p2, r] of [[ob.gloves[k], ob.gloves[k], gr], [ob.el[k], ob.gloves[k], FA], [k === 0 ? ob.sl : ob.sr, ob.el[k], UA]] as const) {
+              const [c1, c2] = segSegPts(P, Q, p1, p2);
+              m = Math.min(m, c1.distanceTo(c2) - gr - r);
+            }
+            return m;
+          };
+          const score = (yw: number, pc: number, cl: number): number => cl - cfg.humanLandGapBias * Math.hypot(yw, pc) * D2R;
+          // (picked once the land is known and the punch is on its way; re-picked only when the held point is blocked
+          //  and another is clearer by humanLandGapMargin — the glove never darts between candidates)
+          const going = ci.resolved || next.punch.phase !== 'cock';
+          if (going && !ci.resolved) {
+            let best = -1, bs = -Infinity, bc = 0;
+            for (let i = 0; i < cands.length; i++) { const cl = clear(cands[i]![0], cands[i]![1]), s = score(cands[i]![0], cands[i]![1], cl); if (s > bs) { bs = s; best = i; bc = cl; } }
+            if (gapPick < 0 || gapPick >= cands.length) gapPick = best;
+            else {
+              const cur = clear(cands[gapPick]![0], cands[gapPick]![1]);
+              if (cur < 0 && bc > cur + cfg.humanLandGapMargin) gapPick = best;
+            }
+          }
+          // (after the hit it is let go again over humanLandGapRelease, so the glove leaves from where it would have
+          //  landed anyway: held, the turned contact made the weighted way home 30-50 cm a tick)
+          const want: [number, number] = going && !ci.resolved && gapPick >= 0 && gapPick < cands.length ? cands[gapPick]! : [0, 0];
+          // (eased in over the ticks left to the hit, so it is reached on the hit tick and not before)
+          const k = ci.resolved ? 1 - Math.exp(-dt / Math.max(1e-3, cfg.humanLandGapRelease)) : Math.min(1, Math.max(dt, 1e-4) / Math.max(dt, ci.toHit, SIM_DT));
+          if (ci.resolved) {
+            // (after the hit: let go in a straight line to the plain point by humanLandGapRelease — at the end of the
+            //  squash, before the glove goes home — so the way home starts where it would have with the key off)
+            if (Number.isNaN(gapHitYaw)) { gapHitYaw = gapYaw; gapHitPitch = gapPitch; }
+            const f = Math.max(0, 1 - landAge / Math.max(1e-3, cfg.humanLandGapRelease));
+            gapYaw = gapHitYaw * f; gapPitch = gapHitPitch * f;
+          } else if (!going) {
+            // (a new punch starts from the plain point: no carry-over of the last one's turn)
+            gapYaw = 0; gapPitch = 0; gapPick = -1; gapHitYaw = NaN;
+          } else {
+            gapHitYaw = NaN;
+            // (and never faster than humanLandGapRate: picked late, a full turn in the last tick threw a hook 30-45 cm; what
+            //  is not turned by the hit lands part-way round, still on his head)
+            let dy = (want[0] * D2R - gapYaw) * k, dp = (want[1] * D2R - gapPitch) * k;
+            const dl = Math.hypot(dy, dp), dm = cfg.humanLandGapRate * Math.max(dt, 1e-4);
+            if (dl > dm) { dy *= dm / dl; dp *= dm / dl; }
+            gapYaw += dy; gapPitch += dp;
+          }
+        }
+        return dirOf(gapYaw, gapPitch).normalize();
+      };
       const aimOutcome = (): void => {
         if (!(out.ik?.outcome && out.ik.w > 1e-3) || !simAt) return;
         const oppBody = drawnBodies[side === 0 ? 1 : 0];
         const T = new THREE.Vector3(simAt.x, simAt.y, simAt.z);
         const ci = anim.conformInfo;
+        let gapPlain: THREE.Vector3 | null = null;
+        outcomePlain = null; plainAt = null;
         if (ci.kind === 'block' && oppBody) {
           const g0 = oppBody.gloves[0], g1 = oppBody.gloves[1], gp = g0.distanceTo(T) <= g1.distanceTo(T) ? g0 : g1;
           const dir = new THREE.Vector3(x - gp.x, 0, z - gp.z).normalize();
@@ -578,7 +661,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           if (contactDrawn) {
             // NO PHANTOMS: the part that was SCORED, where it is DRAWN now (not the nearest surface to where his idle head
             // would be: reeling, punching or going to the body his drawn head is 10-27 cm from that), on the side facing the puncher
-            if (ci.resolved && landAge > cfg.humanContactStick && landHeld) T.copy(landT);
+            if (ci.resolved && landAge > cfg.humanContactStick && landHeld) { T.copy(landT); if (landPlainOn) gapPlain = landPlain.clone(); }
             else {
               // (the body lane: humanBodyLane of the way up from his hips to his chest — the belly, not the breastbone)
               const c = ci.part === 'head' ? oppBody.head : vB.copy(oppBody.a).lerp(oppBody.b, cfg.humanBodyLane);
@@ -587,9 +670,23 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
               // (it ARRIVES on the hit tick, not before: steered on early, the glove sat on a face that then leaned away and
               //  the rules called a miss — 7% of live misses were drawn touching. Until the hit it stands off by its closing speed.)
               const off = ci.resolved ? 0 : earlyS;
+              // THE LAND FINDS THE GAP (humanLandGap): on the head, the point it arrives at is turned within a cone that
+              // suits the punch toward the part his arms leave open (the temple behind a glove at the cheek, over the
+              // gloves, under them to the chin), chosen early, held, eased in
+              const gapDir = ci.part === 'head' && cfg.humanLandGap ? landGap(c, dir.clone().normalize(), oppBody, rest) : null;
+              if (gapDir) {
+                // (the HAND only: everything else that reads the contact — the clip's reach, the body's lean and travel —
+                //  is given the plain point, as with the key off: fed the turned one, head and feet jumped 10 cm)
+                const R = oppBody.headR + rest, dh = dir.clone().normalize();
+                anim.feedTarget(c.x + dh.x * R, c.y, c.z + dh.z * R);
+                gapPlain = c.clone().addScaledVector(dh, R + off);
+                landPlain.copy(gapPlain);
+                T.copy(c).addScaledVector(gapDir, R + off);
+              } else {
               anim.feedTarget(c.x + dir.x / dir.length() * ((ci.part === 'head' ? oppBody.headR : oppBody.r) + rest), c.y, c.z + dir.z / dir.length() * ((ci.part === 'head' ? oppBody.headR : oppBody.r) + rest));
               T.copy(c).add(dir.setLength((ci.part === 'head' ? oppBody.headR : oppBody.r) + rest + off));
-              landT.copy(T); landHeld = true;
+              }
+              landT.copy(T); landHeld = true; landPlainOn = !!gapPlain;
             }
           } else {
             const P = closestOn(oppBody.a, oppBody.b, T);
@@ -605,6 +702,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         clipG ??= new THREE.Vector3().fromArray(gloveOf(out.ik.arm));
         const D = T.clone().sub(clipG), m = contactDrawn ? cfg.humanContactArmMax : cfg.mocapIKArmMax;
         if (D.length() > m) D.setLength(m);
+        // (humanLandGap: the plain point, capped the same way, for the body's lean and travel)
+        if (gapPlain) { outcomePlain = gapPlain.clone(); const Dp = gapPlain.clone().sub(clipG); if (Dp.length() > m) Dp.setLength(m); plainAt = clipG.clone().add(Dp); }
         T.copy(clipG).add(D);
         out.ik.at = { x: T.x, y: T.y, z: T.z };
         ikMax = D.length() * out.ik.w;
@@ -679,7 +778,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       //  own weight is still holding back.)
       const reachLean = (ik: NonNullable<typeof out.ik>): void => {
         if (!contactDrawn || cfg.humanContactLean <= 0 || ik.w <= 1e-3 || anim.conformInfo.kind !== 'land') return;
-        const T = new THREE.Vector3(ik.at.x, ik.at.y, ik.at.z);
+        // (humanLandGap: the body leans for the plain point; only the hand goes round to the turned one)
+        const T = plainAt ? plainAt.clone() : new THREE.Vector3(ik.at.x, ik.at.y, ik.at.z);
         const [u, m, e] = arm[ik.arm];
         let room = cfg.humanContactLean, turned = false;
         // (twice: the shoulder moves on an arc about the hips, so one turn closes only part of a long reach)
@@ -707,7 +807,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         group.updateMatrixWorld(true);
         const G = vA.fromArray(gloveOf(out.ik.arm));
         // (only on the way in: after the hit the glove leaves the contact by itself, and the body must not chase it)
-        const ci = anim.conformInfo, resF = (outcomeT.x - G.x) * Math.cos(yaw) + (outcomeT.z - G.z) * Math.sin(yaw);
+        // (humanLandGap: what the plain point lacks from where the hand would be aimed at it, as with the key off)
+        if (outcomePlain && plainAt) G.addScaledVector(vB.set(out.ik.at.x, out.ik.at.y, out.ik.at.z).sub(plainAt), -out.ik.w);
+        const oT = outcomePlain && plainAt ? outcomePlain : outcomeT;
+        const ci = anim.conformInfo, resF = (oT.x - G.x) * Math.cos(yaw) + (oT.z - G.z) * Math.sin(yaw);
         // (with humanContactDrawn the body still goes after a landed glove for the moment it stays on the struck part)
         const stuck = contactDrawn && ci.kind === 'land' && ci.resolved && landAge <= cfg.humanContactStick;
         anim.feedReach(next.punch.resolved && !stuck ? 0 : resF, out.ik.w, contactDrawn && ci.kind === 'land' && (stuck || ci.toHit < 2.5 * SIM_DT));
