@@ -124,6 +124,9 @@ export function mocapRoleNames(roles: Roles, type: PunchType, hand: Hand, low: b
   // (a combination authored to the BODY is not used for a head punch: its second hand comes in low and the height aim
   //  then lifts it straight up — "a really weird animation upwards"; the head-height single clip reads right)
   if (chainedFrom) { const c = `combo_${baseRole(chainedFrom.type, chainedFrom.hand)}_${base}`; const r = roles[c] as (Role & { body?: boolean }) | null | undefined; if (r && !!r.body === low) out.push(c); }
+  // (…and an uppercut thrown inside a combination too, after any authored combination clip: left out, every chained
+  //  uppercut still played the old six-frame cut; seen in the 2026-11-23 audit run's labels)
+  if (uppercutV2 && type === 'uppercut' && chainedFrom) out.push(...(hand === 'rear' && low ? ['body_rear_uppercut_v2'] : []), 'lead_uppercut_v2');
   // A head punch whose own role is a BODY-height clip (roles.json body: true; the rear uppercut's only clip ends 61 cm
   // short of the head) takes its other-hand twin, mirrored, first: mirroring is exact, stretching a clip is not.
   const ownBody = !!(roles[base] as (Role & { body?: boolean }) | null | undefined)?.body;
