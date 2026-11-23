@@ -253,6 +253,9 @@ body.flow-menu #touch-ui { display: none; }
 #flow .pgo { margin-top: 14px; font-size: 10px; letter-spacing: 0.26em; text-transform: uppercase; color: #fffb; }
 @media (max-width: 640px) { #flow .pcard { left: 8px; right: 8px; top: auto; bottom: 8px; transform: none; width: auto; } }
 @media (max-height: 460px) { #flow .pcard { padding: 10px 18px 10px; width: min(420px, 52vw); } #flow .pcard .pw { display: none; } #flow .pcard .fname { font-size: 26px; } #flow .ptape { margin-top: 8px; padding-top: 6px; } #flow .prec, #flow .pgo { margin-top: 7px; } }
+#flow .fmeta.recline { display: block; margin-top: 4px; }
+#flow .recline span { font-size: 9px; letter-spacing: 0.3em; text-transform: uppercase; color: #fff9; margin-right: 6px; }
+#flow .recline b { color: #f3dc8f; font-weight: 800; letter-spacing: 0.04em; }
 #flow .mk .foot { flex: none; border-top: 1px solid #fff2; background: #0a0a0e; }
 #flow .mk .foot .btns { margin-top: 10px; gap: 6px; } #flow .mk .foot .btn { flex: 1 1 auto; padding: 9px 12px; font-size: 11px; }
 /* thumbs: about 40 px targets whenever the flow is in touch mode */

@@ -192,11 +192,39 @@ await page.locator('#flow .mk input[type=text]').nth(2).fill('Duluth');
 await page.locator('#flow .screen.create .btn', { hasText: 'Step into the ring' }).click();
 await until(page, () => !!document.querySelector('#flow .poster'), undefined, { label: 'the fight poster' });
 const poster = await page.evaluate(() => document.querySelector('#flow .poster').textContent);
-check('the reveal poster shows the typed name, the home town and a 0 – 0 record', poster.includes('Poster Test') && poster.includes('fighting out of Duluth') && poster.includes('0 – 0'), poster.slice(0, 90));
+check('the reveal poster shows the typed name, the home town and a 0 – 0 record', poster.includes('Poster Test') && poster.includes('fighting out of Duluth') && poster.includes('0-0'), poster.slice(0, 90));
 check('…and it stays up until a key is pressed (still the create screen)', (await st()).screen === 'create');
 await key('KeyJ'); await on('select');
 check('a key press moves on to the select screen with him picked', (await st()).player === 'my-fighter' && (await page.evaluate(() => !document.querySelector('#flow .screen.create.on'))));
-await page.evaluate(() => { try { localStorage.removeItem('boxing.fighter.v1'); } catch { /* no storage */ } });
+const total = r => r.wins + r.losses + r.draws;
+check('the select card shows his record, 0-0 before a fight', await page.evaluate(() => document.querySelector('#flow .select .recline')?.textContent ?? '') === 'Record 0-0' && total(await page.evaluate(() => window.__record())) === 0);
+
+// His fight: the result goes into his record once.
+await key('Enter'); await on('opponent'); await key('Enter'); await on('walk');
+await until(page, () => window.__flow.state().beat === 'walk1', undefined, { label: 'the opponent\'s walk' }); await key('Enter');
+await until(page, () => window.__flow.state().beat === 'walk0', undefined, { label: 'the player\'s walk' }); await key('Enter');
+await until(page, () => window.__flow.state().beat === 'stare', undefined, { label: 'the stare-down' }); await key('Enter');
+await on('fight');
+await until(page, () => window.__flow.state().card, undefined, { label: 'the corner card', timeout: 60000 }); await key('Enter');   // the corner card is held open in this script
+await on('results');
+const rec1 = await page.evaluate(() => window.__record());
+const line1 = await page.evaluate(() => document.querySelector('#flow .results .recline')?.textContent ?? '');
+check('a real fight as the created fighter writes his record once (one fight, one history entry)', total(rec1) === 1 && rec1.history.length === 1 && rec1.history[0].opponent === 'Benny Brask', JSON.stringify(rec1));
+check('the results screen shows the line "Record …" after the fight', /^Record \d+-\d+/.test(line1), line1);
+await frames(page, 30);
+check('…and it is not written again while the results stay up', total(await page.evaluate(() => window.__record())) === 1);
+await key('Enter'); await on('walk');   // Rematch: a new fight, nothing finished yet
+check('a rematch that has not been fought does not add to the record', total(await page.evaluate(() => window.__record())) === 1);
+await key('Escape'); await on('opponent'); await key('Escape'); await on('select'); await key('Escape'); await on('title');
+
+// A gym session writes nothing.
+await page.locator('#flow .title .btn', { hasText: 'Edit fighter' }).click(); await on('create');
+await page.locator('#flow .screen.create .btn', { hasText: 'Try him in the gym' }).click(); await on('gym');
+await page.locator('#flow .ditem').first().click(); await on('fight');
+await until(page, () => window.__sim.state().tick > 120, undefined, { label: 'the drill running', timeout: 60000 });
+await key('Escape'); await on('gym'); await key('Escape'); await on('create');
+check('a gym session as the created fighter does not touch his record', total(await page.evaluate(() => window.__record())) === 1);
+await page.evaluate(() => { try { localStorage.removeItem('boxing.fighter.v1'); localStorage.removeItem('boxing.record.v1'); } catch { /* no storage */ } });
 await key('Escape'); await on('title');
 
 const benign = t => /GPU stall due to ReadPixels/.test(t);

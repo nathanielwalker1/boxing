@@ -11,6 +11,8 @@
 import { addToRoster, buildRatings, buildRead, CREATOR_ID, CREATOR_TEXT_MAX, defaultDraft, draftToSpec, ROSTER, type Config, type FighterDraft, type FighterSpec } from '../core';
 
 import { wordmarkSvg } from './wordmark';
+import { loadRecord } from './record';
+import { recordLine } from '../core';
 
 const KEY = 'boxing.fighter.v1';
 const RATINGS = ['power', 'speed', 'chin', 'stamina', 'defense'] as const;
@@ -93,6 +95,9 @@ export class CreateScreen {
     this.d = loadDraft(c) ?? this.d;
     box.textContent = '';
     box.appendChild(el('div', 'lhead', 'Tale of the tape'));
+    const rec = el('div', 'reach recline'); rec.innerHTML = '<span>Record</span> <b></b>';
+    rec.querySelector('b')!.textContent = recordLine(loadRecord());
+    box.appendChild(rec);
     for (const [key, label, ph] of [['name', 'Name', 'The Challenger'], ['nickname', 'Nickname', 'The Unknown'], ['hometown', 'Home town', 'Nowhere, USA']] as const) {
       const row = el('label', 'field'); row.appendChild(el('span', undefined, label));
       const inp = el('input'); inp.type = 'text'; inp.maxLength = CREATOR_TEXT_MAX; inp.placeholder = ph; inp.value = this.d[key];
@@ -172,7 +177,7 @@ export class CreateScreen {
       tape.appendChild(el('span', undefined, k)); tape.appendChild(el('b', undefined, v));
     }
     card.appendChild(tape);
-    const rec = el('div', 'prec'); rec.innerHTML = '<span>Record</span> 0 – 0'; card.appendChild(rec);
+    const rec = el('div', 'prec'); rec.innerHTML = '<span>Record</span><i></i>'; rec.querySelector('i')!.textContent = recordLine(loadRecord()); card.appendChild(rec);
     card.appendChild(el('div', 'pgo', 'Press any key or tap to continue'));
     poster.addEventListener('pointerdown', e => { e.preventDefault(); onDone(); });
     box.appendChild(poster);

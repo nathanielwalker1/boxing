@@ -33,6 +33,8 @@ import { controlsHtml } from './controls';
 import { accent } from './accent';
 import { wordmarkSvg } from './wordmark';
 import { CreateScreen, registerFighter } from './create';
+import { exposeRecord, loadRecord, saveRecord } from './record';
+import { CREATOR_ID, applyFight, recordLine, type FightRecord } from '../core';
 
 export type Screen = 'title' | 'select' | 'opponent' | 'ladder' | 'gym' | 'controls' | 'walk' | 'fight' | 'results' | 'champion' | 'create';
 export type Mode = 'fight' | 'ladder' | 'gym';
@@ -168,7 +170,9 @@ export class FightFlow {
   private menuClass = false;
   private roundsOverride: [number, number] | null = null;   // scripts only: short rounds
   private create: CreateScreen;
-  private revealing = false;           // the fight-poster card after "Step into the ring" (a state of the create screen)
+  private recorded = false;            // this fight's result has been written to the created fighter's record
+  private recordNow: FightRecord | null = null;   // his record after this fight (the results line), null when he did not fight
+  private revealing = false;          // the fight-poster card after "Step into the ring" (a state of the create screen)
   private gymBack: Screen = 'title';    // where leaving the gym goes (the create screen's "Try him in the gym" sets 'create')
 
   constructor(parent: HTMLElement, private roster: readonly FighterSpec[], private cfg: Config, bus: EventBus, private hooks: FlowHooks, touch = false) {
@@ -193,6 +197,7 @@ export class FightFlow {
     this.drills = drillList(cfg);
     this.director = new Director(cfg, [this.player, this.opp]);
     this.create = new CreateScreen(cfg, spec => this.previewNow(spec));
+    exposeRecord();
 
     bus.on('ko', e => { this.method = { kind: 'ko', winner: e.winner, round: this.lastRound }; });
     bus.on('tko', e => { this.method = { kind: 'tko', winner: e.winner, round: this.lastRound }; });
@@ -364,6 +369,7 @@ export class FightFlow {
       ? `<div class="matchup"><span class="lhead">The matchup</span>${esc(matchupLines(me, f).join(' '))}</div>` : '';
     return `<div class="fname">${esc(f.name)}</div><div class="fnick">"${esc(f.nickname)}"</div>` +
       `<div class="fmeta">${esc(f.hometown)} · ${cap(f.stance)}</div>` +
+      (f.id === CREATOR_ID ? `<div class="fmeta recline"><span>Record</span> <b>${esc(recordLine(loadRecord()))}</b></div>` : '') +
       `<div class="sr"><div class="sizes">${this.sizeRow('Height', `${f.heightM.toFixed(2)} m`, f.heightM, 'heightM')}${this.sizeRow('Reach', `${Math.round(f.reachM * 100)} cm`, f.reachM, 'reachM')}${this.sizeRow('Weight', `${f.massKg} kg`, f.massKg, 'massKg')}</div>` +
       `<div class="ratings">${RATINGS.map(k => `<span>${k}</span><div class="bar"><div class="fill" style="width:${f[k]}%"></div></div><i>${f[k]}</i>`).join('')}</div></div>` +
       match +
@@ -680,6 +686,7 @@ export class FightFlow {
     this.cfg.roundCount = r[0]; this.cfg.roundSeconds = r[1];
     this.cfg.aiDifficulty = this.difficulty;   // the menu's choice is the one difficulty key
     this.method = null; this.lastRound = 0; this.overT = 0; this.seenPhase = 'fighting'; this.cardRound = -1; this.ladderWon = false;
+    this.recorded = false; this.recordNow = null;
     this.stats.reset();
     this.previewWant = null;
     this.hooks.start(this.player, this.opp, { difficulty: this.difficulty, driver: null, prepare: null });
@@ -797,12 +804,23 @@ export class FightFlow {
 
   // ── Results ────────────────────────────────────────────────────────────────
 
+  /** The created fighter's result goes into his record once per fight (a real fight or the ladder, never a drill). A rematch starts a new fight and clears the flag. */
+  private writeRecord(m: Method | null): void {
+    if (this.recorded || !m || this.player.id !== CREATOR_ID || (this.mode !== 'fight' && this.mode !== 'ladder')) return;
+    this.recorded = true;
+    const kind = m.kind === 'ko' ? 'KO' : m.kind === 'tko' ? 'TKO' : 'decision';
+    const rounds = m.kind === 'decision' ? m.cards.length || this.lastRound + 1 : m.round + 1;
+    this.recordNow = applyFight(loadRecord(), { opponent: this.opp.name, result: m.winner === null ? 'D' : m.winner === 0 ? 'W' : 'L', method: kind, round: rounds, when: Date.now() });
+    saveRecord(this.recordNow);
+  }
+
   private renderResults(): void {
     const [a, b] = [this.player, this.opp];
     const s = this.screens.results;
     const m = this.method;
     const winner = m ? m.winner : null;
     const name = winner === null ? 'Draw' : (winner === 0 ? a : b).name;
+    this.writeRecord(m);
     let how = '';
     if (m?.kind === 'ko') how = `Wins by knockout · round ${m.round + 1}`;
     else if (m?.kind === 'tko') how = `Wins by TKO · round ${m.round + 1}`;
@@ -831,7 +849,7 @@ export class FightFlow {
       this.statRow('Clean', ta.clean, tb.clean) + this.statRow('Flush', ta.flush, tb.flush) +
       this.statRow('To the head', ta.head, tb.head) + this.statRow('To the body', ta.body, tb.body) +
       this.statRow('Counters', ta.counters, tb.counters) + this.statRow('Knockdowns', ta.knockdowns, tb.knockdowns) + '</div>';
-    s.innerHTML = `<div class="panel info resultp"><div class="scroll"><div class="winner">${esc(name)}</div><div class="method">${how}</div>${table}${note}${rounds}${stats}</div><div class="foot"><div class="btns"></div></div></div>`;
+    s.innerHTML = `<div class="panel info resultp"><div class="scroll"><div class="winner">${esc(name)}</div><div class="method">${how}</div>${this.recordNow ? `<div class="fmeta recline"><span>Record</span> <b>${esc(recordLine(this.recordNow))}</b></div>` : ''}${table}${note}${rounds}${stats}</div><div class="foot"><div class="btns"></div></div></div>`;
     const sheet = s.querySelector<HTMLElement>('.resultp')!;
     if (winner !== null) this.setAccent(sheet, winner === 0 ? a : b);
     const box = s.querySelector('.btns')!;
