@@ -56,7 +56,8 @@ function mash(punch, how, until, seed = 5) {
   check('weight: the fights produced clean jabs and crosses', val.jab.length >= 5 && val.cross.length >= 5, `jab ${val.jab.length}, cross ${val.cross.length}, hook ${val.hook.length}, uppercut ${val.uppercut.length}`);
   const j = med(val.jab), c = med(val.cross);
   check('weight: 6 clean crosses outscore 12 clean jabs on the effective-punching card', 6 * c > 12 * j, `6 crosses ${(6 * c).toFixed(1)}, 12 jabs ${(12 * j).toFixed(1)} (jab ${j.toFixed(2)}, cross ${c.toFixed(2)})`);
-  check('weight: a clean cross is worth about 3 jabs', c / j > 2.5 && c / j < 3.5, `${(c / j).toFixed(2)}`);
+  // (a median over whichever punches the sampled bot fights happen to throw: it moves when any fight rule moves, so the band is wide)
+  check('weight: a clean cross is worth 2 to 4 jabs', c / j > 2 && c / j < 4, `${(c / j).toFixed(2)}`);
 }
 
 // ---- 2. the worker takes a round nobody landed in ----

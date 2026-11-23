@@ -27,7 +27,8 @@ function aiFight(cfg, seed = 11, ticks = 1200) {
 
 loadMocapLib(mocap);
 // ── 0. off: identical to before (mocap_geo_test's recorded hash) ──
-check('toggle off (library loaded): a seeded 20 s AI fight hashes as before (e057aef1)', aiFight(core.createConfig()).hash === 'e057aef1');
+// (was e057aef1 until 2026-11-22: the round state gained two counters, iqScore and reached; with them deleted the state still hashes e057aef1)
+check('toggle off (library loaded): a seeded 20 s AI fight hashes as before (1bdb9087)', aiFight(core.createConfig()).hash === '1bdb9087');
 
 const base = core.createConfig();
 const cfg = { ...base, punchTimeScale: base.humanPunchTimeScale, mocapGeo: true, mocapOutcome: true };

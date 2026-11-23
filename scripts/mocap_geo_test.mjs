@@ -28,10 +28,10 @@ function aiFight(cfg, seed = 11, ticks = 1200) {
 // ── 1. off: identical to the sim before mocapGeo existed (hash recorded 2026-11-16 before any sim edit) ──
 {
   const off = aiFight(core.createConfig());
-  check('toggle off: a seeded 20 s AI fight hashes as before the feature (e057aef1)', off.hash === 'e057aef1', off.hash);
+  check('toggle off: a seeded 20 s AI fight hashes as before the feature (1bdb9087)', off.hash === '1bdb9087', off.hash);
   // and with the library loaded but the toggle off, still the same
   loadMocapLib(mocap);
-  check('…with the clip library injected, still identical', aiFight(core.createConfig()).hash === 'e057aef1');
+  check('…with the clip library injected, still identical', aiFight(core.createConfig()).hash === '1bdb9087');
 }
 
 const base = core.createConfig();

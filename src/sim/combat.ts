@@ -792,7 +792,9 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     combo = a.combo;
     if (finisher) { a.combo = 0; a.comboT = 0; }   // the next clean land starts a new count
   } else missed(a, cfg, false);
-  if (cfg.iqMissCost) setIqClass(a, blocked || grade === 'glancing' ? IQ_BLOCKED : IQ_FAST);
+  // (any LAND keeps the fast chain, a glancing one too: Nate 2026-11-22, "I landed a jab and... couldn't do anything again".
+  //  A land at the edge of reach, up close, or on a man going away grades glancing; locking the hands after it read as a freeze.)
+  if (cfg.iqMissCost) setIqClass(a, blocked ? IQ_BLOCKED : IQ_FAST);
   if (type === 'jab' && cfg.jabImpulseCap > 0) mag = Math.min(mag, cfg.jabImpulseCap);   // …and again after the grade and the combination
 
   const power = mag / cfg.punchImpulseBase;
