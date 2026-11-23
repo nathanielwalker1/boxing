@@ -168,6 +168,7 @@ export class FightFlow {
   private menuClass = false;
   private roundsOverride: [number, number] | null = null;   // scripts only: short rounds
   private create: CreateScreen;
+  private revealing = false;           // the fight-poster card after "Step into the ring" (a state of the create screen)
   private gymBack: Screen = 'title';    // where leaving the gym goes (the create screen's "Try him in the gym" sets 'create')
 
   constructor(parent: HTMLElement, private roster: readonly FighterSpec[], private cfg: Config, bus: EventBus, private hooks: FlowHooks, touch = false) {
@@ -244,6 +245,7 @@ export class FightFlow {
   private show(screen: Screen): void {
     const focus = document.activeElement as HTMLElement | null;
     if (focus && this.el.contains(focus) && focus.tagName === 'INPUT') focus.blur();   // a field of the create screen: the keys go back to the menu
+    this.revealing = false;
     this.screen = screen;
     this.cursor = 0;
     this.btns = [];
@@ -327,6 +329,16 @@ export class FightFlow {
     registerFighter(spec);
     this.player = spec;
     this.mode = 'fight';
+    const focus = document.activeElement as HTMLElement | null;
+    if (focus && focus.tagName === 'INPUT') focus.blur();
+    this.btns = [];
+    this.revealing = true;
+    this.setAccent(this.screens.create, spec);
+    this.create.reveal(this.screens.create, spec, () => this.endReveal());
+  }
+
+  private endReveal(): void {
+    if (!this.revealing) return;
     this.show('select');
   }
 
@@ -847,6 +859,10 @@ export class FightFlow {
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     const c = e.code;
+    if (this.revealing) {   // the poster: any key but a bare modifier moves on
+      if (!e.repeat && !/^(Shift|Control|Alt|Meta)(Left|Right)$/.test(c)) { this.endReveal(); e.preventDefault(); }
+      return;
+    }
     const a: Act | null =
       c === 'ArrowUp' || c === 'KeyW' ? 'up' : c === 'ArrowDown' || c === 'KeyS' ? 'down' :
       c === 'ArrowLeft' || c === 'KeyA' ? 'left' : c === 'ArrowRight' || c === 'KeyD' ? 'right' :
@@ -861,6 +877,7 @@ export class FightFlow {
 
   /** A menu action from any device. Returns whether it was used. */
   private act(a: Act): boolean {
+    if (this.revealing) { this.endReveal(); return true; }   // a pad button
     const ok = a === 'ok', back = a === 'back';
     const skip = ok || a === 'any';
     if (this.screen === 'fight') {

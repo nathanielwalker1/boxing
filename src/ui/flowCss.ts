@@ -240,6 +240,19 @@ body.flow-menu #touch-ui { display: none; }
 #flow .mk .sws { display: flex; flex-wrap: wrap; gap: 4px; }
 #flow .mk .swc { pointer-events: auto; cursor: pointer; width: 23px; height: 23px; border: 2px solid #fff3; }
 #flow .mk .swc.sel { border-color: #fff; box-shadow: 0 0 0 1px #000, 0 0 0 3px var(--gold); }
+/* the fight poster after "Step into the ring" */
+#flow .poster { position: absolute; inset: 0; pointer-events: auto; cursor: pointer; background: linear-gradient(90deg, #0000 30%, #0009 100%); }
+#flow .pcard { position: absolute; right: clamp(16px, 4vw, 60px); top: 50%; transform: translateY(-50%); width: min(470px, 92vw); padding: 20px 26px 16px; background: linear-gradient(#0c0c10ee, #060608f6); border-left: 8px solid var(--c); border-top: 2px solid var(--gold); box-shadow: 0 12px 34px #000b; }
+#flow .pcard::after { content: ""; position: absolute; left: 0; right: 0; bottom: -4px; height: 4px; background: linear-gradient(90deg, var(--c2) 55%, #0000); }
+#flow .pcard .pw { width: 150px; margin-bottom: 8px; } #flow .pcard .pw svg { display: block; width: 100%; height: auto; }
+#flow .pcard .fname { font-size: clamp(28px, 5.2vw, 52px); margin-top: 4px; }
+#flow .pcard .fmeta { text-transform: uppercase; letter-spacing: 0.12em; font-size: 12px; margin-top: 8px; }
+#flow .ptape { display: grid; grid-template-columns: 70px 1fr; gap: 5px 10px; margin-top: 14px; padding-top: 10px; border-top: 1px solid #fff2; font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: #fff9; align-items: baseline; }
+#flow .ptape b { font-size: 15px; letter-spacing: 0.04em; color: #fff; font-variant-numeric: tabular-nums; }
+#flow .prec { margin-top: 12px; font-size: 18px; font-weight: 900; font-style: italic; letter-spacing: 0.06em; color: #f3dc8f; } #flow .prec span { font-size: 9px; font-style: normal; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: #fff9; margin-right: 8px; }
+#flow .pgo { margin-top: 14px; font-size: 10px; letter-spacing: 0.26em; text-transform: uppercase; color: #fffb; }
+@media (max-width: 640px) { #flow .pcard { left: 8px; right: 8px; top: auto; bottom: 8px; transform: none; width: auto; } }
+@media (max-height: 460px) { #flow .pcard { padding: 10px 18px 10px; width: min(420px, 52vw); } #flow .pcard .pw { display: none; } #flow .pcard .fname { font-size: 26px; } #flow .ptape { margin-top: 8px; padding-top: 6px; } #flow .prec, #flow .pgo { margin-top: 7px; } }
 #flow .mk .foot { flex: none; border-top: 1px solid #fff2; background: #0a0a0e; }
 #flow .mk .foot .btns { margin-top: 10px; gap: 6px; } #flow .mk .foot .btn { flex: 1 1 auto; padding: 9px 12px; font-size: 11px; }
 /* thumbs: about 40 px targets whenever the flow is in touch mode */

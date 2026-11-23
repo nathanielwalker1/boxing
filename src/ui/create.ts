@@ -10,6 +10,8 @@
  */
 import { addToRoster, buildRatings, buildRead, CREATOR_ID, CREATOR_TEXT_MAX, defaultDraft, draftToSpec, ROSTER, type Config, type FighterDraft, type FighterSpec } from '../core';
 
+import { wordmarkSvg } from './wordmark';
+
 const KEY = 'boxing.fighter.v1';
 const RATINGS = ['power', 'speed', 'chin', 'stamina', 'defense'] as const;
 const KIT = ['#b8202a', '#d9531e', '#e0b020', '#2f8f4e', '#1f6b6b', '#2b4a9e', '#5a2a8a', '#d0457a', '#16161c', '#eeeae0'] as const;
@@ -153,6 +155,27 @@ export class CreateScreen {
       box.appendChild(row);
     }
     this.refresh();
+  }
+
+  /** The fight poster after "Step into the ring": fills `box` (the screen) with the card; `onDone` runs on a tap or click. Text goes in as text, never as markup. */
+  reveal(box: HTMLElement, spec: FighterSpec, onDone: () => void): void {
+    box.textContent = '';
+    const poster = el('div', 'poster');
+    const card = el('div', 'pcard'); poster.appendChild(card);
+    card.appendChild(el('div', 'pw', wordmarkSvg('LONG', 'COUNT', 'MAIN EVENT BOXING')));
+    card.appendChild(el('div', 'lhead', 'Introducing'));
+    const name = el('div', 'fname'); name.textContent = spec.name; card.appendChild(name);
+    const nick = el('div', 'fnick'); nick.textContent = `"${spec.nickname}"`; card.appendChild(nick);
+    const out = el('div', 'fmeta'); out.textContent = `fighting out of ${spec.hometown}`; card.appendChild(out);
+    const tape = el('div', 'ptape');
+    for (const [k, v] of [['Height', `${ftIn(spec.heightM)} · ${Math.round(spec.heightM * 100)} cm`], ['Weight', `${Math.round(spec.massKg * LB_PER_KG)} lb · ${spec.massKg} kg`], ['Reach', `${Math.round(spec.reachM * 100)} cm`]] as const) {
+      tape.appendChild(el('span', undefined, k)); tape.appendChild(el('b', undefined, v));
+    }
+    card.appendChild(tape);
+    const rec = el('div', 'prec'); rec.innerHTML = '<span>Record</span> 0 – 0'; card.appendChild(rec);
+    card.appendChild(el('div', 'pgo', 'Press any key or tap to continue'));
+    poster.addEventListener('pointerdown', e => { e.preventDefault(); onDone(); });
+    box.appendChild(poster);
   }
 
   private markKit(key: KitKey): void { this.kitEls[key].forEach((s, i) => s.classList.toggle('sel', KIT[i] === this.d[key].toLowerCase())); }

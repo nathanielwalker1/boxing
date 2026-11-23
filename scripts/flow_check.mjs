@@ -185,6 +185,20 @@ check('the controls card covers every move', ['Slip', 'Burst', 'Roll under', 'Pi
 await shot('controls');
 await key('Escape'); await on('title');
 
+// ── 12. Create your fighter: the reveal poster, then the select screen ───────
+await page.locator('#flow .title .btn', { hasText: 'Create fighter' }).click(); await on('create');
+await page.locator('#flow .mk input[type=text]').nth(0).fill('Poster Test');
+await page.locator('#flow .mk input[type=text]').nth(2).fill('Duluth');
+await page.locator('#flow .screen.create .btn', { hasText: 'Step into the ring' }).click();
+await until(page, () => !!document.querySelector('#flow .poster'), undefined, { label: 'the fight poster' });
+const poster = await page.evaluate(() => document.querySelector('#flow .poster').textContent);
+check('the reveal poster shows the typed name, the home town and a 0 – 0 record', poster.includes('Poster Test') && poster.includes('fighting out of Duluth') && poster.includes('0 – 0'), poster.slice(0, 90));
+check('…and it stays up until a key is pressed (still the create screen)', (await st()).screen === 'create');
+await key('KeyJ'); await on('select');
+check('a key press moves on to the select screen with him picked', (await st()).player === 'my-fighter' && (await page.evaluate(() => !document.querySelector('#flow .screen.create.on'))));
+await page.evaluate(() => { try { localStorage.removeItem('boxing.fighter.v1'); } catch { /* no storage */ } });
+await key('Escape'); await on('title');
+
 const benign = t => /GPU stall due to ReadPixels/.test(t);
 const bad = logs.filter(m => (m.type === 'error' || m.type === 'pageerror' || m.type === 'warning') && !benign(m.text));
 bad.forEach(m => console.log(`  [${m.type}] ${m.text}`));
