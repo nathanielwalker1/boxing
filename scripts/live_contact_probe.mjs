@@ -53,12 +53,53 @@ async function pageFight({ seed, ticks, player, stopAt, trace }) {
     K.s = sim.createState(specs, cfg, seed);
     K.ai = [AI.createAi(0, seed, cfg, AI.styleFor(specs[0], cfg)), AI.createAi(1, seed, cfg, AI.styleFor(specs[1], cfg))];
     K.rng = (seed * 2654435761) >>> 0; K.plan = []; K.next = 60; K.circle = 0; K.lvl = 0; K.want = 1.0;
-    K.hist = []; K.open = []; K.recs = []; K.model = {}; K.tr = []; K.tally = { thrown: [{}, {}], kinds: [{}, {}], firstThrow: [null, null], distSum: 0, n: 0, slips: [0, 0], slipDodged: [0, 0], counters: [0, 0] };
+    K.rk = []; K.hist = []; K.open = []; K.recs = []; K.model = {}; K.tr = []; K.tally = { thrown: [{}, {}], kinds: [{}, {}], firstThrow: [null, null], distSum: 0, n: 0, slips: [0, 0], slipDodged: [0, 0], counters: [0, 0] };
   }
   const rnd = () => { K.rng = (Math.imul(K.rng, 1664525) + 1013904223) >>> 0; return K.rng / 4294967296; };
   const inp = (o = {}) => ({ ...core.cloneInput(core.NULL_INPUT), ...o });
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], len = v => Math.hypot(v[0], v[1], v[2]);
   const segD = (p, a, b) => { const ab = sub(b, a), ap = sub(p, a); const L = ab[0] ** 2 + ab[1] ** 2 + ab[2] ** 2; const t = L ? Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / L)) : 0; return len(sub(p, [a[0] + ab[0] * t, a[1] + ab[1] * t, a[2] + ab[2] * t])); };
+  let F_ = null;
+  const segSegD = (p1, q1, p2, q2) => {
+    const dt = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const d1 = sub(q1, p1), d2 = sub(q2, p2), r = sub(p1, p2), a = dt(d1, d1), e = dt(d2, d2), f = dt(d2, r);
+    let s, t;
+    if (a < 1e-12 && e < 1e-12) { s = 0; t = 0; }
+    else if (a < 1e-12) { s = 0; t = Math.max(0, Math.min(1, f / e)); }
+    else {
+      const c = dt(d1, r);
+      if (e < 1e-12) { t = 0; s = Math.max(0, Math.min(1, -c / a)); }
+      else {
+        const b = dt(d1, d2), den = a * e - b * b;
+        s = den > 1e-12 ? Math.max(0, Math.min(1, (b * f - c * e) / den)) : 0;
+        t = (b * s + f) / e;
+        if (t < 0) { t = 0; s = Math.max(0, Math.min(1, -c / a)); } else if (t > 1) { t = 1; s = Math.max(0, Math.min(1, (b - c) / a)); }
+      }
+    }
+    return Math.hypot(p1[0] + d1[0] * s - p2[0] - d2[0] * t, p1[1] + d1[1] * s - p2[1] - d2[1] * t, p1[2] + d1[2] * s - p2[2] - d2[2] * t);
+  };
+  // CLEAN-SHOT look-back: the punching arm (glove sphere + forearm capsule) against the target's gloves, forearms, upper arms; returns the deepest gap (cm, negative = inside)
+  const cleanScan = (a, hand) => {
+    const rows = K.hist.slice(-11), n = rows.length;
+    let best = { gap: 99, pair: '-', off: 0 };
+    rows.forEach((rw, i) => {
+      const off = i - (n - 1), A = rw[a], T = rw[1 - a];
+      const sd = (A.gl.lead[0] === A.gl.left[0] && A.gl.lead[2] === A.gl.left[2]) ? (hand === 'lead' ? 'left' : 'right') : (hand === 'lead' ? 'right' : 'left');
+      const g = A.gl[hand], el = A.el[sd], gr = F_[a].body.gloveR, tgr = F_[1 - a].body.gloveR;
+      for (const ts of ['left', 'right']) {
+        const cands = [
+          ['glove>glove:' + ts, len(sub(g, T.gl[ts])) - gr - tgr],
+          ['glove>forearm:' + ts, segD(g, T.el[ts], T.gl[ts]) - gr - 0.045],
+          ['glove>upperarm:' + ts, segD(g, T.sh[ts], T.el[ts]) - gr - 0.055],
+          ['forearm>glove:' + ts, segD(T.gl[ts], el, g) - 0.045 - tgr],
+          ['forearm>forearm:' + ts, segSegD(el, g, T.el[ts], T.gl[ts]) - 0.09],
+          ['forearm>upperarm:' + ts, segSegD(el, g, T.sh[ts], T.el[ts]) - 0.045 - 0.055],
+        ];
+        for (const [nm, d] of cands) if (d * 100 < best.gap) best = { gap: d * 100, pair: nm, off };
+      }
+    });
+    return best;
+  };
   const bot = s => {
     // a scripted "human": hold a working distance, throw ones / twos / threes, head and body, sometimes circling
     const a = s.fighters[0], b = s.fighters[1];
@@ -91,6 +132,7 @@ async function pageFight({ seed, ticks, player, stopAt, trace }) {
     K.s = r.state;
     if (stopAt !== undefined) continue;   // film pass: no measuring
     const F = K.s.fighters, P = [w.__humanProbe(0), w.__humanProbe(1)];
+    F_ = F;
     const row = [0, 1].map(i => ({ aw: P[i].conform.w, gl: P[i].gloves, el: P[i].elbows, sh: P[i].shoulders, dr: P[i].drawn, head: P[i].head, cf: P[i].conform.kind, lb: P[i].label }));
     K.hist.push(row); if (K.hist.length > 12) K.hist.shift();
     const dist = Math.hypot(F[1].pos.x - F[0].pos.x, F[1].pos.z - F[0].pos.z);
@@ -123,6 +165,9 @@ async function pageFight({ seed, ticks, player, stopAt, trace }) {
       K.tr.push(`t${t} d ${dist.toFixed(2)} | atk ${A.punch.type ?? '-'} ${A.punch.phase ?? ''} p${(A.punch.progress ?? 0).toFixed(2)} res ${A.punch.resolved ? 1 : 0} reel ${(A.hitT ?? 0).toFixed(2)} "${row[a].lb}" cf ${P[a].conform.kind} w ${P[a].conform.w.toFixed(2)} ik ${(P[a].ikMax * 100).toFixed(0)} reach ${P[a].reach.map(v => v.toFixed(2)).join('/')} lunge ${P[a].lungeDbg.map(v => v.toFixed(2)).join('/')} rule ${o ? o.kind + ' far ' + o.far.toFixed(2) : '-'} | glove→head ${m ? m.head.toFixed(0) : '-'} body ${m ? m.body.toFixed(0) : '-'} | tgt ${F[1 - a].punch.type ?? '-'} reel ${(F[1 - a].hitT ?? 0).toFixed(2)} slip ${F[1 - a].slip.active ? F[1 - a].slip.dir : 0} blk ${F[1 - a].block ? 1 : 0} "${row[1 - a].lb}" | ev ${r.events.map(e => e.type + (e.side ?? '') + (e.type === 'punchStart' ? `(${e.punch} ${e.variant} tell ${e.tell.toFixed(3)} nerf ${(e.nerf ?? 0).toFixed(2)})` : '')).join(',')} | in1 ${JSON.stringify(d1.input)} stop ${(K.s.hitStop ?? 0).toFixed(3)} tell ${(A.punch.tell ?? 0).toFixed(3)}`);
     }
     for (const e of r.events) {
+      if (e.type === 'rocked' || e.type === 'knockdown') {
+        (K.rk ??= []).push({ t, side: e.side, fl: e.type === 'rocked' ? 'rocked' : 'kd' });
+      }
       if (e.type === 'punchStart') { K.tally.thrown[e.side][e.punch] = (K.tally.thrown[e.side][e.punch] ?? 0) + 1; if (K.tally.firstThrow[e.side] === null) K.tally.firstThrow[e.side] = t; }
       if (e.type === 'slip') { K.tally.slips[e.side]++; if (e.dodged) K.tally.slipDodged[e.side]++; }
       if (e.type === 'punchLand' && e.counter) K.tally.counters[e.side]++;
@@ -132,7 +177,10 @@ async function pageFight({ seed, ticks, player, stopAt, trace }) {
       K.tally.kinds[a][e.type] = (K.tally.kinds[a][e.type] ?? 0) + 1;
       // the window before the hit tick, from the history
       const pre = K.hist.slice(-4, -1).map(rw => measure(rw, a, hand));
-      K.open.push({ left: 4, rec: { t, side: a, ev: e.type.replace('punch', '').toLowerCase(), punch: e.punch, hand, part: e.part ?? null, variant: e.variant, counter: !!e.counter, dist: +dist.toFixed(3),
+      const imp = e.impulse ? Math.hypot(e.impulse.x, e.impulse.y, e.impulse.z) : 0;
+      const clean = e.type === 'punchLand' ? cleanScan(a, hand) : null;
+      const tstate = (Bp.hitT ?? 0) > 0 ? 'reeling' : Bp.punch.type ? 'punching' : Bp.slip.active ? 'slipping' : Bp.block ? 'blocking' : 'idle';
+      K.open.push({ left: 4, rec: { t, side: a, tgt: 1 - a, imp, grade: e.grade ?? null, clean, tstate, ev: e.type.replace('punch', '').toLowerCase(), punch: e.punch, hand, part: e.part ?? null, variant: e.variant, counter: !!e.counter, dist: +dist.toFixed(3),
         ctx: { tgtPunch: Bp.punch.type, tgtPhase: Bp.punch.phase ?? null, tgtSlip: Bp.slip.active ? Bp.slip.dir : 0, tgtBlock: !!Bp.block, tgtCrouch: +(Bp.body.headY - Bp.headBox.y).toFixed(3), tgtReel: +(Bp.hitT ?? 0).toFixed(2),
           atkCrouch: +(Ap.body.headY - Ap.headBox.y).toFixed(3), combo: e.combo ?? 0, tgtH: B.body.heightM, atkH: A.body.heightM,
           rel: +(Math.hypot(Bp.vel?.x ?? 0, Bp.vel?.z ?? 0)).toFixed(2), cf: row[a].cf, lb: row[a].lb, tlb: row[1 - a].lb },
@@ -147,7 +195,7 @@ async function pageFight({ seed, ticks, player, stopAt, trace }) {
   w.__setPosed(K.s.fighters[0], K.s.fighters[1]);
   if (stopAt !== undefined) return { t: K.t };
   const T = K.tally;
-  return { recs: K.recs, tr: K.tr, model: K.model, tally: { ...T, meanDist: T.distSum / T.n }, health: K.s.fighters.map(f => f.health), phase: K.s.round?.phase };
+  return { rk: K.rk, recs: K.recs, tr: K.tr, model: K.model, tally: { ...T, meanDist: T.distSum / T.n }, health: K.s.fighters.map(f => f.health), phase: K.s.round?.phase };
 }
 
 for (const opp of OPPS) {
@@ -183,7 +231,10 @@ for (const opp of OPPS) {
     for (const seed of SEEDS) {
       const r = await page.evaluate(pageFight, { seed, ticks: SECONDS * 60, player: PLAYER, trace: TRACE && TRACE[0] === opp && +TRACE[1] === seed ? [+TRACE[2], +TRACE[3], +TRACE[4]] : null });
       if (r.tr.length) console.log(`TRACE ${opp} seed ${seed}\n  ` + r.tr.join('\n  '));
-      for (const x of r.recs) all.push({ opp, seed, ...x });
+      for (const x of r.recs) {
+        const hit = fl => r.rk.some(q => q.fl === fl && q.side === x.tgt && q.t >= x.t && q.t <= x.t + 2);
+        all.push({ opp, seed, ...x, rocked: hit('rocked'), kd: hit('kd') });
+      }
       stats.push({ opp, seed, ...r.tally, health: r.health });
       for (const [k, q] of Object.entries(r.model)) { const g = (model[k] ??= { n: 0, fwd: 0, lat: 0, up: 0, abs: [] }); g.n += q.n; g.fwd += q.fwd; g.lat += q.lat; g.up += q.up; g.abs.push(...q.abs); }
     }
@@ -205,6 +256,30 @@ if (!FILM) {
     r.phantom = r.best > PHANTOM_CM;
     const m = r.m[0];
     r.near = Object.entries({ head: m.head, body: m.body, arm: m.arm, glove: m.glove }).sort((x, y) => x[1] - y[1])[0][0];
+  }
+  {
+    const O = console.log, DEF = 2, BR = -1;   // deflected: deepest overlap > 2 cm (gap < -2); brushed: gap within +1 cm (gap < 1)
+    const cl = all.filter(r => r.ev === 'land' && r.clean);
+    const head = cl.filter(r => r.part !== 'body');
+    const imps = head.map(r => r.imp).sort((x, y) => x - y), q75 = imps[Math.floor(0.75 * imps.length)] ?? 0;
+    const isD = r => r.clean.gap < -DEF, isB = r => r.clean.gap < 1;
+    const line = (nm, g) => O(`  ${nm.padEnd(26)} n ${String(g.length).padStart(4)}  deflected ${String(g.filter(isD).length).padStart(3)} (${(100 * g.filter(isD).length / Math.max(1, g.length)).toFixed(0).padStart(3)}%)  brushed(<+1cm) ${String(g.filter(isB).length).padStart(3)} (${(100 * g.filter(isB).length / Math.max(1, g.length)).toFixed(0).padStart(3)}%)`);
+    const split = (nm, g) => {
+      O(`\n${nm}`);
+      line('ALL', g);
+      const by = (lab, fn) => { const o = {}; for (const r of g) (o[fn(r)] ??= []).push(r); for (const [k, v] of Object.entries(o).sort()) line(`${lab} ${k}`, v); };
+      by('attacker side', r => 's' + r.side);
+      by('punch', r => `${r.punch}/${r.hand}`);
+      by('target', r => r.tstate);
+    };
+    O(`\nCLEAN SHOT CHECK ${TAG} (look-back t-10..t0, punching glove+forearm vs target gloves/forearms/upper arms; DEFLECTED = deeper than ${DEF} cm; lands scored ${cl.length}, head ${head.length}, impulse q75 ${q75.toFixed(0)})`);
+    split('(a) all head lands', head);
+    split('(b) top quarter by impulse (head lands)', head.filter(r => r.imp >= q75));
+    split('(c) lands that rocked', cl.filter(r => r.rocked));
+    split('(d) lands that knocked down', cl.filter(r => r.kd));
+    O('\nWORST 10 rocked / knockdown (opp seed tick punch impulse grade pair depth@offset)');
+    for (const r of cl.filter(r => r.rocked || r.kd).sort((a, b) => a.clean.gap - b.clean.gap).slice(0, 10)) O(`  ${r.opp} seed ${r.seed} t${r.t} s${r.side} ${r.punch}/${r.hand}/${r.part} imp ${r.imp.toFixed(0)} ${r.grade}${r.kd ? ' KD' : ' rocked'} | ${r.clean.pair} depth ${(-r.clean.gap).toFixed(1)} cm @ t${r.clean.off} | tgt ${r.tstate}`);
+    O('');
   }
   if (BRIEF) { const _l = console.log; console.log = (...x) => { if (/^LIVE|^\nLANDS|^\nNOT LANDS|console errors|^  \S+ seed \d+ t\d+ s\d/.test(String(x[0]))) _l(...x); }; }
   console.log(`LIVE CONTACT ${TAG}: player=${PLAYER}, ${OPPS.join(',')} x seeds ${SEEDS.join(',')} x ${SECONDS} s`);
