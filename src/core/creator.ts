@@ -37,6 +37,12 @@ const text = (s: unknown, fallback: string): string => {
 };
 const finite = (x: unknown, fallback: number): number => (typeof x === 'number' && Number.isFinite(x) ? x : fallback);
 
+/** Whether two specs draw the same body. Ids decide, except the creator's own fighter, whose id never changes while his looks do. */
+export function sameFighter(a: FighterSpec, b: FighterSpec): boolean {
+  if (a === b) return true;
+  return a.id === b.id && (a.id !== CREATOR_ID || JSON.stringify(a) === JSON.stringify(b));
+}
+
 export function defaultDraft(cfg: Config): FighterDraft {
   return {
     name: '', nickname: '', hometown: '',

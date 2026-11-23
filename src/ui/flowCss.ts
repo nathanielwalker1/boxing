@@ -218,6 +218,33 @@ body.flow-menu #touch-ui { display: none; }
 #flow .champ { position: absolute; right: clamp(16px, 4vw, 60px); top: 50%; transform: translateY(-50%); max-width: min(520px, 90vw); padding: 20px 26px; }
 #flow .champ .big { font-size: clamp(40px, 7vw, 84px); font-weight: 900; font-style: italic; text-transform: uppercase; line-height: 0.9; color: #f3dc8f; text-shadow: 0 3px 0 #000; }
 
+/* create your fighter (ui/create.ts): a tall panel on the right; the fighter stands in the ring on the left */
+#flow .screen.create { background: linear-gradient(#0008, #0000 22%, #0000 70%, #000a); }
+#flow .info.mk { bottom: 24px; }
+#flow .mk .scroll { padding-top: 12px; }
+#flow .mk .lhead:first-child { margin-top: 0; }
+#flow .mk .field { display: grid; grid-template-columns: 74px 1fr; gap: 6px 10px; align-items: center; margin-top: 7px; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #fff9; }
+#flow .mk input[type=text] { pointer-events: auto; -webkit-user-select: text; user-select: text; width: 100%; min-width: 0; padding: 7px 9px; font: 700 13px "Helvetica Neue", Arial, system-ui, sans-serif; letter-spacing: 0.02em; color: #fff; background: #fff1; border: 1px solid #fff3; border-radius: 0; outline: none; }
+#flow .mk input[type=text]:focus { border-color: var(--gold); background: #fff2; }
+#flow .mk input[type=text]::placeholder { color: #fff5; font-weight: 500; }
+#flow .mk .slide { display: grid; grid-template-columns: 74px 1fr; gap: 3px 10px; align-items: center; margin-top: 9px; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #fff9; }
+#flow .mk .slide b { grid-column: 2; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: none; color: #fff; font-variant-numeric: tabular-nums; }
+#flow .mk .slide span { grid-row: 1 / 3; }
+#flow .mk input[type=range] { pointer-events: auto; width: 100%; height: 26px; margin: 0; accent-color: var(--gold); cursor: pointer; }
+#flow .mk .opt { grid-template-columns: 74px 1fr; }
+#flow .mk .reach { margin-top: 8px; font-size: 12px; color: #fffd; } #flow .mk .reach b { color: #fff; }
+#flow .mk .ratings { grid-template-columns: 56px 1fr 30px; margin-top: 8px; }
+#flow .mk .ratings .fill { transition: width .08s; }
+#flow .mk .read { margin-top: 8px; padding: 6px 10px 7px; background: #fff1; border-left: 3px solid var(--gold); font-size: 12px; line-height: 1.4; }
+#flow .mk .swrow { display: grid; grid-template-columns: 74px 1fr; gap: 6px 10px; align-items: center; margin-top: 7px; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #fff9; }
+#flow .mk .sws { display: flex; flex-wrap: wrap; gap: 4px; }
+#flow .mk .swc { pointer-events: auto; cursor: pointer; width: 23px; height: 23px; border: 2px solid #fff3; }
+#flow .mk .swc.sel { border-color: #fff; box-shadow: 0 0 0 1px #000, 0 0 0 3px var(--gold); }
+@media (max-width: 640px) {
+  #flow .info.mk { max-height: 64vh; bottom: 8px; }
+  #flow .mk .swc { width: 30px; height: 30px; }
+}
+
 /* a short desktop window */
 @media (max-height: 660px) and (min-width: 641px) {
   #flow .info .scroll, #flow .corner .scroll { padding: 10px 16px 8px; } #flow .info .foot { padding: 0 16px 10px; }

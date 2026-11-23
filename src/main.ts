@@ -6,7 +6,7 @@
  * __pose/__focus (pose grid), __states, __input (ui/input.ts).
  */
 import {
-  SIM_DT, NULL_INPUT, EventBus, createConfig, applyHumanMode, cloneInput, frameOf, punchFixture, restFighterState, ROSTER, v2dist,
+  SIM_DT, NULL_INPUT, EventBus, createConfig, applyHumanMode, cloneInput, frameOf, punchFixture, restFighterState, ROSTER, v2dist, sameFighter,
   type Config, type FighterSpec, type FighterState, type FighterView, type FrameInput, type Hand, type PunchType, type Side, type SimEvent, type SimState,
 } from './core';
 import { createState, hurtLevel, step } from './sim';
@@ -18,6 +18,7 @@ import { addFighterLights } from './human/body';
 import * as THREE from 'three';
 import { loadMocapGeo } from './core/mocapLoad';
 import { FightFlow, type StartOpts } from './ui/flow';
+import { loadSavedFighter } from './ui/create';
 import { ReplayBuffer, ReplayPlayer } from './ui/replay';
 import { Referee } from './ui/referee';
 import { Stage, type CameraShot } from './render/stage';
@@ -109,6 +110,9 @@ function createFighterView(side: Side, spec: FighterSpec, c: Config, parent: Sta
 
 // ── Sim + views ──────────────────────────────────────────────────────────────
 // (?opp=<roster id>: the opponent outside the menu, for checks against a short or tall man)
+// The player's own saved fighter (ui/create.ts) joins the roster first, so he is the default player. Menu runs only: tests keep the stock roster.
+const wantsFlow = params.get('menu') === '1' || (!navigator.webdriver && params.get('menu') !== '0');
+if (wantsFlow) loadSavedFighter(cfg);
 let specs: readonly [FighterSpec, FighterSpec] = [ROSTER[0]!, ROSTER.find(r => r.id === params.get('opp')) ?? ROSTER[1]!];
 const bus = new EventBus();
 const audio = new CombatAudio(cfg, bus);   // synthesized SFX on the outcome events; silent until the first click/key (autoplay policy)
@@ -142,14 +146,13 @@ const read = new ReadOverlay(cfg, bus, views);   // the slip's counter window, d
 // and the pose/replay harness drive the sim directly, so under Playwright
 // (navigator.webdriver) or ?menu=0 there is no flow: the fight runs from boot
 // and restarts itself (sparRestartSeconds) as it always has. ?menu=1 forces it.
-const wantsFlow = params.get('menu') === '1' || (!navigator.webdriver && params.get('menu') !== '0');
 // The frame-time overlay is a developer's tool: with the flow on it is off unless the tuning panel is open (the
 // checks that read it run without the flow, where it stays on).
 if (wantsFlow && params.get('tune') !== '1') cfg.debugFps = false;
 let fightNo = 0;
 /** A fresh fight between `a` (the player, side 0) and `b`: new state, AI and rigs; the HUD renamed. The views array is mutated in place — the read overlay holds it. */
 function startFight(a: FighterSpec, b: FighterSpec, opts: StartOpts | null = null): void {
-  const rebuild: [boolean, boolean] = [specs[0].id !== a.id, specs[1].id !== b.id];
+  const rebuild: [boolean, boolean] = [!sameFighter(specs[0], a), !sameFighter(specs[1], b)];
   specs = [a, b];
   const s = seed + fightNo++;
   let st = createState([a, b], cfg, s);
@@ -175,7 +178,7 @@ let acc = 0;
 const flow = wantsFlow ? new FightFlow(document.body, ROSTER, cfg, bus, {
   start: startFight,
   preview: spec => {
-    if (specs[0].id === spec.id) return;
+    if (sameFighter(specs[0], spec)) return;
     specs = [spec, specs[1]];
     views[0].dispose(); views[0] = createFighterView(0, spec, cfg, stage.scene);
   },

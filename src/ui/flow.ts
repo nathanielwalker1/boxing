@@ -21,7 +21,7 @@
  * lower-third at a bell, the corner card in the rest, and the replay bug. A
  * drill is a training screen and has a panel.
  */
-import { NULL_INPUT, cloneInput, generateFighter, type Config, type EventBus, type FighterSpec, type FrameInput, type SimEvent, type SimState } from '../core';
+import { NULL_INPUT, cloneInput, generateFighter, sameFighter, type Config, type EventBus, type FighterSpec, type FrameInput, type SimEvent, type SimState } from '../core';
 import { step } from '../sim';
 import { FLOW_CSS } from './flowCss';
 import { Director, type Scene, type WalkBeat } from './director';
@@ -32,8 +32,9 @@ import { DIFFICULTY_NAMES, ladderDifficulty, ladderFighter, ladderOrder, loadLad
 import { controlsHtml } from './controls';
 import { accent } from './accent';
 import { wordmarkSvg } from './wordmark';
+import { CreateScreen, registerFighter } from './create';
 
-export type Screen = 'title' | 'select' | 'opponent' | 'ladder' | 'gym' | 'controls' | 'walk' | 'fight' | 'results' | 'champion';
+export type Screen = 'title' | 'select' | 'opponent' | 'ladder' | 'gym' | 'controls' | 'walk' | 'fight' | 'results' | 'champion' | 'create';
 export type Mode = 'fight' | 'ladder' | 'gym';
 
 export interface StartOpts {
@@ -91,7 +92,7 @@ interface Btn { el: HTMLElement; act: () => void }
 interface DrillRun { def: Drill; tick: number; acc: Record<string, unknown>; t0: number; done: string; doneT: number; last: DrillMetric; shown: string }
 
 const ROUNDS: readonly (readonly [number, number])[] = [[3, 30], [3, 60], [6, 60]];
-const SCREENS: readonly Screen[] = ['title', 'select', 'opponent', 'ladder', 'gym', 'controls', 'walk', 'fight', 'results', 'champion'];
+const SCREENS: readonly Screen[] = ['title', 'select', 'opponent', 'ladder', 'gym', 'controls', 'walk', 'fight', 'results', 'champion', 'create'];
 const RATINGS = ['power', 'speed', 'chin', 'stamina', 'defense'] as const;
 
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -166,6 +167,7 @@ export class FightFlow {
   private pad: Record<string, boolean> = {};
   private menuClass = false;
   private roundsOverride: [number, number] | null = null;   // scripts only: short rounds
+  private create: CreateScreen;
 
   constructor(parent: HTMLElement, private roster: readonly FighterSpec[], private cfg: Config, bus: EventBus, private hooks: FlowHooks, touch = false) {
     const style = document.createElement('style');
@@ -188,6 +190,7 @@ export class FightFlow {
     this.difficulty = Math.max(0, Math.min(2, Math.round(cfg.aiDifficulty)));
     this.drills = drillList(cfg);
     this.director = new Director(cfg, [this.player, this.opp]);
+    this.create = new CreateScreen(cfg, spec => this.previewNow(spec));
 
     bus.on('ko', e => { this.method = { kind: 'ko', winner: e.winner, round: this.lastRound }; });
     bus.on('tko', e => { this.method = { kind: 'tko', winner: e.winner, round: this.lastRound }; });
@@ -238,6 +241,8 @@ export class FightFlow {
   // ── Screens ────────────────────────────────────────────────────────────────
 
   private show(screen: Screen): void {
+    const focus = document.activeElement as HTMLElement | null;
+    if (focus && this.el.contains(focus) && focus.tagName === 'INPUT') focus.blur();   // a field of the create screen: the keys go back to the menu
     this.screen = screen;
     this.cursor = 0;
     this.btns = [];
@@ -249,6 +254,7 @@ export class FightFlow {
     else if (screen === 'ladder') this.renderLadder();
     else if (screen === 'gym') this.renderGym();
     else if (screen === 'controls') this.renderControls();
+    else if (screen === 'create') this.renderCreate();
     else if (screen === 'results') this.renderResults();
     else if (screen === 'champion') this.renderChampion();
   }
@@ -278,7 +284,36 @@ export class FightFlow {
       ['Ladder', () => this.openLadder()],
       ['Gym', () => this.show('gym')],
       ['Controls', () => { this.controlsBack = 'title'; this.show('controls'); }],
+      [this.create.saved ? 'Edit fighter' : 'Create fighter', () => this.show('create')],
     ]);
+  }
+
+  // ── Create your fighter (fields in ui/create.ts) ───────────────────────────
+
+  private renderCreate(): void {
+    const s = this.screens.create;
+    s.innerHTML = '<div class="head">Create your fighter</div><div class="panel info mk"><div class="scroll"></div><div class="foot"><div class="btns"></div></div></div>';
+    this.previewWant = null;
+    this.create.mount(s.querySelector('.scroll')!);
+    this.setBtns(s.querySelector('.btns')!, [['Step into the ring', () => this.finishCreate()], ['Back', () => this.show('title'), true]]);
+    this.previewNow(this.create.spec());
+  }
+
+  /** Show this draft's man in the ring now (the fields call it on a slider's release or a click). */
+  private previewNow(spec: FighterSpec): void {
+    this.setAccent(this.screens.create.querySelector<HTMLElement>('.info') ?? this.screens.create, spec);
+    if (sameFighter(this.director.slots[0], spec)) return;
+    this.hooks.preview(spec);
+    this.director.setSlots(spec, this.director.slots[1]);
+  }
+
+  /** Save him, put him first on the roster, and go where Fight goes, with him picked. */
+  private finishCreate(): void {
+    const spec = this.create.commit();
+    registerFighter(spec);
+    this.player = spec;
+    this.mode = 'fight';
+    this.show('select');
   }
 
   // ── Select / opponent ──────────────────────────────────────────────────────
@@ -410,7 +445,7 @@ export class FightFlow {
 
   /** Ask for `f`'s body on the turntable once the highlight has rested on him. */
   private wantPreview(f: FighterSpec): void {
-    if (this.director.slots[0].id === f.id) { this.previewWant = null; return; }
+    if (sameFighter(this.director.slots[0], f)) { this.previewWant = null; return; }
     this.previewWant = f;
     this.previewT = this.cfg.flowPreviewDelay;
   }
