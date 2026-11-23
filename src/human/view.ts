@@ -37,7 +37,9 @@ const drawnLunge = [0, 0];
 /** Outcome mode: each view's DRAWN head sphere and torso capsule last frame (the other keeps its gloves out of them). */
 interface DrawnBody { head: THREE.Vector3; headR: number; a: THREE.Vector3; b: THREE.Vector3; r: number; gloves: [THREE.Vector3, THREE.Vector3];
   /** The shoulder line (joint to joint) and the neck (chest joint to head joint): the torso capsule stops at the chest, so arms went through these. */
-  sl: THREE.Vector3; sr: THREE.Vector3; sR: number; nk: THREE.Vector3; nR: number }
+  sl: THREE.Vector3; sr: THREE.Vector3; sR: number; nk: THREE.Vector3; nR: number;
+  /** humanArmClear: the elbows [Left, Right], and what each arm is doing: 0 guard, 1 a punch the rules will not land, 2 a punch that lands. */
+  el: [THREE.Vector3, THREE.Vector3]; act: [number, number] }
 const drawnBodies: (DrawnBody | null)[] = [null, null];
 
 /** Load the body and the clips once. Resolves to false (and logs) if anything is missing. */
@@ -126,6 +128,26 @@ function closestOn(a: THREE.Vector3, b: THREE.Vector3, p: THREE.Vector3): THREE.
   const ab = new THREE.Vector3().subVectors(b, a), L = ab.lengthSq();
   const t = L < 1e-12 ? 0 : Math.max(0, Math.min(1, new THREE.Vector3().subVectors(p, a).dot(ab) / L));
   return a.clone().addScaledVector(ab, t);
+}
+
+/** The closest points [on p1-q1, on p2-q2] of two segments (Ericson; a zero-length segment is a point). New vectors. */
+function segSegPts(p1: THREE.Vector3, q1: THREE.Vector3, p2: THREE.Vector3, q2: THREE.Vector3): [THREE.Vector3, THREE.Vector3] {
+  const d1 = new THREE.Vector3().subVectors(q1, p1), d2 = new THREE.Vector3().subVectors(q2, p2), r = new THREE.Vector3().subVectors(p1, p2);
+  const a = d1.dot(d1), e = d2.dot(d2), f = d2.dot(r);
+  let s = 0, t = 0;
+  if (a < 1e-12 && e < 1e-12) { s = 0; t = 0; }
+  else if (a < 1e-12) { t = Math.max(0, Math.min(1, f / e)); }
+  else {
+    const c = d1.dot(r);
+    if (e < 1e-12) { s = Math.max(0, Math.min(1, -c / a)); }
+    else {
+      const b = d1.dot(d2), den = a * e - b * b;
+      s = den > 1e-12 ? Math.max(0, Math.min(1, (b * f - c * e) / den)) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) { t = 0; s = Math.max(0, Math.min(1, -c / a)); } else if (t > 1) { t = 1; s = Math.max(0, Math.min(1, (b - c) / a)); }
+    }
+  }
+  return [p1.clone().addScaledVector(d1, s), p2.clone().addScaledVector(d2, t)];
 }
 
 /** window.__rigReplay (rig/replay.ts) feeds every tick and its events through these when the human views are up. */
@@ -237,7 +259,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       origin: [group.position.x, group.position.y, group.position.z], legitHand: anim.legitHand,
       // outcome mode: the drawn head sphere / torso line (what the other man's gloves are kept out of) and the hand's target
       drawn: drawnBodies[side] ? { head: drawnBodies[side]!.head.toArray(), headR: drawnBodies[side]!.headR, a: drawnBodies[side]!.a.toArray(), b: drawnBodies[side]!.b.toArray(), r: drawnBodies[side]!.r } : null,
-      lungeDbg: [...anim.lungeDbg], reach: [...reachDbg],
+      lungeDbg: [...anim.lungeDbg], reach: [...reachDbg], armAct: drawnBodies[side] ? [...drawnBodies[side]!.act] : null, armDbg: [...armDbg],
       conform: { kind: anim.conformInfo.kind, w: anim.conformInfo.w, at: anim.conformInfo.at ? [anim.conformInfo.at.x, anim.conformInfo.at.y, anim.conformInfo.at.z] : null },
       // the sim events this view was fed on its last tick (the replay filters them to this side), as plain data
       events: lastEvents.map(e => ({ ...e })),
@@ -292,6 +314,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   let offHome = 0;
   /** (probe) the last reach solve: glove to contact point before the upper body gave, after, the hand weight, and contact point to the clip's own glove, m. */
   let reachDbg = [0, 0, 0, 0];
+  /** (probe, humanArmClear) the arm-clearance moves of this frame's solves, m: [Left, Right] per solve, in order. */
+  const armDbg: number[] = [];
   const landT = new THREE.Vector3();
   const ikOff = new THREE.Vector3();
   /** The guard tuck applied to each hand last frame (world m), so a punch's press offset starts from the tucked hand. */
@@ -509,7 +533,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       const reqs: (typeof out.ik)[] = [out.ik, out.ik2];
       // (outcome mode and the raw pose: the guard is the CLIP's guard — no hand is ever pulled to a sim glove)
       const gw = next.down || cfg.mocapOutcome || cfg.humanRawPose ? 0 : cfg.humanGuardIK;
-      ikMax = 0;
+      ikMax = 0; armDbg.length = 0;
       let outcomeT = null as THREE.Vector3 | null;   // the uncapped contact point of this frame's punch
       // outcome first: the punching hand moves at most mocapIKArmMax off the clip (clip elbow as pole); a BLOCKED punch
       // is steered onto the other man's DRAWN guard glove, not the sim's
@@ -762,10 +786,17 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
 
       // ---- outcome first: no glove of his ever inside the other man's DRAWN head or torso (a whiff, a dodge, a
       //      follow-through); a landed glove rests on the surface, where the contact point puts it ----
-      const keepOut = (): void => {
+      const keepOut = (arms = true): void => {
         const ob = drawnBodies[side === 0 ? 1 : 0];
         // (a glove resting on the part it was scored on is not shoved off it by his shoulder line or neck)
         const landing = contactDrawn && out.ik?.outcome && out.ik.w > 0.5 && anim.conformInfo.kind === 'land' ? out.ik.arm : null;
+        // (humanArmClear) the arm his punch is thrown with, and what each arm is doing: 0 guard, 1 a punch that will not land, 2 one that lands
+        const leadArm = spec.stance === 'orthodox' ? 'Left' : 'Right';
+        const punchArm = next.punch.type !== null ? (next.punch.hand === 'lead' ? leadArm : leadArm === 'Left' ? 'Right' : 'Left') : null;
+        // (a land goes through only up to the moment it is on him: on its way home it is an arm like any other)
+        // (and only from its extension: in the wind-up it is still his to pull out of the way)
+        const actOf = (a: 'Left' | 'Right'): number => (a !== punchArm ? 0 : anim.conformInfo.kind === 'land'
+          && (anim.conformInfo.resolved ? landAge < cfg.humanArmClearLandHold : next.punch.phase !== 'cock') ? 2 : 1);
         if (ob && !next.down && cfg.mocapOutcome && !cfg.humanRawPose) {
           // ELBOWS TOO: an elbow inside his head or torso swings the upper arm out to the surface (then the glove rule below)
           if (cfg.humanInertia && cfg.humanElbowClear > 0) {
@@ -843,7 +874,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             const hd = (push ?? G).distanceTo(ob.head), hmin = ob.headR + (!contactDrawn || !atBody ? rest : rest0) + (!atBody ? early : 0);
             if (hd < hmin) push = ob.head.clone().add((push ?? G).clone().sub(ob.head).setLength(hmin));
             // GLOVE ON GLOVE: two guards never sit inside each other; each man gives half (a punch resting on his guard is left where the block put it)
-            if (cfg.humanInertia && cfg.humanGloveClear > 0 && !(next.punch.type !== null && out.ik?.arm === a)) {
+            if (!cfg.humanArmClear && cfg.humanInertia && cfg.humanGloveClear > 0 && !(next.punch.type !== null && out.ik?.arm === a)) {
               const gmin = next.body.gloveR * 2 * cfg.humanGloveClear;
               for (const og of ob.gloves) {
                 const cur = push ?? G, dg = cur.distanceTo(og);
@@ -856,12 +887,59 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             ikMax = Math.max(ikMax, push.distanceTo(G));
             twoBone(u, m, e, push.clone().addScaledVector(push.clone().sub(E).normalize(), -cfg.humanGloveOffset));
           }
+          // ARMS DO NOT PASS THROUGH ARMS (humanArmClear): his gloves, forearms and upper arms are capsules my glove and
+          // forearm are kept out of. Who gives: a punch that LANDS gives nothing (it got through: the guard in its way is
+          // moved aside, square to the punch, never back into his own face); a punch that is blocked or missed stops on the
+          // guard; two guards, or two punches that cross, each give half. Run again after both men are posed (the late pass).
+          if (arms && cfg.humanArmClear && cfg.humanInertia) {
+            const FA = cfg.humanArmClearForearmR, UA = cfg.humanArmClearUpperArmR, gr = next.body.gloveR, mg = cfg.humanArmClearMargin;
+            for (const a of ['Left', 'Right'] as const) {
+              const mineAct = actOf(a);
+              if (mineAct === 2 && ob.act[0] !== 2 && ob.act[1] !== 2) continue;
+              group.updateMatrixWorld(true);
+              const [u, m, e] = arm[a];
+              const S = u.getWorldPosition(new THREE.Vector3()), E = m.getWorldPosition(new THREE.Vector3()), G = new THREE.Vector3().fromArray(gloveOf(a));
+              const D = new THREE.Vector3();
+              for (const k of [0, 1] as const) {
+                const hisAct = ob.act[k];
+                // (two lands crossing, a trade: each gives half)
+                const w = mineAct === hisAct ? 0.5 : mineAct === 2 ? 0 : hisAct === 2 ? 1 : mineAct === 1 ? 1 : 0;
+                if (w <= 0) continue;
+                // (a landing punch's line: the guard yields square to it)
+                const along = hisAct === 2 ? new THREE.Vector3().subVectors(ob.gloves[k], ob.el[k]).normalize() : null;
+                const parts: readonly (readonly [THREE.Vector3, THREE.Vector3, number])[] = [[ob.gloves[k], ob.gloves[k], gr], [ob.el[k], ob.gloves[k], FA], [k === 0 ? ob.sl : ob.sr, ob.el[k], UA]];
+                const mineParts: readonly (readonly [THREE.Vector3, THREE.Vector3, number])[] = [[G, G, gr], [E, G, FA]];
+                for (const [pa, pb, pr] of parts) for (const [qa, qb, qr] of mineParts) {
+                  const [c1, c2] = segSegPts(qa.clone().add(D), qb.clone().add(D), pa, pb);
+                  const d = c1.distanceTo(c2), need = qr + pr + mg - d;
+                  if (need <= 0 || d < 1e-5) continue;
+                  const n = c1.sub(c2).divideScalar(d);
+                  let k2 = 1;
+                  if (along) { n.addScaledVector(along, -n.dot(along)); const l = n.length(); if (l < 1e-2) n.set(0, -1, 0); else { n.divideScalar(l); k2 = 1 / Math.max(l, 0.4); } }
+                  D.addScaledVector(n, need * w * k2);
+                }
+              }
+              armDbg.push(D.length());
+              if (D.lengthSq() < 1e-8) continue;
+              if (D.length() > cfg.humanArmClearMax) D.setLength(cfg.humanArmClearMax);
+              // (the elbow and the glove go together: the whole forearm is moved, not bent round the contact)
+              qR.setFromUnitVectors(E.clone().sub(S).normalize(), E.clone().add(D).sub(S).normalize());
+              rotateWorld(u, qR);
+              group.updateMatrixWorld(true);
+              const G2 = G.clone().add(D), E2 = m.getWorldPosition(new THREE.Vector3());
+              ikMax = Math.max(ikMax, D.length());
+              twoBone(u, m, e, G2.clone().addScaledVector(G2.clone().sub(E2).normalize(), -cfg.humanGloveOffset));
+            }
+          }
           group.updateMatrixWorld(true);
         }
         // this man's drawn head sphere and torso line, for the other view (and the probe)
         const s = spec.heightM / cfg.mocapBandRefHeight;
-        const db = drawnBodies[side] ?? (drawnBodies[side] = { head: new THREE.Vector3(), headR: 0, a: new THREE.Vector3(), b: new THREE.Vector3(), r: 0, gloves: [new THREE.Vector3(), new THREE.Vector3()], sl: new THREE.Vector3(), sr: new THREE.Vector3(), sR: 0, nk: new THREE.Vector3(), nR: 0 });
+        const db = drawnBodies[side] ?? (drawnBodies[side] = { head: new THREE.Vector3(), headR: 0, a: new THREE.Vector3(), b: new THREE.Vector3(), r: 0, gloves: [new THREE.Vector3(), new THREE.Vector3()], sl: new THREE.Vector3(), sr: new THREE.Vector3(), sR: 0, nk: new THREE.Vector3(), nR: 0,
+          el: [new THREE.Vector3(), new THREE.Vector3()], act: [0, 0] });
         db.gloves[0].fromArray(gloveOf('Left')); db.gloves[1].fromArray(gloveOf('Right'));
+        arm.Left[1].getWorldPosition(db.el[0]); arm.Right[1].getWorldPosition(db.el[1]);
+        db.act[0] = actOf('Left'); db.act[1] = actOf('Right');
         arm.Left[0].getWorldPosition(db.sl); arm.Right[0].getWorldPosition(db.sr); head.getWorldPosition(db.nk);
         db.sR = cfg.humanShoulderR * s; db.nR = cfg.humanNeckR * s;
         head.getWorldPosition(db.head);
@@ -873,7 +951,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         hips.getWorldPosition(db.a); spine[2]!.getWorldPosition(db.b);
         db.a.x += Math.cos(fy) * fw; db.a.z += Math.sin(fy) * fw; db.b.x += Math.cos(fy) * fw; db.b.z += Math.sin(fy) * fw;
       };
-      keepOut();
+      // (side 0's arms are cleared of side 1's in the late pass only: here side 1 is still last frame's pose)
+      keepOut(side === 1 ||!(contactDrawn && cfg.mocapOutcome && !cfg.humanRawPose));
       // SETTLED AFTER BOTH MEN ARE POSED (humanContactDrawn): side 0 is drawn first, against side 1's body of the frame
       // before; once side 1 is posed, side 0's punching hand is put on (or kept off) the body that is on screen NOW.
       // Without it the first man's landed glove sat where the other's head WAS before the hit moved it.
