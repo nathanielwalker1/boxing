@@ -20,6 +20,11 @@ export function saveRecord(r: FightRecord): void {
   try { localStorage.setItem(KEY, JSON.stringify(r)); } catch { /* no storage: kept in memory */ }
 }
 
+export function clearRecord(): void {
+  memory = null;
+  try { localStorage.removeItem(KEY); } catch { /* no storage */ }
+}
+
 declare global {
   interface Window {
     /** The saved record of the created fighter, for scripts. */

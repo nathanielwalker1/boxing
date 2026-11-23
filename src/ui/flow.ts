@@ -196,7 +196,7 @@ export class FightFlow {
     this.difficulty = Math.max(0, Math.min(2, Math.round(cfg.aiDifficulty)));
     this.drills = drillList(cfg);
     this.director = new Director(cfg, [this.player, this.opp]);
-    this.create = new CreateScreen(cfg, spec => this.previewNow(spec));
+    this.create = new CreateScreen(cfg, spec => this.previewNow(spec), () => this.afterRetire());
     exposeRecord();
 
     bus.on('ko', e => { this.method = { kind: 'ko', winner: e.winner, round: this.lastRound }; });
@@ -319,9 +319,15 @@ export class FightFlow {
     this.director.setSlots(spec, this.director.slots[1]);
   }
 
+  /** He has retired: no fighter of his own is picked any more; back to a fresh create screen. */
+  private afterRetire(): void {
+    if (this.player.id === CREATOR_ID) this.player = this.roster[0]!;
+    this.show('create');
+  }
+
   /** Save him and open the gym with him as the player; leaving the gym comes back here. */
   private tryInGym(): void {
-    const spec = this.create.commit();
+    const spec = this.create.commit(false);
     registerFighter(spec);
     this.player = spec;
     this.gymBack = 'create';
@@ -330,7 +336,7 @@ export class FightFlow {
 
   /** Save him, put him first on the roster, and go where Fight goes, with him picked. */
   private finishCreate(): void {
-    const spec = this.create.commit();
+    const spec = this.create.commit(true);   // stepping in: his body is set for good
     registerFighter(spec);
     this.player = spec;
     this.mode = 'fight';
@@ -373,10 +379,10 @@ export class FightFlow {
       `<div class="sr"><div class="sizes">${this.sizeRow('Height', `${f.heightM.toFixed(2)} m`, f.heightM, 'heightM')}${this.sizeRow('Reach', `${Math.round(f.reachM * 100)} cm`, f.reachM, 'reachM')}${this.sizeRow('Weight', `${f.massKg} kg`, f.massKg, 'massKg')}</div>` +
       `<div class="ratings">${RATINGS.map(k => `<span>${k}</span><div class="bar"><div class="fill" style="width:${f[k]}%"></div></div><i>${f[k]}</i>`).join('')}</div></div>` +
       match +
-      `<div class="style"><div class="sname">${esc(st.name)}</div>` +
+      (f.id === CREATOR_ID && as === 'pick' ? '' : `<div class="style"><div class="sname">${esc(st.name)}</div>` +
       `<div class="sfacts"><span>Guard</span>${esc(st.guard)}<span>Range</span>${esc(st.range)}</div>` +
       `<div class="blurb">${esc(st.blurb)}</div>` +
-      `<div class="lhead">${as === 'pick' ? 'How he fights' : 'How to beat him'}</div><ul>${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
+      `<div class="lhead">${as === 'pick' ? 'How he fights' : 'How to beat him'}</div><ul>${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>`);
   }
 
   private setAccent(el: HTMLElement, f: FighterSpec): void {
@@ -402,7 +408,7 @@ export class FightFlow {
       const random = i === list.length - 1;
       p.className = `plate${this.isOff(f) ? ' off' : ''}`;
       this.setAccent(p, f);
-      p.innerHTML = `<div class="sw"></div><div class="pn">${random ? 'Random' : esc(lastName(f))}</div><div class="ps">${random ? 'A new fighter' : esc(styleInfo(f).name)}</div>`;
+      p.innerHTML = `<div class="sw"></div><div class="pn">${random ? 'Random' : esc(lastName(f))}</div><div class="ps">${random ? 'A new fighter' : f.id === CREATOR_ID ? esc(recordLine(loadRecord())) : esc(styleInfo(f).name)}</div>`;
       p.addEventListener('pointerdown', e => {
         e.preventDefault();
         if (this.isOff(f)) return;

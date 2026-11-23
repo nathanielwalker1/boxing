@@ -253,6 +253,14 @@ body.flow-menu #touch-ui { display: none; }
 #flow .pgo { margin-top: 14px; font-size: 10px; letter-spacing: 0.26em; text-transform: uppercase; color: #fffb; }
 @media (max-width: 640px) { #flow .pcard { left: 8px; right: 8px; top: auto; bottom: 8px; transform: none; width: auto; } }
 @media (max-height: 460px) { #flow .pcard { padding: 10px 18px 10px; width: min(420px, 52vw); } #flow .pcard .pw { display: none; } #flow .pcard .fname { font-size: 26px; } #flow .ptape { margin-top: 8px; padding-top: 6px; } #flow .prec, #flow .pgo { margin-top: 7px; } }
+#flow .mk .lockline { margin-top: 6px; font-size: 11px; line-height: 1.35; color: #fffa; font-style: italic; }
+#flow .mk input[type=range]:disabled { opacity: 0.35; cursor: not-allowed; filter: grayscale(1); }
+#flow .mk .retire { margin-top: 18px; padding-top: 10px; border-top: 1px solid #fff1; }
+#flow .mk .retlink { pointer-events: auto; cursor: pointer; display: inline-block; padding: 6px 2px; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #fff8; text-decoration: underline; text-underline-offset: 3px; }
+#flow .mk .retlink:hover { color: #fff; } #flow .mk .retlink.danger { color: #e8836f; }
+#flow .mk .retq { font-size: 12px; line-height: 1.4; color: #fffe; }
+#flow .mk .retbtns { display: flex; gap: 22px; margin-top: 4px; }
+#flow.touch .mk .retlink { padding: 12px 4px; }
 #flow .fmeta.recline { display: block; margin-top: 4px; }
 #flow .recline span { font-size: 9px; letter-spacing: 0.3em; text-transform: uppercase; color: #fff9; margin-right: 6px; }
 #flow .recline b { color: #f3dc8f; font-weight: 800; letter-spacing: 0.04em; }

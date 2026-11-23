@@ -11,8 +11,8 @@
 import { addToRoster, buildRatings, buildRead, CREATOR_ID, CREATOR_TEXT_MAX, defaultDraft, draftToSpec, ROSTER, type Config, type FighterDraft, type FighterSpec } from '../core';
 
 import { wordmarkSvg } from './wordmark';
-import { loadRecord } from './record';
-import { recordLine } from '../core';
+import { clearRecord, loadRecord } from './record';
+import { recordLine, withBodyLock } from '../core';
 
 const KEY = 'boxing.fighter.v1';
 const RATINGS = ['power', 'speed', 'chin', 'stamina', 'defense'] as const;
@@ -40,12 +40,25 @@ export function loadDraft(cfg: Config): FighterDraft | null {
       skinTone: o.skinTone === 'dark' ? 'dark' : 'light',
       trunksPrimary: col(o.trunksPrimary, d.trunksPrimary), trunksSecondary: col(o.trunksSecondary, d.trunksSecondary),
       gloves: col(o.gloves, d.gloves), boots: col(o.boots, d.boots), hairColor: col(o.hairColor, d.hairColor),
+      // A save from before the lock existed counts as locked if he already has fights on his record.
+      locked: o.locked === true || (o.locked === undefined && (r => r.wins + r.losses + r.draws > 0)(loadRecord())),
     };
   } catch { return null; }
 }
 
 export function saveDraft(d: FighterDraft): void {
   try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { /* no storage: the fighter lives for this page load only */ }
+}
+
+export function clearDraft(): void {
+  try { localStorage.removeItem(KEY); } catch { /* no storage */ }
+}
+
+/** Take the created fighter off the roster (retired). */
+export function unregisterFighter(): void {
+  const r = ROSTER as FighterSpec[];
+  const i = r.findIndex(f => f.id === CREATOR_ID);
+  if (i >= 0) r.splice(i, 1);
 }
 
 /** Put the player's fighter on the roster, first, so he is the default player and the first plate on the select screen. */
@@ -82,12 +95,26 @@ export class CreateScreen {
   private kitEls = {} as Record<KitKey, HTMLElement[]>;
 
   /** `onPreview(spec)`: the ring should show this man now. */
-  constructor(private cfg: Config, private onPreview: (spec: FighterSpec) => void) { this.d = loadDraft(cfg) ?? defaultDraft(cfg); }
+  constructor(private cfg: Config, private onPreview: (spec: FighterSpec) => void, private onRetire: () => void = () => undefined) { this.d = loadDraft(cfg) ?? defaultDraft(cfg); }
 
   get saved(): boolean { return loadDraft(this.cfg) !== null; }
-  spec(): FighterSpec { return draftToSpec(this.d, this.cfg); }
-  /** Save the draft and hand back the finished fighter. */
-  commit(): FighterSpec { saveDraft(this.d); return this.spec(); }
+  /** The draft as it will be saved: a locked save keeps its height and weight whatever this edit says. */
+  private effective(lock = false): FighterDraft { return withBodyLock(loadDraft(this.cfg), this.d, lock); }
+  get locked(): boolean { return this.effective().locked; }
+  spec(): FighterSpec { return draftToSpec(this.effective(), this.cfg); }
+  /** Save the draft and hand back the finished fighter. `lock`: he is stepping into the ring, so his body is set for good. */
+  commit(lock = false): FighterSpec {
+    const d = this.effective(lock);
+    this.d = d; saveDraft(d);
+    return draftToSpec(d, this.cfg);
+  }
+
+  /** Retire him: the saved draft, his record and his place on the roster go; the next create screen starts from the default draft. */
+  private retire(): void {
+    clearDraft(); clearRecord(); unregisterFighter();
+    this.d = defaultDraft(this.cfg);
+    this.onRetire();
+  }
 
   /** Build the fields into `box` (cleared first). The draft is re-read from storage, so Back-then-return keeps what was saved. */
   mount(box: HTMLElement): void {
@@ -125,7 +152,7 @@ export class CreateScreen {
     const slider = (label: string, lo: number, hi: number, val: number, set: (v: number) => void): HTMLElement => {
       const row = el('div', 'slide'); row.appendChild(el('span', undefined, label));
       const out = el('b'); const inp = el('input'); inp.type = 'range';
-      inp.min = String(lo); inp.max = String(hi); inp.step = '1'; inp.value = String(Math.round(val));
+      inp.min = String(lo); inp.max = String(hi); inp.step = '1'; inp.value = String(Math.round(val)); inp.disabled = this.d.locked;
       inp.addEventListener('input', () => { set(Number(inp.value)); this.refresh(); });
       inp.addEventListener('change', () => this.preview());
       this.leaveOnKey(inp);
@@ -134,6 +161,7 @@ export class CreateScreen {
     };
     this.hOut = slider('Height', Math.round(c.createHeightMin * 100), Math.round(c.createHeightMax * 100), this.d.heightM * 100, v => { this.d.heightM = v / 100; });
     this.wOut = slider('Weight', Math.round(c.createMassMin), Math.round(c.createMassMax), this.d.massKg, v => { this.d.massKg = v; });
+    box.appendChild(el('div', 'lockline', this.d.locked ? 'His body is set. His look can still change.' : 'Height and weight are set for good once he steps into the ring.'));
     this.reachOut = el('div', 'reach'); box.appendChild(this.reachOut);
 
     const rat = el('div', 'ratings');
@@ -159,7 +187,30 @@ export class CreateScreen {
       this.markKit(key);
       box.appendChild(row);
     }
+    if (this.d.locked) this.retireBlock(box);
     this.refresh();
+  }
+
+  /** Low-key retire link at the foot of the panel; it asks once, in the panel. */
+  private retireBlock(box: HTMLElement): void {
+    const wrap = el('div', 'retire'); box.appendChild(wrap);
+    const link = (): void => {
+      wrap.textContent = '';
+      const a = el('div', 'retlink', 'Retire him and start a new fighter');
+      a.addEventListener('pointerdown', e => { e.preventDefault(); ask(); });
+      wrap.appendChild(a);
+    };
+    const ask = (): void => {
+      wrap.textContent = '';
+      const q = el('div', 'retq'); q.textContent = `Retire ${this.spec().name}? His record (${recordLine(loadRecord())}) goes with him.`;
+      const row = el('div', 'retbtns');
+      const yes = el('div', 'retlink danger', 'Retire'), no = el('div', 'retlink', 'Keep him');
+      yes.addEventListener('pointerdown', e => { e.preventDefault(); this.retire(); });
+      no.addEventListener('pointerdown', e => { e.preventDefault(); link(); });
+      row.appendChild(yes); row.appendChild(no);
+      wrap.appendChild(q); wrap.appendChild(row);
+    };
+    link();
   }
 
   /** The fight poster after "Step into the ring": fills `box` (the screen) with the card; `onDone` runs on a tap or click. Text goes in as text, never as markup. */
