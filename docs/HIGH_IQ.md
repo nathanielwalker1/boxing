@@ -60,6 +60,30 @@ A jab cannot be reacted to (about 0.23 s, before network delay). So the jab is b
 position and rhythm: being on the way out when it arrives. Crosses, hooks and uppercuts
 are slow enough to see, so they need a setup. Each punch has a job.
 
+## The core loop: read, make it miss, punish (Nate, 2026-11-22: "really fun, keep going down this track")
+
+- **Every evade loads a punch**, both sides: slip to a side loads that side's hook and
+  uppercut; duck loads the uppercut coming up and the body hook; lean back loads the
+  cross coming forward. The punch starts from the evaded pose and is quicker and heavier
+  than the same punch thrown cold.
+- **Feints** (Nate likes the idea; design before building): a punch can be pulled early
+  in its wind-up. It draws the evade, and the evade's recovery is then punished. The
+  triangle: an evade beats a real punch, a feint beats an early evade, a quick real
+  punch beats a feint. A feint has a point of no return, a small cost and a short
+  recovery, so it cannot be spammed. Same rule both corners; the AI must both use
+  feints and fall for them.
+  Input (Nate, 2026-11-22): **punch, then a fresh press of block cancels it.** No
+  tap-versus-hold on punch buttons, and the stick stays free so a fighter can move
+  while punching. The cancel window is shorter than human reaction time, so a feint is
+  always decided in advance, never a reaction to what the other man does.
+- **No hidden bonus for a late evade.** The timing tension comes from feints: evade
+  early and a feint catches you; evade late and you are safe from the feint but closer
+  to being hit. The picture and sound still scale with how close it was.
+- **The guard is something you feel**: glove on glove thuds, knocks the guard, pushes
+  him back; a worn guard sags; a blocked punch sets up a reply.
+- **Hits look like hits**: head and body go the way the punch went, the puncher follows
+  through, a big shot leaves him unsteady.
+
 ## Ranked: the chess.com feeling
 
 - **One number per weight division**, shown everywhere, moving after every fight

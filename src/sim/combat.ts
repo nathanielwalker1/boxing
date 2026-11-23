@@ -13,7 +13,7 @@
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { SIM_DT, atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, iqClass, setIqClass, IQ_BLOCKED, IQ_FAST, IQ_MISSED, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist, pressDist } from './state';
+import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, iqClass, setIqClass, IQ_BLOCKED, IQ_FAST, IQ_MISSED, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist, pressDist, duckT } from './state';
 import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -87,7 +87,10 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // left, right, left. A sideways push still picks the hand (the locked rule). Measured 2026-11-20: a bare hook press was
   // always the rear hook, and the lead hook needed left held at the press ("why are lead hooks so useless").
   const neutral = cfg.handNeutral > 0 && def.hand === 'input' && Math.abs(moveX) < cfg.handNeutral;
+  // iqLoadedCounter: while an evade's load is live a neutral stick throws from the LOADED hand (a slip to the right then a bare hook is the rear hook).
+  const loadedHand = neutral && cfg.iqLoadedCounter && cfg.slipLoadedOn && f.loaded !== 0 ? (f.loaded === -1 ? 'lead' : 'rear') : null;
   const hand = !neutral ? punchHand(def, moveX)
+    : loadedHand !== null ? loadedHand
     : f.punch.type === type ? (f.punch.hand === 'lead' ? 'rear' : 'lead')
     : type === 'hook' ? 'lead' : 'rear';
   const variant = pickVariant(f, type, moveY, cfg);
@@ -97,7 +100,10 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   const chained = f.punch.type !== null;
   // iqMissCost: only a punch chained off a clean land gets the shortened wind-up; off a block, a glance or a miss it is a cold throw.
   const fastChain = chained && (!cfg.iqMissCost || iqClass(f) === IQ_FAST);
-  const loaded = cfg.slipLoadedOn && f.loaded !== 0 && (f.loaded === -1) === (hand === 'lead');
+  // iqLoadedCounter: a DUCK loads both hands for the punches that come up out of it: a rising uppercut or a body hook pressed while
+  // ducked (inside slipLoadedTime of the duck) or inside the rise window after (the same load a slip gives its side, spent the same way).
+  const duckLoad = !!cfg.iqLoadedCounter && (variant === 'risingUppercut' || variant === 'bodyHook') && duckT(f) >= 0 && duckT(f) <= cfg.slipLoadedTime;   // (duckT 0 = released this tick or inside the rise window; -1 = crouched with no evade, no load)
+  const loaded = cfg.slipLoadedOn && ((f.loaded !== 0 && (f.loaded === -1) === (hand === 'lead')) || duckLoad);
   const slow = cfg.fatigueOn ? f.punchSlow : 1;
   const ph = def.phases(cfg);
   // (Hand speed — the speed rating, and the style's guard for a jab thrown from it — shortens or lengthens the wind-up.)

@@ -53,6 +53,15 @@ const SC = [
   { name: 'evade_lean_hook', dist: 0.95, s0: hold([], { move: { x: 0, y: -1 } }, 16, 19), s1: at(two(4, P('hook', 'lead'))), n: 80 },
   { name: 'trade_hook_cross', dist: 0.95, s0: at(two(4, P('hook', 'lead'))), s1: at(two(6, P('cross'))), n: 90 },
   { name: 'evade_lean_upper', dist: 0.8, s0: hold([], { move: { x: 0, y: -1 } }, 20, 23), s1: at(two(4, P('uppercut', 'lead'))), n: 80 },
+  // evade -> counter pairs (opponent's one punch at t4; the evade key goes down 3 ticks after it for a jab, 8 for a hook; the counter 6 ticks after the miss)
+  // S = the fighter's right (move.x +1), W = his left (move.x -1), held through the counter
+  { name: 'ev2_S_hook', dist: 1.0, s0: hold(at(two(23, P('hook', 'rear'))), { move: { x: 1, y: 0 } }, 7, 40), s1: at(two(4, P('jab'))), n: 70 },
+  { name: 'ev2_S_upper', dist: 1.0, s0: hold(at(two(23, P('uppercut', 'rear'))), { move: { x: 1, y: 0 } }, 7, 40), s1: at(two(4, P('jab'))), n: 70 },
+  { name: 'ev2_W_hook', dist: 1.0, s0: hold(at(two(23, P('hook', 'lead'))), { move: { x: -1, y: 0 } }, 7, 40), s1: at(two(4, P('jab'))), n: 70 },
+  { name: 'ev2_W_upper', dist: 1.0, s0: hold(at(two(23, P('uppercut', 'lead'))), { move: { x: -1, y: 0 } }, 7, 40), s1: at(two(4, P('jab'))), n: 70 },
+  { name: 'ev2_back_cross', dist: 1.0, s0: hold(at(two(30, P('cross'))), { move: { x: 0, y: -1 } }, 12, 16), s1: at(two(4, P('hook', 'lead'))), n: 80 },
+  { name: 'ev2_duck_upper', dist: 1.0, s0: hold(at(two(30, P('uppercut', 'rear'))), { level: true }, 12, 29), s1: at(two(4, P('hook', 'lead'))), n: 80 },
+  { name: 'ev2_duck_bodyhook', dist: 1.0, s0: hold(at(two(30, P('hook', 'lead', { level: true }))), { level: true }, 12, 50), s1: at(two(4, P('hook', 'lead'))), n: 80 },
   { name: 'counter_cross', dist: 1.0, s0: at({ ...two(14, { move: { x: 1, y: 0 } }), ...two(16, { move: { x: 1, y: 0 } }), ...two(24, P('cross')) }), s1: at(two(4, P('cross'))), n: 90 },
   // the mash: one button pressed every 6 ticks, eight times
   { name: 'mash_jab', dist: 1.0, s0: at(Object.assign({}, ...[0, 1, 2, 3, 4, 5, 6, 7].map(i => two(4 + i * 6, P('jab'))))), n: 150 },

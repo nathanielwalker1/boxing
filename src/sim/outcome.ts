@@ -51,7 +51,8 @@ export function punchBand(a: FighterState, type: PunchType, hand: Hand, variant:
   // (the cross steps in: its take has almost no travel of its own, which left it 29 cm shorter than the jab)
   // (hooks and uppercuts reach at least a floor: measured 2026-11-19, fights happen at 0.9-1.3 m and the clips' own reach
   //  was 0.98 m lead hook, 0.94 m uppercuts — "so frustrating when my hook and uppercut is out of range". The drawn body steps in for the rest.)
-  const floor = (type === 'hook' ? cfg.mocapFarMinHook : type === 'uppercut' ? cfg.mocapFarMinUpper : 0) * a.body.heightM / cfg.mocapBandRefHeight;
+  // (iqLoadedCounter: the lead uppercut is floored at iqLeadUpperReach too, so a left lean + uppercut reaches as far as a right one)
+  const floor = (type === 'hook' ? cfg.mocapFarMinHook : type === 'uppercut' ? (cfg.iqLoadedCounter && lead ? Math.max(cfg.mocapFarMinUpper, cfg.iqLeadUpperReach) : cfg.mocapFarMinUpper) : 0) *a.body.heightM / cfg.mocapBandRefHeight;
   const far = Math.max(floor, (clipFar ?? far0 * a.body.heightM / cfg.mocapBandRefHeight) + (type === 'cross' && !v.body ? cfg.mocapCrossStep * a.body.heightM / cfg.mocapBandRefHeight : 0));
   const near = type === 'jab' || type === 'cross' ? cfg.smotherDist : cfg.separationDist;
   // (how much of that far end is the body travelling: the clip's own lunge, plus whatever the cross step and the hook /
