@@ -5,7 +5,7 @@
  *
  * There are no attribute points. Height and weight set the ratings (config group
  * `create`): the middle build rates exactly ratingNeutral everywhere, weight trades
- * speed and stamina for power and chin (sums to zero), height trades a little
+ * speed and stamina for power and chin (amounts set by measured fights, scripts/build_ladder.mjs), height trades a little
  * speed and chin for real reach (the sim already reads reach and size from heightM).
  * Defense is the player's own skill and stays neutral.
  */

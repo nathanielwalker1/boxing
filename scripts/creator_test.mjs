@@ -20,7 +20,7 @@ check('heavier: more power and chin, less speed and stamina',
   heavy.power > mid.power && mid.power > light.power && heavy.chin > mid.chin && mid.chin > light.chin &&
   heavy.speed < mid.speed && mid.speed < light.speed && heavy.stamina < mid.stamina && mid.stamina < light.stamina,
   `light ${R.map(k => light[k])} heavy ${R.map(k => heavy[k])}`);
-check('rating sum is the same at min, middle and max weight (+-2)', Math.abs(sum(light) - sum(mid)) <= 2 && Math.abs(sum(heavy) - sum(mid)) <= 2, `${sum(light)} ${sum(mid)} ${sum(heavy)}`);
+check('min and max weight mirror each other around the middle build (rating sums, +-2)', Math.abs(sum(light) + sum(heavy) - 2 * sum(mid)) <= 2, `${sum(light)} ${sum(mid)} ${sum(heavy)}`);
 check('defense is neutral for every build', [light, mid, heavy, spec({ heightM: 2.06 }), spec({ heightM: 1.78 })].every(s => s.defense === cfg.ratingNeutral));
 
 const tall = spec({ heightM: cfg.createHeightMax }), small = spec({ heightM: cfg.createHeightMin });
