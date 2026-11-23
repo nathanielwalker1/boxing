@@ -17,7 +17,7 @@ export function applyHumanMode(cfg: Config): void {
   cfg.staggerSpeedMax = cfg.humanStaggerSpeedMax; cfg.handNeutral = cfg.humanHandNeutral; cfg.contactSquash = cfg.humanContactSquash;
   cfg.punchChainAt = cfg.humanChainMiss; cfg.whiffRecoveryMult = cfg.humanWhiffRecovery; cfg.mocapTellChained = cfg.humanTellChained;
   cfg.iqMissCost = cfg.humanIqMissCost; cfg.iqScoring = cfg.humanIqScoring; cfg.iqLoadedCounter = cfg.humanIqLoadedCounter; cfg.iqLevelAtPress = cfg.humanIqLevelAtPress;
-  cfg.bodyPowerScale = cfg.humanBodyPowerScale; cfg.aiBodyKeep = cfg.humanAiBodyKeep;
+  cfg.bodyPowerScale = cfg.humanBodyPowerScale; cfg.aiBodyKeep = cfg.humanAiBodyKeep; cfg.aiFeintBite = cfg.humanAiFeintBite;
   cfg.comboStepMax = cfg.humanComboStepMax; cfg.comboCockScale = cfg.humanComboCock; cfg.comboHoldKeep = cfg.humanComboHoldKeep;
   if (cfg.humanStamina) {
     cfg.staminaLandRefund = cfg.humanStaminaLandRefund; cfg.staminaWhiffCost = cfg.humanStaminaWhiffCost; cfg.staminaWhiffDelay = cfg.humanStaminaWhiffDelay;

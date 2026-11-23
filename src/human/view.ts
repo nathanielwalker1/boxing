@@ -316,6 +316,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   let reachDbg = [0, 0, 0, 0];
   /** (probe, humanArmClear) the arm-clearance moves of this frame's solves, m: [Left, Right] per solve, in order. */
   const armDbg: number[] = [];
+  /** (humanArmClear) each arm's clearance move, world m: as left on screen last frame, and as given so far this frame (rate-limited between them). */
+  const armPrev = { Left: new THREE.Vector3(), Right: new THREE.Vector3() }, armUsed = { Left: new THREE.Vector3(), Right: new THREE.Vector3() };
+  /** (humanArmClear) each glove before its first clearance solve, last frame and this frame (its own speed sets how much the clearance may change); and whether this frame's first solve has run. */
+  const armRawPrev = { Left: new THREE.Vector3(), Right: new THREE.Vector3() }, armRaw = { Left: new THREE.Vector3(), Right: new THREE.Vector3() }, armSeen = { Left: false, Right: false };
   const landT = new THREE.Vector3();
   const ikOff = new THREE.Vector3();
   /** The guard tuck applied to each hand last frame (world m), so a punch's press offset starts from the tucked hand. */
@@ -543,6 +547,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       // (how long ago his punch in flight was resolved: the landed glove follows the struck part for humanContactStick, then holds)
       if (out.ik?.outcome && anim.conformInfo.resolved) landAge += dt; else landAge = 0;
       leanPrev = leanUsed; leanUsed = 0;
+      for (const a of ['Left', 'Right'] as const) { armPrev[a].copy(armUsed[a]); armUsed[a].set(0, 0, 0); if (armSeen[a]) armRawPrev[a].copy(armRaw[a]); armSeen[a] = false; }
       // (the stand-off of a glove that WILL land, before its hit tick: by the time left, and eased in — switched on whole
       //  it threw a glove that was already near him 20-50 cm in a tick)
       {
@@ -895,12 +900,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             const FA = cfg.humanArmClearForearmR, UA = cfg.humanArmClearUpperArmR, gr = next.body.gloveR, mg = cfg.humanArmClearMargin;
             for (const a of ['Left', 'Right'] as const) {
               const mineAct = actOf(a);
-              if (mineAct === 2 && ob.act[0] !== 2 && ob.act[1] !== 2) continue;
               group.updateMatrixWorld(true);
               const [u, m, e] = arm[a];
               const S = u.getWorldPosition(new THREE.Vector3()), E = m.getWorldPosition(new THREE.Vector3()), G = new THREE.Vector3().fromArray(gloveOf(a));
               const D = new THREE.Vector3();
-              for (const k of [0, 1] as const) {
+              // (a land with right of way still runs the limiter below: a move left from last frame is let go at the rate, not dropped)
+              if (!(mineAct === 2 && ob.act[0] !== 2 && ob.act[1] !== 2)) for (const k of [0, 1] as const) {
                 const hisAct = ob.act[k];
                 // (two lands crossing, a trade: each gives half)
                 const w = mineAct === hisAct ? 0.5 : mineAct === 2 ? 0 : hisAct === 2 ? 1 : mineAct === 1 ? 1 : 0;
@@ -920,8 +925,19 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
                 }
               }
               armDbg.push(D.length());
+              // CONTINUOUS IN TIME: the whole move this arm wants this frame (given so far + this solve), capped, may differ
+              // from the one on screen last frame by humanArmClearRate only; what this solve applies is the rest of it
+              const want = armUsed[a].clone().add(D);
+              if (want.length() > cfg.humanArmClearMax) want.setLength(cfg.humanArmClearMax);
+              // (how much: what the budget leaves after the glove's own move since last frame, between the floor and ceiling rates)
+              const tick = Math.max(dt, SIM_DT * 0.5);
+              if (!armSeen[a]) { armRaw[a].copy(G).sub(armUsed[a]); armSeen[a] = true; }
+              const own = armRaw[a].distanceTo(armRawPrev[a]);
+              const step = want.sub(armPrev[a]), stepMax = Math.max(cfg.humanArmClearRate * tick, Math.min(cfg.humanArmClearRateMax * tick, cfg.humanArmClearBudget * tick - own));
+              if (step.length() > stepMax) step.setLength(stepMax);
+              D.copy(armPrev[a]).add(step).sub(armUsed[a]);
+              armUsed[a].add(D);
               if (D.lengthSq() < 1e-8) continue;
-              if (D.length() > cfg.humanArmClearMax) D.setLength(cfg.humanArmClearMax);
               // (the elbow and the glove go together: the whole forearm is moved, not bent round the contact)
               qR.setFromUnitVectors(E.clone().sub(S).normalize(), E.clone().add(D).sub(S).normalize());
               rotateWorld(u, qR);

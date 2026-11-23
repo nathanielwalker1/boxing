@@ -146,6 +146,8 @@ export interface AiState {
   seen: { x: number; z: number };
   /** Seconds until a pending block reaction fires (0 = none pending). */
   blockReact: number;
+  /** aiFeintBite: the punch whose start set blockReact: 0 none, 1 not a head hook, 2 a head hook; and its hand's lateral sign. */
+  seenKind: number; seenSign: number;
   /** Extra punches left in the current burst (0 = single shots). */
   burst: number;
   /** Seconds of give-ground left (the standoff is pushed out while > 0). */
@@ -237,7 +239,7 @@ export function createAi(side: Side, seed: number, cfg: Config, style: StylePara
     lastHealth: 1,
     resetPending: false,
     seen: { x: 0, z: 0 },
-    blockReact: 0,
+    blockReact: 0, seenKind: 0, seenSign: 0,
     burst: 0,
     giveGround: 0,
     pressureCooldown: 0,
@@ -778,6 +780,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai:
   if (a.blockTimer > 0) a.blockTimer = Math.max(0, a.blockTimer - dt);
   if (oppStarted && a.blockReact === 0 && a.blockTimer === 0 && dist <= st.engageStraight) {
     a.blockReact = Math.max(humanReaction(a, st), 1e-6);
+    if (cfg.aiFeintBite > 0 && opp.punch.type !== null) { a.seenKind = opp.punch.type === 'hook' && opp.punch.variant !== 'bodyHook' ? 2 : 1; a.seenSign = handLateralSign(opp.punch.hand, opp.stance); }
   }
   if (a.blockReact > 0) {
     a.blockReact = Math.max(0, a.blockReact - dt);
@@ -792,10 +795,14 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai:
       // (Phase 3: only if there is TIME — the punch's tell less its own reaction leaves the slip its lead. Measured:
       // the counter style "slipped" nine jabs a fight and dodged one; a jab is 0.11 s and it had already spent 0.18
       // seeing it. What it cannot slip it blocks.)
-      if (tools && a.macro === null && p.type !== null && !p.resolved && !nowHurt && !me.slip.active && p.tell - st.reaction >= SLIP_LEAD - 1e-9) {
-        const hand = handLateralSign(p.hand, opp.stance);   // + = the hand is on the opponent's right, which is MY left
+      const live = p.type !== null && !p.resolved && p.tell - st.reaction >= SLIP_LEAD - 1e-9;
+      // aiFeintBite: HE BITES ON A FEINT. The punch he saw start has been pulled (it is rewinding or already home) by the time his
+      // reaction lands; this share of the time he moves his head for it anyway, as he would have for the real one.
+      const bite = (p.type === null || !!p.feint) && cfg.aiFeintBite > 0 && a.seenKind !== 0 && rngChance(a.rngT, cfg.aiFeintBite);
+      if (tools && a.macro === null && !nowHurt && !me.slip.active && (bite || live)) {
+        const hand = bite ? a.seenSign : handLateralSign(p.hand, opp.stance);   // + = the hand is on the opponent's right, which is MY left
         const r = rngFloat(a.rngT);
-        const headHook = p.type === 'hook' && p.variant !== 'bodyHook';
+        const headHook = bite ? a.seenKind === 2 : p.type === 'hook' && p.variant !== 'bodyHook';
         if (headHook && cfg.rollOn && cfg.levelOn && r < st.rollShare) {
           a.macro = { kind: 'roll', t: 0, x: -hand, y: 0, punch: null };   // under it, toward where it came from
           a.blockTimer = 0; a.used.roll += 1;
