@@ -79,6 +79,8 @@ export function startRound(s: SimState, index: number, cfg: Config, events: SimE
   s.round.landed = [0, 0];
   s.round.power = [0, 0];
   s.round.control = [0, 0];
+  s.round.iqScore = [0, 0];
+  s.round.reached = [0, 0];
   s.round.count = 0;
   if (index > 0) {
     for (const side of [0, 1] as const) toCorner(s.fighters[side], side, s.time, cfg);
@@ -90,6 +92,21 @@ export function startRound(s: SimState, index: number, cfg: Config, events: SimE
   events.push({ type: 'bell' });
 }
 
+/**
+ * iqScoring: who loses the round (0, 1, or null for 10-10) before knockdowns, and whether the tie-break (work) decided it.
+ * Judges score what a punch DOES (iqScore); a close or quiet round goes to the man who made the fight, if he clearly did.
+ */
+export function iqCall(r: SimState['round'], cfg: Config): { loser: Side | null; tieBreak: boolean } {
+  const q0 = r.iqScore[0], q1 = r.iqScore[1], big = Math.max(q0, q1);
+  const close = Math.abs(q0 - q1) <= cfg.iqScoreCloseShare * big || big < cfg.iqScoreQuietFloor;
+  if (!close) return { loser: q0 > q1 ? 1 : 0, tieBreak: false };
+  const work = (side: Side) => r.reached[side] + r.control[side] * cfg.scoreControlWeight;
+  const w0 = work(0), w1 = work(1);
+  if (w0 > 0 && w0 > w1 * cfg.iqScoreWorkLead) return { loser: 1, tieBreak: true };
+  if (w1 > 0 && w1 > w0 * cfg.iqScoreWorkLead) return { loser: 0, tieBreak: true };
+  return { loser: null, tieBreak: false };
+}
+
 /** The judges' card for the round just fought. */
 export function scoreRound(s: SimState, cfg: Config): [number, number] {
   const r = s.round;
@@ -97,9 +114,14 @@ export function scoreRound(s: SimState, cfg: Config): [number, number] {
   // (Control is credit for hitting and not being hit: it counts only up to what he landed himself. MEASURED without
   // that cap: the turtle, who never throws, took 6 of 8 decisions from the outboxer on his misses alone.)
   const pts = (side: Side) => r.landed[side] + r.power[side] * cfg.scorePowerWeight + Math.min(r.control[side], r.landed[side]) * cfg.scoreControlWeight;
-  const p0 = pts(0), p1 = pts(1);
   let a = 10, b = 10;
-  if (p0 > p1 + 1e-9) b = 9; else if (p1 > p0 + 1e-9) a = 9;
+  if (cfg.iqScoring) {
+    const c = iqCall(r, cfg);
+    if (c.loser === 0) a = 9; else if (c.loser === 1) b = 9;
+  } else {
+    const p0 = pts(0), p1 = pts(1);
+    if (p0 > p1 + 1e-9) b = 9; else if (p1 > p0 + 1e-9) a = 9;
+  }
   a = Math.max(6, a - s.fighters[0].knockdowns);
   b = Math.max(6, b - s.fighters[1].knockdowns);
   return [a, b];

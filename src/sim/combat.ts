@@ -827,6 +827,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   }
 
   const margin = oc ? { margin: oc.margin } : {};
+  if (cfg.iqScoring && blocked) s.round.reached[side] += 1;   // a blocked punch reached him: work for the tie-break
   if (perfect) events.push({ type: 'perfectBlock', side, target, punch: type, at, variant, ...margin });
   else if (blocked) events.push({ type: 'punchBlock', side, target, punch: type, at, variant, part, chip, guard: d.guardHp, stun, ...margin });
   else {
@@ -835,7 +836,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
     // The judges see clean lands and how hard they were (round.ts scoring).
     s.round.landed[side] += grade === 'glancing' ? cfg.scoreGlancing : 1;
     s.round.power[side] += mag;
-    d.clinch.reach = 0;   // a clean shot breaks a grab that had not taken
+    if (cfg.iqScoring) { s.round.iqScore[side] += (grade === 'glancing' ? cfg.scoreGlancing : 1) * cfg.iqScoreLand + cfg.iqScoreImpulse * mag; s.round.reached[side] += 1; }
+    d.clinch.reach = 0;  // a clean shot breaks a grab that had not taken
   }
   events.push({ type: 'hurt', side: target, part, impulse });
   if (counter && !blocked) events.push({ type: 'counter', side, target, punch: type });

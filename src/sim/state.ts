@@ -293,6 +293,8 @@ export function cloneState(s: SimState): SimState {
       landed: [s.round.landed[0], s.round.landed[1]],
       power: [s.round.power[0], s.round.power[1]],
       control: [s.round.control[0], s.round.control[1]],
+      iqScore: [s.round.iqScore[0], s.round.iqScore[1]],
+      reached: [s.round.reached[0], s.round.reached[1]],
     },
     fighters: [cloneFighter(s.fighters[0]), cloneFighter(s.fighters[1])],
   };

@@ -54,7 +54,7 @@ export function createState(specs: [FighterSpec, FighterSpec], cfg: Config, seed
     time: 0,
     hitStop: 0,
     rng: seedRng(seed),
-    round: { index: 0, clock: cfg.roundSeconds, phase: 'fighting', phaseT: 0, score: [], landed: [0, 0], power: [0, 0], control: [0, 0], count: 0 },
+    round: { index: 0, clock: cfg.roundSeconds, phase: 'fighting', phaseT: 0, score: [], landed: [0, 0], power: [0, 0], control: [0, 0], iqScore: [0, 0], reached: [0, 0], count: 0 },
     fighters: [
       restFighterState(specs[0], cfg, c0.pos, c0.yaw),
       restFighterState(specs[1], cfg, c1.pos, c1.yaw),

@@ -420,6 +420,9 @@ export interface RoundState {
   power: [number, number];
   /** Control (phase 4): punches of the OTHER man's each side made miss this round — the defence and ring generalship the judges credit (scoreControlWeight). */
   control: [number, number];
+  /** iqScoring only (else stay 0): each man's effective-punching card value this round, and his punches that REACHED the other man (landed + blocked). */
+  iqScore: [number, number];
+  reached: [number, number];
   /** The referee's count while phase = 'count' (1…10), else 0. */
   count: number;
 }
