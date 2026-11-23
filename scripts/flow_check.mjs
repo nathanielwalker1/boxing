@@ -210,7 +210,7 @@ await on('results');
 const rec1 = await page.evaluate(() => window.__record());
 const line1 = await page.evaluate(() => document.querySelector('#flow .results .recline')?.textContent ?? '');
 check('a real fight as the created fighter writes his record once (one fight, one history entry)', total(rec1) === 1 && rec1.history.length === 1 && rec1.history[0].opponent === 'Benny Brask', JSON.stringify(rec1));
-check('the results screen shows the line "Record …" after the fight', /^Record \d+-\d+/.test(line1), line1);
+check('the results screen shows the line "<his name>\'s record …" after the fight', /'s record \d+-\d+/.test(line1), line1);
 await frames(page, 30);
 check('…and it is not written again while the results stay up', total(await page.evaluate(() => window.__record())) === 1);
 await key('Enter'); await on('walk');   // Rematch: a new fight, nothing finished yet

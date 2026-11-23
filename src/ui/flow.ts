@@ -849,7 +849,7 @@ export class FightFlow {
       this.statRow('Clean', ta.clean, tb.clean) + this.statRow('Flush', ta.flush, tb.flush) +
       this.statRow('To the head', ta.head, tb.head) + this.statRow('To the body', ta.body, tb.body) +
       this.statRow('Counters', ta.counters, tb.counters) + this.statRow('Knockdowns', ta.knockdowns, tb.knockdowns) + '</div>';
-    s.innerHTML = `<div class="panel info resultp"><div class="scroll"><div class="winner">${esc(name)}</div><div class="method">${how}</div>${this.recordNow ? `<div class="fmeta recline"><span>Record</span> <b>${esc(recordLine(this.recordNow))}</b></div>` : ''}${table}${note}${rounds}${stats}</div><div class="foot"><div class="btns"></div></div></div>`;
+    s.innerHTML = `<div class="panel info resultp"><div class="scroll"><div class="winner">${esc(name)}</div><div class="method">${how}</div>${this.recordNow ? `<div class="fmeta recline"><span>${esc(this.player.name)}'s record</span> <b>${esc(recordLine(this.recordNow))}</b></div>` : ''}${table}${note}${rounds}${stats}</div><div class="foot"><div class="btns"></div></div></div>`;
     const sheet = s.querySelector<HTMLElement>('.resultp')!;
     if (winner !== null) this.setAccent(sheet, winner === 0 ? a : b);
     const box = s.querySelector('.btns')!;
