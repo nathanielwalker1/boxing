@@ -315,6 +315,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   let ikKey = -1;
   // CONTACT (humanContactDrawn): seconds since his punch was resolved, and the world point his landed glove holds once it stops following
   let landAge = 0, landHeld = false, earlyS = 0;
+  let baAge = 0;   // (humanBodyAim) seconds since the hit tick of the body punch in flight
   // (humanLandGap) the head contact's turn off the plain point as eased so far (rad), the candidate held, and whether this frame has eased it yet
   let gapYaw = 0, gapPitch = 0, gapPick = -1, gapStep = true, gapHitYaw = NaN, gapHitPitch = 0, landPlainOn = false;
   const landPlain = new THREE.Vector3();
@@ -654,6 +655,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           const g0 = oppBody.gloves[0], g1 = oppBody.gloves[1], gp = g0.distanceTo(T) <= g1.distanceTo(T) ? g0 : g1;
           const dir = new THREE.Vector3(x - gp.x, 0, z - gp.z).normalize();
           T.copy(gp).addScaledVector(dir, next.body.gloveR * (2 - cfg.contactSquash));
+          // (humanBodyAim: a blocked BODY punch rests on his guard at belly-to-rib height, not wherever his guard glove sits)
+          if (cfg.humanBodyHandAim && ci.part === 'body' && VARIANTS[next.punch.variant].body) T.y = Math.max(simAt.y - 0.1, Math.min(simAt.y + 0.08, gp.y));
         }
         // CONTACT: a landed glove rests on the other man's DRAWN head / torso surface (the rules' point, moved onto the picture)
         if (cfg.humanInertia && ci.kind === 'land' && oppBody) {
@@ -686,6 +689,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
               anim.feedTarget(c.x + dir.x / dir.length() * ((ci.part === 'head' ? oppBody.headR : oppBody.r) + rest), c.y, c.z + dir.z / dir.length() * ((ci.part === 'head' ? oppBody.headR : oppBody.r) + rest));
               T.copy(c).add(dir.setLength((ci.part === 'head' ? oppBody.headR : oppBody.r) + rest + off));
               }
+              // (humanBodyAim: a landed body punch's glove is at the rules' contact height; the lane it rested on was 1-8 cm under it)
+              if (cfg.humanBodyHandAim && ci.part === 'body' && VARIANTS[next.punch.variant].body) T.y = simAt.y;
               landT.copy(T); landHeld = true; landPlainOn = !!gapPlain;
             }
           } else {
@@ -701,7 +706,14 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         group.updateMatrixWorld(true);
         clipG ??= new THREE.Vector3().fromArray(gloveOf(out.ik.arm));
         const D = T.clone().sub(clipG), m = contactDrawn ? cfg.humanContactArmMax : cfg.mocapIKArmMax;
-        if (D.length() > m) D.setLength(m);
+        if (D.length() > m) {
+          // (humanBodyAim: a landed body punch keeps its HEIGHT when the correction is capped — the cap takes the rest from the
+          //  distance along the line, which the body's travel closes: capped as a whole, the glove stopped 6-7 cm under the belly)
+          if (cfg.humanBodyHandAim && ci.kind === 'land' && ci.part === 'body' && VARIANTS[next.punch.variant].body && Math.abs(D.y) < m) {
+            const hz = Math.sqrt(m * m - D.y * D.y), hl = Math.hypot(D.x, D.z);
+            if (hl > hz) { D.x *= hz / hl; D.z *= hz / hl; }
+          } else D.setLength(m);
+        }
         // (humanLandGap: the plain point, capped the same way, for the body's lean and travel)
         if (gapPlain) { outcomePlain = gapPlain.clone(); const Dp = gapPlain.clone().sub(clipG); if (Dp.length() > m) Dp.setLength(m); plainAt = clipG.clone().add(Dp); }
         T.copy(clipG).add(D);
@@ -771,6 +783,32 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         fore.quaternion.copy(save[1]!.slerp(fore.quaternion, w));
       };
       for (const ik of reqs) if (ik && ik.w > 1e-3 && (cfg.humanHandIK || ik.exact)) solveIK(ik);
+      // ---- BODY AIM (humanBodyAim): a body punch's hand height is the other man's belly, eased in over the extension and out
+      //      after the hit. The clip's own height wins otherwise: a body cross that missed was drawn at the knees, the body
+      //      hooks at the shoulder. Only the height moves (the clip's reach and line stay); the puncher's crouch stays. ----
+      // (run again after the arm clearance and the late pass: those moved a landed body glove 6-7 cm off its height)
+      let baEnv = 0;
+      const bodyAim = (first: boolean): void => {
+        const ci = anim.conformInfo, np = next.punch, ob = drawnBodies[side === 0 ? 1 : 0];
+        const live = cfg.humanBodyHandAim && cfg.mocapOutcome && !cfg.humanRawPose && !next.down && np.type !== null && out.ik && ob
+          && VARIANTS[np.variant].body;   // (the level jab / cross / hook; an uppercut keeps its own rise)
+        if (!live) { if (first) { baAge = 0; baEnv = 0; } return; }
+        const landed = ci.kind === 'land' || ci.kind === 'block';
+        if (first) {
+          const smoothStep = (v: number): number => { const c = Math.max(0, Math.min(1, v)); return c * c * (3 - 2 * c); };
+          if (ci.toHit <= 0 || ci.resolved) baAge += dt; else baAge = 0;
+          baEnv = smoothStep(1 - ci.toHit / Math.max(1e-3, cfg.humanBodyAimLead)) * (1 - smoothStep((baAge - cfg.humanBodyAimHold) / Math.max(1e-3, cfg.humanBodyAimOut)));
+        }
+        if (baEnv <= 0.01) return;
+        const targetY = landed && simAt ? simAt.y : vB.copy(ob.a).lerp(ob.b, 0.5).y;
+        group.updateMatrixWorld(true);
+        const [bu, bm, be] = arm[out.ik!.arm];
+        const hp = be.getWorldPosition(new THREE.Vector3());
+        hp.y += (targetY - gloveOf(out.ik!.arm)[1]!) * baEnv;
+        twoBone(bu, bm, be, hp);
+        group.updateMatrixWorld(true);
+      };
+      bodyAim(true);
       // CONTACT: what the arm at full stretch still lacks to the scored part, the upper body gives (he goes with the punch
       // from the hips), then the arm is solved again. Weighted like the hand, so it comes in with the extension.
       // (`ik`: the request the arm is solved with — the punch's own, weighted; or the late pass's exact one. What is given
@@ -1165,6 +1203,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       };
       // (side 0's arms are cleared of side 1's in the late pass only: here side 1 is still last frame's pose)
       keepOut(side === 1 ||!(contactDrawn && cfg.mocapOutcome && !cfg.humanRawPose));
+      bodyAim(false);
       // SETTLED AFTER BOTH MEN ARE POSED (humanContactDrawn): side 0 is drawn first, against side 1's body of the frame
       // before; once side 1 is posed, side 0's punching hand is put on (or kept off) the body that is on screen NOW.
       // Without it the first man's landed glove sat where the other's head WAS before the hit moved it.
@@ -1182,6 +1221,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           if (cfg.humanInertia) { for (let i = 0; i < bones.length; i++) { const q = bones[i]!.quaternion; inRot[i * 4] = q.x; inRot[i * 4 + 1] = q.y; inRot[i * 4 + 2] = q.z; inRot[i * 4 + 3] = q.w; } inertia.sync(inRot); }
         }
         keepOut();
+        bodyAim(false);
       } : undefined;
       // (and side 1's gloves once more against side 0 as it now stands: its reach may have moved its own head)
       if (side === 1) { const l = lates[0]; lates[0] = undefined; if (l) { l(); keepOut(); } }
