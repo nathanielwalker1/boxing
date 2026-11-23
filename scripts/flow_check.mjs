@@ -53,7 +53,7 @@ const heldFor = async (n = 8) => { const a = await ticks(); await frames(page, n
 await frames(page, 6);
 check('boots to the title with the sim held', (await st()).screen === 'title' && await heldFor());
 check('the HUD is hidden on the title', await page.evaluate(() => document.getElementById('hud').hidden));
-check('title: Fight / Ladder / Gym / Controls', await page.evaluate(() => [...document.querySelectorAll('#flow .title .btn')].map(b => b.textContent).join('|')) === 'Fight|Ladder|Gym|Controls');
+check('title: Fight / Ladder / Gym / Controls / Create fighter', await page.evaluate(() => [...document.querySelectorAll('#flow .title .btn')].map(b => b.textContent).join('|')) === 'Fight|Ladder|Gym|Controls|Create fighter');
 await shot('title');
 
 // ── 2. Fighter select ────────────────────────────────────────────────────────
