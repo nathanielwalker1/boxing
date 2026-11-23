@@ -240,9 +240,22 @@ body.flow-menu #touch-ui { display: none; }
 #flow .mk .sws { display: flex; flex-wrap: wrap; gap: 4px; }
 #flow .mk .swc { pointer-events: auto; cursor: pointer; width: 23px; height: 23px; border: 2px solid #fff3; }
 #flow .mk .swc.sel { border-color: #fff; box-shadow: 0 0 0 1px #000, 0 0 0 3px var(--gold); }
+#flow .mk .foot { flex: none; border-top: 1px solid #fff2; background: #0a0a0e; }
+#flow .mk .foot .btns { margin-top: 10px; flex-wrap: nowrap; } #flow .mk .foot .btn { flex: 1 1 auto; }
+/* thumbs: about 40 px targets whenever the flow is in touch mode */
+#flow.touch .mk .swc { width: 40px; height: 40px; }
+#flow.touch .mk .sws { gap: 6px; }
+#flow.touch .mk input[type=range] { height: 40px; }
+#flow.touch .mk input[type=text] { height: 40px; font-size: 16px; }
+#flow.touch .mk .opt .ch { padding: 12px 2px; font-size: 11px; }
+#flow.touch .mk .foot .btn { padding: 13px 10px; }
 @media (max-width: 640px) {
-  #flow .info.mk { max-height: 64vh; bottom: 8px; }
-  #flow .mk .swc { width: 30px; height: 30px; }
+  #flow .info.mk { max-height: 42vh; bottom: 8px; }   /* the fighter stands in the upper half */
+  #flow .mk .field, #flow .mk .slide, #flow .mk .swrow, #flow .mk .opt { grid-template-columns: 62px 1fr; }
+}
+@media (max-height: 460px) and (min-width: 641px) {
+  #flow .info.mk { top: 8px; bottom: 8px; width: 48vw; }
+  #flow .screen.create .head { display: none; }
 }
 
 /* a short desktop window */

@@ -230,7 +230,7 @@ export class FightFlow {
     switch (this.screen) {
       case 'title': return this.director.sparring(dt);
       case 'gym': case 'controls': return this.director.wide(dt);
-      case 'select': case 'opponent': case 'ladder': case 'champion': return this.director.turntable(dt);
+      case 'select': case 'opponent': case 'ladder': case 'champion': case 'create': return this.director.turntable(dt);
       case 'walk': return this.director.walkScene(dt);
       case 'fight': return this.card ? this.director.corners(this.paused ? 0 : dt) : null;
       case 'results': return this.last ? this.director.results(liveAz, this.last.fighters[0].pos, this.last.fighters[1].pos) : null;
