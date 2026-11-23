@@ -106,7 +106,8 @@ function mash(punch, how, until, seed = 5) {
   };
   const a = play(false), b = play(true);
   check('key off: a 2400-tick seeded fight (one card in) ends in the same state as with the key absent', a === b, `${a.length} vs ${b.length} chars`);
-  check('key off: the first round was scored', JSON.parse(a).round.score.length >= 1, JSON.stringify(JSON.parse(a).round.score));
+  const end = JSON.parse(a).round;
+  check('key off: the first round was scored (or the fight was stopped inside it)', end.score.length >= 1 || end.phase === 'over', `${end.phase} ${JSON.stringify(end.score)}`);
 }
 
 done();

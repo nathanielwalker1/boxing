@@ -850,8 +850,9 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai:
       else if (st.combos.length > 0 && rngChance(a.rngT, st.comboSignature * st.comboChance)) {
         const combo = st.combos[rngInt(a.rngT, 0, st.combos.length - 1)]!;
         armStep(a, combo[0]!);
+        if (a.armedBody && cfg.aiBodyKeep < 1 && !rngChance(a.rngT, cfg.aiBodyKeep)) a.armedBody = false;   // aiBodyKeep: some body steps go upstairs
         a.queue = combo.slice(1); a.queueT = QUEUE_LIFE;
-      } else if (cfg.levelOn && rngChance(a.rngT, opp.block ? st.bodyRateHighGuard : st.bodyRate)) a.armedBody = true;
+      } else if (cfg.levelOn && rngChance(a.rngT, (opp.block ? st.bodyRateHighGuard : st.bodyRate) * cfg.aiBodyKeep)) a.armedBody = true;
       else if (a.armed === 'cross' && cfg.levelOn && rngChance(a.rngT, st.overhandRate)) a.armedOver = true;
     }
   }
@@ -1051,6 +1052,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai:
         if (a.queue.length > 0) {
           // The next punch of the signature combination: armed at once, pressed a combo gap later (a fresh edge).
           armStep(a, a.queue.shift()!);
+          if (a.armedBody && cfg.aiBodyKeep < 1 && !rngChance(a.rngT, cfg.aiBodyKeep)) a.armedBody = false;   // aiBodyKeep: some body steps go upstairs
           a.armedShown = true; a.armedTold = true;
           a.queueT = QUEUE_LIFE; a.attackTimer = Math.max(st.comboGap, SIM_DT * 2);
           a.burst = 0;

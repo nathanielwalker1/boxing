@@ -82,9 +82,10 @@ export const VARIANT_NAMES = Object.keys(VARIANTS) as PunchVariant[];
  * the opponent). Reads the fighter's level, the rise window and the range band
  * the footing step derived last tick.
  */
-export function pickVariant(f: FighterState, type: PunchType, moveY: number, cfg: Config): PunchVariant {
+export function pickVariant(f: FighterState, type: PunchType, moveY: number, cfg: Config, levelHeld = false): PunchVariant {
   if (!cfg.variantsOn) return type;
-  const low = cfg.levelOn && f.level >= cfg.levelAt;
+  // iqLevelAtPress: the level button HELD at the press is enough (the body has not had to sink to levelAt first).
+  const low = cfg.levelOn && (f.level >= cfg.levelAt || (!!cfg.iqLevelAtPress && levelHeld && !f.down && !f.clinch.active));
   const rising = cfg.levelOn && !low && f.riseT > 0;
   const back = moveY <= -cfg.variantStick;
   const fwd = moveY > cfg.punchStepInStick;

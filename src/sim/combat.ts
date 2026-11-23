@@ -80,7 +80,7 @@ export function canStartPunch(f: FighterState, cfg: Config): boolean {
  * the hand a slip LOADED winds up faster and hits harder; fatigue slows every
  * phase; and a lone heavy punch never beats its tell (tellMinHeavy).
  */
-function startPunch(f: FighterState, opp: FighterState | null, side: Side, type: PunchType, moveX: number, moveY: number, cfg: Config, events: SimEvent[]): void {
+function startPunch(f: FighterState, opp: FighterState | null, side: Side, type: PunchType, moveX: number, moveY: number, cfg: Config, events: SimEvent[], levelHeld = false): void {
   const def = PUNCHES[type];
   // handNeutral (human mode): a hook or uppercut pressed with NO sideways push is the natural hand — the lead hook, the
   // rear uppercut — and, tapped again while the last one of its kind is still in flight, the OTHER hand: tap, tap, tap is
@@ -93,7 +93,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
     : loadedHand !== null ? loadedHand
     : f.punch.type === type ? (f.punch.hand === 'lead' ? 'rear' : 'lead')
     : type === 'hook' ? 'lead' : 'rear';
-  const variant = pickVariant(f, type, moveY, cfg);
+  const variant = pickVariant(f, type, moveY, cfg, levelHeld);
   const v = VARIANTS[variant];
   // Inside a chain the body is already turned and loaded from the last
   // punch's follow-through, so the wind-up is comboCockScale as long.
@@ -143,7 +143,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   f.punch = {
     ...idlePunch(hand), type, phase: 'cock', variant,
     tell: (ph.cock * cock + ph.extend) * slow, timeMult: slow,
-    powerMult: v.power(cfg) * (loaded ? cfg.slipLoadedPower : 1) * (1 - cfg.hitNerfPower * nerf), moveScale: v.move(cfg), loaded, nerf,
+    powerMult: v.power(cfg) * (v.body ? cfg.bodyPowerScale : 1) * (loaded ? cfg.slipLoadedPower : 1) * (1 - cfg.hitNerfPower * nerf), moveScale: v.move(cfg), loaded, nerf,
     aim: opp ? aimAtPress(v, opp, cfg) : v.aimDrop(cfg),
   };
   if (loaded) { f.loaded = 0; f.loadedT = 0; }
@@ -236,14 +236,14 @@ export function stepActions(f: FighterState, side: Side, input: Readonly<FrameIn
 
   const open = !inStop && canStartPunch(f, cfg);   // hitStopV2: nothing starts inside a stop; the press waits in the buffer
   if (pressed !== null) {
-    if (open) { startPunch(f, opp, side, pressed, input.move.x, input.move.y, cfg, events); buf.mask = 0; buf.mask2 = 0; buf.t = 0; }
+    if (open) { startPunch(f, opp, side, pressed, input.move.x, input.move.y, cfg, events, input.level); buf.mask = 0; buf.mask2 = 0; buf.t = 0; }
     else if (cfg.punchBuffer > 0) {
       if (buf.mask && cfg.punchBufferDepth >= 2) { buf.mask2 = maskOf(pressed); buf.x2 = input.move.x; }
       else { buf.mask = maskOf(pressed); buf.t = cfg.punchBuffer; buf.x = input.move.x; buf.mask2 = 0; }
     }
   } else if (open && buf.mask) {
     // A buffered press keeps the hand it chose; the step-in reads the stick as it fires.
-    startPunch(f, opp, side, fastestOf(buf.mask)!, buf.x, input.move.y, cfg, events);
+    startPunch(f, opp, side, fastestOf(buf.mask)!, buf.x, input.move.y, cfg, events, input.level);
     // The queued press moves up with a fresh life.
     buf.mask = buf.mask2; buf.x = buf.x2; buf.mask2 = 0; buf.t = buf.mask ? cfg.punchBuffer : 0;
   }

@@ -130,4 +130,24 @@ const dsc = o => `${o.hand} ${o.variant} ${o.hit}t`;
   check('key off: a 1800-tick seeded fight ends in the same state as with the key absent', a === b, `${a.length} vs ${b.length} chars`);
 }
 
+// ---- 7. level + punch in the same press is the body punch (cfg.iqLevelAtPress) ----
+{
+  const press = (on, type) => {
+    cfg.iqLevelAtPress = on;
+    let s = sim.createState([core.ROSTER[0], core.ROSTER[0]], cfg, 7);
+    s.fighters[0].pos = { x: -0.45, z: 0 }; s.fighters[1].pos = { x: 0.45, z: 0 };
+    for (let i = 0; i < 40; i++) s = sim.step(s, [inp(), inp()], cfg).state;
+    let variant = null;
+    for (let t = 0; t < 30 && variant === null; t++) {
+      const r = sim.step(s, [inp({ level: true, [type]: t === 0 }), inp()], cfg); s = r.state;
+      for (const e of r.events) if (e.type === 'punchStart' && e.side === 0) variant = e.variant;
+    }
+    return variant;
+  };
+  const on = ['jab', 'cross', 'hook', 'uppercut'].map(t => press(true, t)), off = ['jab', 'cross', 'hook', 'uppercut'].map(t => press(false, t));
+  check('level + punch on the same tick: body jab, body cross, body hook, rising uppercut', on.join() === 'bodyJab,bodyCross,bodyHook,risingUppercut', on.join());
+  check('key off: the same presses are the head versions', !off.some(v => /body|rising/i.test(v)), off.join());
+  cfg.iqLevelAtPress = true;
+}
+
 done();

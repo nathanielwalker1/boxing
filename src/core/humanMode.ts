@@ -16,7 +16,8 @@ export function applyHumanMode(cfg: Config): void {
   cfg.aiHesitateScale = cfg.humanAiHesitate; cfg.aiStepInAfter = cfg.humanAiStepInAfter; cfg.aiHumanTempoEasy = cfg.humanAiTempoEasy; cfg.aiHumanTempoMed = cfg.humanAiTempoMed;
   cfg.staggerSpeedMax = cfg.humanStaggerSpeedMax; cfg.handNeutral = cfg.humanHandNeutral; cfg.contactSquash = cfg.humanContactSquash;
   cfg.punchChainAt = cfg.humanChainMiss; cfg.whiffRecoveryMult = cfg.humanWhiffRecovery; cfg.mocapTellChained = cfg.humanTellChained;
-  cfg.iqMissCost = cfg.humanIqMissCost; cfg.iqScoring = cfg.humanIqScoring; cfg.iqLoadedCounter = cfg.humanIqLoadedCounter;
+  cfg.iqMissCost = cfg.humanIqMissCost; cfg.iqScoring = cfg.humanIqScoring; cfg.iqLoadedCounter = cfg.humanIqLoadedCounter; cfg.iqLevelAtPress = cfg.humanIqLevelAtPress;
+  cfg.bodyPowerScale = cfg.humanBodyPowerScale; cfg.aiBodyKeep = cfg.humanAiBodyKeep;
   cfg.comboStepMax = cfg.humanComboStepMax; cfg.comboCockScale = cfg.humanComboCock; cfg.comboHoldKeep = cfg.humanComboHoldKeep;
   if (cfg.humanStamina) {
     cfg.staminaLandRefund = cfg.humanStaminaLandRefund; cfg.staminaWhiffCost = cfg.humanStaminaWhiffCost; cfg.staminaWhiffDelay = cfg.humanStaminaWhiffDelay;
