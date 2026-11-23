@@ -241,7 +241,7 @@ body.flow-menu #touch-ui { display: none; }
 #flow .mk .swc { pointer-events: auto; cursor: pointer; width: 23px; height: 23px; border: 2px solid #fff3; }
 #flow .mk .swc.sel { border-color: #fff; box-shadow: 0 0 0 1px #000, 0 0 0 3px var(--gold); }
 #flow .mk .foot { flex: none; border-top: 1px solid #fff2; background: #0a0a0e; }
-#flow .mk .foot .btns { margin-top: 10px; flex-wrap: nowrap; } #flow .mk .foot .btn { flex: 1 1 auto; }
+#flow .mk .foot .btns { margin-top: 10px; gap: 6px; } #flow .mk .foot .btn { flex: 1 1 auto; padding: 9px 12px; font-size: 11px; }
 /* thumbs: about 40 px targets whenever the flow is in touch mode */
 #flow.touch .mk .swc { width: 40px; height: 40px; }
 #flow.touch .mk .sws { gap: 6px; }

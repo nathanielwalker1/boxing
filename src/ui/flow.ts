@@ -168,6 +168,7 @@ export class FightFlow {
   private menuClass = false;
   private roundsOverride: [number, number] | null = null;   // scripts only: short rounds
   private create: CreateScreen;
+  private gymBack: Screen = 'title';    // where leaving the gym goes (the create screen's "Try him in the gym" sets 'create')
 
   constructor(parent: HTMLElement, private roster: readonly FighterSpec[], private cfg: Config, bus: EventBus, private hooks: FlowHooks, touch = false) {
     const style = document.createElement('style');
@@ -282,7 +283,7 @@ export class FightFlow {
     this.setBtns(s.querySelector('.menu')!, [
       ['Fight', () => { this.mode = 'fight'; this.show('select'); }],
       ['Ladder', () => this.openLadder()],
-      ['Gym', () => this.show('gym')],
+      ['Gym', () => { this.gymBack = 'title'; this.show('gym'); }],
       ['Controls', () => { this.controlsBack = 'title'; this.show('controls'); }],
       [this.create.saved ? 'Edit fighter' : 'Create fighter', () => this.show('create')],
     ]);
@@ -295,7 +296,11 @@ export class FightFlow {
     s.innerHTML = '<div class="head">Create your fighter</div><div class="panel info mk"><div class="scroll"></div><div class="foot"><div class="btns"></div></div></div>';
     this.previewWant = null;
     this.create.mount(s.querySelector('.scroll')!);
-    this.setBtns(s.querySelector('.btns')!, [['Step into the ring', () => this.finishCreate()], ['Back', () => this.show('title'), true]]);
+    this.setBtns(s.querySelector('.btns')!, [
+      ['Step into the ring', () => this.finishCreate()],
+      ['Try him in the gym', () => this.tryInGym(), true],
+      ['Back', () => this.show('title'), true],
+    ]);
     this.previewNow(this.create.spec());
   }
 
@@ -305,6 +310,15 @@ export class FightFlow {
     if (sameFighter(this.director.slots[0], spec)) return;
     this.hooks.preview(spec);
     this.director.setSlots(spec, this.director.slots[1]);
+  }
+
+  /** Save him and open the gym with him as the player; leaving the gym comes back here. */
+  private tryInGym(): void {
+    const spec = this.create.commit();
+    registerFighter(spec);
+    this.player = spec;
+    this.gymBack = 'create';
+    this.show('gym');
   }
 
   /** Save him, put him first on the roster, and go where Fight goes, with him picked. */
@@ -518,7 +532,7 @@ export class FightFlow {
       box.appendChild(it);
       this.btns.push({ el: it, act });
     });
-    this.setBtns(s.querySelector('.btns')!, [['Back', () => this.show('title'), true]], true);
+    this.setBtns(s.querySelector('.btns')!, [['Back', () => this.show(this.gymBack), true]], true);
   }
 
   private startDrill(d: Drill): void {
@@ -913,6 +927,7 @@ export class FightFlow {
       case 'select': this.show('title'); break;
       case 'opponent': this.show('select'); break;
       case 'controls': this.show(this.controlsBack); break;
+      case 'gym': this.show(this.gymBack); break;
       case 'results': if (this.mode === 'ladder') this.show('ladder'); else this.show('title'); break;
       case 'title': break;
       default: this.show('title');
