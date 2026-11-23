@@ -137,6 +137,10 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
       if (cfg.evadeV2 && cfg.evadeHeldTap && p.t > 0) {
         const now = Math.abs(mx) >= Math.abs(my) ? ((mx > 0 ? 1 : -1) * handLateralSign('rear', f.stance)) : my < 0 ? 2 : 3;
         if (now !== p.dir && now !== 3 && evadeCd(f) <= 0) p.t = 0;
+        // (back to plain FORWARD after a side tap: the push is forward again. Left as the old side direction, the next
+        //  tap to that same side was "no change" and never slipped — measured 2026-11-23: walking in, tap right twice,
+        //  one slip. Nate: "very hard to slip punches while coming forward".)
+        else if (now === 3 && p.dir !== 3) { p.dir = 3; p.hold = true; }
       }
       if (p.t === 0) {
         // Push just began — the direction is captured now, not at release, so
