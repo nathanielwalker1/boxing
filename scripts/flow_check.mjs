@@ -187,6 +187,7 @@ await key('Escape'); await on('title');
 
 // ── 12. Create your fighter: the reveal poster, then the select screen ───────
 await page.locator('#flow .title .btn', { hasText: 'Create fighter' }).click(); await on('create');
+check('before stepping in, the height and weight sliders are enabled', await page.evaluate(() => [...document.querySelectorAll('#flow .mk input[type=range]')].length === 2 && [...document.querySelectorAll('#flow .mk input[type=range]')].every(r => !r.disabled)));
 await page.locator('#flow .mk input[type=text]').nth(0).fill('Poster Test');
 await page.locator('#flow .mk input[type=text]').nth(2).fill('Duluth');
 await page.locator('#flow .screen.create .btn', { hasText: 'Step into the ring' }).click();
@@ -198,6 +199,11 @@ await key('KeyJ'); await on('select');
 check('a key press moves on to the select screen with him picked', (await st()).player === 'my-fighter' && (await page.evaluate(() => !document.querySelector('#flow .screen.create.on'))));
 const total = r => r.wins + r.losses + r.draws;
 check('the select card shows his record, 0-0 before a fight', await page.evaluate(() => document.querySelector('#flow .select .recline')?.textContent ?? '') === 'Record 0-0' && total(await page.evaluate(() => window.__record())) === 0);
+
+check('his own select card has no AI style block', await page.evaluate(() => !document.querySelector('#flow .select .style')));
+await key('ArrowRight');
+check('a roster fighter\'s card still has the style block ("How he fights")', await page.evaluate(() => /How he fights/.test(document.querySelector('#flow .select .style')?.textContent ?? '')));
+await key('ArrowLeft');
 
 // His fight: the result goes into his record once.
 await key('Enter'); await on('opponent'); await key('Enter'); await on('walk');
@@ -224,6 +230,13 @@ await page.locator('#flow .ditem').first().click(); await on('fight');
 await until(page, () => window.__sim.state().tick > 120, undefined, { label: 'the drill running', timeout: 60000 });
 await key('Escape'); await on('gym'); await key('Escape'); await on('create');
 check('a gym session as the created fighter does not touch his record', total(await page.evaluate(() => window.__record())) === 1);
+check('after stepping in, the sliders are disabled and the line says his body is set', await page.evaluate(() => [...document.querySelectorAll('#flow .mk input[type=range]')].every(r => r.disabled) && /His body is set/.test(document.querySelector('#flow .mk .lockline')?.textContent ?? '')));
+await page.locator('#flow .mk .retlink', { hasText: 'Retire him' }).click();
+await page.locator('#flow .mk .retlink', { hasText: 'Keep him' }).click();
+check('Keep him changes nothing (draft and record stay)', await page.evaluate(() => !!localStorage.getItem('boxing.fighter.v1') && window.__roster().includes('my-fighter')) && total(await page.evaluate(() => window.__record())) === 1);
+await page.locator('#flow .mk .retlink', { hasText: 'Retire him' }).click();
+await page.locator('#flow .mk .retlink', { hasText: /^Retire$/ }).click(); await on('create');
+check('Retire clears the saved draft and the record, drops him from the roster and unlocks a fresh create screen', await page.evaluate(() => localStorage.getItem('boxing.fighter.v1') === null && !window.__roster().includes('my-fighter') && [...document.querySelectorAll('#flow .mk input[type=range]')].every(r => !r.disabled)) && total(await page.evaluate(() => window.__record())) === 0);
 await page.evaluate(() => { try { localStorage.removeItem('boxing.fighter.v1'); localStorage.removeItem('boxing.record.v1'); } catch { /* no storage */ } });
 await key('Escape'); await on('title');
 

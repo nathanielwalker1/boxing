@@ -209,6 +209,7 @@ export class CreateScreen {
       no.addEventListener('pointerdown', e => { e.preventDefault(); link(); });
       row.appendChild(yes); row.appendChild(no);
       wrap.appendChild(q); wrap.appendChild(row);
+      wrap.scrollIntoView?.({ block: 'end' });   // the two answers must not sit behind the pinned buttons
     };
     link();
   }
