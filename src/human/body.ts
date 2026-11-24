@@ -179,6 +179,7 @@ const MESHY = {
   darkSkin: [88, 56, 40] as const,   // sRGB target mean of the skin for the 'dark' tone (the baked skin's mean maps here)
   gloveGain: 0.85,          // kit glove colour lands at this x the glove's mean shading (keeps the leather deep)
   gloveContrast: 0.75,      // exponent on the glove's shading ratio: crease detail kept, grain not turned to speckle
+  gloveRoughness: 0.45,     // the separate glove part (glove_<name>): satin leather, one value (it has no roughness map)
   trunksGain: 0.95,         // kit trunks colour at the trunks' mean shading
   trunksContrast: 1.0,      // the baked folds multiply through the tint unchanged
   kitDesaturate: 0.15,      // kit colours pulled this far towards their own grey: satin, not flat plastic
@@ -208,6 +209,27 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
     return g.getImageData(0, 0, W, Hh).data;
   };
   const src = pixels(cImg), mask = pixels(maskImg), skin = pixels(skinImg);
+  // the swappable glove part (build_meshy.py 6b): meshes named glove_*, material named after its texture stem
+  // (glove_<name>), textures <stem>_c / _n next to the glb; all of it is glove, so the kit tint needs no mask
+  let gloveStem = '';
+  scene.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && m.name.startsWith('glove') && !gloveStem) gloveStem = (m.material as THREE.Material).name; });
+  let gSrc: Uint8ClampedArray | null = null, gNormal: THREE.Texture | null = null, gloveW = 0, gloveH = 0, gMeanY = 1;
+  if (gloveStem) {
+    const [gImg, gn] = await Promise.all([il.loadAsync(`${base}${gloveStem}_c.webp`), tl.loadAsync(`${base}${gloveStem}_n.webp`)]);
+    gn.flipY = false; gn.colorSpace = THREE.NoColorSpace; gn.anisotropy = 8;
+    gNormal = gn; gloveW = gImg.width; gloveH = gImg.height;
+    const cv = document.createElement('canvas');
+    cv.width = gloveW; cv.height = gloveH;
+    const g = cv.getContext('2d', { willReadFrequently: true })!;
+    g.drawImage(gImg, 0, 0);
+    gSrc = g.getImageData(0, 0, gloveW, gloveH).data;
+    let s = 0, n = 0;
+    for (let i = 0; i < gSrc.length; i += 4) {
+      const y = 0.2126 * gSrc[i]! + 0.7152 * gSrc[i + 1]! + 0.0722 * gSrc[i + 2]!;
+      if (y > 2) { s += y; n++; }   // skip the black gutter between UV islands
+    }
+    gMeanY = n ? s / n : 1;
+  }
   // region statistics, mask-weighted: mean luminance of trunks and gloves, mean skin colour
   let tY = 0, tW = 0, gY = 0, gW = 0, sR = 0, sG = 0, sB = 0, sW = 0;
   for (let i = 0; i < src.length; i += 4) {
@@ -219,16 +241,40 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
   tY /= tW || 1; gY /= gW || 1;
   const skinMean = [sR / (sW || 1), sG / (sW || 1), sB / (sW || 1)];
   const cache = new Map<string, THREE.Texture>();
+  const rgb = (css: string): [number, number, number] => {
+    const h = new THREE.Color(css).getHex(), c = [(h >> 16) & 255, (h >> 8) & 255, h & 255] as const;
+    const g = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2], d = MESHY.kitDesaturate;
+    return [c[0] + d * (g - c[0]), c[1] + d * (g - c[1]), c[2] + d * (g - c[2])];
+  };
+  /** The glove part's material per kit glove colour: every texel tinted, baked shading kept (as the body's gloves). */
+  const gloveMats = new Map<string, THREE.MeshStandardMaterial>();
+  const gloveMat = (kit: KitColors): THREE.MeshStandardMaterial | null => {
+    if (!gSrc || !gNormal) return null;
+    const hit = gloveMats.get(kit.glove);
+    if (hit) return hit;
+    const kg = rgb(kit.glove), out = new Uint8ClampedArray(gSrc);
+    for (let i = 0; i < out.length; i += 4) {
+      const y = 0.2126 * gSrc[i]! + 0.7152 * gSrc[i + 1]! + 0.0722 * gSrc[i + 2]!;
+      const f = Math.pow(y / gMeanY, MESHY.gloveContrast) * MESHY.gloveGain;
+      out[i] = kg[0] * f; out[i + 1] = kg[1] * f; out[i + 2] = kg[2] * f;
+    }
+    const cv = document.createElement('canvas');
+    cv.width = gloveW; cv.height = gloveH;
+    cv.getContext('2d')!.putImageData(new ImageData(out, gloveW, gloveH), 0, 0);
+    const t = new THREE.CanvasTexture(cv);
+    t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    const m = new THREE.MeshStandardMaterial({
+      name: 'meshy_glove', map: t, normalMap: gNormal, normalScale: new THREE.Vector2(MESHY.normalScale, MESHY.normalScale),
+      roughness: MESHY.gloveRoughness, metalness: 0,
+    });
+    gloveMats.set(kit.glove, m);
+    return m;
+  };
   const colourMap = (tone: SkinTone, kit: KitColors): THREE.Texture => {
     const key = `${tone}|${kit.trunks}|${kit.glove}`;
     const hit = cache.get(key);
     if (hit) return hit;
     const out = new Uint8ClampedArray(src);
-    const rgb = (css: string): [number, number, number] => {
-      const h = new THREE.Color(css).getHex(), c = [(h >> 16) & 255, (h >> 8) & 255, h & 255] as const;
-      const g = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2], d = MESHY.kitDesaturate;
-      return [c[0] + d * (g - c[0]), c[1] + d * (g - c[1]), c[2] + d * (g - c[2])];
-    };
     const kt = rgb(kit.trunks), kg = rgb(kit.glove);
     const dark = tone === 'dark';
     const sk = MESHY.darkSkin.map((v, k) => v / skinMean[k]!);
@@ -260,13 +306,14 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
         roughness: 1, roughnessMap: rm, metalness: MESHY.metalness, metalnessMap: rm,
         side: THREE.DoubleSide,   // single-shell cloth: the trunks' side slits open in knee lifts and show the inside
       });
+      const gmat = gloveMat(kit);
       root.traverse(o => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
         m.castShadow = true;
         m.receiveShadow = true;
         m.frustumCulled = false;
-        m.material = mat;
+        m.material = gmat && m.name.startsWith('glove') ? gmat : mat;
       });
       return root;
     },

@@ -11,6 +11,7 @@ from mathutils import Vector, Matrix
 
 argv = sys.argv[sys.argv.index("--") + 1:]
 CACHE, OUT, SUFFIX, SHOTS, MODE = argv[:5]
+GLOVE_CACHE, GLOVE_NAME = (argv[5], argv[6]) if len(argv) > 6 else (None, "g1")
 H = 1.80                    # target standing height (m)
 TRI_TARGET = 45000
 T0 = time.time()
@@ -135,6 +136,39 @@ def render(tag, objs_hide=(), views=("front", "back", "side")):
     log("rendered", tag, views)
 
 preview_material(body)
+if MODE == "probeglove":
+    bpy.data.objects.remove(body, do_unlink=True)
+    gf = [f for f in os.listdir(GLOVE_CACHE)]
+    print("GLOVE files", gf)
+    bpy.ops.import_scene.fbx(filepath=os.path.join(GLOVE_CACHE, next(f for f in gf if f.lower().endswith(".fbx"))))
+    gm = [o for o in bpy.data.objects if o.type == "MESH"]
+    for o in gm:
+        print("GLOVE obj", o.name, "tris", sum(len(p.vertices) - 2 for p in o.data.polygons), "loc", tuple(o.location), "rot", tuple(o.rotation_euler), "scale", tuple(o.scale))
+    g = gm[0]
+    G = np.array([(g.matrix_world @ v.co)[:] for v in g.data.vertices])
+    print("GLOVE bbox", np.round(G.min(0), 3).tolist(), np.round(G.max(0), 3).tolist())
+    for a in range(3):
+        lo_, hi_ = G[:, a].min(), G[:, a].max()
+        row = []
+        for k in range(10):
+            m = (G[:, a] >= lo_ + (hi_ - lo_) * k / 10) & (G[:, a] < lo_ + (hi_ - lo_) * (k + 1) / 10)
+            o1, o2 = [i for i in range(3) if i != a]
+            row.append("%d:%.2fx%.2f" % (k, np.ptp(G[m, o1]) if m.any() else 0, np.ptp(G[m, o2]) if m.any() else 0))
+        print("GLOVE axis", "xyz"[a], "slices (extent of other two axes):", " ".join(row))
+    sc = bpy.context.scene
+    sc.render.engine = "BLENDER_WORKBENCH"; sc.display.shading.light = "STUDIO"; sc.display.shading.color_type = "TEXTURE"
+    sc.render.resolution_x = sc.render.resolution_y = 400
+    gmat = bpy.data.materials.new("g"); gmat.use_nodes = True
+    t = gmat.node_tree.nodes.new("ShaderNodeTexImage"); t.image = load_img(os.path.join(GLOVE_CACHE, next(f for f in gf if f.lower().endswith("texture.png"))), True)
+    gmat.node_tree.links.new(t.outputs["Color"], gmat.node_tree.nodes["Principled BSDF"].inputs["Base Color"])
+    g.data.materials.clear(); g.data.materials.append(gmat)
+    cam = bpy.data.objects.new("Cam", bpy.data.cameras.new("Cam")); sc.collection.objects.link(cam); sc.camera = cam
+    cam.data.type = "ORTHO"; cam.data.ortho_scale = 2.4
+    for v, loc, rot in (("negy", (0, -5, 0), (math.pi / 2, 0, 0)), ("posz", (0, 0, 5), (0, 0, 0)), ("posx", (5, 0, 0), (math.pi / 2, 0, math.pi / 2))):
+        cam.location = loc; cam.rotation_euler = rot
+        sc.render.filepath = os.path.join(SHOTS, "glove_probe_%s.png" % v)
+        bpy.ops.render.render(write_still=True)
+    raise SystemExit(0)
 if MODE == "probe":
     render("before", views=("front", "back", "side", "face", "hand"))
     Mt = bpy.data.images.load(TEX_M)
@@ -198,6 +232,12 @@ for k in list(J):
     if k.startswith("Left"):
         x, y, z = J[k]
         J["Right" + k[4:]] = (-x, y, z)
+# the old mitten (left): the swappable glove is fitted to this box, so the drawn glove keeps its size (= hit size)
+_om = (X > cuff) & (Z > 1.2)
+OLD_GLOVE = (V[_om].min(0), V[_om].max(0))
+log("old mitten bbox cm: size %s  min %s max %s" % (np.round(100 * (OLD_GLOVE[1] - OLD_GLOVE[0]), 1).tolist(),
+    np.round(100 * OLD_GLOVE[0], 1).tolist(), np.round(100 * OLD_GLOVE[1], 1).tolist()))
+GLOVE_CUT = cuff + 0.015      # body faces past this (|x|, arm height) are the mitten: deleted, the glove replaces them
 log("joints: armpit %.3f cuff %.3f wrist %.3f tip %.3f elbow %.3f neck %.3f head %.3f knee %.3f (x %.3f) ankle x %.3f y %.3f ball y %.3f"
     % (armpit, cuff, wrist, tip, el_x, neck_z, head_z, knee_z, knee_x, ank_x, ank_y, ball_y))
 
@@ -227,8 +267,12 @@ bvh = BVHTree.FromBMesh(bm)
 gold = math.pi * (3 - math.sqrt(5))
 DIRS = [Vector((math.cos(gold * i) * math.sqrt(1 - (1 - 2 * (i + 0.5) / 24) ** 2), math.sin(gold * i) * math.sqrt(1 - (1 - 2 * (i + 0.5) / 24) ** 2), 1 - 2 * (i + 0.5) / 24)) for i in range(24)]
 hidden = []
+mitten = []
 for f in bm.faces:
     c = f.calc_center_median()
+    if abs(c.x) > GLOVE_CUT and c.z > 1.2:
+        mitten.append(f)
+        continue
     if not (hem_z - 0.03 < c.z < band_z and abs(c.x) < 0.30):
         continue
     n = f.normal
@@ -242,10 +286,10 @@ for f in bm.faces:
             break
     if used >= 4:
         hidden.append(f)
-bmesh.ops.delete(bm, geom=hidden, context="FACES")
+bmesh.ops.delete(bm, geom=hidden + mitten, context="FACES")
 bm.to_mesh(body.data)
 bm.free()
-log("deleted %d hidden faces under the trunks" % len(hidden))
+log("deleted %d hidden faces under the trunks, %d mitten faces" % (len(hidden), len(mitten)))
 V = verts(body)
 X, Y, Z = V[:, 0], V[:, 1], V[:, 2]
 
@@ -525,6 +569,7 @@ tn = np.empty(len(me.loop_triangles) * 3, dtype=np.float32); me.loop_triangles.f
 tsw = ((cz > 1.28) & (cz < 1.53) & (cx < 0.30)).astype(np.float32)   # sweat sheen zone: shoulders, upper chest / back
 nyr = np.zeros((N1, N1), dtype=np.float32)                    # facing: + = back (Blender +y)
 swr = np.zeros((N1, N1), dtype=np.float32)
+zr = np.zeros((N1, N1), dtype=np.float32)                     # height of the texel's triangle (m)
 UVp = uvl[LT] * N1 - 0.5
 for ti in range(len(TV)):
     a, b, c = UVp[ti]
@@ -540,6 +585,7 @@ for ti in range(len(TV)):
     lab[gy[ins], gx[ins]] = tl[ti]
     nyr[gy[ins], gx[ins]] = tn[ti, 1]
     swr[gy[ins], gx[ins]] = tsw[ti]
+    zr[gy[ins], gx[ins]] = cz[ti]
 cover = lab >= 0
 log("uv coverage %.1f%%" % (100 * cover.mean()))
 cp = px_of(C).reshape(N1, 2, N1, 2, 4).mean((1, 3))[..., :3]   # base colour at 1024
@@ -578,6 +624,16 @@ def bleed(a, n=4):
 # bleed into the gutter first: otherwise the clean-up erodes against the empty gutter and leaves a half-strength
 # rim inside every UV island, which shows as light seam lines once a region is tinted
 ch = [bleed(clean(bleed(m.astype(np.float32), 6))) for m in (m_trunks, m_glove, m_boot, m_skin, m_hair)]
+# trunks only on texels whose own triangle is in the hip band (or gutter touching nothing else): the clean-up and the
+# gutter bleed spread the channel across neighbouring UV islands, and a forearm island packed against a trunks island
+# took the kit colour as a red streak on the skin
+own = bleed((lab == 1).astype(np.float32), 6) > 0.99
+ch[0] = ch[0] * own
+# boots: the shaft above SOCK_Z becomes a short white sock band (boxing boots read low and matte, not tall and shiny)
+SOCK_Z = 0.19
+zrb = bleed(zr, 6)
+sock = ch[2] * sm(SOCK_Z - 0.006, SOCK_Z + 0.006, zrb)
+ch[2] = ch[2] - sock
 mask = np.ones((N1, N1, 4), dtype=np.float32)
 mask[..., 0], mask[..., 1], mask[..., 2] = ch[0], ch[1], ch[2]
 save(new_img("mask", N1, mask), "mask", 100)
@@ -597,6 +653,8 @@ wb = blur(ch[3] * sm(-0.1, 0.5, bleed(nyr, 6)))
 cpx = px_of(C)
 w2 = np.repeat(np.repeat(wb, 2, 0), 2, 1)[..., None]
 cpx[..., :3] = np.clip(cpx[..., :3] * (1 + w2 * (gain - 1)), 0, 1)
+s2 = np.repeat(np.repeat(sock, 2, 0), 2, 1)[..., None]       # sock band: flat off-white cotton (linear-ish sRGB)
+cpx[..., :3] = cpx[..., :3] * (1 - s2) + s2 * np.array([0.84, 0.83, 0.80])
 C.pixels.foreach_set(cpx.ravel())
 log("back skin gain", np.round(gain, 3).tolist(), "front mean", np.round(cp[front].mean(0), 3).tolist())
 save(C, "c", 88)
@@ -612,16 +670,132 @@ r_skin = around(ch[3], 0.66, 0.3, 0.45, 0.9) - 0.16 * sw
 r_tr, r_gl = around(ch[0], 0.5, 0.3, 0.38, 0.75), around(ch[1], 0.46, 0.3, 0.34, 0.7)
 wsum = np.clip(ch[3] + ch[0] + ch[1], 0, 1)
 rough = rp * (1 - wsum) + (ch[3] * r_skin + ch[0] * r_tr + ch[1] * r_gl) / np.maximum(ch[3] + ch[0] + ch[1], 1e-6) * wsum
+bs = np.clip(ch[2] + sock, 0, 1)                              # boots matte leather, sock cotton
+rough = rough * (1 - bs) + bs * (0.84 * ch[2] + 0.93 * sock) / np.maximum(ch[2] + sock, 1e-6)
 rm = np.ones((N1, N1, 4), dtype=np.float32); rm[..., 0] = rough; rm[..., 1] = rough; rm[..., 2] = 0
 save(new_img("rm", N1, rm), "r", 90)                          # G roughness, B metalness 0 (glTF packing)
 log("roughness means: skin %.2f trunks %.2f gloves %.2f" % (float(rough[ch[3] > 0.5].mean()), float(rough[ch[0] > 0.5].mean()), float(rough[ch[1] > 0.5].mean())))
+
+# ---------------------------------------------------------------- 6b. gloves: a separate, swappable part
+# One LEFT glove (closed fist) from its own Meshy zip (GLOVE_ZIP): decimated, re-UV'd and baked to its own small
+# texture set (public/fighter/glove_<name>_{c,n}.webp), turned to the T-pose hand (fingers +x, palm down, thumb to the
+# front), fitted to the old mitten's box (same drawn size = same hit size), mirrored for the right, rigid to the Hand.
+GLOVE_TRIS = 4500
+GLOVE_CUFF = 0.28             # fraction of the source glove's length that is the straight cuff tube (probed: ~0.3)
+GSTEM = "glove_" + GLOVE_NAME
+def build_gloves():
+    gfiles = os.listdir(GLOVE_CACHE)
+    def gtex(tag):
+        for f in gfiles:
+            b = f.lower()
+            if b.endswith(".png") and (b.endswith("_%s.png" % tag) if tag else not any(b.endswith("_%s.png" % t) for t in ("normal", "roughness", "metallic"))):
+                return os.path.join(GLOVE_CACHE, f)
+        raise SystemExit("glove texture missing: " + (tag or "base colour"))
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.fbx(filepath=os.path.join(GLOVE_CACHE, next(f for f in gfiles if f.lower().endswith(".fbx"))))
+    new = [o for o in bpy.data.objects if o not in before]
+    gm = [o for o in new if o.type == "MESH"]
+    for o in new:
+        if o.type != "MESH": bpy.data.objects.remove(o, do_unlink=True)
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in gm: o.select_set(True)
+    bpy.context.view_layer.objects.active = gm[0]
+    if len(gm) > 1: bpy.ops.object.join()
+    hi = gm[0]; hi.parent = None
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    # source pose (probed): fingers +x, palm -y, thumb +z -> rotate +90 deg about x: palm -z, thumb -y (left T-pose hand)
+    hi.data.transform(Matrix.Rotation(math.pi / 2, 4, "X"))
+    size = float(np.ptp(verts(hi), 0).max())
+    tris_hi = sum(len(p.vertices) - 2 for p in hi.data.polygons)
+    lo = hi.copy(); lo.data = hi.data.copy(); lo.name = "glove_L"
+    bpy.context.scene.collection.objects.link(lo)
+    mod = lo.modifiers.new("dec", "DECIMATE")
+    mod.decimate_type = "COLLAPSE"; mod.ratio = GLOVE_TRIS / tris_hi; mod.use_collapse_triangulate = True
+    bpy.ops.object.select_all(action="DESELECT"); lo.select_set(True); bpy.context.view_layer.objects.active = lo
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    for u in list(lo.data.uv_layers): lo.data.uv_layers.remove(u)
+    lo.data.uv_layers.new(name="UV")
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=0.004)
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(rotate=True, margin=0.004)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    # bake colour + normal from the full-res source (selected to active), in the source's own units
+    gh = bpy.data.materials.new("glove_high"); gh.use_nodes = True
+    n_ = gh.node_tree; gb = n_.nodes["Principled BSDF"]; gout = n_.nodes["Material Output"]
+    tc_ = n_.nodes.new("ShaderNodeTexImage"); tc_.image = load_img(gtex(""), True)
+    tn_ = n_.nodes.new("ShaderNodeTexImage"); tn_.image = load_img(gtex("normal"), False)
+    nm_ = n_.nodes.new("ShaderNodeNormalMap")
+    n_.links.new(tn_.outputs["Color"], nm_.inputs["Color"]); n_.links.new(nm_.outputs["Normal"], gb.inputs["Normal"])
+    n_.links.new(tc_.outputs["Color"], gb.inputs["Base Color"])
+    em_ = n_.nodes.new("ShaderNodeEmission")
+    hi.data.materials.clear(); hi.data.materials.append(gh)
+    gl = bpy.data.materials.new(GSTEM); gl.use_nodes = True
+    gimg = gl.node_tree.nodes.new("ShaderNodeTexImage"); gl.node_tree.nodes.active = gimg
+    lo.data.materials.clear(); lo.data.materials.append(gl)
+    imgs = {}
+    bpy.context.scene.render.engine = "CYCLES"     # the preview renders left Workbench on
+    for name, n, colour, kind in (("c", 1024, True, "EMIT"), ("n", 1024, False, "NORMAL")):
+        img = bpy.data.images.new(GSTEM + "_" + name, n, n, alpha=False)
+        img.colorspace_settings.name = "sRGB" if colour else "Non-Color"
+        gimg.image = img
+        if kind == "EMIT":
+            n_.links.new(tc_.outputs["Color"], em_.inputs["Color"]); n_.links.new(em_.outputs["Emission"], gout.inputs["Surface"])
+        else:
+            n_.links.new(gb.outputs["BSDF"], gout.inputs["Surface"])
+        bpy.ops.object.select_all(action="DESELECT"); hi.select_set(True); lo.select_set(True)
+        bpy.context.view_layer.objects.active = lo
+        bpy.ops.object.bake(type=kind, use_selected_to_active=True, cage_extrusion=0.025 * size, max_ray_distance=0.07 * size,
+                            margin=8, normal_space="TANGENT")
+        imgs[name] = img
+    bpy.data.objects.remove(hi, do_unlink=True)
+    for name, img in imgs.items():
+        path = os.path.join(OUTDIR, "%s_%s.webp" % (GSTEM, name)); tmp = path[:-5] + "_tmp.webp"
+        img.filepath_raw = tmp; img.file_format = "WEBP"; img.save(filepath=tmp, quality=90 if name == "c" else 92)
+        os.replace(tmp, path); log("wrote", os.path.basename(path), os.path.getsize(path))
+    # fit to the old mitten's box: the fist's width / height (y, z) exactly, tip on the old tip; the source's length
+    # at that scale is shorter than the mitten (whose cuff runs far up the forearm), so only the cuff tube (the first
+    # GLOVE_CUFF of the length) stretches along x to reach the old cuff line; the fist itself keeps its proportions
+    G = verts(lo).astype(np.float64)
+    glo, ghi = G.min(0), G.max(0)
+    sc_ = (OLD_GLOVE[1] - OLD_GLOVE[0]) / (ghi - glo)
+    sx = 0.5 * (sc_[1] + sc_[2])
+    xc = glo[0] + GLOVE_CUFF * (ghi[0] - glo[0])              # end of the cuff tube (source units)
+    xc_new = OLD_GLOVE[1][0] - (ghi[0] - xc) * sx
+    nx = np.where(G[:, 0] >= xc, OLD_GLOVE[1][0] - (ghi[0] - G[:, 0]) * sx,
+                  OLD_GLOVE[0][0] + (G[:, 0] - glo[0]) / (xc - glo[0]) * (xc_new - OLD_GLOVE[0][0]))
+    ny = OLD_GLOVE[0][1] + (G[:, 1] - glo[1]) * sc_[1]
+    nz = OLD_GLOVE[0][2] + (G[:, 2] - glo[2]) * sc_[2]
+    lo.data.vertices.foreach_set("co", np.stack([nx, ny, nz], 1).astype(np.float32).ravel())
+    lo.data.update()
+    G = verts(lo)
+    log("glove: %d -> %d tris per hand; fist scale y/z ratio %.3f, cuff stretched x%.2f (cuff tube %.1f -> %.1f cm); new bbox cm size %s min %s max %s"
+        % (tris_hi, sum(len(p.vertices) - 2 for p in lo.data.polygons), sc_[1] / sc_[2],
+           (xc_new - OLD_GLOVE[0][0]) / ((xc - glo[0]) * sx), 100 * (xc - glo[0]) * sx, 100 * (xc_new - OLD_GLOVE[0][0]),
+           np.round(100 * np.ptp(G, 0), 1).tolist(), np.round(100 * G.min(0), 1).tolist(), np.round(100 * G.max(0), 1).tolist()))
+    for p in lo.data.polygons: p.use_smooth = True
+    gl.node_tree.nodes.remove(gimg)          # the loader loads glove_<name>_* itself; the glb carries no image
+    ro = lo.copy(); ro.data = lo.data.copy(); ro.name = "glove_R"
+    bpy.context.scene.collection.objects.link(ro)
+    ro.data.transform(Matrix.Diagonal(Vector((-1.0, 1.0, 1.0, 1.0))))
+    ro.data.flip_normals()
+    for o, s in ((lo, "Left"), (ro, "Right")):
+        o.data.name = o.name
+        for g in list(o.vertex_groups): o.vertex_groups.remove(g)
+        vg_ = o.vertex_groups.new(name="mixamorig:%sHand" % s)
+        vg_.add(list(range(len(o.data.vertices))), 1.0, "REPLACE")
+        o.parent = rig
+        am = o.modifiers.new("Armature", "ARMATURE"); am.object = rig
+    return lo, ro
+GLOVES = build_gloves()
 
 # ---------------------------------------------------------------- 7. export
 mat = bpy.data.materials.new("meshy")
 body.data.materials.clear()
 body.data.materials.append(mat)
 for o in list(bpy.data.objects):
-    if o not in (body, rig):
+    if o not in (body, rig) + GLOVES:
         bpy.data.objects.remove(o, do_unlink=True)
 for p in me.polygons:
     p.use_smooth = True
@@ -637,7 +811,7 @@ jlen, jtype = struct.unpack("<I4s", blob[12:20])
 js = json.loads(blob[20:20 + jlen].decode("utf8"))
 rest = blob[20 + jlen:]
 # src/human/body.ts reads this: one baked material, textures <glb stem>_{c,n,r,mask,skin}.webp next to the glb
-js.setdefault("asset", {})["extras"] = {"look": 3, "kind": "meshy", "stem": STEM, "height": H}
+js.setdefault("asset", {})["extras"] = {"look": 3, "kind": "meshy", "stem": STEM, "height": H, "glove": GSTEM}
 raw = json.dumps(js, separators=(",", ":")).encode("utf8")
 raw += b" " * ((4 - len(raw) % 4) % 4)
 with open(TMP, "wb") as f:
