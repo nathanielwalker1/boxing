@@ -316,7 +316,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     const v = new THREE.Vector3();
     model.updateMatrixWorld(true);
     if (!meshIdx) {
-      meshIdx = [];
+      const idx: { m: THREE.SkinnedMesh; i: number; k: 'L' | 'R' | 'head' | 'torso' | 'rest' }[] = [];
+      meshIdx = idx;
       const lh = bone('LeftHand'), rh = bone('RightHand');
       model.traverse(o => {
         const m = o as THREE.SkinnedMesh;
@@ -327,13 +328,13 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           let best = 0, bw = -1;
           for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; best = si.getComponent(i, k); } }
           const bn = m.skeleton.bones[best]?.name ?? '';
-          if (!glove && /Hand/.test(bn)) meshIdx.push({ m, i, k: /Left/.test(bn) ? 'L' : 'R' });   // a one-mesh body: the glove is what the hand carries
+          if (!glove && /Hand/.test(bn)) idx.push({ m, i, k: /Left/.test(bn) ? 'L' : 'R' });   // a one-mesh body: the glove is what the hand carries
           else if (glove) {
             m.getVertexPosition(i, v); v.applyMatrix4(m.matrixWorld);
-            meshIdx.push({ m, i, k: v.distanceTo(lh.getWorldPosition(new THREE.Vector3())) < v.distanceTo(rh.getWorldPosition(new THREE.Vector3())) ? 'L' : 'R' });
-          } else if (/Head/.test(bn) && !/Arm|Shoulder/.test(bn)) meshIdx.push({ m, i, k: 'head' });
-          else if (/Spine|Hips/.test(bn)) meshIdx.push({ m, i, k: 'torso' });
-          else meshIdx.push({ m, i, k: 'rest' });
+            idx.push({ m, i, k: v.distanceTo(lh.getWorldPosition(new THREE.Vector3())) < v.distanceTo(rh.getWorldPosition(new THREE.Vector3())) ? 'L' : 'R' });
+          } else if (/Head/.test(bn) && !/Arm|Shoulder/.test(bn)) idx.push({ m, i, k: 'head' });
+          else if (/Spine|Hips/.test(bn)) idx.push({ m, i, k: 'torso' });
+          else idx.push({ m, i, k: 'rest' });
         }
       });
     }
