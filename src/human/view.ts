@@ -306,6 +306,39 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     });
     return { headFront, headSide, headTop, torsoFront, torsoBack, torsoSide, model: { headR: db.headR, torsoR: db.r } };
   };
+  // Read-only measurement hook (probes): the SKINNED MESH as drawn this frame, world m, subsampled — vertices of each glove
+  // (by mesh name and side of the body), of the head (dominant bone Head) and of the torso (Spine / Hips). What the eye sees.
+  let meshIdx: { m: THREE.SkinnedMesh; i: number; k: 'L' | 'R' | 'head' | 'torso' | 'rest' }[] | null = null;
+  // (all = true also returns every other sampled vertex under `rest`: limbs, hips, feet — the rope check)
+  ((window as unknown as { __humanMesh?: Record<number, (all?: boolean) => unknown> }).__humanMesh ??= {})[side] = (all = false) => {
+    const v = new THREE.Vector3();
+    model.updateMatrixWorld(true);
+    if (!meshIdx) {
+      meshIdx = [];
+      const lh = bone('LeftHand'), rh = bone('RightHand');
+      model.traverse(o => {
+        const m = o as THREE.SkinnedMesh;
+        if (!m.isSkinnedMesh) return;
+        const n = m.geometry.attributes.position!.count, si = m.geometry.attributes.skinIndex!, sw = m.geometry.attributes.skinWeight!;
+        const glove = /glove/i.test(m.name);
+        for (let i = 0; i < n; i += glove ? 2 : 3) {
+          let best = 0, bw = -1;
+          for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; best = si.getComponent(i, k); } }
+          const bn = m.skeleton.bones[best]?.name ?? '';
+          if (!glove && /Hand/.test(bn)) meshIdx.push({ m, i, k: /Left/.test(bn) ? 'L' : 'R' });   // a one-mesh body: the glove is what the hand carries
+          else if (glove) {
+            m.getVertexPosition(i, v); v.applyMatrix4(m.matrixWorld);
+            meshIdx.push({ m, i, k: v.distanceTo(lh.getWorldPosition(new THREE.Vector3())) < v.distanceTo(rh.getWorldPosition(new THREE.Vector3())) ? 'L' : 'R' });
+          } else if (/Head/.test(bn) && !/Arm|Shoulder/.test(bn)) meshIdx.push({ m, i, k: 'head' });
+          else if (/Spine|Hips/.test(bn)) meshIdx.push({ m, i, k: 'torso' });
+          else meshIdx.push({ m, i, k: 'rest' });
+        }
+      });
+    }
+    const out: Record<string, number[]> = { L: [], R: [], head: [], torso: [], rest: [] };
+    for (const e of meshIdx) { if (e.k === 'rest' && !all) continue; e.m.getVertexPosition(e.i, v); v.applyMatrix4(e.m.matrixWorld); out[e.k]!.push(v.x, v.y, v.z); }
+    return out;
+  };
   let lastEvents: readonly SimEvent[] = [];
   const droop = { Left: 0, Right: 0 };   // tired: how far each guard hand hangs, m
   // continuity (inertia.ts): scratch + which joints are hips / legs (they settle slower)
@@ -376,7 +409,11 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   /** The guard tuck applied to each hand last frame (world m), so a punch's press offset starts from the tucked hand. */
   const tuckD = { Left: new THREE.Vector3(), Right: new THREE.Vector3() };
   // drive: one DRAWN frame between two ticks (alpha, view dt), as main.ts's loop draws live play and the slowed replay (probes)
-  const feed: ReplayFeed ={ feed: (p, n, ev) => run(p, n, 1, SIM_DT, ev), drive: (p, n, a, d, ev) => run(p, n, a, d, ev), freeze: on => { frozen = on; } };
+  // (feed = the rigs settled on frames that are not drawn: a replay's preroll, the hand-back to live play. The glove guard
+  //  starts afresh after it: carried across that cut it dragged every glove from the live fight toward the clip, the reach
+  //  and lean read the dragged glove, and the two kept each other swinging — 2026-11-24, measured in the real quarter-speed
+  //  replay: head and chest off their path by more than 3 cm on 9 of 10 drawn frames, gloves by up to 1.3 m)
+  const feed: ReplayFeed ={ feed: (p, n, ev) => { gOn = false; run(p, n, 1, SIM_DT, ev); }, drive: (p, n, a, d, ev) => run(p, n, a, d, ev), freeze: on => { frozen = on; } };
   feeds[side] = feed;
   installRigReplay(cfg, () => feeds);
 
