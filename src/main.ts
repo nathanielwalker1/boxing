@@ -356,6 +356,8 @@ let referee: Referee | null = null;
 window.__ref = () => referee ? referee.pose : null;
 // (test hook) is the knockdown replay playing right now
 (window as unknown as { __replayOn: () => boolean }).__replayOn = () => !!replay;
+// (test hook) play the last knockdown's replay again now (probes: the same clip under different settings)
+(window as unknown as { __replayStart: () => boolean }).__replayStart = () => { startReplay(); return !!replay; };
 const MAX_FRAME = 0.25;   // clamp so a background tab doesn't spiral
 const frameEvents: SimEvent[] = [];
 let boardText = '';
@@ -511,7 +513,7 @@ function loop(nowMs: number): void {
   }
   // Human mode: the views' own springs (continuity, body travel, hit whip) run on the time the fighters are SHOWN in, so
   // a slow-motion replay or the knockdown slow motion draws the same picture as live play (contact included), only slower.
-  const viewDt = !cfg.humanBody ? dt : replay && !paused ? dt * cfg.flowReplaySpeed : staged ? dt : dt * slow;
+  const viewDt = !cfg.humanBody ? dt : Math.min(cfg.humanViewDtMax, replay && !paused ? dt * cfg.flowReplaySpeed : staged ? dt : dt * slow);
   // A pause is a literal pause (Nate 2026-11-19): the human views run their clips, springs and idle life on their own clock,
   // so with the sim held they kept shifting and breathing under the pause menu. They are simply not advanced while it is up.
   const frozenViews = cfg.humanBody && flow !== null && flow.isPaused;
