@@ -104,8 +104,11 @@ export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, ou
       const lateral = s.active && (s.dir === 1 || s.dir === -1);
       const dk = duckT(d);
       // (the LEAN BACK beats every head punch, Nate 2026-11-20: it is the safe evade and opens only the short counter window)
+      // (duckBeatsStraights, Nate 2026-11-24: "if I duck I expect that to be a slip as well, so it's satisfying to duck and
+      //  go to the body": a TIMED duck also takes the head under a jab or cross; only the uppercut punishes a duck)
+      const ducked = dk > 0 && dk <= cfg.evadeWindow;
       const beaten = (s.active && s.dir === 2)
-        || (p.type === 'hook' ? (dk > 0 && dk <= cfg.evadeWindow) || (lateral && s.kind === 'roll') : p.type !== 'uppercut' && lateral);
+        || (p.type === 'hook' ? ducked || (lateral && s.kind === 'roll') : p.type !== 'uppercut' && (lateral || (cfg.duckBeatsStraights && ducked)));
       if (beaten) {
         o.kind = 'dodge'; o.slip = true;
         // how late: a slip / lean / roll is timed off its own clock (slip.t), a duck off the duck clock; both run from the press
