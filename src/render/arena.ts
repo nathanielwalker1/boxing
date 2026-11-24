@@ -526,11 +526,14 @@ export class Arena {
     const t = this.clock;
     const pxPerM = viewportH / (2 * Math.tan(camera.fov * Math.PI / 360));
     if (this.crowd) { this.crowd.group.visible = c.crowdEnabled; this.crowd.update(c, t, excite, fog, OUTER, this.flashes?.pulse ?? 0); }
-    if (this.flashes) { this.flashes.points.visible = c.crowdEnabled; this.flashes.update(c, t, dt, excite, pxPerM); }
+    if (this.flashes) { this.flashes.points.visible = c.crowdEnabled && !c.paintLook; /* the paint look: no sparkles */ this.flashes.update(c, t, dt, excite, pxPerM); }
     this.beams?.update(c, t);
     this.haze?.update(c, t, this.hazeScale);
     this.motes?.update(c, t, pxPerM);
     this.practicals?.update(c, t, pxPerM, fog);
+    /* the paint look: no drifting dust, no glowing lamp dots */
+    if (this.motes) this.motes.points.visible = !c.paintLook;
+    if (this.practicals) this.practicals.points.visible = !c.paintLook;
     if (this.ribbonMat && this.ribbonTex) { this.ribbonMat.color.setScalar(c.ledBrightness); this.ribbonTex.offset.x = (this.ribbonTex.offset.x + c.ledScroll * Math.abs(this.ribbonTex.repeat.x) * dt) % 1; }
     this.barrierMat?.color.setScalar(c.barrierBrightness);
     this.boardMat?.color.setScalar(c.jumbotronBrightness);

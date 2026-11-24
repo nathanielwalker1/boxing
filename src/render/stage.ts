@@ -17,6 +17,7 @@ import { disposeTree } from './util';
 import { mood, type ReactionKind } from './mood';
 import { additiveGain } from './atmos';
 import { qualityTier, noteRenderer, type Tier } from './tier';
+import { paintRoom, updatePaint } from './paint';
 
 /** A framing the host asks for instead of the two-fighter default: the knockdown count, looking at the downed fighter. */
 export interface CameraShot {
@@ -181,6 +182,7 @@ export class Stage {
     this.aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
     this.software = noteRenderer(this.renderer.getContext());
 
+    if (new URLSearchParams(location.search).get('look') === 'old') cfg.paintLook = false;   // ?look=old: the picture before the paint look
     this.fog = new THREE.Fog(new THREE.Color(cfg.fogColor), cfg.fogNear, cfg.fogFar);
     this.scene.fog = this.fog;
     this.scene.background = this.fog.color;
@@ -210,6 +212,7 @@ export class Stage {
     this.arena = new Arena(cfg, this.aniso);
     this.arenaKey = arenaKey(cfg);
     this.scene.add(this.arena.group, this.ring, this.hitboxes);
+    paintRoom(this.arena.group, cfg, 'arena');
     this.rebuildRing();
     this.resize();
 
@@ -265,6 +268,7 @@ export class Stage {
     this.ringKey = ringKey(this.cfg);
     disposeTree(this.ring);
     this.ring.add(buildRing(this.cfg, this.aniso));
+    paintRoom(this.ring, this.cfg, 'ring');
   }
 
   // ── Hitbox debug (CONTRACT §5: what the sim tests against, drawn exactly) ───
@@ -374,16 +378,18 @@ export class Stage {
     const c = this.cfg;
     this.renderer.info.reset();
     if (ringKey(c) !== this.ringKey) this.rebuildRing();
-    if (arenaKey(c) !== this.arenaKey) { this.arena.rebuild(c); this.arenaKey = arenaKey(c); }
+    if (arenaKey(c) !== this.arenaKey) { this.arena.rebuild(c); this.arenaKey = arenaKey(c); paintRoom(this.arena.group, c, 'arena'); }
+    updatePaint(c);
+    const P = c.paintLook;   // the paint look swaps these lights and the fog for its own (render/paint.ts); off = the old values
 
-    this.fog.color.set(c.fogColor);
-    this.fog.near = c.fogNear;
-    this.fog.far = c.fogFar;
+    this.fog.color.set(P ? c.paintFogColor : c.fogColor);
+    this.fog.near = P ? c.paintFogNear : c.fogNear;
+    this.fog.far = P ? c.paintFogFar : c.fogFar;
 
-    this.key.intensity = c.keyIntensity;
-    this.key.color.set(c.keyColor);
+    this.key.intensity = P ? c.paintKeyIntensity : c.keyIntensity;
+    this.key.color.set(P ? c.paintKeyColor : c.keyColor);
     this.key.position.set(0, c.keyHeight, 0);
-    this.key.angle = c.keyAngleDeg * Math.PI / 180;
+    this.key.angle = (P ? c.paintKeyAngleDeg : c.keyAngleDeg) * Math.PI / 180;
     this.key.shadow.radius = c.shadowRadius;
     const shadowSize = this.shadowSize;
     if (this.key.shadow.mapSize.x !== shadowSize) {
@@ -391,15 +397,16 @@ export class Stage {
       this.key.shadow.map?.dispose();
       this.key.shadow.map = null;
     }
-    this.fill.intensity = c.fillIntensity;
+    this.fill.intensity = P ? c.paintFill : c.fillIntensity;
     this.fill.color.set(c.fillSkyColor);
     this.fill.groundColor.set(c.fillGroundColor);
-    this.rim.intensity = c.rimIntensity;
+    this.rim.intensity = P ? c.paintRim : c.rimIntensity;
     this.rim.color.set(c.rimColor);
-    const back = c.backIntensity > 0;   // both tiers: they light the fighters, and a tier must not change how a fighter reads
+    const backI = P ? c.paintBack : c.backIntensity;
+    const back = backI > 0;   // both tiers: they light the fighters, and a tier must not change how a fighter reads
     const S = c.trussSize / 2;
     this.backA.visible = this.backB.visible = back;
-    this.backA.intensity = this.backB.intensity = c.backIntensity;
+    this.backA.intensity = this.backB.intensity = backI;
     this.backA.color.set(c.backColorA); this.backA.position.set(S, c.trussHeight, S);
     this.backB.color.set(c.backColorB); this.backB.position.set(-S, c.trussHeight, -S);
     mood.update(dt, c);
@@ -510,7 +517,7 @@ export class Stage {
     }
     const wantPr = Math.min(devicePixelRatio, this.postOn ? Math.max(1, c.postPixelRatio - this.govDrop) : 2);
     if (Math.abs(this.renderer.getPixelRatio() - wantPr) > 1e-3) { this.renderer.setPixelRatio(wantPr); this.resize(); }
-    additiveGain.value = this.postOn ? 1 : c.noPostAdditive;
+    additiveGain.value = (this.postOn ? 1 : c.noPostAdditive) * (P ? c.paintAtmos : 1);
     const pr = this.renderer.getPixelRatio();
     this.arena.update(c, dt, this.camera, this.fog, this.size[1] * pr, mood.value);
 

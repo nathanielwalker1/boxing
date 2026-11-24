@@ -149,11 +149,11 @@ export class PostPass {
     this.bloom.radius = cfg.bloomRadius;
     this.bloom.threshold = cfg.bloomThreshold;
     const u = this.finish.uniforms as Record<string, THREE.IUniform<number>>;
-    u['uVignette']!.value = cfg.vignetteStrength;
+    u['uVignette']!.value = cfg.paintLook ? cfg.paintVignette : cfg.vignetteStrength;
     u['uContrast']!.value = cfg.postContrast;
     u['uSaturation']!.value = cfg.postSaturation;
     u['uSplit']!.value = cfg.postSplitTone;
-    u['uGrain']!.value = cfg.postGrain;
+    u['uGrain']!.value = cfg.paintLook ? 0 : cfg.postGrain;   // the paint look: no time-varying noise
     u['uTime']!.value = t;
     u['uAberration']!.value = cfg.postKoAberration * ko;
     this.composer.render();

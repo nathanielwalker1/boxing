@@ -16,6 +16,7 @@ import { applyFit, buildFit, type Fit, type FitOut, type Skeleton } from './reta
 import { HumanAnim, tiredOf } from './anim';
 import { PoseInertia } from './inertia';
 import { Spray } from '../rig/spray';
+import { paintFighter } from '../render/paint';
 import { installRigReplay, type ReplayFeed } from '../rig/replay';
 import { SIM_DT } from '../core';
 import { mocapCfg } from '../sim/mocap';
@@ -174,6 +175,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   const tone = luminance(spec.skin) < 0.3 ? 'dark' : 'light';
   const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c' };
   const model = boxer.spawn(tone, kit);
+  paintFighter(model, cfg);   // the paint look's banded shading + ink outline (render/paint.ts; hidden when cfg.paintLook is off)
   const { skel, bones } = skeletonOf(model);
   const fit: Fit = buildFit(index.source, index.bones, index.parents, skel);
   const fitOut: FitOut = { localRot: skel.restRot.map(q => [...q] as [number, number, number, number]), hipsPos: [0, 0, 0] };

@@ -21,6 +21,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Config } from '../core';
 import { additive } from './atmos';
+import { paintU } from './paint';
 
 /** Where a person sits. `zone`: 0 ringside floor, 1 lower bowl, 2 upper deck. */
 export interface Seat {
@@ -113,6 +114,8 @@ const VERT = /* glsl */`
   uniform vec3 uLightPos;
   uniform float uSpill, uSpillR0, uSpillFalloff, uAmbient, uSkinTone, uClapAt, uBackLevel, uBackR2, uFlash;
   uniform vec3 uKeyCol, uCoolCol, uBackA, uBackB, uBackACol, uBackBCol;
+  uniform float uPaint, uCrowdDim, uCrowdDesat;
+  varying vec3 vWp;
   attribute vec3 aPivot;
   attribute float aPart, aSkin;
   attribute vec3 iPos, iColor, iSkin;
@@ -179,6 +182,9 @@ const VERT = /* glsl */`
     light += vec3(0.9, 0.95, 1.0) * (uFlash * spill * top);
     light *= mix(vec3(1.07, 1.0, 0.9), vec3(0.9, 1.0, 1.1), fract(phase * 3.7));
     vColor = base * light;
+    vWp = wp;
+    // paint look: the house goes grey and dark (the brush and flattening are in the fragment shader)
+    if (uPaint > 0.5) vColor = mix(vColor, vec3(dot(vColor, vec3(0.2126, 0.7152, 0.0722))), uCrowdDesat) * uCrowdDim;
 
     vec4 mv = viewMatrix * vec4(wp, 1.0);
     vDepth = -mv.z;
@@ -188,11 +194,21 @@ const VERT = /* glsl */`
 const FRAG = /* glsl */`
   uniform vec3 uFogColor;
   uniform float uFogNear, uFogFar;
+  uniform float uPaint, uCrowdDim, uCrowdFlat, uCrowdBrush, uBrushScale;
+  uniform sampler2D uBrush;
+  varying vec3 vWp;
   varying vec3 vColor;
   varying float vDepth;
   void main() {
     float f = smoothstep(uFogNear, uFogFar, vDepth);
-    gl_FragColor = vec4(mix(vColor, uFogColor, f), 1.0);
+    vec3 col = vColor;
+    if (uPaint > 0.5) {
+      // flatten toward one dark tone (low contrast), then smear with the world-space brush: masses, not individuals
+      col = mix(col, vec3(0.3 * uCrowdDim), uCrowdFlat);
+      vec3 br = texture2D(uBrush, vWp.xy / uBrushScale + vWp.z * 0.37 / uBrushScale).rgb;
+      col *= 1.0 + (br - 0.5) * 2.0 * uCrowdBrush;
+    }
+    gl_FragColor = vec4(mix(col, uFogColor, f), 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
@@ -220,6 +236,8 @@ export class Crowd {
         uKeyCol: { value: new THREE.Color() }, uCoolCol: { value: new THREE.Color() },
         uBackA: { value: new THREE.Vector3() }, uBackB: { value: new THREE.Vector3() }, uBackACol: { value: new THREE.Color() }, uBackBCol: { value: new THREE.Color() },
         uFogColor: { value: new THREE.Color() }, uFogNear: { value: 10 }, uFogFar: { value: 40 },
+        uPaint: paintU.uPaint, uCrowdDim: paintU.uCrowdDim, uCrowdDesat: paintU.uCrowdDesat, uCrowdFlat: paintU.uCrowdFlat, uCrowdBrush: paintU.uCrowdBrush,
+        uBrushScale: paintU.uBrushScale, uBrush: paintU.uBrush,
       },
     });
     const base = new THREE.Color(c.crowdColor);

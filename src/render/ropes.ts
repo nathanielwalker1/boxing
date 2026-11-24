@@ -13,6 +13,7 @@
  */
 import * as THREE from 'three';
 import type { Config } from '../core';
+import { paintRoomMaterial } from './paint';
 
 const N = 24;                   // segments per rope
 const NP = N + 1;
@@ -107,7 +108,10 @@ export class Ropes {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.8, 0), 12);
-    this.mesh = new THREE.Mesh(geo, (staticMesh.material as THREE.Material).clone());
+    const ropeMat = (staticMesh.material as THREE.Material).clone();
+    ropeMat.userData['painted'] = false;   // a clone keeps the flag but not the patched shader: patch it again (render/paint.ts)
+    paintRoomMaterial(ropeMat, c.paintBrushRing, 1);
+    this.mesh = new THREE.Mesh(geo, ropeMat);
     this.mesh.castShadow = true; this.mesh.frustumCulled = false; this.mesh.visible = false;
     this.staticMesh = staticMesh;
     // the trigger: a degenerate triangle, drawn (invisible: colour write off) so its onBeforeRender runs once per main render
