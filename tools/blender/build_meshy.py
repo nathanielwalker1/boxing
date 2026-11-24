@@ -237,7 +237,71 @@ _om = (X > cuff) & (Z > 1.2)
 OLD_GLOVE = (V[_om].min(0), V[_om].max(0))
 log("old mitten bbox cm: size %s  min %s max %s" % (np.round(100 * (OLD_GLOVE[1] - OLD_GLOVE[0]), 1).tolist(),
     np.round(100 * OLD_GLOVE[0], 1).tolist(), np.round(100 * OLD_GLOVE[1], 1).tolist()))
-GLOVE_CUT = cuff + 0.015      # body faces past this (|x|, arm height) are the mitten: deleted, the glove replaces them
+sm = lambda a, b, x: np.clip((x - a) / (b - a), 0, 1) ** 2 * (3 - 2 * np.clip((x - a) / (b - a), 0, 1))
+
+# ---- the glove source, imported early: its own proportions set where its cuff opening lands on the arm ----
+# One LEFT glove (closed fist) from its own Meshy zip (GLOVE_ZIP). Fit: the fist's width / height (y, z) to the old
+# mitten's box, x scaled by their mean (the model's own proportions, no stretch), the tip on the old tip. The fist
+# then keeps its drawn size and place (= hit size) and the cuff ends where the model's cuff ends.
+def glove_source():
+    gfiles = os.listdir(GLOVE_CACHE)
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.fbx(filepath=os.path.join(GLOVE_CACHE, next(f for f in gfiles if f.lower().endswith(".fbx"))))
+    new = [o for o in bpy.data.objects if o not in before]
+    gm = [o for o in new if o.type == "MESH"]
+    for o in new:
+        if o.type != "MESH": bpy.data.objects.remove(o, do_unlink=True)
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in gm: o.select_set(True)
+    bpy.context.view_layer.objects.active = gm[0]
+    if len(gm) > 1: bpy.ops.object.join()
+    hi = gm[0]; hi.parent = None; hi.name = "GloveHigh"
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    # source pose (probed): fingers +x, palm -y, thumb +z -> rotate +90 deg about x: palm -z, thumb -y (left T-pose hand)
+    hi.data.transform(Matrix.Rotation(math.pi / 2, 4, "X"))
+    hi.hide_render = True
+    G = verts(hi).astype(np.float64)
+    glo, ghi = G.min(0), G.max(0)
+    sc_ = (OLD_GLOVE[1] - OLD_GLOVE[0]) / (ghi - glo)
+    sx = 0.5 * (sc_[1] + sc_[2])
+    # the cuff tube's section where the forearm goes in (first 8% of the length), in fitted body coordinates
+    cm = G[:, 0] < glo[0] + 0.08 * (ghi[0] - glo[0])
+    fit = lambda a, v: OLD_GLOVE[0][a] + (v - glo[a]) * sc_[a]
+    cuffsec = ((fit(1, G[cm, 1].min()) + fit(1, G[cm, 1].max())) / 2, (fit(2, G[cm, 2].min()) + fit(2, G[cm, 2].max())) / 2,
+               np.ptp(G[cm, 1]) * sc_[1] / 2, np.ptp(G[cm, 2]) * sc_[2] / 2)
+    bpy.ops.object.select_all(action="DESELECT")
+    body.select_set(True)
+    bpy.context.view_layer.objects.active = body     # later steps act on the active object
+    return hi, sc_, sx, float(OLD_GLOVE[1][0] - (ghi[0] - glo[0]) * sx), cuffsec
+GLOVE_HI, GLOVE_SC, GLOVE_SX, GLOVE_OPEN, GLOVE_CUFFSEC = glove_source()
+GLOVE_CUT = GLOVE_OPEN + 0.015   # body faces past this (|x|, arm height) are deleted: 1.5 cm of forearm inside the cuff
+log("glove: opening at |x| %.3f (wrist joint %.3f, old cuff %.3f), length %.1f cm; body cut at %.3f"
+    % (GLOVE_OPEN, wrist, cuff, 100 * (OLD_GLOVE[1][0] - GLOVE_OPEN), GLOVE_CUT))
+# the old mitten between its cuff line and the new cut becomes forearm: an elliptical tube continuing the forearm's
+# section just above the old cuff (tapering a little to the wrist), blended in over 3 cm so the seam does not show
+for s in (1, -1):
+    ref = (s * X > cuff - 0.035) & (s * X < cuff - 0.015) & (Z > 1.2)
+    cy0, cz0 = (Y[ref].min() + Y[ref].max()) / 2, (Z[ref].min() + Z[ref].max()) / 2
+    ry0, rz0 = (Y[ref].max() - Y[ref].min()) / 2, (Z[ref].max() - Z[ref].min()) / 2
+    zone = np.nonzero((s * X > cuff - 0.015) & (s * X <= GLOVE_CUT + 0.03) & (Z > 1.2))[0]
+    xs = s * X[zone]
+    # centre and radii run from the forearm's (at the old cuff line) to just inside the glove's cuff (at its opening)
+    gcy, gcz, gry, grz = GLOVE_CUFFSEC
+    u = sm(cuff, GLOVE_OPEN, xs)
+    cy_, cz_ = cy0 + u * (gcy - cy0), cz0 + u * (gcz - cz0)
+    ry_, rz_ = ry0 + u * (0.88 * gry - ry0), rz0 + u * (0.88 * grz - rz0)
+    dy, dz = Y[zone] - cy0, Z[zone] - cz0
+    ang = np.arctan2(dz / rz0, dy / ry0)
+    ny_, nz_ = cy_ + ry_ * np.cos(ang), cz_ + rz_ * np.sin(ang)
+    b = sm(cuff - 0.015, cuff + 0.015, xs)
+    V[zone, 1] = Y[zone] + b * (ny_ - Y[zone])
+    V[zone, 2] = Z[zone] + b * (nz_ - Z[zone])
+    log("forearm tube side %d: %d verts, section %.1f x %.1f cm at the old cuff -> %.1f x %.1f cm in the glove opening"
+        % (s, len(zone), 200 * ry0, 200 * rz0, 200 * 0.88 * gry, 200 * 0.88 * grz))
+body.data.vertices.foreach_set("co", V.astype(np.float32).ravel())
+body.data.update()
+V = verts(body)
+X, Y, Z = V[:, 0], V[:, 1], V[:, 2]
 log("joints: armpit %.3f cuff %.3f wrist %.3f tip %.3f elbow %.3f neck %.3f head %.3f knee %.3f (x %.3f) ankle x %.3f y %.3f ball y %.3f"
     % (armpit, cuff, wrist, tip, el_x, neck_z, head_z, knee_z, knee_x, ank_x, ank_y, ball_y))
 
@@ -472,10 +536,11 @@ def one(mask, bone_of, val=1.0):
     W[idx] *= (1 - v) if np.isscalar(v) else (1 - v)[:, None]
     W[idx, [BI[n] for n in names]] += v
 sm = lambda a, b, x: np.clip((x - a) / (b - a), 0, 1) ** 2 * (3 - 2 * np.clip((x - a) / (b - a), 0, 1))
-# gloves: rigid to the Hand, a short blend into the ForeArm at the cuff
-glove = (ax > cuff - 0.01) & (Z > 1.2)
+# the forearm stub inside the glove (and the bare wrist before it): rigid to the Hand, blending into the ForeArm
+# across the wrist joint; the bare forearm above keeps its bone-heat weights
+glove = (ax > wrist - 0.03) & (Z > 1.2)
 W[glove] = 0
-t = sm(cuff - 0.01, cuff + 0.035, ax)
+t = sm(wrist - 0.03, wrist + 0.01, ax)
 one(glove, np.char.add(side, "ForeArm"), 1.0)
 one(glove, np.char.add(side, "Hand"), t)
 # head above the jaw line (chin at the front, rising to the jaw angle), neck blend below it
@@ -563,13 +628,14 @@ tl = np.zeros(len(TV), dtype=np.int8)                         # 0 skin / other
 tl[(cz > hem_z - 0.10) & (cz < band_z + 0.03)] = 1            # hip band (trunks live here)
 tl[(cz < boot_top + 0.03)] = 3                                # feet (boots)
 tl[(cz > neck_z - 0.02) & (cx < 0.15)] = 4                    # head (hair)
-tl[(cx > cuff - 0.02) & (cz > 1.2)] = 5                       # cuff edge: decided by colour
-tl[(cx > cuff + 0.01) & (cz > 1.2)] = 2                       # glove core
+tl[(cx > cuff - 0.02) & (cz > 1.2)] = 6                       # old mitten cuff, now bare forearm: repainted as skin
+
 tn = np.empty(len(me.loop_triangles) * 3, dtype=np.float32); me.loop_triangles.foreach_get("normal", tn); tn = tn.reshape(-1, 3)
 tsw = ((cz > 1.28) & (cz < 1.53) & (cx < 0.30)).astype(np.float32)   # sweat sheen zone: shoulders, upper chest / back
 nyr = np.zeros((N1, N1), dtype=np.float32)                    # facing: + = back (Blender +y)
 swr = np.zeros((N1, N1), dtype=np.float32)
 zr = np.zeros((N1, N1), dtype=np.float32)                     # height of the texel's triangle (m)
+xr = np.zeros((N1, N1), dtype=np.float32)                     # its x (+ left)
 UVp = uvl[LT] * N1 - 0.5
 for ti in range(len(TV)):
     a, b, c = UVp[ti]
@@ -586,6 +652,7 @@ for ti in range(len(TV)):
     nyr[gy[ins], gx[ins]] = tn[ti, 1]
     swr[gy[ins], gx[ins]] = tsw[ti]
     zr[gy[ins], gx[ins]] = cz[ti]
+    xr[gy[ins], gx[ins]] = cen[ti, 0]
 cover = lab >= 0
 log("uv coverage %.1f%%" % (100 * cover.mean()))
 cp = px_of(C).reshape(N1, 2, N1, 2, 4).mean((1, 3))[..., :3]   # base colour at 1024
@@ -653,6 +720,24 @@ wb = blur(ch[3] * sm(-0.1, 0.5, bleed(nyr, 6)))
 cpx = px_of(C)
 w2 = np.repeat(np.repeat(wb, 2, 0), 2, 1)[..., None]
 cpx[..., :3] = np.clip(cpx[..., :3] * (1 + w2 * (gain - 1)), 0, 1)
+# old mitten cuff -> bare forearm: the skin just above the old cuff line on the same arm, times a softened version of
+# the texel's own shading (so it is not one flat colour); its normal map goes flat (the mitten's creases are gone)
+rep = np.zeros((N1, N1, 3), dtype=np.float32); repw = np.zeros((N1, N1), dtype=bool)
+lum = cp.mean(-1)
+for s in (1, -1):
+    refm = skin1 & (lab == 0) & (s * xr > cuff - 0.07) & (s * xr < cuff - 0.025) & (zr > 1.2)
+    zm = (lab == 6) & (s * xr > 0)
+    if not (refm.any() and zm.any()): continue
+    f = np.clip(blur(np.where(zm, lum / max(float(lum[zm].mean()), 1e-4), 1.0), 2, 2), 0.6, 1.5) ** 0.35
+    rep[zm] = cp[refm].mean(0) * f[zm][:, None]; repw |= zm
+    log("forearm repaint side %d: %d texels from %d reference skin texels, colour %s" % (s, int(zm.sum()), int(refm.sum()), np.round(cp[refm].mean(0), 3).tolist()))
+rf = repw.astype(np.float32); gut = ~cover & (box(rf, 3) > 0)   # carry it into the island gutter (no red seam)
+for k in range(3):
+    rep[..., k] = np.where(gut, box(rep[..., k], 3) / np.maximum(box(rf, 3), 1e-6), rep[..., k])
+repw |= gut
+rep2 = np.repeat(np.repeat(rep, 2, 0), 2, 1); repw2 = np.repeat(np.repeat(repw, 2, 0), 2, 1)
+cpx[..., :3][repw2] = rep2[repw2]
+npx = px_of(Nm); npx[..., :3][repw2] = (0.5, 0.5, 1.0); Nm.pixels.foreach_set(npx.ravel())
 s2 = np.repeat(np.repeat(sock, 2, 0), 2, 1)[..., None]       # sock band: flat off-white cotton (linear-ish sRGB)
 cpx[..., :3] = cpx[..., :3] * (1 - s2) + s2 * np.array([0.84, 0.83, 0.80])
 C.pixels.foreach_set(cpx.ravel())
@@ -681,7 +766,6 @@ log("roughness means: skin %.2f trunks %.2f gloves %.2f" % (float(rough[ch[3] > 
 # texture set (public/fighter/glove_<name>_{c,n}.webp), turned to the T-pose hand (fingers +x, palm down, thumb to the
 # front), fitted to the old mitten's box (same drawn size = same hit size), mirrored for the right, rigid to the Hand.
 GLOVE_TRIS = 4500
-GLOVE_CUFF = 0.28             # fraction of the source glove's length that is the straight cuff tube (probed: ~0.3)
 GSTEM = "glove_" + GLOVE_NAME
 def build_gloves():
     gfiles = os.listdir(GLOVE_CACHE)
@@ -691,23 +775,11 @@ def build_gloves():
             if b.endswith(".png") and (b.endswith("_%s.png" % tag) if tag else not any(b.endswith("_%s.png" % t) for t in ("normal", "roughness", "metallic"))):
                 return os.path.join(GLOVE_CACHE, f)
         raise SystemExit("glove texture missing: " + (tag or "base colour"))
-    before = set(bpy.data.objects)
-    bpy.ops.import_scene.fbx(filepath=os.path.join(GLOVE_CACHE, next(f for f in gfiles if f.lower().endswith(".fbx"))))
-    new = [o for o in bpy.data.objects if o not in before]
-    gm = [o for o in new if o.type == "MESH"]
-    for o in new:
-        if o.type != "MESH": bpy.data.objects.remove(o, do_unlink=True)
-    bpy.ops.object.select_all(action="DESELECT")
-    for o in gm: o.select_set(True)
-    bpy.context.view_layer.objects.active = gm[0]
-    if len(gm) > 1: bpy.ops.object.join()
-    hi = gm[0]; hi.parent = None
-    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-    # source pose (probed): fingers +x, palm -y, thumb +z -> rotate +90 deg about x: palm -z, thumb -y (left T-pose hand)
-    hi.data.transform(Matrix.Rotation(math.pi / 2, 4, "X"))
+    hi = GLOVE_HI                            # imported and turned to the T-pose hand in glove_source()
     size = float(np.ptp(verts(hi), 0).max())
     tris_hi = sum(len(p.vertices) - 2 for p in hi.data.polygons)
     lo = hi.copy(); lo.data = hi.data.copy(); lo.name = "glove_L"
+    hi.hide_render = False; lo.hide_render = False      # hidden only for the body's preview renders
     bpy.context.scene.collection.objects.link(lo)
     mod = lo.modifiers.new("dec", "DECIMATE")
     mod.decimate_type = "COLLAPSE"; mod.ratio = GLOVE_TRIS / tris_hi; mod.use_collapse_triangulate = True
@@ -750,30 +822,43 @@ def build_gloves():
                             margin=8, normal_space="TANGENT")
         imgs[name] = img
     bpy.data.objects.remove(hi, do_unlink=True)
-    for name, img in imgs.items():
-        path = os.path.join(OUTDIR, "%s_%s.webp" % (GSTEM, name)); tmp = path[:-5] + "_tmp.webp"
-        img.filepath_raw = tmp; img.file_format = "WEBP"; img.save(filepath=tmp, quality=90 if name == "c" else 92)
-        os.replace(tmp, path); log("wrote", os.path.basename(path), os.path.getsize(path))
-    # fit to the old mitten's box: the fist's width / height (y, z) exactly, tip on the old tip; the source's length
-    # at that scale is shorter than the mitten (whose cuff runs far up the forearm), so only the cuff tube (the first
-    # GLOVE_CUFF of the length) stretches along x to reach the old cuff line; the fist itself keeps its proportions
+    # fit (see glove_source): fist width / height to the old mitten's box, x by their mean scale (the model's own
+    # proportions), tip on the old tip
     G = verts(lo).astype(np.float64)
     glo, ghi = G.min(0), G.max(0)
     sc_ = (OLD_GLOVE[1] - OLD_GLOVE[0]) / (ghi - glo)
     sx = 0.5 * (sc_[1] + sc_[2])
-    xc = glo[0] + GLOVE_CUFF * (ghi[0] - glo[0])              # end of the cuff tube (source units)
-    xc_new = OLD_GLOVE[1][0] - (ghi[0] - xc) * sx
-    nx = np.where(G[:, 0] >= xc, OLD_GLOVE[1][0] - (ghi[0] - G[:, 0]) * sx,
-                  OLD_GLOVE[0][0] + (G[:, 0] - glo[0]) / (xc - glo[0]) * (xc_new - OLD_GLOVE[0][0]))
+    nx = OLD_GLOVE[1][0] - (ghi[0] - G[:, 0]) * sx
     ny = OLD_GLOVE[0][1] + (G[:, 1] - glo[1]) * sc_[1]
     nz = OLD_GLOVE[0][2] + (G[:, 2] - glo[2]) * sc_[2]
     lo.data.vertices.foreach_set("co", np.stack([nx, ny, nz], 1).astype(np.float32).ravel())
     lo.data.update()
-    G = verts(lo)
-    log("glove: %d -> %d tris per hand; fist scale y/z ratio %.3f, cuff stretched x%.2f (cuff tube %.1f -> %.1f cm); new bbox cm size %s min %s max %s"
-        % (tris_hi, sum(len(p.vertices) - 2 for p in lo.data.polygons), sc_[1] / sc_[2],
-           (xc_new - OLD_GLOVE[0][0]) / ((xc - glo[0]) * sx), 100 * (xc - glo[0]) * sx, 100 * (xc_new - OLD_GLOVE[0][0]),
+    G = verts(lo).astype(np.float64)
+    log("glove: %d -> %d tris per hand; y/z scale ratio %.3f; length %.1f cm, opening at |x| %.3f; bbox cm size %s min %s max %s"
+        % (tris_hi, sum(len(p.vertices) - 2 for p in lo.data.polygons), sc_[1] / sc_[2], 100 * np.ptp(G[:, 0]), G[:, 0].min(),
            np.round(100 * np.ptp(G, 0), 1).tolist(), np.round(100 * G.min(0), 1).tolist(), np.round(100 * G.max(0), 1).tolist()))
+    # a darker band at the cuff opening (the last 1.4 cm, and the inside of the tube) so the edge reads as a separate
+    # glove, not skin: texels darkened by the 3D x of their triangle
+    me_ = lo.data; me_.calc_loop_triangles()
+    nt_ = len(me_.loop_triangles)
+    LT_ = np.empty(nt_ * 3, dtype=np.int64); me_.loop_triangles.foreach_get("loops", LT_)
+    TV_ = np.empty(nt_ * 3, dtype=np.int64); me_.loop_triangles.foreach_get("vertices", TV_)
+    uv_ = np.empty(len(me_.loops) * 2, dtype=np.float32); me_.uv_layers.active.data.foreach_get("uv", uv_)
+    tx = G[TV_.reshape(-1, 3), 0].mean(1)
+    dark = 1 - 0.45 * (1 - sm(G[:, 0].min() + 0.008, G[:, 0].min() + 0.014, tx))
+    cimg = imgs["c"]; n = cimg.size[0]
+    fac = np.ones((n, n), dtype=np.float32)
+    UV_ = uv_.reshape(-1, 2)[LT_.reshape(-1, 3)] * n - 0.5
+    for ti in np.nonzero(dark < 0.999)[0].tolist():
+        a, b, c = UV_[ti]
+        x0, x1 = int(max(0, math.floor(min(a[0], b[0], c[0])) - 1)), int(min(n - 1, math.ceil(max(a[0], b[0], c[0])) + 1))
+        y0, y1 = int(max(0, math.floor(min(a[1], b[1], c[1])) - 1)), int(min(n - 1, math.ceil(max(a[1], b[1], c[1])) + 1))
+        fac[y0:y1 + 1, x0:x1 + 1] = np.minimum(fac[y0:y1 + 1, x0:x1 + 1], dark[ti])
+    cpx_ = px_of(cimg); cpx_[..., :3] *= fac[..., None]; cimg.pixels.foreach_set(cpx_.ravel())
+    for name, img in imgs.items():
+        path = os.path.join(OUTDIR, "%s_%s.webp" % (GSTEM, name)); tmp = path[:-5] + "_tmp.webp"
+        img.filepath_raw = tmp; img.file_format = "WEBP"; img.save(filepath=tmp, quality=90 if name == "c" else 92)
+        os.replace(tmp, path); log("wrote", os.path.basename(path), os.path.getsize(path))
     for p in lo.data.polygons: p.use_smooth = True
     gl.node_tree.nodes.remove(gimg)          # the loader loads glove_<name>_* itself; the glb carries no image
     ro = lo.copy(); ro.data = lo.data.copy(); ro.name = "glove_R"

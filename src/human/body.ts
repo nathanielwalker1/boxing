@@ -179,7 +179,7 @@ const MESHY = {
   darkSkin: [88, 56, 40] as const,   // sRGB target mean of the skin for the 'dark' tone (the baked skin's mean maps here)
   gloveGain: 0.85,          // kit glove colour lands at this x the glove's mean shading (keeps the leather deep)
   gloveContrast: 0.75,      // exponent on the glove's shading ratio: crease detail kept, grain not turned to speckle
-  gloveRoughness: 0.45,     // the separate glove part (glove_<name>): satin leather, one value (it has no roughness map)
+  gloveRoughness: 0.34,     // the separate glove part (glove_<name>): leather sheen, clearly glossier than skin (~0.62)
   trunksGain: 0.95,         // kit trunks colour at the trunks' mean shading
   trunksContrast: 1.0,      // the baked folds multiply through the tint unchanged
   kitDesaturate: 0.15,      // kit colours pulled this far towards their own grey: satin, not flat plastic
