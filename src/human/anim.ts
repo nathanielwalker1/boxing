@@ -585,7 +585,10 @@ export class HumanAnim {
             halfMax: Math.max(0, peak - u) * ph.total * Math.max(1, p.timeMult) * cfg.humanInertiaHitShare });
           // (continuity on: the ARMS AND TRUNK are the track above, eased home after the hit; the LEGS are their own track, which
           //  keeps the take to the end of the punch and then settles at the legs' pace: a stepped foot does not rush home with the hand)
-          if (cfg.humanInertia && !cfg.humanRawPose && !pk.mirror) this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, halfMax: Math.max(0, peak - u) * ph.total * Math.max(1, p.timeMult) * cfg.humanInertiaHitShare });
+          // (humanBodyLegsFromLevel: a body punch thrown under a held level keeps the level's legs — the body-cross take lunges
+          //  down onto the back knee, a kneel on top of the crouch)
+          const levelLegs = cfg.humanBodyLegsFromLevel && next.punch.type !== null && VARIANTS[next.punch.variant].body && next.level > 0.5;
+          if (cfg.humanInertia && !cfg.humanRawPose && !pk.mirror && !levelLegs) this.want('punchL#' + this.punchN, pk, f / gp.clip.fps, { lower: true, halfMax: Math.max(0, peak - u) * ph.total * Math.max(1, p.timeMult) * cfg.humanInertiaHitShare });
           label = `${gp.name} f${f.toFixed(0)} (contact ${gp.contactF})`;
           // (audit) how far the clip's own glove moves between the frames drawn last tick and this one
           mocapClipGlove(gp, f, cfg, next.body.heightM, CG1);
@@ -912,7 +915,10 @@ export class HumanAnim {
       const want = cfg.humanBodyDip && np.type !== null && !next.down && VARIANTS[np.variant].body && np.progress < cfg.humanBodyDipUntil ? 1 : 0;
       if (dt > 1e-5) this.bodyDip += (want - this.bodyDip) * (1 - Math.exp(-dt / Math.max(1e-3, want ? cfg.humanBodyDipIn : cfg.humanBodyDipOut)));
       lean.fwd += cfg.humanBodyDipLean * this.bodyDip;
-      return { pose: this.pose, ik, ik2: null, aim: null, lean, drop: cfg.humanBodyDipDrop * this.bodyDip, label, lunge, turn };
+      // (only what a held level has not already taken: on top of the level's crouch the dip knelt him — shoulder 44 cm
+      //  down, 15 cm UNDER the belly he was punching, the arm driving upward; measured 2026-11-23)
+      const lvHeld = Math.max(0, Math.min(1, next.level));
+      return { pose: this.pose, ik, ik2: null, aim: null, lean, drop: cfg.humanBodyDipDrop * this.bodyDip * (1 - lvHeld), label, lunge, turn };
     }
     return { pose: this.pose, ik, ik2, aim, lean, drop, label, lunge, turn };
   }

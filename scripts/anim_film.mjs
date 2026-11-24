@@ -92,7 +92,14 @@ SCENARIOS.block_cross_h = { dist: 1.0, s0: at({ 2: { cross: true } }), s1: hold(
 SCENARIOS.slip_jab = { dist: 1.0, s0: at({ 2: { jab: true } }), s1: at({ ...flick(-1, 5) }), from: 2, to: 30, step: 2 };
 SCENARIOS.jab_cross = { dist: 1.0, s0: at({ 2: { jab: true }, 10: { cross: true } }), s1: [], from: 2, to: 46, step: 2 };
 SCENARIOS.body_hook_h = { dist: 0.9, s0: hold(at({ 4: { hook: true, move: { x: -1, y: 0 } } }), 'level', 0, 30), s1: [], from: 2, to: 44, step: 3 };
-SCENARIOS.close_exchange = { dist: 0.7, s0: at({ 2: { jab: true }, 22: { hook: true, move: { x: -1, y: 0 } } }), s1: at({ 10: { cross: true }, 30: { uppercut: true, move: { x: 1, y: 0 } } }), from: 2, to: 60, step: 3 };
+// 2026-11-23 (Nate's list on 3541d22): body straights, the rear uppercut, slips each way, mashed hooks
+SCENARIOS.n_body_cross = { dist: 1.0, s0: hold(at({ 4: { cross: true } }), 'level', 0, 30), s1: [], from: 4, to: 34, step: 2 };
+SCENARIOS.n_body_jab_cross = { dist: 0.95, s0: hold(at({ 4: { jab: true }, 14: { cross: true } }), 'level', 0, 40), s1: [], from: 4, to: 44, step: 2 };
+SCENARIOS.n_rear_upper = { dist: 0.75, s0: at({ 4: { uppercut: true, move: { x: 1, y: 0 } } }), s1: [], from: 4, to: 34, step: 2 };
+SCENARIOS.n_slip_left = { dist: 1.2, s0: at({ ...flick(-1, 4) }), s1: [], from: 4, to: 28, step: 2 };
+SCENARIOS.n_slip_right = { dist: 1.2, s0: at({ ...flick(1, 4) }), s1: [], from: 4, to: 28, step: 2 };
+SCENARIOS.n_mash_hooks = { dist: 0.85, s0: at({ 4: { hook: true, move: { x: -1, y: 0 } }, 8: { hook: true, move: { x: 1, y: 0 } }, 12: { hook: true, move: { x: -1, y: 0 } }, 16: { hook: true, move: { x: 1, y: 0 } } }), s1: [], from: 4, to: 40, step: 2 };
+SCENARIOS.close_exchange ={ dist: 0.7, s0: at({ 2: { jab: true }, 22: { hook: true, move: { x: -1, y: 0 } } }), s1: at({ 10: { cross: true }, 30: { uppercut: true, move: { x: 1, y: 0 } } }), from: 2, to: 60, step: 3 };
 
 // outcome_v2 (human mode): the set at the AI's distance (1.2) and close (0.9). Side 0 (red, back to camera) throws at
 // side 1 (blue, face to camera); blue holds the block / crouch so his front is seen.

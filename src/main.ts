@@ -381,7 +381,7 @@ function startReplay(): void {
   replayDue = false;
   const clip = buffer.clipAround(Math.round(cfg.flowReplaySeconds * 60), Math.round(cfg.flowReplayAfterSeconds * 60));
   if (!clip || clip.frames.length < 12) return;
-  preroll(clip.pre.concat(clip.frames.slice(0, 1)));   // the rig's springs (cloth, hair, feet) arrive at the clip's first frame settled
+  preroll(clip.pre.concat(clip.frames.slice(0, 1)), true);   // the rig's springs (cloth, hair, feet) arrive at the clip's first frame settled
   const at = clip.frames[clip.at]!.state.fighters;
   const frames = clip.frames;   // the sim runs a fallen man's downT through the `over` phase itself (SIM phase 4), so the clip needs no patching
   replay = {
@@ -396,9 +396,17 @@ function startReplay(): void {
 }
 
 /** Walk the rigs through `frames` at the fixed step without drawing them, so secondary motion is settled on the last one (the replay's cuts). */
-function preroll(frames: readonly { state: SimState }[]): void {
+// (the human views have no window.__rig: until 2026-11-23 they were never settled, and a replay opened with the fallen
+//  man's pose carried into the clip's first second — the knockdown punch itself — by every spring and filter in the draw)
+// (withEvents: the frames' own events go in too, all but the last frame's, which the replay player delivers itself)
+function preroll(frames: readonly { state: SimState; events?: readonly SimEvent[] }[], withEvents = false): void {
+  const human = (window as unknown as { __humanFeeds?: Partial<Record<Side, { feed(p: FighterState, n: FighterState, e: readonly SimEvent[]): void }>> }).__humanFeeds;
   for (let i = 1; i < frames.length; i++) {
-    for (const side of [0, 1] as const) window.__rig?.[side]?.feed?.(frames[i - 1]!.state.fighters[side], frames[i]!.state.fighters[side], []);
+    for (const side of [0, 1] as const) {
+      const f = cfg.humanBody ? human?.[side] : window.__rig?.[side];
+      const ev = cfg.humanBody && withEvents && i < frames.length - 1 ? (frames[i]!.events ?? []).filter(e => !('side' in e) || e.side === side || ('target' in e && e.target === side)) : [];
+      f?.feed?.(frames[i - 1]!.state.fighters[side], frames[i]!.state.fighters[side], ev);
+    }
   }
 }
 

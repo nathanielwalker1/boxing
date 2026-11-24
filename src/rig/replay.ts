@@ -20,6 +20,8 @@ import { createState, step } from '../sim';
 export interface ReplayFeed {
   /** One sim tick for this view: prev → next with the tick's events (already filtered to this side). */
   feed(prev: FighterState, next: FighterState, events: readonly SimEvent[]): void;
+  /** One drawn frame between two ticks at `alpha`, the view's clock advanced `dt` (probes: live vs slowed replay). */
+  drive?: (prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]) => void;
   /** Hold the pose: later host `apply` calls advance nothing. */
   freeze(on: boolean): void;
   override?: (o: Partial<FighterState> | null) => void;
