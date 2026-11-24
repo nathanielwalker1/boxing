@@ -84,6 +84,15 @@ function triggerSlip(f: FighterState, side: Side, dir: -1 | 1 | 2, kind: SlipKin
   events.push({ type: 'slip', side, dir, dodged: false, kind, chain });
 }
 
+/**
+ * levelLean: a side tap with the level held is allowed while the evade clock runs FROM THE DUCK alone (the level press
+ * started it; no slip is in flight) — the lean out of the crouch is a chain, like slip into slip. Once that slip has
+ * fired it sets the clock itself, so it is still one evade at a time.
+ */
+function leanFromDuck(f: FighterState, dir: number, input: Readonly<FrameInput>, cfg: Config): boolean {
+  return cfg.levelLean && cfg.evadeV2 && input.level && (dir === 1 || dir === -1) && duckT(f) > 0 && f.slip.dir === 0 && !f.down;
+}
+
 /** A flick was released: pick the move from what is held. */
 function flick(f: FighterState, side: Side, dir: -1 | 1 | 2 | 3, input: Readonly<FrameInput>, cfg: Config, events: SimEvent[], req: FlickRequest): void {
   const lateral = dir === -1 || dir === 1;
@@ -98,7 +107,9 @@ function flick(f: FighterState, side: Side, dir: -1 | 1 | 2 | 3, input: Readonly
   }
   if (dir === 3) return;
   if ((cfg.blockStunOn && f.blockStun > 0) || f.clinch.active) return;
-  const roll = lateral && cfg.rollOn && cfg.levelOn && input.level;
+  // (levelLean, Nate 2026-11-24: "lean has to work when I'm holding shift, so I can lean and do body shots": with the level
+  //  held a side tap is the same slip / lean as standing, from the crouch; the roll stays behind levelLean off)
+  const roll = lateral && cfg.rollOn && cfg.levelOn && input.level && !cfg.levelLean;
   triggerSlip(f, side, dir, roll ? 'roll' : dir === 2 ? 'pull' : 'slip', cfg, events);
 }
 
@@ -136,7 +147,7 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
       // "could not slip a single punch"). Going forward is never an evade, and the shared clock stops it being spammed.
       if (cfg.evadeV2 && cfg.evadeHeldTap && p.t > 0) {
         const now = Math.abs(mx) >= Math.abs(my) ? ((mx > 0 ? 1 : -1) * handLateralSign('rear', f.stance)) : my < 0 ? 2 : 3;
-        if (now !== p.dir && now !== 3 && evadeCd(f) <= 0) p.t = 0;
+        if (now !== p.dir && now !== 3 && (evadeCd(f) <= 0 || leanFromDuck(f, now, input, cfg))) p.t = 0;
         // (back to plain FORWARD after a side tap: the push is forward again. Left as the old side direction, the next
         //  tap to that same side was "no change" and never slipped — measured 2026-11-23: walking in, tap right twice,
         //  one slip. Nate: "very hard to slip punches while coming forward".)
@@ -152,7 +163,7 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
         // evadeV2: THE EVADE STARTS ON THE PUSH, not on its release (measured 2026-11-19: waiting for the release left
         // 200 ms from the other man's press to beat a jab, under human reaction time). A push that turns out to be held
         // is footwork that began with the head going that way; the shared clock (evadeCooldown) stops it being spammed.
-        if (cfg.evadeV2 && (!input.block || cfg.evadeFromBlock) && p.dir !== 3 && evadeCd(f) <= 0 && !(punchMask(input) & ~prevPunchMask(f))) flick(f, side, p.dir, input, cfg, events, req);
+        if (cfg.evadeV2 && (!input.block || cfg.evadeFromBlock) && p.dir !== 3 && (evadeCd(f) <= 0 || leanFromDuck(f, p.dir, input, cfg)) && !(punchMask(input) & ~prevPunchMask(f))) flick(f, side, p.dir, input, cfg, events, req);
       }
       p.t += dt;
       if (p.t > cfg.slipFlickMax) p.hold = true;   // outlived the flick window: footwork
