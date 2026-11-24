@@ -73,6 +73,8 @@ declare global {
     __camDist: () => number;
     /** The camera's current elevation, radians (tests: the knockdown shot). */
     __camEl: () => number;
+    /** The camera's world position and vertical FOV this frame (scripts/camera_occlusion_probe.mjs). */
+    __camPos: () => [number, number, number, number];
     /** The referee's floor position and yaw, or null when he is off (tests). */
     __ref: () => { pos: { x: number; z: number }; yaw: number } | null;
   }
@@ -344,6 +346,7 @@ window.__states =() =>[posed[0] ?? next.fighters[0], posed[1] ?? next.fighters[1
 window.__camAz = () => stage.inputAzimuth;
 window.__camDist = () => stage.dollyDistance;
 window.__camEl = () => stage.elevation;
+window.__camPos = () => { const p = stage.camera.position; return [p.x, p.y, p.z, stage.camera.fov]; };
 
 // ── Loop: fixed-step accumulator (CONTRACT §3), render every rAF ──────────────
 window.__tick = { frames: 0, simTicks: 0, gameTime: 0, ready: false, scale: 1 };

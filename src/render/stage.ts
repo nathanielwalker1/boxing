@@ -18,6 +18,7 @@ import { mood, type ReactionKind } from './mood';
 import { additiveGain } from './atmos';
 import { qualityTier, noteRenderer, type Tier } from './tier';
 import { paintRoom, updatePaint } from './paint';
+import { clearSeat, type ClearSeat } from './camclear';
 
 /** A framing the host asks for instead of the two-fighter default: the knockdown count, looking at the downed fighter. */
 export interface CameraShot {
@@ -140,6 +141,9 @@ export class Stage {
   private joltDir = { x: 0, z: 0 };
   private az = NaN;       // smoothed follow-camera azimuth, radians (NaN = not yet placed)
   private el = NaN;       // smoothed elevation, radians (the knockdown shot drops it)
+  private clearPick: ClearSeat = { liftDeg: 0, scale: 1, blocked: 0 };   // the clear line's chosen seat (camclear.ts)
+  private clearLift = 0;  // eased lift it adds to the elevation, radians
+  private clearScale = 1; // eased dolly scale (FOV widened to match)
   /** Extra handheld drift amplitude this frame, m (the hurt read: the host sets it from the player's hurt level). */
   wobble = 0;
   private following = false;   // last frame rode the fighters' line (vs the fixed seat)
@@ -164,7 +168,7 @@ export class Stage {
   get orbitAzimuth(): number { return Number.isNaN(this.az) ? this.cfg.camAzimuthDeg * Math.PI / 180 : this.az; }
 
   /** The camera's current elevation, radians (probes: the knockdown shot drops it). */
-  get elevation(): number { return Number.isNaN(this.el) ? this.cfg.camElevationDeg * Math.PI / 180 : this.el; }
+  get elevation(): number { return Number.isNaN(this.el) ? this.cfg.camElevationDeg * Math.PI / 180 : this.el + this.clearLift; }
 
   get inputAzimuth(): number {
     if (this.following && !Number.isNaN(this.az)) return this.az - this.cfg.camBehindDeg * Math.PI / 180;
@@ -481,15 +485,26 @@ export class Stage {
     this.dist += (distTarget - this.dist) * dl;
     this.fov += (fovTarget - this.fov) * dl;
     this.el += (elTarget - this.el) * dl;
-    const el = this.el;
     this.punchT += dt;
-    const dist = Math.max(1, this.dist - this.punchIn);
 
     if (shot) this.lookTarget.set(shot.focus.x, shot.lookY ?? c.camCountLookY, shot.focus.z);
     else this.lookTarget.set((a.x + b.x) / 2, c.camLookY, (a.z + b.z) / 2);
     const lam = 1 - Math.exp(-c.camFollowLambda * dt);
     if (snap) this.look.copy(this.lookTarget);
     else this.look.lerp(this.lookTarget, lam);
+
+    // The clear line (camclear.ts): on the play camera only, the seat that keeps posts and ropes off both fighters,
+    // eased toward at camClearLambda. Directed shots, the fixed seat and camClear off all ease back to no change.
+    const clearOn = c.camClear && !shot && this.following;
+    if (clearOn) this.clearPick = clearSeat(this.lookTarget, az, this.el, this.dist, [a, b], this.clearPick, c);
+    const wantLift = clearOn ? this.clearPick.liftDeg * Math.PI / 180 : 0, wantScale = clearOn ? this.clearPick.scale : 1;
+    const cl = snap ? 1 : 1 - Math.exp(-c.camClearLambda * dt);
+    this.clearLift += (wantLift - this.clearLift) * cl;
+    this.clearScale += (wantScale - this.clearScale) * cl;
+    const el = this.el + this.clearLift;
+    const dist = Math.max(1, this.dist * this.clearScale - this.punchIn);
+    const halfTan = Math.tan(this.fov * Math.PI / 360) * (1 + (1 / this.clearScale - 1) * c.camClearFovKeep);
+    const fovNow = Math.atan(halfTan) * 360 / Math.PI;
     const drift = c.camDriftAmp + this.wobble;   // the handheld drift grows while the player is rocked (main.ts sets it)
     this.shakeT += dt;
     const shake = this.shakeAmp * Math.exp(-this.shakeT / Math.max(0.02, c.camShakeRecover));
@@ -503,7 +518,7 @@ export class Stage {
       this.look.z + dist * Math.cos(el) * Math.sin(az) + this.joltDir.z * jolt,
     );
     this.camera.lookAt(this.look);
-    if (Math.abs(this.camera.fov - this.fov) > 1e-3) { this.camera.fov = this.fov; this.camera.updateProjectionMatrix(); }
+    if (Math.abs(this.camera.fov - fovNow) > 1e-3) { this.camera.fov = fovNow; this.camera.updateProjectionMatrix(); }
 
     // Rim comes from behind the far ropes relative to the camera.
     this.rim.position.set(-Math.cos(az) * 6, 3.5, -Math.sin(az) * 6);
