@@ -114,7 +114,8 @@ const VERT = /* glsl */`
   uniform vec3 uLightPos;
   uniform float uSpill, uSpillR0, uSpillFalloff, uAmbient, uSkinTone, uClapAt, uBackLevel, uBackR2, uFlash;
   uniform vec3 uKeyCol, uCoolCol, uBackA, uBackB, uBackACol, uBackBCol;
-  uniform float uPaint, uCrowdDim, uCrowdDesat;
+  uniform float uPaint, uCrowdDim, uCrowdDesat, uCrowdFace, uCrowdWarm;
+  uniform vec3 uCrowdFaceCol;
   varying vec3 vWp;
   attribute vec3 aPivot;
   attribute float aPart, aSkin;
@@ -183,8 +184,14 @@ const VERT = /* glsl */`
     light *= mix(vec3(1.07, 1.0, 0.9), vec3(0.9, 1.0, 1.1), fract(phase * 3.7));
     vColor = base * light;
     vWp = wp;
-    // paint look: the house goes grey and dark (the brush and flattening are in the fragment shader)
-    if (uPaint > 0.5) vColor = mix(vColor, vec3(dot(vColor, vec3(0.2126, 0.7152, 0.0722))), uCrowdDesat) * uCrowdDim;
+    // paint look: the back of the house is dark umber shapes; the front rows catch the ring's warm light on their faces
+    // and shoulders (it falls off with distance from the ring, squared, so the back rows get none). Static: no time input.
+    if (uPaint > 0.5) {
+      vec3 dk = mix(vColor, vec3(dot(vColor, vec3(0.2126, 0.7152, 0.0722))), uCrowdDesat) * uCrowdDim;
+      dk *= mix(vec3(1.0), uCrowdFaceCol / max(dot(uCrowdFaceCol, vec3(0.2126, 0.7152, 0.0722)), 1e-3), uCrowdWarm);   // the dark shirts go umber, not navy
+      float front = 1.0 / (1.0 + q * q);
+      vColor = dk + base * uCrowdFaceCol * (uCrowdFace * front * front * (0.35 + 0.65 * lam));
+    }
 
     vec4 mv = viewMatrix * vec4(wp, 1.0);
     vDepth = -mv.z;
@@ -194,7 +201,7 @@ const VERT = /* glsl */`
 const FRAG = /* glsl */`
   uniform vec3 uFogColor;
   uniform float uFogNear, uFogFar;
-  uniform float uPaint, uCrowdDim, uCrowdFlat, uCrowdBrush, uBrushScale;
+  uniform float uPaint, uCrowdDim, uCrowdFlat, uCrowdBrush, uBrushScale, uCrowdFogMul;
   uniform sampler2D uBrush;
   varying vec3 vWp;
   varying vec3 vColor;
@@ -202,13 +209,17 @@ const FRAG = /* glsl */`
   void main() {
     float f = smoothstep(uFogNear, uFogFar, vDepth);
     vec3 col = vColor;
+    vec3 fogTo = uFogColor;
     if (uPaint > 0.5) {
-      // flatten toward one dark tone (low contrast), then smear with the world-space brush: masses, not individuals
-      col = mix(col, vec3(0.3 * uCrowdDim), uCrowdFlat);
+      // a light touch of flattening (people stay people), then a soft world-space brush; the fog target is the paint
+      // fog colour times uCrowdFogMul, so the far rows dissolve into something darker than the room behind them
+      float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      col = mix(col, vec3(lum), uCrowdFlat * 0.5);
       vec3 br = texture2D(uBrush, vWp.xy / uBrushScale + vWp.z * 0.37 / uBrushScale).rgb;
       col *= 1.0 + (br - 0.5) * 2.0 * uCrowdBrush;
+      fogTo = uFogColor * uCrowdFogMul;
     }
-    gl_FragColor = vec4(mix(col, uFogColor, f), 1.0);
+    gl_FragColor = vec4(mix(col, fogTo, f), 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
@@ -238,6 +249,7 @@ export class Crowd {
         uFogColor: { value: new THREE.Color() }, uFogNear: { value: 10 }, uFogFar: { value: 40 },
         uPaint: paintU.uPaint, uCrowdDim: paintU.uCrowdDim, uCrowdDesat: paintU.uCrowdDesat, uCrowdFlat: paintU.uCrowdFlat, uCrowdBrush: paintU.uCrowdBrush,
         uBrushScale: paintU.uBrushScale, uBrush: paintU.uBrush,
+        uCrowdFaceCol: paintU.uCrowdFaceCol, uCrowdFace: paintU.uCrowdFace, uCrowdWarm: paintU.uCrowdWarm, uCrowdFogMul: paintU.uCrowdFogMul,
       },
     });
     const base = new THREE.Color(c.crowdColor);
