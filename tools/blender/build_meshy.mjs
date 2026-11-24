@@ -49,19 +49,26 @@ function unzip(file, dir) {
 
 const cache = resolve(root, '.cache/meshy', basename(zip, '.zip'));
 if (!existsSync(cache) || !readdirSync(cache).some(f => f.toLowerCase().endsWith('.fbx'))) unzip(zip, cache);
+// the glove is a separate, swappable part: one LEFT glove (closed fist) from its own Meshy zip; mirrored for the right
+const gloveZip = process.env.GLOVE_ZIP
+  || '/Users/nathanielwalker/repos/boxinggame/boxer model/Meshy_AI_RedBoxingGlove3D_20261124_image-to-3d-texture_fbx.zip';
+const gloveName = process.env.GLOVE_NAME || 'g1';
+if (!existsSync(gloveZip)) { console.error(`glove zip not found: ${gloveZip} (set GLOVE_ZIP)`); process.exit(1); }
+const gloveCache = resolve(root, '.cache/meshy', basename(gloveZip, '.zip'));
+if (!existsSync(gloveCache) || !readdirSync(gloveCache).some(f => f.toLowerCase().endsWith('.fbx'))) unzip(gloveZip, gloveCache);
 const outDir = resolve(root, 'public/fighter');
 const glb = resolve(outDir, `boxer_${name}.glb`);
 const shots = resolve(root, 'scripts/output');
 mkdirSync(shots, { recursive: true });
 const t0 = Date.now();
 const r = spawnSync(blender, ['--background', '--python', resolve(root, 'tools/blender/build_meshy.py'), '--',
-  cache, glb, `_${name}`, shots, process.env.PROBE ? 'probe' : 'build'], { stdio: 'inherit' });
+  cache, glb, `_${name}`, shots, process.env.PROBE === 'glove' ? 'probeglove' : process.env.PROBE ? 'probe' : 'build', gloveCache, gloveName], { stdio: 'inherit' });
 if (r.status !== 0) process.exit(r.status ?? 1);
 console.log(`blender ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 if (process.env.PROBE) process.exit(0);
 let total = 0;
 for (const f of readdirSync(outDir)) {
-  if (!f.startsWith(`boxer_${name}`)) continue;
+  if (!f.startsWith(`boxer_${name}`) && !f.startsWith(`glove_${gloveName}`)) continue;
   const sz = statSync(resolve(outDir, f)).size;
   total += sz;
   console.log(`${f.padEnd(28)} ${(sz / 1e6).toFixed(2)} MB`);
