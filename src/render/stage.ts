@@ -237,7 +237,7 @@ export class Stage {
   /** The quality tier in force (render/tier.ts). */
   get tier(): Tier { return qualityTier(this.cfg); }
   /** Post runs when the master toggle is on AND the tier is high. */
-  private get postOn(): boolean { return this.cfg.postEnabled && this.tier === 2; }
+  private get postOn(): boolean { return this.cfg.postEnabled && this.tier === 2 && !(this.cfg.paintLook && this.cfg.paintAblate < 4); }
   private get shadowSize(): number { return this.tier === 2 ? this.cfg.shadowMapSize : Math.min(this.cfg.shadowMapSize, this.cfg.lowShadowMapSize); }
 
   /** A crowd reaction by hand — the host's ring walk, an intro, a test. Sim events reach the crowd through `handleEvents` already. */
@@ -380,11 +380,14 @@ export class Stage {
     if (ringKey(c) !== this.ringKey) this.rebuildRing();
     if (arenaKey(c) !== this.arenaKey) { this.arena.rebuild(c); this.arenaKey = arenaKey(c); paintRoom(this.arena.group, c, 'arena'); }
     updatePaint(c);
-    const P = c.paintLook;   // the paint look swaps these lights and the fog for its own (render/paint.ts); off = the old values
+    // the paint look swaps these lights and the fog for its own (render/paint.ts); off = the old values.
+    // paintAblate (debug) holds back the paint fog below step 3 and the paint lights below step 5.
+    const PF = c.paintLook && c.paintAblate >= 3;
+    const P = c.paintLook && c.paintAblate >= 5;
 
-    this.fog.color.set(P ? c.paintFogColor : c.fogColor);
-    this.fog.near = P ? c.paintFogNear : c.fogNear;
-    this.fog.far = P ? c.paintFogFar : c.fogFar;
+    this.fog.color.set(PF ? c.paintFogColor : c.fogColor);
+    this.fog.near = PF ? c.paintFogNear : c.fogNear;
+    this.fog.far = PF ? c.paintFogFar : c.fogFar;
 
     this.key.intensity = P ? c.paintKeyIntensity : c.keyIntensity;
     this.key.color.set(P ? c.paintKeyColor : c.keyColor);
@@ -465,8 +468,11 @@ export class Stage {
     // The knockdown shot (Stage 3): the lens drops to the canvas and pushes
     // in on the downed fighter while the referee counts, then eases back to
     // the ringside seat. Same orbit, so it is a push, never a cut.
-    const elTarget = (shot ? shot.elevationDeg ?? c.camCountElevationDeg : c.camElevationDeg) * Math.PI / 180;
-    const distTarget = shot ? shot.dist ?? c.camCountDist : c.camDistMax + (c.camDistMin - c.camDistMax) * closeness;
+    // the paint look's framing keys: a closer dolly and a small lift, on the play camera only (never a directed shot)
+    const tight = c.paintLook && !shot ? 1 - 0.3 * c.paintCamTighten : 1;
+    const lift = c.paintLook && !shot ? c.paintCamLiftDeg : 0;
+    const elTarget = (shot ? shot.elevationDeg ?? c.camCountElevationDeg : c.camElevationDeg + lift) * Math.PI / 180;
+    const distTarget = (shot ? shot.dist ?? c.camCountDist : c.camDistMax + (c.camDistMin - c.camDistMax) * closeness) * tight;
     const fovTarget = shot ? shot.fov ?? c.camFovMin : c.camFovMax + (c.camFovMin - c.camFovMax) * closeness;
     if (this.dist < 0 || snap) { this.dist = distTarget; this.fov = fovTarget; }
     if (Number.isNaN(this.el) || snap) this.el = elTarget;

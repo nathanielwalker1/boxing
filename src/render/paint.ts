@@ -23,6 +23,8 @@ export const paintU = {
   uBrush: { value: null as THREE.Texture | null },
   uCrowdDim: { value: 0.45 }, uCrowdDesat: { value: 0.9 }, uCrowdFlat: { value: 0.55 }, uCrowdBrush: { value: 0.9 },
   uOutline: { value: 0.01 },
+  uBandOn: { value: 1 }, uDesatOn: { value: 1 }, uBandMix: { value: 0.35 }, uMaskDbg: { value: 0 },
+  uRimCol: { value: new THREE.Color() }, uRimStr: { value: 0.5 }, uRimPow: { value: 3 },
 };
 
 const hulls = new Set<THREE.Mesh>();
@@ -67,7 +69,7 @@ function makeBrush(seed: number): THREE.Texture {
 export function updatePaint(c: Config): void {
   const u = paintU;
   u.uPaint.value = c.paintLook ? 1 : 0;
-  for (const h of hulls) { h.visible = c.paintLook; if (!h.parent) hulls.delete(h); }
+  for (const h of hulls) { h.visible = c.paintLook && c.paintOutline; if (!h.parent) hulls.delete(h); }
   if (!c.paintLook) return;
   if (brushSeed !== c.paintBrushSeed) {
     u.uBrush.value?.dispose();
@@ -77,6 +79,11 @@ export function updatePaint(c: Config): void {
   u.uBandTop.value = c.paintBandTop; u.uBands.value = c.paintBands; u.uBandSoft.value = c.paintBandSoft; u.uBandFloor.value = c.paintBandFloor;
   u.uLitCol.value.set(c.paintLitColor); u.uShadeCol.value.set(c.paintShadeColor); u.uTintMix.value = c.paintTintMix;
   u.uSkinDesat.value = c.paintSkinDesat;
+  u.uBandOn.value = c.paintAblate >= 1 ? 1 : 0;   // paintAblate: see config
+  u.uDesatOn.value = c.paintAblate >= 2 ? 1 : 0;
+  u.uBandMix.value = c.paintBandMix;
+  u.uMaskDbg.value = c.paintDebugMask ? 1 : 0;
+  u.uRimCol.value.set(c.paintRimColor); u.uRimStr.value = c.paintAblate >= 5 ? c.paintRimStr : 0; u.uRimPow.value = c.paintRimPow;
   if (maskFile !== c.humanBodyFile) {   // the body's region mask (R trunks, G gloves), same UVs as its colour map; body files 1 and 2 are the Meshy ones
     maskFile = c.humanBodyFile;
     u.uKitMask.value = null;
@@ -158,11 +165,13 @@ function paintFighterMaterial(mat: THREE.Material, kitAll: number): void {
   if (mat.userData['painted']) return;
   mat.userData['painted'] = true;
   chain(mat, 'fighter', shader => {
-    for (const k of ['uPaint', 'uBandTop', 'uBands', 'uBandSoft', 'uBandFloor', 'uLitCol', 'uShadeCol', 'uTintMix', 'uSkinDesat', 'uKitMask'] as const) shader.uniforms[k] = paintU[k];
+    for (const k of ['uPaint', 'uBandTop', 'uBands', 'uBandSoft', 'uBandFloor', 'uLitCol', 'uShadeCol', 'uTintMix', 'uSkinDesat', 'uKitMask',
+      'uBandOn', 'uDesatOn', 'uBandMix', 'uMaskDbg', 'uRimCol', 'uRimStr', 'uRimPow'] as const) shader.uniforms[k] = paintU[k];
     shader.uniforms['uKitAll'] = { value: kitAll };
     shader.fragmentShader = shader.fragmentShader
       .replace('void main() {', `uniform float uPaint, uBandTop, uBands, uBandSoft, uBandFloor, uTintMix, uSkinDesat, uKitAll;
-        uniform vec3 uLitCol, uShadeCol;
+        uniform float uBandOn, uDesatOn, uBandMix, uMaskDbg, uRimStr, uRimPow;
+        uniform vec3 uLitCol, uShadeCol, uRimCol;
         uniform sampler2D uKitMask;
         ${LUMA}
         void main() {`)
@@ -177,17 +186,25 @@ function paintFighterMaterial(mat: THREE.Material, kitAll: number): void {
           float q = (f + smoothstep(0.5 - uBandSoft, 0.5 + uBandSoft, fract(s)) * step(f, uBands - 1.5)) / (uBands - 1.0);
           if (s >= uBands) q = 1.0;
           float lq = mix(uBandFloor, 1.0, q) * uBandTop;
-          vec3 col = outgoingLight * (lq / max(lit, 1e-4));
+          // the band MODULATES the smooth light (uBandMix of the way to the banded level), so the normal-map /
+          // faceted planes inside a band survive; at uBandMix 1 every texel in a band is one flat level
+          vec3 col = outgoingLight * mix(1.0, lq / max(lit, 1e-4), uBandMix * uBandOn);
           vec3 tint = mix(uShadeCol, uLitCol, q);
-          col *= mix(vec3(1.0), tint / max(dot(tint, pLuma), 1e-4), uTintMix);
+          col *= mix(vec3(1.0), tint / max(dot(tint, pLuma), 1e-4), uTintMix * uBandOn);
           // kit = the body texture's region mask (R trunks, G gloves), or the whole material (named kit / a glove mesh)
           float kit = uKitAll;
+          float bootM = 0.0;
           #ifdef USE_MAP
           vec4 km = texture2D(uKitMask, vMapUv);
           kit = max(kit, max(km.r, km.g));
+          bootM = km.b;
           #endif
-          col = mix(col, vec3(dot(col, pLuma)), uSkinDesat * (1.0 - kit));
+          col = mix(col, vec3(dot(col, pLuma)), uSkinDesat * uDesatOn * (1.0 - kit));
+          // cool fresnel rim on the (normal-mapped) grazing edges: separates the figure from the black room
+          float fr = pow(1.0 - clamp(dot(normal, geometryViewDir), 0.0, 1.0), uRimPow);
+          col += uRimCol * (fr * uRimStr * alb);
           outgoingLight = col;
+          if (uMaskDbg > 0.5) outgoingLight = kit > 0.5 ? vec3(1.0, 0.0, 0.0) : (bootM > 0.5 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0));
         }
         #include <opaque_fragment>`);
   });
@@ -229,7 +246,7 @@ export function paintFighter(model: THREE.Object3D, c: Config): void {
     hull.name = `${m.name}_ink`;
     hull.frustumCulled = false;
     hull.castShadow = false; hull.receiveShadow = false;
-    hull.visible = c.paintLook;
+    hull.visible = c.paintLook && c.paintOutline;
     hull.bind(m.skeleton, m.bindMatrix);
     hull.renderOrder = m.renderOrder;
     m.parent?.add(hull);
