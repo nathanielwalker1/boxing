@@ -42,7 +42,9 @@ await page.addInitScript(() => {
   window.__run = frames => {
     const lands = [], blocks = [], open = [];   // open: events still being followed
     const body = { n: 0, over3: 0, over8: 0, worst: 0, at: 0, roped: 0, ropedOver3: 0 };
-    const arms = { n: 0, both: 0, cross: 0, crossBoth: 0, deep: 0, cap: 0, cap5: 0, capClose: 0, close: 0, byKey: {}, dbg: 0 };
+    const arms = { n: 0, both: 0, cross: 0, crossBoth: 0, deep: 0, cap: 0, cap5: 0, capClose: 0, close: 0, byKey: {}, dbg: 0, pops: 0, popWorst: 0 };
+    let gp1 = null, gp2 = null;
+    const form = { by: {}, prev: [null, null] };
     const cen = a => { let x = 0, y = 0, z = 0; const n = a.length / 3; for (let i = 0; i < a.length; i += 3) { x += a[i]; y += a[i + 1]; z += a[i + 2]; } return [x / n, y / n, z / n]; };
     let prevC = [0, 1].map(s => { const x = window.__humanMesh[s](); return { head: cen(x.head), torso: cen(x.torso) }; });
     for (let f = 0; f < frames; f++) {
@@ -60,6 +62,13 @@ await page.addInitScript(() => {
         const hand = e.hand ?? window.__sim.state().fighters[s].punch.hand;
         const g = (hand === 'lead') === leadL ? 'L' : 'R';
         const rec = { f, s, g, hand: e.hand, punch: e.punch, part: e.part === 'head' ? 'head' : 'torso', land: e.type === 'punchLand', v: e.type === 'punchLand' ? 0 : 1e9, at: 0, n: 0, tl: P[1 - s].label, row: [] };
+        // how far the drawing layers moved this glove off where the take alone had it, on the hit frame, cm
+        { const L = window.__humanStages[s] ?? []; if (L.length > 1) { const a = L[0][g === 'L' ? 1 : 2], b = L[L.length - 1][g === 'L' ? 1 : 2]; rec.off = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) * 100;
+          // (and the ARM's share: from after the body layers — lean, drop, turn — to the end)
+          const im = L.find(x => x[0] === 'impact'); if (im) { const c = im[g === 'L' ? 1 : 2]; rec.offArm = Math.hypot(c[0] - b[0], c[1] - b[1], c[2] - b[2]) * 100;
+            // which way the arm was pulled: toward him (+) / back, up (+) / down, to the puncher's right (+) / left
+            const hs = [P[s].hips, P[1 - s].hips], fx = hs[1][0] - hs[0][0], fz = hs[1][2] - hs[0][2], fl = Math.hypot(fx, fz) || 1, d = [b[0] - c[0], b[1] - c[1], b[2] - c[2]];
+            rec.offF = (d[0] * fx + d[2] * fz) / fl * 100; rec.offU = d[1] * 100; rec.offR = (d[0] * -fz + d[2] * fx) / fl * 100; rec.dist = fl * 100; } } }
         open.push(rec); (rec.land ? lands : blocks).push(rec);
       }
       for (const r of open) {
@@ -86,6 +95,24 @@ await page.addInitScript(() => {
       { const d = Math.max(window.__depth(m[0].head, m[1].head), window.__depth(m[0].head, m[1].torso), window.__depth(m[1].head, m[0].torso));
         body.n++; if (d > 0.03) body.over3++; if (d > 0.08) body.over8++; if (d > body.worst) { body.worst = d; body.at = f; }
         const ro = [0, 1].map(s => Math.hypot(...(window.__humanProbe(s).ropeOff ?? [0, 0]))); if (Math.max(...ro) > 0.03) { body.roped++; if (d > 0.03) body.ropedOver3++; } }
+      // PUNCH FORM: per punching arm, the wrist bend (forearm line against the line from the wrist to the middle of the
+      // glove's own mesh) and the elbow angle (shoulder - elbow - wrist), degrees, and how much each changed in a frame
+      for (const s of [0, 1]) {
+        const pn = window.__sim.state().fighters[s].punch; if (!pn.type) { form.prev[s] = null; continue; }
+        const leadL = P[s].gloves.lead[0] === P[s].gloves.left[0], side = (pn.hand === 'lead') === leadL ? 'left' : 'right';
+        const E = P[s].elbows[side], G = P[s].gloves[side], S = P[s].shoulders[side], gc = cen(m[s][side === 'left' ? 'L' : 'R']);
+        const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], ang = (a, b) => Math.acos(Math.max(-1, Math.min(1, (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / ((Math.hypot(...a) * Math.hypot(...b)) || 1)))) * 180 / Math.PI;
+        const fa = sub(G, E), fl = Math.hypot(...fa), W = G.map((v, k) => v - fa[k] / fl * window.__cfg.humanGloveOffset);
+        const wrist = ang(fa, sub(gc, W)), elbow = ang(sub(S, E), sub(W, E));
+        const b = (form.by[pn.type] ??= { wrist: [], dW: [], elbow: [], dE: [] });
+        b.wrist.push(wrist); b.elbow.push(elbow);
+        if (form.prev[s] && form.prev[s].side === side) { b.dW.push(Math.abs(wrist - form.prev[s].wrist)); b.dE.push(Math.abs(elbow - form.prev[s].elbow)); }
+        form.prev[s] = { side, wrist, elbow };
+      }
+      // GLOVE POPS (the cost of pushing arms about): a glove point off the midpoint of the frames either side by over 6 cm
+      { const now = [0, 1].flatMap(s => [P[s].gloves.left, P[s].gloves.right]);
+        if (gp2) now.forEach((p, k) => { const off = Math.hypot(gp1[k][0] - (p[0] + gp2[k][0]) / 2, gp1[k][1] - (p[1] + gp2[k][1]) / 2, gp1[k][2] - (p[2] + gp2[k][2]) / 2); if (off > 0.06) arms.pops++; if (off > arms.popWorst) arms.popWorst = off; });
+        gp2 = gp1; gp1 = now; }
       // ARMS THROUGH ARMS: each man's forearms (elbow to glove point) against the other's, centre lines closer than 5 cm
       { const seg = s => ['left', 'right'].map(k => [P[s].elbows[k], P[s].gloves[k]]);
         const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -113,7 +140,9 @@ await page.addInitScript(() => {
       if (window.__shootDeep) { const r = open.find(r => r.land && r.trace && !r.shot && r.row[r.row.length - 1] > 8); if (r) { r.shot = true; return { lands, blocks, stop: `side ${r.s} ${r.punch} -> ${r.part}, depth ${r.row[r.row.length - 1]}, target ${r.tl}; ${r.trace}` }; } }
     }
     const st = window.__sim.state();
-    return { lands, blocks, body, arms, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
+    const q = (a, p) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.floor(p * b.length))] : NaN; };
+    const formOut = Object.entries(form.by).map(([k, b]) => `  ${k.padEnd(8)} wrist bend median ${q(b.wrist, 0.5).toFixed(0)}, p95 ${q(b.wrist, 0.95).toFixed(0)}, max ${q(b.wrist, 1).toFixed(0)} deg; change a frame p95 ${q(b.dW, 0.95).toFixed(1)}, max ${q(b.dW, 1).toFixed(0)} | elbow min ${q(b.elbow, 0).toFixed(0)}, max ${q(b.elbow, 1).toFixed(0)}, over 172 on ${b.elbow.filter(x => x > 172).length}/${b.elbow.length} frames; change a frame p95 ${q(b.dE, 0.95).toFixed(1)}, max ${q(b.dE, 1).toFixed(0)}`);
+    return { lands, blocks, body, arms, formOut, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
   };
 });
 await page.goto(`${DEV_URL}/?menu=1&human=1&ko=1`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
@@ -166,10 +195,11 @@ if (process.argv[4] === 'shots' || process.argv[4] === 'blockshots') {
   }
   await browser.close(); process.exit(0);
 }
-const { lands, blocks, info, body, arms } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
+const { lands, blocks, info, body, arms, formOut } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
 console.log(info);
+console.log('PUNCH FORM, the punching arm while a punch is out:\n' + formOut.join('\n'));
 console.log(`ARMS: a forearm's centre line within 5 cm of one of the other man's on ${arms.cross}/${arms.n} frames (within 2 cm: ${arms.deep}); while BOTH are punching: ${arms.crossBoth}/${arms.both} frames`);
-console.log(`ARMS AS CAPSULES: overlapping by over 2 cm on ${arms.cap}/${arms.n} frames (over 5 cm: ${arms.cap5}); hips within 80 cm on ${arms.close} frames, of those overlapping ${arms.capClose}. By what the two arms are doing (2 lands, 1 punch that will not, 0 guard) and parts: ${Object.entries(arms.byKey).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`);
+console.log(`ARMS AS CAPSULES: overlapping by over 2 cm on ${arms.cap}/${arms.n} frames (over 5 cm: ${arms.cap5}); hips within 80 cm on ${arms.close} frames, of those overlapping ${arms.capClose}. GLOVE POPS over 6 cm: ${arms.pops} glove-frames, worst ${(arms.popWorst * 100).toFixed(0)} cm. By what the two arms are doing (2 lands, 1 punch that will not, 0 guard) and parts: ${Object.entries(arms.byKey).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`);
 console.log(`BODIES: a head inside the other man's head or torso by over 3 cm on ${body.over3}/${body.n} frames, over 8 cm on ${body.over8}; worst ${(body.worst * 100).toFixed(1)} cm at f${body.at}. Frames with a man slid by the ropes over 3 cm: ${body.roped}, of those overlapping ${body.ropedOver3}`);
 const pct = (a, q) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.floor(q * b.length))] : NaN; };
 console.log(`cfg ${JSON.stringify(CFG)}: ${lands.length} lands, ${blocks.length} blocks in ${SECS} s`);
@@ -182,6 +212,10 @@ for (const s of [0, 1]) for (const p of ['jab', 'cross', 'hook', 'uppercut']) fo
 const all = lands.map(l => l.v * 100);
 console.log(`  ALL: over 2 cm ${all.filter(x => x > 2).length}/${all.length}, over 5 cm ${all.filter(x => x > 5).length}/${all.length}`);
 for (const l of [...lands].sort((a, b) => b.v - a.v).slice(0, 5)) console.log(`   worst: f${l.f} side ${l.s} ${l.punch} -> ${l.part}, target ${l.tl}; depth by frame from the hit: ${l.row.slice(0, 10).join(' ')}\n      layers, ${l.trace ?? 'none'}`);
+console.log('OFF THE TAKE: how far the landing glove is from where the punch animation alone had it, on the hit frame, cm');
+for (const p of ['jab', 'cross', 'hook', 'uppercut']) { const g = lands.filter(l => l.punch === p && l.off !== undefined).map(l => l.off); if (g.length) console.log(`  ${p.padEnd(8)} n ${String(g.length).padStart(2)}: median ${pct(g, 0.5).toFixed(0)}, p90 ${pct(g, 0.9).toFixed(0)}, max ${Math.max(...g).toFixed(0)}` + (() => { const h = lands.filter(l => l.punch === p && l.offArm !== undefined).map(l => l.offArm); return h.length ? ` | the arm's own share (after the body has leaned / turned): median ${pct(h, 0.5).toFixed(0)}, p90 ${pct(h, 0.9).toFixed(0)}, max ${Math.max(...h).toFixed(0)}` : ''; })()
+  + (() => { const L = lands.filter(l => l.punch === p && l.offF !== undefined); if (!L.length) return ''; const md = k => pct(L.map(l => l[k]), 0.5).toFixed(0), rg = k => `${Math.min(...L.map(l => l[k])).toFixed(0)}..${Math.max(...L.map(l => l[k])).toFixed(0)}`;
+    return `\n           which way (median, range): toward him ${md('offF')} (${rg('offF')}), up ${md('offU')} (${rg('offU')}), to his right ${md('offR')} (${rg('offR')}); hips apart ${md('dist')} (${rg('dist')})`; })()); }
 console.log('BLOCKS, smallest gap between the punching glove and his nearer guard glove in the 10 frames from the block, cm');
 for (const s of [0, 1]) { const g = blocks.filter(b => b.s === s).map(b => b.v * 100); if (g.length) console.log(`  side ${s} n ${g.length}: median ${pct(g, 0.5).toFixed(1)}, p90 ${pct(g, 0.9).toFixed(1)}, worst ${Math.max(...g).toFixed(1)}, over 3 cm ${g.filter(x => x > 3).length}`); }
 for (const b of [...blocks].sort((a, c) => c.v - a.v).slice(0, 4)) console.log(`   worst: f${b.f} side ${b.s} ${b.punch} -> ${b.part}, gap ${(b.v * 100).toFixed(1)}, target ${b.tl}`);

@@ -202,6 +202,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     Left: [bone('LeftArm'), bone('LeftForeArm'), bone('LeftHand')] as const,
     Right: [bone('RightArm'), bone('RightForeArm'), bone('RightHand')] as const,
   };
+  // (humanWristMax) each hand's rotation in the body's own rest pose: the hand in line with the forearm
+  const handRest = { Left: arm.Left[2].quaternion.clone(), Right: arm.Right[2].quaternion.clone() };
   const leg = {
     Left: [bone('LeftUpLeg'), bone('LeftLeg'), bone('LeftFoot')] as const,
     Right: [bone('RightUpLeg'), bone('RightLeg'), bone('RightFoot')] as const,
@@ -1206,6 +1208,26 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         }
       }
       stamp('inertia');
+      // A LOCKED WRIST (humanWristMax, Nate 2026-11-25: "wrists bend weirdly", punch form breaks down in slow motion).
+      // MEASURED on the skinned mesh in live play: the punching glove sat 24-37 deg off the forearm's line on a typical
+      // frame, up to 59 (the takes' own hand rotations, played on arms the contact layers then re-aim). The hand may
+      // bend this far off the forearm, any way round; its roll about the forearm (a hook's turned-over fist) is kept.
+      // Here, before the gloves are put on the other man: the contact reads the glove as it will be drawn.
+      if (cfg.humanWristMax < 90 && !cfg.humanRawPose && !next.down) {
+        const max = cfg.humanWristMax * Math.PI / 180;
+        for (const a of ['Left', 'Right'] as const) {
+          const h = arm[a][2], d = handRest[a].clone().invert().multiply(h.quaternion);
+          // (swing and twist about the hand bone's own length, local y)
+          const tw = new THREE.Quaternion(0, d.y, 0, d.w);
+          if (tw.lengthSq() < 1e-9) tw.identity(); else tw.normalize();
+          const sw = d.multiply(tw.clone().invert());
+          const ang = 2 * Math.acos(Math.min(1, Math.abs(sw.w)));
+          if (ang <= max) continue;
+          if (sw.w < 0) sw.set(-sw.x, -sw.y, -sw.z, -sw.w);
+          h.quaternion.copy(handRest[a]).multiply(new THREE.Quaternion().slerp(sw, max / ang)).multiply(tw);
+        }
+        group.updateMatrixWorld(true);
+      }
       plantFeet();
       stamp('feet');
 
