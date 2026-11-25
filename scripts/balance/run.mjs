@@ -60,8 +60,11 @@ if (existsSync(OUT)) for (const line of readFileSync(OUT, 'utf8').split('\n')) i
 const todo = jobs.filter(j => !done.has(j.key));
 console.log(`${WHAT}: ${jobs.length} fights planned, ${done.size} already in ${LABEL}.jsonl, ${todo.length} to run on ${WORKERS} workers (bundle ${((Date.now() - tb) / 1000).toFixed(1)} s)`);
 const t0 = Date.now();
-const res = await runJobs(todo, WORKERS, (n, of) => { if (n % 100 === 0) console.log(`  ${n}/${of} fights, ${((Date.now() - t0) / 1000).toFixed(0)} s`); });
-for (const m of res) appendFileSync(OUT, JSON.stringify({ key: m.key, tag: m.tag, a: m.a, b: m.b, seed: m.seed, swap: m.swap, r: m.r }) + '\n');
+// each fight is written as it finishes, so a stopped run keeps what it did and the next one resumes
+const res = await runJobs(todo, WORKERS, (n, of, m) => {
+  appendFileSync(OUT, JSON.stringify({ key: m.key, tag: m.tag, a: m.a, b: m.b, seed: m.seed, swap: m.swap, r: m.r }) + '\n');
+  if (n % 100 === 0) console.log(`  ${n}/${of} fights, ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+});
 const secs = (Date.now() - t0) / 1000;
 console.log(`ran ${res.length} fights in ${secs.toFixed(0)} s (${res.length ? (secs / res.length).toFixed(2) : '-'} s a fight wall clock)\n`);
 const rep = spawnSync('node', [fileURLToPath(new URL('./report.mjs', import.meta.url)), LABEL], { encoding: 'utf8' });

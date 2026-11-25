@@ -77,5 +77,10 @@ function inside(title, sel, sideFilter = () => true) {
   console.log(`   stamina: average ${(stam / sides).toFixed(2)}, lowest seen ${stamMin.toFixed(2)}, at the final bell ${(endStam / sides).toFixed(2)}`);
 }
 inside('inside AI-vs-AI fights, all', r => aiTags.includes(r.tag));
+{
+  // the comeback rate: of the fights where somebody was rocked and somebody won, how often the man rocked FIRST won
+  const f = rows.filter(r => aiTags.includes(r.tag) && r.r.firstRocked != null && r.r.winner != null);
+  console.log(`\n== comeback rate: the fighter rocked first still won ${pct(f.filter(r => r.r.winner === r.r.firstRocked).length, f.length)} of ${f.length} fights (of ${rows.filter(r => aiTags.includes(r.tag)).length}; the rest had no rock or no winner)`);
+}
 for (const st of ['pressure', 'outboxer', 'counter', 'swarmer', 'slugger'])
   if (rows.some(r => r.tag === 'style_med' && (r.a.startsWith(st) || r.b.startsWith(st)))) inside(`style ${st} (medium, its own numbers)`, r => r.tag === 'style_med', (r, side) => (side === (r.swap ? 1 : 0) ? r.a : r.b).startsWith(st));

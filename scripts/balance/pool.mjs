@@ -15,7 +15,7 @@ export function runJobs(jobs, workers = 3, onProgress = null) {
         if (m.ready) return feed();
         results.push(m);
         finished++;
-        if (onProgress) onProgress(finished, jobs.length);
+        if (onProgress) onProgress(finished, jobs.length, m);
         if (finished === jobs.length) resolve(results); else feed();
       });
       worker.on('error', reject);

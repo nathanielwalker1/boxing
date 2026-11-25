@@ -91,7 +91,7 @@ export function fight(env, p0, p1, seed, cfgOver = null) {
   const stats = [blank(), blank()];
   const rockedOpen = [false, false];
   const maxTicks = 60 * (cfg.roundCount * (cfg.roundSeconds + cfg.betweenRoundSeconds + 40)) + 600;
-  let winner = null, method = 'none', t = 0;
+  let winner = null, method = 'none', t = 0, firstRocked = null;   // firstRocked: the side that was rocked first (the comeback rate)
   for (; t < maxTicks; t++) {
     const pre = s;
     const preHurt = [pre.fighters[0].hurt > 0, pre.fighters[1].hurt > 0];
@@ -129,7 +129,7 @@ export function fight(env, p0, p1, seed, cfgOver = null) {
         }
         case 'slip': if (e.dodged) stats[e.side].slipsDodged++; break;
         case 'feint': stats[e.side].feints++; break;
-        case 'rocked': stats[e.by].rockedGiven++; rockedOpen[e.side] = true; break;
+        case 'rocked': stats[e.by].rockedGiven++; rockedOpen[e.side] = true; if (firstRocked === null) firstRocked = e.side; break;
         case 'bodyHurt': stats[e.by].bodyHurtGiven++; break;
         case 'guardBreak': stats[e.by].guardBreakGiven++; break;
         case 'knockdown': {
@@ -149,5 +149,5 @@ export function fight(env, p0, p1, seed, cfgOver = null) {
     if (s.round.phase === 'over') break;
   }
   for (const side of [0, 1]) { stats[side].stamEnd = s.fighters[side].stamina; stats[side].healthEnd = s.fighters[side].health; }
-  return { winner, method, ticks: t, rounds: s.round.index + 1, stats };
+  return { winner, method, firstRocked, ticks: t, rounds: s.round.index + 1, stats };
 }
