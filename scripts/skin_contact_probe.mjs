@@ -41,6 +41,7 @@ await page.addInitScript(() => {
   window.__minGap = (A, B) => { let best = 1e9; for (let i = 0; i < A.length; i += 9) for (let j = 0; j < B.length; j += 9) { const d = (A[i] - B[j]) ** 2 + (A[i + 1] - B[j + 1]) ** 2 + (A[i + 2] - B[j + 2]) ** 2; if (d < best) best = d; } return Math.sqrt(best); };
   window.__run = frames => {
     const lands = [], blocks = [], open = [];   // open: events still being followed
+    const body = { n: 0, over3: 0, over8: 0, worst: 0, at: 0, roped: 0, ropedOver3: 0 };
     const cen = a => { let x = 0, y = 0, z = 0; const n = a.length / 3; for (let i = 0; i < a.length; i += 3) { x += a[i]; y += a[i + 1]; z += a[i + 2]; } return [x / n, y / n, z / n]; };
     let prevC = [0, 1].map(s => { const x = window.__humanMesh[s](); return { head: cen(x.head), torso: cen(x.torso) }; });
     for (let f = 0; f < frames; f++) {
@@ -80,12 +81,16 @@ await page.addInitScript(() => {
         }
         r.n++;
       }
+      // BODIES THROUGH BODIES: either man's head vertices inside the other's head or torso, every frame
+      { const d = Math.max(window.__depth(m[0].head, m[1].head), window.__depth(m[0].head, m[1].torso), window.__depth(m[1].head, m[0].torso));
+        body.n++; if (d > 0.03) body.over3++; if (d > 0.08) body.over8++; if (d > body.worst) { body.worst = d; body.at = f; }
+        const ro = [0, 1].map(s => Math.hypot(...(window.__humanProbe(s).ropeOff ?? [0, 0]))); if (Math.max(...ro) > 0.03) { body.roped++; if (d > 0.03) body.ropedOver3++; } }
       for (let i = open.length - 1; i >= 0; i--) if (open[i].n >= (open[i].land ? 24 : 10)) open.splice(i, 1);
       prevC = m.map(x => ({ head: cen(x.head), torso: cen(x.torso) }));
       if (window.__shootDeep) { const r = open.find(r => r.land && r.trace && !r.shot && r.row[r.row.length - 1] > 8); if (r) { r.shot = true; return { lands, blocks, stop: `side ${r.s} ${r.punch} -> ${r.part}, depth ${r.row[r.row.length - 1]}, target ${r.tl}; ${r.trace}` }; } }
     }
     const st = window.__sim.state();
-    return { lands, blocks, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
+    return { lands, blocks, body, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
   };
 });
 await page.goto(`${DEV_URL}/?menu=1&human=1&ko=1`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
@@ -124,8 +129,9 @@ if (process.argv[4] === 'shots' || process.argv[4] === 'blockshots') {
   }
   await browser.close(); process.exit(0);
 }
-const { lands, blocks, info } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
+const { lands, blocks, info, body } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
 console.log(info);
+console.log(`BODIES: a head inside the other man's head or torso by over 3 cm on ${body.over3}/${body.n} frames, over 8 cm on ${body.over8}; worst ${(body.worst * 100).toFixed(1)} cm at f${body.at}. Frames with a man slid by the ropes over 3 cm: ${body.roped}, of those overlapping ${body.ropedOver3}`);
 const pct = (a, q) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.floor(q * b.length))] : NaN; };
 console.log(`cfg ${JSON.stringify(CFG)}: ${lands.length} lands, ${blocks.length} blocks in ${SECS} s`);
 console.log('LANDS, glove deepest inside the scored part in the 24 frames from the hit, cm');

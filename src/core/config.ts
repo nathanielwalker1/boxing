@@ -254,6 +254,9 @@ function poseEntries(): Record<`pose_${string}` | `punchk_${string}`, NumEntry> 
 export const SCHEMA = {
   // ── ring (RENDER + SIM) ──
   ropesPoseIn:      bool(true, 'ring', 'ropes: the slide that keeps a man inside the ropes is part of his pose BEFORE the gloves are put on each other (the human view starts from the slide the ropes last gave him). Off = as before 2026-11-25: he was slid after both men were posed, so near the ropes a landed glove sat on where his head had been, up to 25 cm off (through the skull, or short of it)'),
+  ropesPosePair:    num(1, 0, 1, 0.05, 'ring', 'ropes: how much of the slide the ropes give a pinned man his close opponent takes too (1 = all of it: the two keep the gap the rules gave them; 0 = only the pinned man is slid, toward and into the man pinning him)'),
+  ropesPairDist:    num(1.5, 0.5, 3, 0.05, 'ring', 'ropes: the opponent takes the whole of that slide when the two are within this distance, m'),
+  ropesPairFade:    num(0.8, 0.1, 2, 0.05, 'ring', 'ropes: and none of it this much further out, m (fading between)'),
   ringInset:        num(0.35, 0, 1.5, 0.01, 'ring', 'movement bound inset from the ropes, m', 'RIG_MARGIN_X'),
   ropeCount:        num(4, 3, 4, 1, 'ring', 'rope strands per side', 'ringRopeCount'),
   ropeTopY:         num(1.3, 0.8, 1.6, 0.01, 'ring', 'height of the top rope, m'),

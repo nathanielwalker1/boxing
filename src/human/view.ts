@@ -163,6 +163,8 @@ function segSegPts(p1: THREE.Vector3, q1: THREE.Vector3, p2: THREE.Vector3, q2: 
 const feeds: Partial<Record<Side, ReplayFeed>> = {};
 /** window.__humanProbe(side): the drawn body this frame (tests / audits; read-only). */
 const probes: Partial<Record<Side, () => unknown>> = {};
+/** Each side's root (ropesPosePair: a man reads the slide the ropes gave the OTHER man off it). */
+const roots: (THREE.Object3D | null)[] = [null, null];
 /** window.__humanStages = {} (probes only): each drawn frame, both gloves after every stage of the draw, per side — which layer moved a glove. */
 const stageLog = (): Record<number, [string, number[], number[]][]> | undefined => (window as unknown as { __humanStages?: Record<number, [string, number[], number[]][]> }).__humanStages;
 /** humanContactDrawn: each view's "settle my hands against the other man as he is drawn now", run for side 0 once side 1 is posed. */
@@ -247,7 +249,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       if (skins[side]) skins[side] = null;
       shown[side] = null;
       drawnBodies[side] = null; drawnLunge[side] = 0;
-      delete probes[side]; lates[side] = undefined;
+      delete probes[side]; lates[side] = undefined; roots[side] = null;
       if (feeds[side] === feed) delete feeds[side];
       spray.mesh.parent?.remove(spray.mesh);
       model.traverse(o => {
@@ -274,7 +276,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       feet: { left: v3(leg.Left[2]), right: v3(leg.Right[2]) }, knees: [v3(leg.Left[1]), v3(leg.Right[1])], ikMax,
       elbows: { left: v3(arm.Left[1]), right: v3(arm.Right[1]) }, shoulders: { left: v3(arm.Left[0]), right: v3(arm.Right[0]) },
       clip: anim.info.slug, frame: anim.info.frame, punchClip: anim.info.punch, label,
-      origin: [group.position.x, group.position.y, group.position.z], legitHand: anim.legitHand,
+      origin: [group.position.x, group.position.y, group.position.z], legitHand: anim.legitHand, ropeOff: group.userData.ropeOff ?? null,
       // outcome mode: the drawn head sphere / torso line (what the other man's gloves are kept out of) and the hand's target
       drawn: drawnBodies[side] ? { head: drawnBodies[side]!.head.toArray(), headR: drawnBodies[side]!.headR, a: drawnBodies[side]!.a.toArray(), b: drawnBodies[side]!.b.toArray(), r: drawnBodies[side]!.r } : null,
       lungeDbg: [...anim.lungeDbg], reach: [...reachDbg], armAct: drawnBodies[side] ? [...drawnBodies[side]!.act] : null, armDbg: [...armDbg],
@@ -550,6 +552,18 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       // the slide the ropes last gave him; ropes.ts takes it back off before working out the next one.
       const ro = cfg.ropesPoseIn ? group.userData.ropeOff as [number, number] | undefined : undefined;
       if (ro) { group.position.x += ro[0]; group.position.z += ro[1]; group.userData.ropeIn = true; }
+      // AND THE MAN IN FRONT OF HIM GOES WITH IT (ropesPosePair, Nate 2026-11-25, pinning a man on the ropes: "our heads
+      // and bodies collide and go through each other"): the ropes slide the pinned man in toward his opponent by up to
+      // 25 cm while the rules still hold them their own distance apart, so drawn they overlapped by that much. A man
+      // within ropesPairDist of the other takes the other's slide too (fading out over ropesPairFade): the gap the
+      // rules gave them is the gap on screen. (ropes.ts takes only his OWN slide back off: this share stays in his pose.)
+      roots[side] = group;
+      const oro = cfg.ropesPoseIn && cfg.ropesPosePair > 0 ? roots[side === 0 ? 1 : 0]?.userData.ropeOff as [number, number] | undefined : undefined;
+      if (oro && oppSt) {
+        const d = Math.hypot(oppSt.next.pos.x - next.pos.x, oppSt.next.pos.z - next.pos.z);
+        const k = cfg.ropesPosePair * Math.max(0, Math.min(1, 1 - (d - cfg.ropesPairDist) / Math.max(1e-3, cfg.ropesPairFade)));
+        group.position.x += oro[0] * k; group.position.z += oro[1] * k;
+      }
       group.rotation.y = Math.PI / 2 - yaw - out.turn;
       group.visible = true;
       group.updateMatrixWorld(true);
