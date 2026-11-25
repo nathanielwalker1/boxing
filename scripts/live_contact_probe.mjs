@@ -204,7 +204,8 @@ for (const opp of OPPS) {
   page.on('console', m => logs.push({ type: m.type(), text: m.text() }));
   page.on('pageerror', e => logs.push({ type: 'pageerror', text: e.message }));
   await page.addInitScript(() => { window.WebSocket = class { constructor() { this.readyState = 0; } addEventListener() {} removeEventListener() {} send() {} close() {} }; });
-  await page.goto(`${DEV_URL}/?ai=0&menu=0&human=1&opp=${opp}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+  // BODY=3|4|5: which body file the fighters wear (read once at load, so it must ride in the URL, not in CFG)
+  await page.goto(`${DEV_URL}/?ai=0&menu=0&human=1&opp=${opp}${process.env.BODY ? `&body=${process.env.BODY}` : ''}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await bootReady(page);
   await until(page, () => typeof window.__rigReplay === 'function' && typeof window.__humanProbe === 'function' && !!window.__humanFeeds, undefined, { label: 'human views', timeout: 150_000 });
   await page.evaluate(() => { const c = window.__cfg; c.debugHitboxes = false; c.refEnabled = false; });

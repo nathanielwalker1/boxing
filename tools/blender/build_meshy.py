@@ -12,6 +12,8 @@ from mathutils import Vector, Matrix
 argv = sys.argv[sys.argv.index("--") + 1:]
 CACHE, OUT, SUFFIX, SHOTS, MODE = argv[:5]
 GLOVE_CACHE, GLOVE_NAME = (argv[5], argv[6]) if len(argv) > 6 else (None, "g1")
+TRUNKS_CACHE, TRUNKS_NAME = (argv[7], argv[8]) if len(argv) > 8 else (None, "t1")
+UNDER = argv[9] if len(argv) > 9 else "shorts"   # what the body wears under the trunks part: moulded "shorts" or "briefs" (bare legs)
 H = 1.80                    # target standing height (m)
 TRI_TARGET = 45000
 T0 = time.time()
@@ -200,6 +202,23 @@ wr_y, wr_z = arm_centre(wrist - 0.09)                 # forearm axis (the hand p
 REF_SH_X, REF_WRIST_X, REF_NECK_Z, REF_TIP = 0.175, 0.685, 1.51, 0.218
 log("reference skeleton: shoulder x %.3f -> %.3f, wrist x %.3f -> %.3f, neck z (measured below) -> %.3f, glove tip %.3f past the wrist"
     % (sh_x, REF_SH_X, wrist, REF_WRIST_X, REF_NECK_Z, REF_TIP))
+if UNDER == "briefs":
+    # the new bare bodies differ in build (a fat man's arm leaves the torso 13 cm further out and his wrist sits 6 cm
+    # further out). Reach is the reference skeleton's on every body, so the ARM MESH is scaled along x, armpit fixed,
+    # until its measured wrist is on the reference wrist; the joints are then measured again on the scaled arm.
+    _k = (REF_WRIST_X - armpit) / (wrist - armpit)
+    _sel = (np.abs(X) > armpit) & (Z > 1.2)
+    V[_sel, 0] = np.sign(X[_sel]) * (armpit + (np.abs(X[_sel]) - armpit) * _k)
+    body.data.vertices.foreach_set("co", V.ravel()); body.data.update()
+    X, Y, Z = V[:, 0], V[:, 1], V[:, 2]
+    ARM = [r for r in arm_profile() if r[1] is not None]
+    _w0 = wrist
+    cuff = first([r for r in ARM if r[0] >= 0.5], lambda r, p: yw(r) - yw(p) > 0.006)[0]
+    wrist = first([r for r in ARM if r[0] >= cuff + 0.04], lambda r, p: yw(r) - yw(p) > 0.01)[0] - 0.005
+    tip = float(X.max())
+    sh_y, sh_z = arm_centre(armpit + 0.06)
+    wr_y, wr_z = arm_centre(wrist - 0.09)
+    log("arm mesh scaled x%.3f from the armpit (%.3f): wrist %.3f -> %.3f, cuff %.3f, tip %.3f" % (_k, armpit, _w0, wrist, cuff, tip))
 sh_x, wrist = REF_SH_X, REF_WRIST_X
 GLOVE_TIP = wrist + REF_TIP                           # the fitted glove's tip (|x|); was the old mitten's tip
 el_x = sh_x + 0.54 * (wrist - sh_x)                   # humerus : forearm ~ 0.31 : 0.26 of stature
@@ -248,6 +267,14 @@ _om = (X > cuff) & (Z > 1.2)
 OLD_GLOVE = (V[_om].min(0), V[_om].max(0))
 log("old mitten bbox cm: size %s  min %s max %s" % (np.round(100 * (OLD_GLOVE[1] - OLD_GLOVE[0]), 1).tolist(),
     np.round(100 * OLD_GLOVE[0], 1).tolist(), np.round(100 * OLD_GLOVE[1], 1).tolist()))
+if UNDER == "briefs":
+    # the new bare bodies (2026-11-24) come with any hand: a fat mitten, a bare fist. The glove is the same size on
+    # every one of them, m2's (18.6 x 13.5 cm section, the size the hits were checked on), centred on this hand.
+    REF_GLOVE_YZ = np.array([0.186, 0.135])
+    _c = (OLD_GLOVE[0][1:] + OLD_GLOVE[1][1:]) / 2
+    OLD_GLOVE[0][1:] = _c - REF_GLOVE_YZ / 2
+    OLD_GLOVE[1][1:] = _c + REF_GLOVE_YZ / 2
+    log("glove box set to the reference section 18.6 x 13.5 cm, centred y %.3f z %.3f" % (_c[0], _c[1]))
 sm = lambda a, b, x: np.clip((x - a) / (b - a), 0, 1) ** 2 * (3 - 2 * np.clip((x - a) / (b - a), 0, 1))
 
 # ---- the glove source, imported early: its own proportions set where its cuff opening lands on the arm ----
@@ -286,6 +313,9 @@ def glove_source():
     return hi, sc_, sx, float(GLOVE_TIP - (ghi[0] - glo[0]) * sx), cuffsec
 GLOVE_HI, GLOVE_SC, GLOVE_SX, GLOVE_OPEN, GLOVE_CUFFSEC = glove_source()
 GLOVE_CUT = GLOVE_OPEN + 0.015   # body faces past this (|x|, arm height) are deleted: 1.5 cm of forearm inside the cuff
+if UNDER == "briefs" and not cuff < GLOVE_OPEN - 0.01:
+    log("this body's own cuff starts at %.3f, inside the fitted glove (opening %.3f): the forearm is tapered into the opening from %.3f" % (cuff, GLOVE_OPEN, GLOVE_OPEN - 0.03))
+    cuff = GLOVE_OPEN - 0.03
 if not cuff < GLOVE_OPEN - 0.01: raise SystemExit("glove opening %.3f not past the old cuff %.3f" % (GLOVE_OPEN, cuff))
 GRIP = min(wrist, GLOVE_OPEN)    # the forearm stub from here on is inside the glove: rigid to the Hand (weights, step 5)
 log("glove: opening at |x| %.3f (wrist joint %.3f, old cuff %.3f), length %.1f cm; body cut at %.3f"
@@ -587,8 +617,20 @@ for it in range(6):
     np.add.at(acc, E[:, 1], W[E[:, 0]])
     avg = acc / np.maximum(deg, 1)[:, None]
     W[trunks] = 0.5 * W[trunks] + 0.5 * avg[trunks]
+if UNDER == "briefs":
+    # neck base and the tops of the shoulders: bone heat leaves single vertices on the wrong side of the neck /
+    # shoulder / spine split on a thick neck, and they stand up as a flap when the shoulder turns in a hook (seen on
+    # the fat body, dark from behind). Smoothed over that band so no vertex differs from its neighbours.
+    traps = (Z > sh_z - 0.06) & (Z < head_z + 0.03) & (ax < 0.24)
+    for it in range(8):
+        acc = np.zeros_like(W)
+        np.add.at(acc, E[:, 0], W[E[:, 1]])
+        np.add.at(acc, E[:, 1], W[E[:, 0]])
+        avg = acc / np.maximum(deg, 1)[:, None]
+        W[traps] = 0.5 * W[traps] + 0.5 * avg[traps]
+    log("neck / shoulder-top weights smoothed over %d verts" % int(traps.sum()))
 # the cloth between the legs follows the pelvis as much as the thighs
-crotch = (ax < 0.06) & (Z > hem_z - 0.06) & (Z < upleg_z)
+crotch =(ax < 0.06) & (Z > hem_z - 0.06) & (Z < upleg_z)
 one(crotch, "Hips", 0.5 * (1 - sm(0.0, 0.06, ax)))
 # limit 4 influences, normalise
 order = np.argsort(-W, 1)
@@ -738,7 +780,7 @@ ch[0] = ch[0] * np.clip((cutb + 0.002 - zb) / 0.004, 0, 1)
 ch[3] = np.maximum(ch[3], _c0 - ch[0])          # what the cut took from the trunks is skin
 # boots: the shaft above SOCK_Z becomes a short white sock band (boxing boots read low and matte, not tall and shiny)
 SOCK_Z = 0.19
-zrb = bleed(zr, 6)
+zrb = bleed(zt, 6)               # the texel's own height, as the waistband cut uses (zr is per TRIANGLE: its cut was a sawtooth)
 sock = ch[2] * sm(SOCK_Z - 0.006, SOCK_Z + 0.006, zrb)
 ch[2] = ch[2] - sock
 mask = np.ones((N1, N1, 4), dtype=np.float32)
@@ -923,12 +965,522 @@ def build_gloves():
     return lo, ro
 GLOVES = build_gloves()
 
+# ---------------------------------------------------------------- 6c. trunks: a separate, swappable part
+# Cut from a full-body T-pose boxer wearing them (TRUNKS_ZIP, same layout as a body zip): the white cloth between hem
+# and waistband is kept, decimated, re-UV'd and baked to its own texture set (public/fighter/trunks_<name>_{c,n}.webp).
+# Fit: the body here has no thighs under its own moulded shorts, so the part is stretched to cover them exactly
+# (waistband kept at its own height, the legs stretched down to the body's hem), slice by slice onto the body's own
+# width / depth, then pushed out to a minimum clearance. Weights come from the body underneath; six hem bones
+# (hem_<Left|Right>_<f|o|b>, children of the thighs) carry the last 14 cm for the spring sway in src/human/body.ts.
+TRUNKS_TRIS = 6000
+TRUNKS_BAND = 0.07        # the donor's waistband height (m): mapped 1:1, never stretched
+TRUNKS_CLEAR = 0.005      # minimum distance (m) from the body surface
+TRUNKS_EASE = 0.012       # the part's slices are this much (m) wider / deeper than the body's moulded shorts
+BODY_CUT = (hem_z + 0.015, band_z - 0.005)   # the body's moulded shorts are deleted between these heights
+HEM_LEN = 0.14            # the swaying part of the leg (m)
+# Several styles can ride in one glb (TRUNKS_CACHE "dir|dir|...", TRUNKS_NAME "t1,t2,..."): one mesh trunks_<name> and six
+# bones hem_<name>_<Left|Right>_<f|o|b> each; the loader shows one of them.
+def build_trunks(TRUNKS_CACHE, TRUNKS_NAME):
+    from mathutils.kdtree import KDTree
+    TSTEM = "trunks_" + TRUNKS_NAME
+    HEM_BONES = ["hem_%s_%s_%s" % (TRUNKS_NAME, s, d) for s in ("Left", "Right") for d in "fob"]
+    tfiles = os.listdir(TRUNKS_CACHE)
+    def ttex(tag):
+        for f in tfiles:
+            b = f.lower()
+            if b.endswith(".png") and (b.endswith("_%s.png" % tag) if tag else not any(b.endswith("_%s.png" % t) for t in ("normal", "roughness", "metallic"))):
+                return os.path.join(TRUNKS_CACHE, f)
+        raise SystemExit("trunks texture missing: " + (tag or "base colour"))
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.fbx(filepath=os.path.join(TRUNKS_CACHE, next(f for f in tfiles if f.lower().endswith(".fbx"))))
+    new = [o for o in bpy.data.objects if o not in before]
+    hi = next(o for o in new if o.type == "MESH")
+    for o in new:
+        if o is not hi: bpy.data.objects.remove(o, do_unlink=True)
+    hi.parent = None
+    bpy.ops.object.select_all(action="DESELECT"); hi.select_set(True); bpy.context.view_layer.objects.active = hi
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    D = verts(hi)
+    dlo, dhi = D.min(0), D.max(0)
+    hi.data.transform(Matrix.Translation(Vector((-(dlo[0] + dhi[0]) / 2, -(dlo[1] + dhi[1]) / 2, -dlo[2]))))
+    hi.data.transform(Matrix.Scale(H / (dhi[2] - dlo[2]), 4))
+    D = verts(hi).astype(np.float64)
+    # the cloth: white texels (low saturation, bright) in the hip band
+    cimg_src = load_img(ttex(""), True)
+    px = px_of(cimg_src)
+    hm_ = hi.data
+    nl = len(hm_.loops)
+    lv = np.empty(nl, dtype=np.int64); hm_.loops.foreach_get("vertex_index", lv)
+    luv = np.empty(nl * 2, dtype=np.float32); hm_.uv_layers.active.data.foreach_get("uv", luv); luv = luv.reshape(-1, 2)
+    vuv = np.zeros((len(D), 2)); vuv[lv] = luv
+    ix = np.clip((vuv[:, 0] % 1.0) * px.shape[1], 0, px.shape[1] - 1).astype(np.int64)
+    iy = np.clip((vuv[:, 1] % 1.0) * px.shape[0], 0, px.shape[0] - 1).astype(np.int64)
+    col = px[iy, ix, :3]
+    del px
+    keep = (col.min(1) > 0.42) & (col.max(1) - col.min(1) < 0.13) & (D[:, 2] > 0.55) & (D[:, 2] < 1.12) & (np.abs(D[:, 0]) < 0.30)
+    bm_ = bmesh.new(); bm_.from_mesh(hm_)
+    bm_.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm_, geom=[v for v in bm_.verts if not keep[v.index]], context="VERTS")
+    bmesh.ops.remove_doubles(bm_, verts=bm_.verts[:], dist=1e-5)
+    bm_.verts.ensure_lookup_table()
+    seen = set(); small = []
+    for v0 in bm_.verts:      # drop specks: islands under 60 vertices (a tassel is a few hundred)
+        if v0.index in seen: continue
+        isl = [v0]; seen.add(v0.index); k = 0
+        while k < len(isl):
+            for e in isl[k].link_edges:
+                o_ = e.other_vert(isl[k])
+                if o_.index not in seen: seen.add(o_.index); isl.append(o_)
+            k += 1
+        if len(isl) < 60: small += isl
+    bmesh.ops.delete(bm_, geom=small, context="VERTS")
+    # level cuts just inside the ragged colour edge, hem and waistband top: the lowest / highest z the cloth reaches
+    # at every angle around the body (36 bins)
+    Dk = np.array([v.co[:] for v in bm_.verts])
+    ang = ((np.arctan2(Dk[:, 1], Dk[:, 0]) + math.pi) / (2 * math.pi) * 36).astype(np.int64) % 36
+    # (hem: the 10th percentile of the per-angle lowest points, so a zigzag or side-split hem keeps its shape)
+    cut_lo = float(np.percentile([float(Dk[ang == k, 2].min()) for k in range(36) if (ang == k).any()], 10)) + 0.003
+    cut_hi = min(float(Dk[ang == k, 2].max()) for k in range(36) if (ang == k).any()) - 0.003
+    for cz_, nz_ in ((cut_lo, -1.0), (cut_hi, 1.0)):
+        geom = bm_.verts[:] + bm_.edges[:] + bm_.faces[:]
+        bmesh.ops.bisect_plane(bm_, geom=geom, dist=1e-6, plane_co=(0, 0, cz_), plane_no=(0, 0, nz_), clear_outer=True)
+    bm_.to_mesh(hm_); bm_.free(); hm_.update()
+    D = verts(hi).astype(np.float64)
+    tris_hi = sum(len(p.vertices) - 2 for p in hm_.polygons)
+    dz0, dz1 = float(D[:, 2].min()), float(D[:, 2].max())
+    log("trunks source: %d tris of cloth, z %.3f..%.3f, half width %.3f, y %.3f..%.3f"
+        % (tris_hi, dz0, dz1, np.abs(D[:, 0]).max(), D[:, 1].min(), D[:, 1].max()))
+    if tris_hi < 5000: raise SystemExit("trunks: the white cloth was not found on the donor")
+    lo = hi.copy(); lo.data = hi.data.copy(); lo.name = TSTEM
+    bpy.context.scene.collection.objects.link(lo)
+    mod = lo.modifiers.new("dec", "DECIMATE")
+    mod.decimate_type = "COLLAPSE"; mod.ratio = TRUNKS_TRIS / tris_hi; mod.use_collapse_triangulate = True
+    bpy.ops.object.select_all(action="DESELECT"); lo.select_set(True); bpy.context.view_layer.objects.active = lo
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    for u in list(lo.data.uv_layers): lo.data.uv_layers.remove(u)
+    lo.data.uv_layers.new(name="UV")
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=0.004)
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(rotate=True, margin=0.004)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    # bake colour + normal from the full-res cloth (selected to active), still in the donor's own shape
+    th = bpy.data.materials.new("trunks_high"); th.use_nodes = True
+    n_ = th.node_tree; tb = n_.nodes["Principled BSDF"]; tout = n_.nodes["Material Output"]
+    tc_ = n_.nodes.new("ShaderNodeTexImage"); tc_.image = cimg_src
+    tn_ = n_.nodes.new("ShaderNodeTexImage"); tn_.image = load_img(ttex("normal"), False)
+    nm_ = n_.nodes.new("ShaderNodeNormalMap")
+    n_.links.new(tn_.outputs["Color"], nm_.inputs["Color"]); n_.links.new(nm_.outputs["Normal"], tb.inputs["Normal"])
+    n_.links.new(tc_.outputs["Color"], tb.inputs["Base Color"])
+    em_ = n_.nodes.new("ShaderNodeEmission")
+    hi.data.materials.clear(); hi.data.materials.append(th)
+    tl_ = bpy.data.materials.new(TSTEM); tl_.use_nodes = True
+    timg = tl_.node_tree.nodes.new("ShaderNodeTexImage"); tl_.node_tree.nodes.active = timg
+    lo.data.materials.clear(); lo.data.materials.append(tl_)
+    imgs = {}
+    bpy.context.scene.render.engine = "CYCLES"
+    for name, n, colour, kind in (("c", 1024, True, "EMIT"), ("n", 1024, False, "NORMAL")):
+        img = bpy.data.images.new(TSTEM + "_" + name, n, n, alpha=False)
+        img.colorspace_settings.name = "sRGB" if colour else "Non-Color"
+        timg.image = img
+        if kind == "EMIT":
+            n_.links.new(tc_.outputs["Color"], em_.inputs["Color"]); n_.links.new(em_.outputs["Emission"], tout.inputs["Surface"])
+        else:
+            n_.links.new(tb.outputs["BSDF"], tout.inputs["Surface"])
+        bpy.ops.object.select_all(action="DESELECT"); hi.select_set(True); lo.select_set(True)
+        bpy.context.view_layer.objects.active = lo
+        bpy.ops.object.bake(type=kind, use_selected_to_active=True, cage_extrusion=0.01, max_ray_distance=0.04,
+                            margin=8, normal_space="TANGENT")
+        imgs[name] = img
+    bpy.data.objects.remove(hi, do_unlink=True)
+
+    # ---- fit onto this body: z piecewise (legs stretched, waistband 1:1), then each slice onto the body's own box ----
+    Pb = verts(body).astype(np.float64)
+    tz0, tz1 = hem_z - 0.012, band_z + 0.035          # covers the body's own moulded shorts, hem to waistband top
+    def profile(Vs, z0, z1):
+        zc = np.arange(z0, z1 + 0.005, 0.01)
+        rows = np.full((len(zc), 4), np.nan)
+        for i, z in enumerate(zc):
+            m = (np.abs(Vs[:, 2] - z) < 0.008) & (np.abs(Vs[:, 0]) < 0.30)
+            if m.sum() > 3:
+                a = np.abs(Vs[m, 0])
+                rows[i] = (a.min(), a.max(), Vs[m, 1].min(), Vs[m, 1].max())
+        for k in range(4):
+            ok = ~np.isnan(rows[:, k])
+            rows[:, k] = np.interp(zc, zc[ok], rows[ok, k])
+            rows[:, k] = np.convolve(np.pad(rows[:, k], 1, mode="edge"), [0.25, 0.5, 0.25], mode="valid")
+        rows[rows[:, 0] < 0.012, 0] = 0.0             # above the crotch the slice reaches the centre line
+        return zc, rows
+    T = verts(lo).astype(np.float64)
+    dzc, dpr = profile(D, dz0, dz1)
+    zb = dz1 - TRUNKS_BAND
+    if UNDER == "briefs":
+        # a bare body (underpants): the trunks keep their own length and cut. One scale for the whole garment, taken
+        # where the waistband sits (its width / depth onto the body's waist plus the ease); every vertex then gets the
+        # clearance, so hips and thighs wider than the donor's push the cloth out instead of poking through it.
+        # ...except that the hem always ends at least 5 cm below this body's crotch (a heavy man's sits 10 cm lower
+        # than the donor's): the legs are stretched down to there, the waistband is not.
+        # (the crotch: the 1 cm height band with the most centre-line vertices, the underside where the legs meet;
+        # the lowest centre-line vertex is no use, thick thighs touch well below it)
+        _cz = np.arange(0.60, 0.95, 0.01)
+        _cn = [int(((np.abs(Pb[:, 0]) < 0.012) & (Pb[:, 2] >= z_) & (Pb[:, 2] < z_ + 0.01)).sum()) for z_ in _cz]
+        crotch = float(_cz[int(np.argmax(_cn))])
+        tz0, tz1 = min(dz0, crotch - 0.05), dz1
+        T[:, 2] = np.where(T[:, 2] >= zb, T[:, 2], tz0 + (T[:, 2] - dz0) / (zb - dz0) * (zb - tz0))
+        log("crotch at %.3f: hem %.3f -> %.3f" % (crotch, dz0, tz0))
+        bzc, bpr = profile(Pb, tz0, tz1)
+        wb = (dzc > zb + 0.01) & (dzc < dz1 - 0.01)
+        am, bm2 = dpr[wb].mean(0), np.stack([np.interp(dzc[wb], bzc, bpr[:, k]) for k in range(4)], 1).mean(0)
+        sx_ = (bm2[1] + TRUNKS_EASE) / am[1]
+        sy_ = (bm2[3] - bm2[2] + 2 * TRUNKS_EASE) / (am[3] - am[2])
+        T = np.stack([T[:, 0] * sx_, (bm2[2] - TRUNKS_EASE) + (T[:, 1] - am[2]) * sy_, T[:, 2]], 1)
+        cut = (tz0 + 0.06, tz1 - 0.03)
+        rim = list(range(len(T)))
+        stretch = 1.0
+        log("trunks on a bare body: true length, scale x %.3f y %.3f at the waistband" % (sx_, sy_))
+    else:
+        bzc, bpr = profile(Pb, tz0, tz1)
+        zt = np.where(T[:, 2] >= zb, tz1 - (dz1 - T[:, 2]), tz0 + (T[:, 2] - dz0) / (zb - dz0) * (tz1 - TRUNKS_BAND - tz0))
+        a = np.stack([np.interp(T[:, 2], dzc, dpr[:, k]) for k in range(4)], 1)
+        b = np.stack([np.interp(zt, bzc, bpr[:, k]) for k in range(4)], 1)
+        b[:, 0] = np.maximum(b[:, 0] - TRUNKS_EASE, 0); b[:, 1] += TRUNKS_EASE; b[:, 2] -= TRUNKS_EASE; b[:, 3] += TRUNKS_EASE
+        u = np.clip((np.abs(T[:, 0]) - a[:, 0]) / np.maximum(a[:, 1] - a[:, 0], 1e-3), 0, 1.05)
+        v = np.clip((T[:, 1] - a[:, 2]) / np.maximum(a[:, 3] - a[:, 2], 1e-3), -0.05, 1.05)
+        T = np.stack([np.sign(T[:, 0]) * (b[:, 0] + u * (b[:, 1] - b[:, 0])), b[:, 2] + v * (b[:, 3] - b[:, 2]), zt], 1)
+        cut = BODY_CUT
+        # the body's moulded shorts under the part are deleted (below), so only the two rims that stay need
+        # clearance: the waistband on the belly and the hem over the old hem's lip
+        rim = np.nonzero((T[:, 2] > cut[1] - 0.02) | (T[:, 2] < cut[0] + 0.02))[0].tolist()
+        stretch = (tz1 - TRUNKS_BAND - tz0) / (zb - dz0)
+    # clearance: pushed sideways only, so the level cuts stay level
+    bmb = bmesh.new(); bmb.from_mesh(body.data)
+    bvh_b = BVHTree.FromBMesh(bmb)
+    pushed = 0
+    for it in range(3):
+        for i in rim:
+            loc, nrm, _, _ = bvh_b.find_nearest(Vector(T[i].tolist()))
+            if loc is None: continue
+            sd = (Vector(T[i].tolist()) - loc).dot(nrm)
+            nh = math.hypot(nrm.x, nrm.y)
+            if sd < TRUNKS_CLEAR and nh > 1e-3:
+                k_ = (TRUNKS_CLEAR - sd) / max(nh, 0.4) / nh
+                T[i, 0] += nrm.x * k_; T[i, 1] += nrm.y * k_
+                pushed += it == 0
+    if UNDER == "briefs":
+        # a belly that overhangs the waistband: the nearest skin there faces DOWN, so the sideways push above leaves
+        # the cloth inside it and the top edge tears through. Above the crotch the body is one tube: look in from
+        # outside at each vertex's own height and direction, and keep the cloth outside the outermost skin found.
+        yc_ = float(Pb[(Pb[:, 2] > crotch + 0.06) & (Pb[:, 2] < tz1), 1].mean())
+        belly = 0
+        for i in range(len(T)):
+            w_ = float(sm(crotch + 0.04, crotch + 0.10, T[i, 2]))
+            if w_ <= 0: continue
+            dx_, dy_ = T[i, 0], T[i, 1] - yc_
+            r_ = math.hypot(dx_, dy_)
+            if r_ < 1e-4: continue
+            ux_, uy_ = dx_ / r_, dy_ / r_
+            loc, _, _, dist_ = bvh_b.ray_cast(Vector((ux_, yc_ + uy_, T[i, 2])), Vector((-ux_, -uy_, 0.0)), 1.0)
+            if loc is None: continue
+            need = 1.0 - dist_ + TRUNKS_CLEAR
+            if r_ < need:
+                rn_ = r_ + w_ * (need - r_)
+                T[i, 0] = ux_ * rn_; T[i, 1] = yc_ + uy_ * rn_
+                belly += 1
+        log("trunks %s: %d verts above the crotch moved outside the outermost skin (belly overhang)" % (TRUNKS_NAME, belly))
+    bmb.free()
+    lo.data.vertices.foreach_set("co", T.astype(np.float32).ravel())
+    lo.data.update()
+    log("trunks: %d -> %d tris; z %.3f..%.3f (leg stretch x%.2f); %d of %d rim verts pushed out to %.0f mm clearance"
+        % (tris_hi, sum(len(p.vertices) - 2 for p in lo.data.polygons), T[:, 2].min(), T[:, 2].max(),
+           stretch, pushed, len(rim), 1000 * TRUNKS_CLEAR))
+
+    # ---- hem bones: front / outer / back of each leg, vertical, head HEM_LEN above the hem ----
+    hem = {}
+    for s, sg in (("Left", 1), ("Right", -1)):
+        m = (sg * T[:, 0] > 0.03) & (T[:, 2] < tz0 + 0.04)
+        ax_ = np.abs(T[m, 0])
+        cx_, cy_ = (ax_.min() + ax_.max()) / 2, (T[m, 1].min() + T[m, 1].max()) / 2
+        hem[s] = (cx_, cy_)
+        for d, (px_, py_) in (("f", (cx_, T[m, 1].min())), ("o", (ax_.max(), cy_)), ("b", (cx_, T[m, 1].max()))):
+            hem["hem_%s_%s_%s" % (TRUNKS_NAME, s, d)] = (sg * px_, py_)
+    bpy.ops.object.select_all(action="DESELECT"); rig.select_set(True); bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    for nme in HEM_BONES:
+        eb_ = arm_data.edit_bones.new(nme)
+        x_, y_ = hem[nme]
+        eb_.head, eb_.tail = Vector((x_, y_, tz0 + HEM_LEN)), Vector((x_, y_, tz0))
+        eb_.parent = arm_data.edit_bones["mixamorig:%sUpLeg" % nme.split("_")[2]]
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # ---- weights: the body's own underneath (nearest vertex), smoothed over the cloth, then the hem bones ----
+    kd = KDTree(len(Pb))
+    for i in range(len(Pb)): kd.insert(Pb[i].tolist(), i)
+    kd.balance()
+    Wt = W[[kd.find(T[i].tolist())[1] for i in range(len(T))]].copy()
+    Wraw_ = Wt.copy()
+    me_ = lo.data
+    Et = np.empty(len(me_.edges) * 2, dtype=np.int64); me_.edges.foreach_get("vertices", Et); Et = Et.reshape(-1, 2)
+    degt = np.bincount(Et.ravel(), minlength=len(T)).astype(float)
+    for it in range(8):
+        acc = np.zeros_like(Wt)
+        np.add.at(acc, Et[:, 0], Wt[Et[:, 1]]); np.add.at(acc, Et[:, 1], Wt[Et[:, 0]])
+        Wt = 0.5 * Wt + 0.5 * acc / np.maximum(degt, 1)[:, None]
+    if UNDER == "briefs":
+        # the waistband lies on bare skin: there it keeps the skin's own weights exactly (unsmoothed), so in a crouch
+        # it moves with the belly under it instead of sinking into it (seen on the fat body: skin through the band)
+        kz_ = sm(zb, zb - 0.06, T[:, 2])[:, None]
+        Wt = Wraw_ * (1 - kz_) + Wt * kz_
+    Wh = np.zeros((len(T), len(HEM_BONES)))
+    hfac = 0.9 * sm(tz0 + HEM_LEN, tz0 + 0.01, T[:, 2])
+    for si, (s, sg) in enumerate((("Left", 1), ("Right", -1))):
+        cx_, cy_ = hem[s]
+        th_ = np.arctan2(T[:, 1] - cy_, sg * T[:, 0] - cx_)
+        on = sg * T[:, 0] > 0
+        for di, wd in enumerate((np.maximum(0, -np.sin(th_)) ** 2, np.maximum(0, np.cos(th_)) ** 2, np.maximum(0, np.sin(th_)) ** 2)):
+            Wh[:, si * 3 + di] = np.where(on, hfac * wd, 0)
+    Wall = np.concatenate([Wt * (1 - Wh.sum(1))[:, None], Wh], 1)
+    order_ = np.argsort(-Wall, 1)
+    keep_ = np.zeros_like(Wall, dtype=bool); np.put_along_axis(keep_, order_[:, :4], True, 1)
+    Wall[~keep_] = 0; Wall[Wall < 0.01] = 0
+    Wall /= np.maximum(Wall.sum(1, keepdims=True), 1e-9)
+    for g in list(lo.vertex_groups): lo.vertex_groups.remove(g)
+    for k, nme in enumerate(["mixamorig:" + b_ for b_ in BONES] + HEM_BONES):
+        colw = Wall[:, k]
+        nz = np.nonzero(colw > 0)[0]
+        if not len(nz): continue
+        g = lo.vertex_groups.new(name=nme)
+        for vi in nz.tolist(): g.add([vi], float(colw[vi]), "REPLACE")
+    lo.parent = rig
+    am = lo.modifiers.new("Armature", "ARMATURE"); am.object = rig
+    for p in lo.data.polygons: p.use_smooth = True
+    lo.data.name = TSTEM
+    timg.image = imgs["c"]
+    render(TSTEM, views=("front", "back", "side"))
+    lo.hide_render = True                    # the next style's preview shows that style alone
+    for name, img in imgs.items():
+        path = os.path.join(OUTDIR, "%s_%s.webp" % (TSTEM, name)); tmp = path[:-5] + "_tmp.webp"
+        img.filepath_raw = tmp; img.file_format = "WEBP"; img.save(filepath=tmp, quality=90 if name == "c" else 92)
+        os.replace(tmp, path); log("wrote", os.path.basename(path), os.path.getsize(path))
+    tl_.node_tree.nodes.remove(timg)         # the loader loads trunks_<name>_* itself; the glb carries no image
+    return lo, cut
+_built = [build_trunks(c_, n_) for c_, n_ in zip(TRUNKS_CACHE.split("|"), TRUNKS_NAME.split(","))]
+TRUNKS = tuple(t for t, _ in _built)
+for t in TRUNKS: t.hide_render = False
+
+# ---------------------------------------------------------------- 6d. hair: a separate, swappable part
+# Cut from a bust wearing it (HAIR_CACHE "dir|dir|...", HAIR_NAME "h1,h2,..."; same zip layout as a body): the dark
+# hair geometry on the head is kept (plus a thin ring of scalp), scaled so the donor's ear-to-ear width is this body's,
+# set down with the donor's bare scalp top on this body's crown and the ears in line, pushed out to a minimum
+# clearance, decimated and baked to public/fighter/hair_<name>_{c,n}.webp. The colour map's ALPHA is the hair itself
+# (dark texels): the loader cuts the scalp ring away, so this body's own skin shows between the braids. Weights: the
+# body underneath (nearest vertex); anything standing off the head (a knot, a tail) rides the Head bone.
+HAIR_CACHE, HAIR_NAME = (argv[10], argv[11]) if len(argv) > 11 and argv[10] else (None, "")
+HAIR_TRIS = 9000
+HAIR_CLEAR = 0.002        # minimum distance (m) from the scalp
+HAIR_HEAD_FROM = 0.58     # the donor is a bust: its head is everything above this fraction of its height
+HAIR_REF_W = 0.097        # reference ear-to-ear half width (m) the part is cut and baked at, whatever the body
+HAIR_DARK = 0.22         # hair = base colour's brightest channel under this (skin is ~0.9)
+def build_hair(HCACHE, HNAME):
+    from mathutils.kdtree import KDTree
+    HSTEM = "hair_" + HNAME
+    hfiles = os.listdir(HCACHE)
+    def htex(tag):
+        for f in hfiles:
+            b = f.lower()
+            if b.endswith(".png") and (b.endswith("_%s.png" % tag) if tag else not any(b.endswith("_%s.png" % t) for t in ("normal", "roughness", "metallic"))):
+                return os.path.join(HCACHE, f)
+        raise SystemExit("hair texture missing: " + (tag or "base colour"))
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.fbx(filepath=os.path.join(HCACHE, next(f for f in hfiles if f.lower().endswith(".fbx"))))
+    new = [o for o in bpy.data.objects if o not in before]
+    hi = next(o for o in new if o.type == "MESH")
+    for o in new:
+        if o is not hi: bpy.data.objects.remove(o, do_unlink=True)
+    hi.parent = None
+    bpy.ops.object.select_all(action="DESELECT"); hi.select_set(True); bpy.context.view_layer.objects.active = hi
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    D = verts(hi).astype(np.float64)
+    dlo, dhi = D.min(0), D.max(0)
+    cimg_src = load_img(htex(""), True)
+    px = px_of(cimg_src)
+    hm_ = hi.data
+    nl = len(hm_.loops)
+    lv = np.empty(nl, dtype=np.int64); hm_.loops.foreach_get("vertex_index", lv)
+    luv = np.empty(nl * 2, dtype=np.float32); hm_.uv_layers.active.data.foreach_get("uv", luv); luv = luv.reshape(-1, 2)
+    vuv = np.zeros((len(D), 2)); vuv[lv] = luv
+    ix = np.clip((vuv[:, 0] % 1.0) * px.shape[1], 0, px.shape[1] - 1).astype(np.int64)
+    iy = np.clip((vuv[:, 1] % 1.0) * px.shape[0], 0, px.shape[0] - 1).astype(np.int64)
+    mxc = px[iy, ix, :3].max(1)
+    del px
+    # donor landmarks (its own units): ear-to-ear half width, the ears' depth, the bare scalp's top
+    zn = (D[:, 2] - dlo[2]) / (dhi[2] - dlo[2])
+    headm = zn > HAIR_HEAD_FROM
+    xc = (dlo[0] + dhi[0]) / 2
+    wd = float(np.abs(D[headm, 0] - xc).max())
+    ey = float(D[headm & (np.abs(D[:, 0] - xc) > 0.95 * wd), 1].mean())
+    dark = mxc < HAIR_DARK
+    stop = float(D[headm & (mxc > 0.4), 2].max())
+    # this body's: crown, half width and depth of the ears (the band 8 to 17.5 cm under the crown)
+    Pb = verts(body).astype(np.float64)
+    top_b = float(Pb[:, 2].max())
+    band = (Pb[:, 2] > top_b - 0.175) & (Pb[:, 2] < top_b - 0.08)
+    wb = float(np.abs(Pb[band, 0]).max())
+    eyb = float(Pb[band & (np.abs(Pb[:, 0]) > 0.95 * wb), 1].mean())
+    s = wb / wd
+    # the hair: dark, on the head, not the brows / eyes (dark, on the face: inside the temples, under the hairline, in
+    # front of the ears; the face looks down -y like the body's)
+    brow = (np.abs(D[:, 0] - xc) < 0.65 * wd) & (D[:, 2] < stop - 0.85 * wd) & (D[:, 1] < ey)
+    keep = dark & (zn > HAIR_HEAD_FROM - 0.08) & ~brow
+    Eh = np.empty(len(hm_.edges) * 2, dtype=np.int64); hm_.edges.foreach_get("vertices", Eh); Eh = Eh.reshape(-1, 2)
+    ok = (zn > HAIR_HEAD_FROM - 0.08) & ~(brow & dark)
+    for _ in range(3):        # a thin ring of scalp round every braid, so the alpha edge has geometry under it
+        m = keep[Eh[:, 0]] | keep[Eh[:, 1]]
+        keep[Eh[m, 0]] = True; keep[Eh[m, 1]] = True
+        keep &= ok
+    log("hair %s donor: half width %.3f, scalp top %.3f, ears y %.3f; body: crown %.3f, half width %.3f, ears y %.3f; scale %.4f; %d dark verts on the head, %d brow / eye verts left out"
+        % (HNAME, wd, stop, ey, top_b, wb, eyb, s, int((dark & headm & ~brow).sum()), int((dark & headm & brow).sum())))
+    hm_.transform(Matrix.Translation(Vector((-xc, -ey, -stop))))
+    # cut, decimate, unwrap and bake at ONE reference size about the origin (scalp top at 0): the mesh, its UVs and
+    # the shared hair_<name> textures then come out the same for every body; the per-body fit is applied after
+    hm_.transform(Matrix.Scale(HAIR_REF_W / wd, 4))
+    bm_ = bmesh.new(); bm_.from_mesh(hm_)
+    bm_.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm_, geom=[v for v in bm_.verts if not keep[v.index]], context="VERTS")
+    bm_.verts.ensure_lookup_table()
+    seen = set(); small = []
+    for v0 in bm_.verts:      # drop specks: islands under 40 vertices
+        if v0.index in seen: continue
+        isl = [v0]; seen.add(v0.index); k = 0
+        while k < len(isl):
+            for e in isl[k].link_edges:
+                o_ = e.other_vert(isl[k])
+                if o_.index not in seen: seen.add(o_.index); isl.append(o_)
+            k += 1
+        if len(isl) < 40: small += isl
+    bmesh.ops.delete(bm_, geom=small, context="VERTS")
+    bm_.to_mesh(hm_); bm_.free(); hm_.update()
+    tris_hi = sum(len(p.vertices) - 2 for p in hm_.polygons)
+    Dk = verts(hi)
+    log("hair source: %d tris, x %.3f..%.3f y %.3f..%.3f z %.3f..%.3f" % (tris_hi, Dk[:, 0].min(), Dk[:, 0].max(), Dk[:, 1].min(), Dk[:, 1].max(), Dk[:, 2].min(), Dk[:, 2].max()))
+    if tris_hi < 3000: raise SystemExit("hair: no dark hair found on the donor's head")
+    lo = hi.copy(); lo.data = hi.data.copy(); lo.name = HSTEM
+    bpy.context.scene.collection.objects.link(lo)
+    mod = lo.modifiers.new("dec", "DECIMATE")
+    mod.decimate_type = "COLLAPSE"; mod.ratio = min(1.0, HAIR_TRIS / tris_hi); mod.use_collapse_triangulate = True
+    bpy.ops.object.select_all(action="DESELECT"); lo.select_set(True); bpy.context.view_layer.objects.active = lo
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    for u in list(lo.data.uv_layers): lo.data.uv_layers.remove(u)
+    lo.data.uv_layers.new(name="UV")
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=0.004)
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(rotate=True, margin=0.004)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    # bake colour + normal from the full-res hair (selected to active)
+    th = bpy.data.materials.new("hair_high"); th.use_nodes = True
+    n_ = th.node_tree; tb = n_.nodes["Principled BSDF"]; tout = n_.nodes["Material Output"]
+    tc_ = n_.nodes.new("ShaderNodeTexImage"); tc_.image = cimg_src
+    tn_ = n_.nodes.new("ShaderNodeTexImage"); tn_.image = load_img(htex("normal"), False)
+    nm_ = n_.nodes.new("ShaderNodeNormalMap")
+    n_.links.new(tn_.outputs["Color"], nm_.inputs["Color"]); n_.links.new(nm_.outputs["Normal"], tb.inputs["Normal"])
+    n_.links.new(tc_.outputs["Color"], tb.inputs["Base Color"])
+    em_ = n_.nodes.new("ShaderNodeEmission")
+    hi.data.materials.clear(); hi.data.materials.append(th)
+    tl_ = bpy.data.materials.new(HSTEM); tl_.use_nodes = True
+    timg = tl_.node_tree.nodes.new("ShaderNodeTexImage"); tl_.node_tree.nodes.active = timg
+    lo.data.materials.clear(); lo.data.materials.append(tl_)
+    imgs = {}
+    bpy.context.scene.render.engine = "CYCLES"
+    for name, n, colour, kind in (("c", 1024, True, "EMIT"), ("n", 1024, False, "NORMAL")):
+        img = bpy.data.images.new(HSTEM + "_" + name, n, n, alpha=(name == "c"))
+        img.colorspace_settings.name = "sRGB" if colour else "Non-Color"
+        timg.image = img
+        if kind == "EMIT":
+            n_.links.new(tc_.outputs["Color"], em_.inputs["Color"]); n_.links.new(em_.outputs["Emission"], tout.inputs["Surface"])
+        else:
+            n_.links.new(tb.outputs["BSDF"], tout.inputs["Surface"])
+        bpy.ops.object.select_all(action="DESELECT"); hi.select_set(True); lo.select_set(True)
+        bpy.context.view_layer.objects.active = lo
+        bpy.ops.object.bake(type=kind, use_selected_to_active=True, cage_extrusion=0.006, max_ray_distance=0.02,
+                            margin=8, normal_space="TANGENT")
+        imgs[name] = img
+    bpy.data.objects.remove(hi, do_unlink=True)
+    # alpha = the hair itself: dark texels opaque, the scalp ring cut away by the loader (alphaTest)
+    a_ = px_of(imgs["c"]).copy()
+    a_[..., 3] = 1.0 - sm(0.30, 0.48, a_[..., :3].max(2))
+    imgs["c"].pixels.foreach_set(a_.ravel())
+    log("hair texture: %.0f%% of texels opaque" % (100 * float((a_[..., 3] > 0.5).mean())))
+    # clearance: every vertex at least HAIR_CLEAR outside this body's skin
+    T = verts(lo).astype(np.float64) * (wb / HAIR_REF_W) + np.array([0.0, eyb, top_b])   # onto this body's head
+    bmb = bmesh.new(); bmb.from_mesh(body.data)
+    bvh_b = BVHTree.FromBMesh(bmb)
+    pushed = 0; deep = 0.0
+    for it in range(3):
+        for i in range(len(T)):
+            loc, nrm, _, _ = bvh_b.find_nearest(Vector(T[i].tolist()))
+            if loc is None: continue
+            sd = (Vector(T[i].tolist()) - loc).dot(nrm)
+            if sd < HAIR_CLEAR:
+                T[i] += np.array(nrm[:]) * (HAIR_CLEAR - sd)
+                if it == 0: pushed += 1; deep = min(deep, sd)
+    bmb.free()
+    lo.data.vertices.foreach_set("co", T.astype(np.float32).ravel())
+    lo.data.update()
+    log("hair: %d -> %d tris; %d of %d verts pushed out to %.0f mm clearance (deepest was %.1f mm inside)"
+        % (tris_hi, sum(len(p.vertices) - 2 for p in lo.data.polygons), pushed, len(T), 1000 * HAIR_CLEAR, -1000 * deep))
+    # weights: the body's underneath, smoothed; what stands off the head rides the Head bone
+    kd = KDTree(len(Pb))
+    for i in range(len(Pb)): kd.insert(Pb[i].tolist(), i)
+    kd.balance()
+    near = [kd.find(T[i].tolist()) for i in range(len(T))]
+    Wt = W[[q[1] for q in near]].copy()
+    far = np.array([q[2] for q in near]) > 0.02
+    Wt[far] = 0; Wt[far, BONES.index("Head")] = 1
+    me_ = lo.data
+    Et = np.empty(len(me_.edges) * 2, dtype=np.int64); me_.edges.foreach_get("vertices", Et); Et = Et.reshape(-1, 2)
+    degt = np.bincount(Et.ravel(), minlength=len(T)).astype(float)
+    for it in range(4):
+        acc = np.zeros_like(Wt)
+        np.add.at(acc, Et[:, 0], Wt[Et[:, 1]]); np.add.at(acc, Et[:, 1], Wt[Et[:, 0]])
+        Wt = 0.5 * Wt + 0.5 * acc / np.maximum(degt, 1)[:, None]
+    order_ = np.argsort(-Wt, 1)
+    keep_ = np.zeros_like(Wt, dtype=bool); np.put_along_axis(keep_, order_[:, :4], True, 1)
+    Wt[~keep_] = 0; Wt[Wt < 0.01] = 0
+    Wt /= np.maximum(Wt.sum(1, keepdims=True), 1e-9)
+    for g in list(lo.vertex_groups): lo.vertex_groups.remove(g)
+    for k, b_ in enumerate(BONES):
+        nz = np.nonzero(Wt[:, k] > 0)[0]
+        if not len(nz): continue
+        g = lo.vertex_groups.new(name="mixamorig:" + b_)
+        for vi in nz.tolist(): g.add([vi], float(Wt[vi, k]), "REPLACE")
+    lo.parent = rig
+    am = lo.modifiers.new("Armature", "ARMATURE"); am.object = rig
+    for p in lo.data.polygons: p.use_smooth = True
+    lo.data.name = HSTEM
+    for name, img in imgs.items():
+        path = os.path.join(OUTDIR, "%s_%s.webp" % (HSTEM, name)); tmp = path[:-5] + "_tmp.webp"
+        img.filepath_raw = tmp; img.file_format = "WEBP"; img.save(filepath=tmp, quality=92)
+        os.replace(tmp, path); log("wrote", os.path.basename(path), os.path.getsize(path))
+    tl_.node_tree.nodes.remove(timg)         # the loader loads hair_<name>_* itself; the glb carries no image
+    return lo
+HAIRS = tuple(build_hair(c_, n_) for c_, n_ in zip(HAIR_CACHE.split("|"), HAIR_NAME.split(","))) if HAIR_CACHE else ()
+# the body under the trunks goes, between the rims EVERY style covers (no poke-through, fewer triangles): on an old
+# body that is its moulded shorts, on a bare body the hips and the tops of the thighs
+cut = (max(c[0] for _, c in _built), min(c[1] for _, c in _built))
+bmb = bmesh.new(); bmb.from_mesh(body.data)
+gone = [f for f in bmb.faces if cut[0] < f.calc_center_median().z < cut[1] and abs(f.calc_center_median().x) < 0.30]
+bmesh.ops.delete(bmb, geom=gone, context="FACES")
+bmb.to_mesh(body.data); bmb.free(); body.data.update()
+log("body: %d faces deleted under the trunks parts (z %.3f..%.3f)" % (len(gone), cut[0], cut[1]))
+
 # ---------------------------------------------------------------- 7. export
 mat = bpy.data.materials.new("meshy")
 body.data.materials.clear()
 body.data.materials.append(mat)
 for o in list(bpy.data.objects):
-    if o not in (body, rig) + GLOVES:
+    if o not in (body, rig) + TRUNKS + GLOVES + HAIRS:
         bpy.data.objects.remove(o, do_unlink=True)
 for p in me.polygons:
     p.use_smooth = True
@@ -944,7 +1496,7 @@ jlen, jtype = struct.unpack("<I4s", blob[12:20])
 js = json.loads(blob[20:20 + jlen].decode("utf8"))
 rest = blob[20 + jlen:]
 # src/human/body.ts reads this: one baked material, textures <glb stem>_{c,n,r,mask,skin}.webp next to the glb
-js.setdefault("asset", {})["extras"] = {"look": 3, "kind": "meshy", "stem": STEM, "height": H, "glove": GSTEM}
+js.setdefault("asset", {})["extras"] = {"look": 3, "kind": "meshy", "stem": STEM, "height": H, "glove": GSTEM, "trunks": [t.name for t in TRUNKS], "hair": [h.name for h in HAIRS]}
 raw = json.dumps(js, separators=(",", ":")).encode("utf8")
 raw += b" " * ((4 - len(raw) % 4) % 4)
 with open(TMP, "wb") as f:

@@ -95,7 +95,7 @@ export function updatePaint(c: Config): void {
   if (maskFile !== c.humanBodyFile) {   // the body's region mask (R trunks, G gloves), same UVs as its colour map; body files 1 and 2 are the Meshy ones
     maskFile = c.humanBodyFile;
     u.uKitMask.value = null;
-    if (c.humanBodyFile === 1 || c.humanBodyFile === 2) {
+    if (c.humanBodyFile >= 1) {
       new THREE.TextureLoader().load(`/fighter/boxer_m${c.humanBodyFile}_mask.webp`, t => { t.flipY = false; t.colorSpace = THREE.NoColorSpace; if (maskFile === c.humanBodyFile) u.uKitMask.value = t; });
     }
   }
