@@ -37,6 +37,10 @@ In particular:
   measured glove speed, slip moves the head not the feet). Reference for RIG; not
   extended.
 
+**Direction (Nate, 2026-11-19 on):** the long-term goal is online ranked play, both fighters on
+the same rules and timings; career and a fighter creator are planned (see `docs/`). The MVP line
+below is the original scope, kept for history.
+
 **MVP scope (locked):** single player vs. AI, then friend-link multiplayer. No career
 mode, no story mode, no meta layer. A fight is N rounds × M seconds (default 6 × 60s,
 both tunable). Rounds end on the clock, a fight ends on KO, TKO, or decision.
@@ -47,9 +51,11 @@ both tunable). Rounds end on the clock, a fight ends on KO, TKO, or decision.
 
 - **three.js** (latest stable), **TypeScript** (strict), **Vite**. `npm run dev` starts a
   live-reload server. `npm run build` produces a static bundle deployable to any host.
-- **No external art, audio, or font assets.** Every mesh, texture, and sound is generated
-  in code at load time. This is a deliberate constraint (fast iteration, no pipeline, tiny
-  bundle), same as turbo-kart-rush. Changing it requires an explicit decision recorded here.
+- **Assets: the fighters are made outside, everything else in code.** (Decision, Nate 2026-11-15,
+  wording 2026-11-25; was "no external art, audio, or font assets".) Fighter bodies, trunks,
+  gloves and hair are Meshy generations on Nate's paid plan; motion is Mixamo clips from his
+  account, baked to pose data. Arena, paint, sounds and fonts are still generated in code.
+  Every outside source has a row in `docs/ASSETS.md`.
 - **lil-gui** for the tuning panel. **Playwright** for verification. Nothing else without
   asking.
 - Target: 60 fps in mobile Safari on a 2022 iPhone, and on a 2020 laptop at 1080p.
@@ -174,6 +180,9 @@ SIM and RIG. Never two sources of truth.
 
 Two procedural humans throwing punches at each other is the hardest thing in this game
 and the *entire* visual surface. Everything else is scenery.
+
+**RETIRED (see the decision log at the end of this file): the fighters are now realistic human
+bodies from Meshy with Mixamo motion. The paragraph below is the original direction, kept for history.**
 
 **Art direction — stylised, chunky, readable.** Think toy figure / low-poly: capsules
 and boxes, oversized gloves (~1.6× anatomical), slightly small head, wide shoulders,
