@@ -122,7 +122,13 @@ await page.addInitScript(() => {
           //  come home, and that reads as a kink that is no fault)
           if (st.length > 1 && !pn.resolved) {
             const gi = side === 'left' ? 1 : 2, key = pn.type + pn.hand, pr = path.prev[s] && path.prev[s].key === key ? path.prev[s] : null;
-            const cur = { key, pos: st.map(x => [x[0], x[gi]]), pp: pr ? { pos: pr.pos } : null };
+            const cur = { key, pos: st.map(x => [x[0], x[gi]]), pp: pr ? { pos: pr.pos } : null, log: pr ? pr.log : [], worst: pr ? pr.worst : 0 };
+            // (the frame-by-frame record of this punch's approach, in the puncher's own frame [forward, up, right], cm:
+            //  where each layer left the glove relative to the layer before; kept for the punch with the worst kink)
+            { const F = window.__sim.state().fighters, fx0 = F[1 - s].pos.x - F[s].pos.x, fz0 = F[1 - s].pos.z - F[s].pos.z, fl0 = Math.hypot(fx0, fz0) || 1, fx = fx0 / fl0, fz = fz0 / fl0;
+              const loc = v => [(v[0] * fx + v[2] * fz) * 100, v[1] * 100, (v[0] * -fz + v[2] * fx) * 100], rel = v => [v[0] - F[s].pos.x, v[1], v[2] - F[s].pos.z];
+              cur.log.push({ f, label: P[s].label, toHit: P[s].toHit, final: loc(rel(cur.pos[cur.pos.length - 1][1])), clip: loc(rel(cur.pos[0][1])),
+                by: cur.pos.slice(1).map((x, i) => [x[0], loc([x[1][0] - cur.pos[i][1][0], x[1][1] - cur.pos[i][1][1], x[1][2] - cur.pos[i][1][2]])]) }); }
             const d3 = (a, c) => Math.hypot(a[0] - c[0], a[1] - c[1], a[2] - c[2]) * 100, sub = (a, c) => [a[0] - c[0], a[1] - c[1], a[2] - c[2]];
             if (pr) {
               const b = (path.by[pn.type] ??= { corr: [], clip2: [], fin2: [], layer: {} });
@@ -134,7 +140,9 @@ await page.addInitScript(() => {
                 const a = sub(cur.pos[i][1], cur.pos[i - 1][1]), c = sub(pr.pos[j][1], pr.pos[j - 1][1]), e = sub(pr.pp.pos[k][1], pr.pp.pos[k - 1][1]);
                 (b.layer[nm] ??= []).push(d3(sub(a, c), sub(c, e))); }
               if (pr.pp) { const cQ = pr.pp.pos[0][1], fQ = pr.pp.pos[pr.pp.pos.length - 1][1];
-                b.clip2.push(d3(sub(cN, cP), sub(cP, cQ))); b.fin2.push(d3(sub(fN, fP), sub(fP, fQ))); }
+                b.clip2.push(d3(sub(cN, cP), sub(cP, cQ))); const kk = d3(sub(fN, fP), sub(fP, fQ)); b.fin2.push(kk);
+                cur.worst = Math.max(cur.worst, kk);
+                if (cur.worst > (b.worstK ?? 0)) { b.worstK = cur.worst; b.worstLog = cur.log; } }
             }
             path.prev[s] = cur;
           } else path.prev[s] = null; }
@@ -181,7 +189,12 @@ await page.addInitScript(() => {
     const q = (a, p) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.floor(p * b.length))] : NaN; };
     const formOut = Object.entries(form.by).map(([k, b]) => `  ${k.padEnd(8)} wrist bend median ${q(b.wrist, 0.5).toFixed(0)}, p95 ${q(b.wrist, 0.95).toFixed(0)}, max ${q(b.wrist, 1).toFixed(0)} deg; change a frame p95 ${q(b.dW, 0.95).toFixed(1)}, max ${q(b.dW, 1).toFixed(0)} | elbow min ${q(b.elbow, 0).toFixed(0)}, max ${q(b.elbow, 1).toFixed(0)}, over 172 on ${b.elbow.filter(x => x > 172).length}/${b.elbow.length} frames; change a frame p95 ${q(b.dE, 0.95).toFixed(1)}, max ${q(b.dE, 1).toFixed(0)}`);
     const pathOut = Object.entries(path.by).map(([k, b]) => `  ${k.padEnd(8)} the layers' correction changes by a median ${q(b.corr, 0.5).toFixed(1)} cm a frame, p95 ${q(b.corr, 0.95).toFixed(1)}, max ${q(b.corr, 1).toFixed(0)}; over 3 cm on ${b.corr.filter(x => x > 3).length}/${b.corr.length} frames | path kink a frame, p95: the clip's own ${q(b.clip2, 0.95).toFixed(1)} cm, as drawn ${q(b.fin2, 0.95).toFixed(1)} (max ${q(b.clip2, 1).toFixed(0)} v ${q(b.fin2, 1).toFixed(0)})\n           by layer (frames its own move KINKED by over 2 cm, and its p95): ${Object.entries(b.layer).map(([n, a]) => [n, a.filter(x => x > 2).length, q(a, 0.95)]).filter(r => r[1] > 0).sort((x, y) => y[1] - x[1]).slice(0, 7).map(r => `${r[0]} ${r[1]} (${r[2].toFixed(1)})`).join(', ')}`);
-    return { lands, blocks, body, arms, formOut, pathOut, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
+    // (argv[4] = pathtrace) the approach of the punch with the worst kink, per type: each frame, the glove [forward, up,
+    // right] from his sim spot as the clip had it and as drawn, then every layer that moved it by over 1 cm
+    const r1 = v => v.map(x => x.toFixed(0)).join(' ');
+    const traceOut = Object.entries(path.by).filter(([, b]) => b.worstLog).map(([k, b]) => `  ${k}, worst kink ${b.worstK.toFixed(0)} cm:\n` + b.worstLog.map(e =>
+      `    f${e.f} ${e.label} toHit ${e.toHit === undefined ? '-' : (e.toHit * 60).toFixed(1)}t | clip ${r1(e.clip)} | drawn ${r1(e.final)} | ${e.by.filter(x => Math.hypot(...x[1]) > 1).map(x => `${x[0]} ${r1(x[1])}`).join(', ')}`).join('\n'));
+    return { lands, blocks, body, arms, formOut, pathOut, traceOut, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
   };
 });
 await page.goto(`${DEV_URL}/?menu=1&human=1&ko=1`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
@@ -238,8 +251,9 @@ if (process.argv[4] === 'shots' || process.argv[4] === 'blockshots') {
   }
   await browser.close(); process.exit(0);
 }
-const { lands, blocks, info, body, arms, formOut, pathOut } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
+const { lands, blocks, info, body, arms, formOut, pathOut, traceOut } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
 console.log(info);
+if (process.argv[4] === 'pathtrace') { console.log('PATH TRACE, the approach of the worst-kinked punch of each type ([forward, up, right] cm):\n' + traceOut.join('\n')); await browser.close(); process.exit(0); }
 console.log('PATH STABILITY, the punching glove on its way in (punch start to its hit; every punch, landing or not):\n' + pathOut.join('\n'));
 console.log('PUNCH FORM, the punching arm while a punch is out:\n' + formOut.join('\n'));
 console.log(`ARMS: a forearm's centre line within 5 cm of one of the other man's on ${arms.cross}/${arms.n} frames (within 2 cm: ${arms.deep}); while BOTH are punching: ${arms.crossBoth}/${arms.both} frames`);
