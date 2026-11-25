@@ -200,7 +200,14 @@ if (args.includes('--raw')) await page.evaluate(() => { window.__cfg.humanRawPos
 await page.evaluate(() => { window.__cfg.debugFps = true; });
 await frames(page, 70);
 const fps = await page.evaluate(() => window.__fps ?? null);
-console.log(`fps (headless software GL, ${W}x${H} @2x; NOT the desktop number) → ${fps ? `${fps.fps} fps, ${fps.msAvg} ms avg, ${fps.calls} calls, ${fps.tris} tris` : 'no sample'}`);
+console.log(`fps (headless, ${W}x${H} @2x; NOT the desktop number) → ${fps ? `${fps.fps} fps, ${fps.msAvg} ms avg, ${fps.calls} calls, ${fps.tris} tris` : 'no sample'}`);
+// A film at a few fps means software GL (the GPU preload did not take): stop here instead of running for minutes.
+// SLOW_OK=1 films anyway (a machine with no GPU).
+if (fps && fps.fps < 10 && process.env.SLOW_OK !== '1') {
+  console.error(`STOPPED: ${fps.fps} fps is software rendering. Check scripts/gpu_preload.mjs is loaded (devUrl.js imports it) and GPU is not 0. SLOW_OK=1 to film anyway.`);
+  await browser.close();
+  process.exit(3);
+}
 
 await page.evaluate(() => {
   const c = window.__cfg;
