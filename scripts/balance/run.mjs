@@ -28,6 +28,7 @@ mkdirSync(OUTDIR, { recursive: true });
 
 const tb = Date.now();
 await build({ entryPoints: [fileURLToPath(new URL('./entry.ts', import.meta.url))], outfile: OUTDIR + 'game.mjs', bundle: true, format: 'esm', platform: 'node', logLevel: 'error' });
+if (WHAT === 'bundle') { console.log('bundled'); process.exit(0); }   // `npm run balance -- bundle`: refresh the rules for micro.mjs / micro2.mjs / _debug.mjs
 const { runJobs } = await import('./pool.mjs');
 
 const STYLES = ['pressure', 'outboxer', 'counter', 'swarmer', 'slugger'];

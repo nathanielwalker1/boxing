@@ -152,7 +152,8 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   };
   if (loaded) { f.loaded = 0; f.loadedT = 0; }
   // Phase 1.4 (punch keys): the range at the press, which sizes the keyed body drive for this punch (sim/skel.ts).
-  if ((cfg.skelOn && cfg.punchKeysOn) || cfg.evadeV2) setPressDist(f, opp ? Math.hypot(opp.pos.x - f.pos.x, opp.pos.z - f.pos.z) : 2);
+  // (…and the range the smother ramp reads for a man who stepped into his own straight: smotherStepInMin.)
+  if ((cfg.skelOn && cfg.punchKeysOn) || cfg.evadeV2 || cfg.smotherStepInMin < 1) setPressDist(f, opp ? Math.hypot(opp.pos.x - f.pos.x, opp.pos.z - f.pos.z) : 2);
   const fr = frameOf(f.yaw);
   // The step-in (2026-09-16): a straight thrown with the stick pushed forward
   // takes a short lunge step with it — a burst on the stagger channel (it
@@ -709,9 +710,15 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // `soft`: the losses a land already carries for being cramped or rolled with — a glancing grade never stacks on them.
   let soft = 1 - retreat * cfg.punchRollWith * rollKeep;
   let ramp = 1;   // the close-range ramp's share of full power (measured; rides on the land event)
-  if (def.smotherable && dist < cfg.smotherDist) {
+  // (A man stepping into his own straight is not smothered by his own step: the ramp reads the range he pressed from.
+  //  If the TARGET walked in on him, or he threw it already cramped, it reads the contact range as before.)
+  //  "The target walked in" = he is closing at smotherStepInMin of walking speed or more at the hit; otherwise the gap
+  //  shrank because the puncher stepped (a cross plants the feet before it lands, so the puncher's own speed says nothing).
+  //  Only a punch PRESSED from clean range gets this: pressed already inside smotherDist it is a cramped punch, step or no step.
+  const rampDist = closing < cfg.smotherStepInMin && pressDist(a) >= cfg.smotherDist ? Math.max(dist, pressDist(a)) : dist;
+  if (def.smotherable && rampDist < cfg.smotherDist) {
     const span = Math.max(1e-6, cfg.smotherDist - cfg.separationDist);
-    ramp = lerp(cfg.smotherPowerFloor, 1, clamp((dist - cfg.separationDist) / span, 0, 1));
+    ramp = lerp(cfg.smotherPowerFloor, 1, clamp((rampDist - cfg.separationDist) / span, 0, 1));
     soft *= ramp;
   }
   mag *= soft;
@@ -785,7 +792,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   let combo = 0, finisher = false;
   if (!blocked) {
     // (Outcome first: the range is read against the band's far end and the punch is square — it landed by rule.)
-    const res = gradeHit({ a, d, def, v, part, dist, centre, glove: g.pos, line: afr.fwd, rising: type === 'uppercut', retreat, closing, wrongWay, reach: oc ? oc.far : undefined, square: oc ? 1 : undefined }, cfg);
+    const res = gradeHit({ a, d, def, v, part, dist: def.smotherable && dist < cfg.smotherDist ? Math.min(rampDist, cfg.smotherDist) : dist, centre, glove: g.pos, line: afr.fwd, rising: type === 'uppercut', retreat, closing, wrongWay, reach: oc ? oc.far : undefined, square: oc ? 1 : undefined }, cfg);
     grade = through && res.grade === 'flush' ? 'clean' : res.grade;
     // Glancing: the larger of this and the losses already taken, never both. Flush: on top.
     if (grade === 'glancing') mag *= Math.min(1, cfg.gradeGlancingPower / Math.max(1e-6, soft));
