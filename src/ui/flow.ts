@@ -217,6 +217,8 @@ export class FightFlow {
   get showHud(): boolean { return this.screen === 'fight' && !this.card; }
   /** A knockdown may be replayed (a real fight, not a drill, nothing else up). */
   get wantsReplay(): boolean { return this.screen === 'fight' && this.mode !== 'gym' && !this.paused && !this.card; }
+  /** A screen that shows one fighter off on the turntable (his face should be seen, not his guard). */
+  get showsFighter(): boolean { return this.screen === 'select' || this.screen === 'opponent' || this.screen === 'ladder' || this.screen === 'champion'; }
   /** A drill has no referee: he only gets in the way of what is being practised. */
   get hidesReferee(): boolean { return this.drill !== null; }
   /** The round and the clock belong on the hanging scoreboard. */

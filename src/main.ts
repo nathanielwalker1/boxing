@@ -13,7 +13,7 @@ import { createState, hurtLevel, step } from './sim';
 import { aiStep, createAi, type AiState, type StyleParams } from './ai';
 import * as aiModule from './ai';
 import { createFighterView as createRigView, type RigView } from './rig';
-import { createHumanView, humanReady, preloadHuman } from './human/view';
+import { createHumanView, humanReady, preloadHuman, setHumanHandsDown } from './human/view';
 import { addFighterLights } from './human/body';
 import * as THREE from 'three';
 import { loadMocapGeo } from './core/mocapLoad';
@@ -504,6 +504,7 @@ function loop(nowMs: number): void {
 
   // What is drawn: the live fight, or a pose grid's frozen states, or the replay's clip, or a menu's scene.
   const scene = paused || replay || !flow ? null : flow.scene(dt, stage.orbitAzimuth);
+  setHumanHandsDown(flow !== null && flow.showsFighter);
   const staged = scene?.fighters ?? null;   // a menu's own figures (null = the live fight, perhaps under a directed shot)
   let alpha = paused ? 1 : acc / SIM_DT;
   let drawPrev: readonly [FighterState, FighterState] = [posed[0] ?? prev.fighters[0], posed[1] ?? prev.fighters[1]];

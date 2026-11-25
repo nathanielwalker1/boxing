@@ -55,6 +55,10 @@ const drawnBodies: (DrawnBody | null)[] = [null, null];
 /** cfg.humanBodyFile: which body glb the human fighters wear (read once, at preload). */
 export const HUMAN_BODY_FILES = ['boxer_v2.glb', 'boxer_m1.glb', 'boxer_m2.glb', 'boxer_m3.glb', 'boxer_m4.glb', 'boxer_m5.glb'] as const;
 
+/** A menu is showing a fighter off (select / opponent / ladder / champion): the views hang their arms so the face is seen. Set every frame by main.ts. */
+let handsDown = false;
+export function setHumanHandsDown(on: boolean): void { handsDown = on; }
+
 /** The bodies a fighter's build can pick when no one body is forced: 2 muscular, 3 average, 4 large, 5 skinny. */
 const BUILD_BODIES = [2, 3, 4, 5] as const;
 /** Which body file a fighter wears, from his build (roster morph): large / skinny / muscular / average. A forced body (?body=N) wins. */
@@ -233,6 +237,22 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     neck.scale.set(nk, 1, nk);
     head.scale.set((1 + k * (0.6 * hm.width + 0.4 * hm.jaw)) / nk, 1 + k * (hm.height + 0.5 * hm.chin), (1 + k * 0.5 * (hm.brow + hm.nose)) / nk);
   }
+  // BUILD TRIM (heavyweights, Nate 2026-11-25: the large body too fat, the skinny one too thin): the lower spine is scaled
+  // across and front to back, and the bones above take that scale back off, so arms, head and reach are untouched.
+  // Large body (file 4): the belly only (the chest bone undoes it). Skinny body (file 5): the whole trunk, shoulders a little wider.
+  {
+    const undo = (b: THREE.Bone, w: number): void => {   // b's own axes seen in its parent's frame, each un-scaled by what the parent did to it
+      const s = [0, 1, 2].map(i => { const d = new THREE.Vector3().setComponent(i, 1).applyQuaternion(b.quaternion); return 1 / Math.hypot(w * d.x, d.y, w * d.z); });
+      b.scale.multiply(new THREE.Vector3(s[0], s[1], s[2]));
+    };
+    if (bodyFile === 4 && cfg.humanFatBelly !== 1) { const w = cfg.humanFatBelly; spine[0]!.scale.set(w, 1, w); undo(spine[2]!, w); }
+    if (bodyFile === 5 && cfg.humanSkinnyTorso !== 1) {
+      const w = cfg.humanSkinnyTorso;
+      spine[0]!.scale.set(w, 1, w);
+      undo(neck, w); undo(bone('LeftShoulder'), w); undo(bone('RightShoulder'), w);
+    }
+  }
+  let menuW = 0;   // (humanMenuHandsDown) 0..1: how far the arms are down at his sides
   const headTop = bones.find(b => b.name.endsWith('HeadTop_End')) ?? null;
   const spray = new Spray(parent);
   // the hit snap: the sim head relative to his floor point, its slow average, and how long the snap is drawn
@@ -1457,6 +1477,24 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       stamp('keepOut');
       bodyAim(false);
       stamp('bodyAim2');
+      // HANDS DOWN ON THE FIGHTER SCREENS (humanMenuHandsDown; Nate 2026-11-25: the guard's gloves hid every face in the menus):
+      // both arms eased to hang at his sides while a menu shows him off. Drawn only; the fight never sets it.
+      menuW += ((handsDown && cfg.humanMenuHandsDown ? 1 : 0) - menuW) * (1 - Math.exp(-Math.min(dt, 0.1) / Math.max(1e-3, cfg.humanMenuHandRate)));
+      if (menuW > 1e-3) {
+        group.updateMatrixWorld(true);
+        const sL = arm.Left[0].getWorldPosition(new THREE.Vector3()), sR = arm.Right[0].getWorldPosition(new THREE.Vector3());
+        const lat = sL.clone().sub(sR).setY(0).normalize();
+        for (const [a, sgn, S] of [['Left', 1, sL], ['Right', -1, sR]] as const) {
+          const [u, m, e] = arm[a];
+          const qu = u.quaternion.clone(), qm = m.quaternion.clone();
+          const T = S.clone().addScaledVector(lat, sgn * cfg.humanMenuHandOut * group.scale.y);
+          T.y -= cfg.humanMenuHandDrop * group.scale.y;
+          twoBone(u, m, e, T);
+          const su = u.quaternion.clone(), sm = m.quaternion.clone();
+          u.quaternion.copy(qu).slerp(su, menuW); m.quaternion.copy(qm).slerp(sm, menuW);
+          group.updateMatrixWorld(true);
+        }
+      }
       // SETTLED AFTER BOTH MEN ARE POSED (humanContactDrawn): side 0 is drawn first, against side 1's body of the frame
       // before; once side 1 is posed, side 0's punching hand is put on (or kept off) the body that is on screen NOW.
       // Without it the first man's landed glove sat where the other's head WAS before the hit moved it.

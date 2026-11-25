@@ -176,7 +176,9 @@ function kitV2(src: THREE.MeshStandardMaterial, kt: KitTex): THREE.MeshPhysicalM
 const MESHY = {
   metalness: 0,             // the build zeroes the metal map (Meshy's ~0.5 metal on the trunks read as vinyl)
   normalScale: 0.75,        // fine pores at full strength gave hard white streaks on the back
-  darkSkin: [88, 56, 40] as const,   // sRGB target mean of the skin for the 'dark' tone (the baked skin's mean maps here)
+  skinPaleRef: [240, 200, 164] as const,   // kit.skin: the roster colour (#f0c8a4, the palest) that is the baked skin unchanged
+  skinDarkRef: [85, 51, 32] as const,      // kit.skin: the roster colour (#553320, the darkest) that is the dark tone below
+  darkSkin: [88, 56, 40] as const,  // sRGB target mean of the skin for the 'dark' tone (the baked skin's mean maps here)
   gloveGain: 0.85,          // kit glove colour lands at this x the glove's mean shading (keeps the leather deep)
   gloveContrast: 0.75,      // exponent on the glove's shading ratio: crease detail kept, grain not turned to speckle
   gloveRoughness: 0.34,     // the separate glove part (glove_<name>): leather sheen, clearly glossier than skin (~0.62)
@@ -372,7 +374,18 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
     const out = new Uint8ClampedArray(src);
     const kt = rgb(kit.trunks), kg = rgb(kit.glove);
     const dark = tone === 'dark' || kit.skin !== undefined;   // (kit.skin: every fighter's skin is moved onto his own colour)
-    const sk = (kit.skin !== undefined ? rgb(kit.skin) : MESHY.darkSkin).map((v, k) => v / skinMean[k]!);
+    // (kit.skin: the roster's colours are flat paint, far brighter than the baked skin — moved straight onto them a pale man went
+    //  white under the menu's key light. So the scale is anchored on the two looks that are known good: the palest roster
+    //  colour is the skin as baked (× 1), the darkest is the dark tone, and a colour between sits between, per channel, in log.)
+    const sk = MESHY.darkSkin.map((v, k) => v / skinMean[k]!);
+    if (kit.skin !== undefined) {
+      const want = rgb(kit.skin);
+      for (let k = 0; k < 3; k++) {
+        const pale = MESHY.skinPaleRef[k]!, deep = MESHY.skinDarkRef[k]!;
+        const t = Math.max(0, Math.min(1.2, Math.log(Math.max(1, want[k]!) / pale) / Math.log(deep / pale)));
+        sk[k] = Math.pow(sk[k]!, t);
+      }
+    }
     for (let i = 0; i < out.length; i += 4) {
       const r = src[i]!, g = src[i + 1]!, b = src[i + 2]!;
       const mt = mask[i]! / 255, mg = mask[i + 1]! / 255, ms = dark ? skin[i]! / 255 : 0;
