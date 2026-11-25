@@ -30,6 +30,8 @@ let assets: Assets | null = null;
  * the drawn one: the hand IK shifts a head-bound target by the opponent's difference.
  */
 const heads: ({ drawn: THREE.Vector3; sim: THREE.Vector3 } | null)[] = [null, null];
+/** (humanContactSkin) per side: how far that man's SKIN reaches from point c along unit dir (vertices within band m of the ray), m; null = none. */
+const skins: (((part: 'head' | 'torso', c: THREE.Vector3, dir: THREE.Vector3, band: number) => number | null) | null)[] = [null, null];
 /** The states each human view was last given (the other view reads them: the sim's aim needs the opponent). */
 const shown: ({ prev: FighterState; next: FighterState } | null)[] = [null, null];
 /** Outcome mode: each view's drawn lunge along its facing last frame (the other caps its own by it), m. */
@@ -235,6 +237,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     dispose(): void {
       parent.remove(group);
       heads[side] = null;
+      if (skins[side]) skins[side] = null;
       shown[side] = null;
       drawnBodies[side] = null; drawnLunge[side] = 0;
       delete probes[side]; lates[side] = undefined;
@@ -308,35 +311,101 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   };
   // Read-only measurement hook (probes): the SKINNED MESH as drawn this frame, world m, subsampled — vertices of each glove
   // (by mesh name and side of the body), of the head (dominant bone Head) and of the torso (Spine / Hips). What the eye sees.
-  let meshIdx: { m: THREE.SkinnedMesh; i: number; k: 'L' | 'R' | 'head' | 'torso' | 'rest' }[] | null = null;
+  type MeshPick = { m: THREE.SkinnedMesh; i: number; k: 'L' | 'R' | 'head' | 'torso' | 'rest' };
+  let meshIdx: MeshPick[] | null = null;
+  /** The sampled skinned vertices of this body by part (built once: every 2nd glove vertex, every 3rd of the rest). */
+  const meshIndex = (): MeshPick[] => {
+    if (meshIdx) return meshIdx;
+    const idx: MeshPick[] = [], w = new THREE.Vector3();
+    model.updateMatrixWorld(true);
+    const lh = bone('LeftHand').getWorldPosition(new THREE.Vector3()), rh = bone('RightHand').getWorldPosition(new THREE.Vector3());
+    model.traverse(o => {
+      const m = o as THREE.SkinnedMesh;
+      if (!m.isSkinnedMesh) return;
+      const n = m.geometry.attributes.position!.count, si = m.geometry.attributes.skinIndex!, sw = m.geometry.attributes.skinWeight!;
+      const glove = /glove/i.test(m.name);
+      // (a separate glove mesh takes its side from its NAME, e.g. glove_L / glove_R_1 — sorted by distance to the hand bones
+      //  at the first call, m2's two gloves got mixed: 932 of 4,538 "left" vertices over 25 cm from the left hand)
+      const gSide = !glove ? null : /(_L|Left)(_\d+)?$/i.test(m.name) ? 'L' as const : /(_R|Right)(_\d+)?$/i.test(m.name) ? 'R' as const : null;
+      for (let i = 0; i < n; i += glove ? 2 : 3) {
+        let best = 0, bw = -1;
+        for (let k = 0; k < 4; k++) { const wt = sw.getComponent(i, k); if (wt > bw) { bw = wt; best = si.getComponent(i, k); } }
+        const bn = m.skeleton.bones[best]?.name ?? '';
+        if (!glove && /Hand/.test(bn)) idx.push({ m, i, k: /Left/.test(bn) ? 'L' : 'R' });   // a one-mesh body: the glove is what the hand carries
+        else if (glove && gSide) idx.push({ m, i, k: gSide });
+        else if (glove) { m.getVertexPosition(i, w); w.applyMatrix4(m.matrixWorld); idx.push({ m, i, k: w.distanceTo(lh) < w.distanceTo(rh) ? 'L' : 'R' }); }
+        else if (/Head/.test(bn) && !/Arm|Shoulder/.test(bn)) idx.push({ m, i, k: 'head' });
+        else if (/Spine|Hips/.test(bn)) idx.push({ m, i, k: 'torso' });
+        else idx.push({ m, i, k: 'rest' });
+      }
+    });
+    meshIdx = idx;
+    return idx;
+  };
+  // (probes) the 'rest' vertices of __humanMesh(side, true), in the same order: "mesh name / dominant bone name"
+  ((window as unknown as { __humanMeshRestNames?: Record<number, () => string[]> }).__humanMeshRestNames ??= {})[side] = () =>
+    meshIndex().filter(e => e.k === 'rest').map(e => {
+      const si = e.m.geometry.attributes.skinIndex!, sw = e.m.geometry.attributes.skinWeight!;
+      let best = 0, bw = -1;
+      for (let k = 0; k < 4; k++) { const wt = sw.getComponent(e.i, k); if (wt > bw) { bw = wt; best = si.getComponent(e.i, k); } }
+      return `${e.m.name}/${e.m.skeleton.bones[best]?.name ?? '?'}`;
+    });
+  // CONTACT ON THE SKIN (humanContactSkin, 2026-11-24): the skinned vertices a landed punch is put against — every 4th head
+  // vertex (the face is dense), every torso vertex, every glove vertex of the sample
+  const skinIdx = { head: [] as MeshPick[], torso: [] as MeshPick[], L: [] as MeshPick[], R: [] as MeshPick[] };
+  let skinReady = false;
+  const sv = new THREE.Vector3();
+  const skinPrep = (): void => {
+    if (skinReady) return;
+    skinReady = true;
+    let hn = 0;
+    for (const e of meshIndex()) {
+      if (e.k === 'head') { if (hn++ % 4 === 0) skinIdx.head.push(e); }
+      else if (e.k !== 'rest') skinIdx[e.k].push(e);
+    }
+  };
+  skins[side] = (part, c, dir, band) => {
+    skinPrep(); model.updateMatrixWorld(true);
+    let best = -Infinity;
+    for (const e of skinIdx[part]) {
+      e.m.getVertexPosition(e.i, sv); sv.applyMatrix4(e.m.matrixWorld).sub(c);
+      const t = sv.dot(dir);
+      if (t <= 0 || sv.lengthSq() - t * t > band * band) continue;
+      if (t > best) best = t;
+    }
+    return best > -Infinity ? best : null;
+  };
+  // (render/ropes.ts, ropesContainSkin) every `stride`-th sampled skinned vertex of the whole body, world xyz flat: the ropes keep
+  // the SKIN inside, not their capsules (a knocked-down man lay 88 cm past the ropes while his capsules sat within the bow)
+  group.userData.skinPoints = (stride: number, outPts: number[]): number => {
+    let n = 0, k = 0;
+    for (const e of meshIndex()) {
+      // (the limbs and feet, which poke through, at `stride`; the dense face 8x and the torso 2x sparser: cost)
+      const s = e.k === 'head' ? stride * 8 : e.k === 'torso' ? stride * 2 : stride;
+      if (k++ % s !== 0) continue;
+      e.m.getVertexPosition(e.i, sv); sv.applyMatrix4(e.m.matrixWorld);
+      outPts[n++] = sv.x; outPts[n++] = sv.y; outPts[n++] = sv.z;
+    }
+    return n;
+  };
+  /** How far this man's glove SKIN reaches past its glove point (gloveOf) toward unit dir, m; null = no glove vertices. */
+  const gloveFront = (a: 'Left' | 'Right', dir: THREE.Vector3): number | null => {
+    skinPrep(); model.updateMatrixWorld(true);
+    const G = new THREE.Vector3().fromArray(gloveOf(a));
+    let best = -Infinity;
+    for (const e of skinIdx[a === 'Left' ? 'L' : 'R']) {
+      e.m.getVertexPosition(e.i, sv); sv.applyMatrix4(e.m.matrixWorld);
+      const t = sv.sub(G).dot(dir);
+      if (t > best) best = t;
+    }
+    return best > -Infinity ? best : null;
+  };
   // (all = true also returns every other sampled vertex under `rest`: limbs, hips, feet — the rope check)
   ((window as unknown as { __humanMesh?: Record<number, (all?: boolean) => unknown> }).__humanMesh ??= {})[side] = (all = false) => {
     const v = new THREE.Vector3();
     model.updateMatrixWorld(true);
-    if (!meshIdx) {
-      meshIdx = [];
-      const lh = bone('LeftHand'), rh = bone('RightHand');
-      model.traverse(o => {
-        const m = o as THREE.SkinnedMesh;
-        if (!m.isSkinnedMesh) return;
-        const n = m.geometry.attributes.position!.count, si = m.geometry.attributes.skinIndex!, sw = m.geometry.attributes.skinWeight!;
-        const glove = /glove/i.test(m.name);
-        for (let i = 0; i < n; i += glove ? 2 : 3) {
-          let best = 0, bw = -1;
-          for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; best = si.getComponent(i, k); } }
-          const bn = m.skeleton.bones[best]?.name ?? '';
-          if (!glove && /Hand/.test(bn)) meshIdx.push({ m, i, k: /Left/.test(bn) ? 'L' : 'R' });   // a one-mesh body: the glove is what the hand carries
-          else if (glove) {
-            m.getVertexPosition(i, v); v.applyMatrix4(m.matrixWorld);
-            meshIdx.push({ m, i, k: v.distanceTo(lh.getWorldPosition(new THREE.Vector3())) < v.distanceTo(rh.getWorldPosition(new THREE.Vector3())) ? 'L' : 'R' });
-          } else if (/Head/.test(bn) && !/Arm|Shoulder/.test(bn)) meshIdx.push({ m, i, k: 'head' });
-          else if (/Spine|Hips/.test(bn)) meshIdx.push({ m, i, k: 'torso' });
-          else meshIdx.push({ m, i, k: 'rest' });
-        }
-      });
-    }
     const out: Record<string, number[]> = { L: [], R: [], head: [], torso: [], rest: [] };
-    for (const e of meshIdx) { if (e.k === 'rest' && !all) continue; e.m.getVertexPosition(e.i, v); v.applyMatrix4(e.m.matrixWorld); out[e.k]!.push(v.x, v.y, v.z); }
+    for (const e of meshIndex()) { if (e.k === 'rest' && !all) continue; e.m.getVertexPosition(e.i, v); v.applyMatrix4(e.m.matrixWorld); out[e.k]!.push(v.x, v.y, v.z); }
     return out;
   };
   let lastEvents: readonly SimEvent[] = [];
@@ -405,6 +474,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   /** (humanArmClear) each glove before its first clearance solve, last frame and this frame (its own speed sets how much the clearance may change); and whether this frame's first solve has run. */
   const armRawPrev = { Left: new THREE.Vector3(), Right: new THREE.Vector3() }, armRaw = { Left: new THREE.Vector3(), Right: new THREE.Vector3() }, armSeen = { Left: false, Right: false };
   const landT = new THREE.Vector3();
+  /** (humanContactSkin) this frame's landed glove: its centre's distance off the struck part's centre on the skin, m (0 = none). */
+  let skinLand = 0;
   const ikOff = new THREE.Vector3();
   /** The guard tuck applied to each hand last frame (world m), so a punch's press offset starts from the tucked hand. */
   const tuckD = { Left: new THREE.Vector3(), Right: new THREE.Vector3() };
@@ -424,6 +495,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   }
   function run(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]): void {
     lastEvents = events;
+    group.userData.down = next.down;   // (render/ropes.ts: a man on the floor is not held by the ropes' bow)
     { const L = stageLog(); if (L) L[side] = []; }
     {
       // ---- place: interpolated floor position, facing yaw (the clips face +Z), scaled to his height ----
@@ -764,7 +836,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         return dirOf(gapYaw, gapPitch).normalize();
       };
       const aimOutcome = (): void => {
-        if (!(out.ik?.outcome && out.ik.w > 1e-3) || !simAt) return;
+        if (!(out.ik?.outcome && out.ik.w > 1e-3) || !simAt) { skinLand = 0; return; }
         const oppBody = drawnBodies[side === 0 ? 1 : 0];
         const T = new THREE.Vector3(simAt.x, simAt.y, simAt.z);
         const ci = anim.conformInfo;
@@ -792,6 +864,18 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
               // (it ARRIVES on the hit tick, not before: steered on early, the glove sat on a face that then leaned away and
               //  the rules called a miss — 7% of live misses were drawn touching. Until the hit it stands off by its closing speed.)
               const off = ci.resolved ? 0 : earlyS;
+              // ON THE SKIN (humanContactSkin): glove centre to part centre = how far HIS skin reaches from that centre along
+              // the line + how far MY glove's skin reaches past my glove point toward him − the leather's give. MEASURED on the
+              // real replay (2026-11-24): with the stand-in radii (mocapHeadR, mocapTorsoR, gloveR) the glove skin stopped
+              // 4-9 cm short of the face skin on every land. Measured each frame from the skinned mesh: any body, any glove.
+              const plainR = (ci.part === 'head' ? oppBody.headR : oppBody.r) + rest;
+              const skinAt = ci.part !== 'head' && cfg.humanBodyHandAim && VARIANTS[next.punch.variant].body ? c.clone().setY(simAt.y) : c;
+              const contactR = (dn: THREE.Vector3): number => {
+                if (!cfg.humanContactSkin || !out.ik) return plainR;
+                const sk = skins[side === 0 ? 1 : 0]?.(ci.part === 'head' ? 'head' : 'torso', skinAt, dn, ci.part === 'head' ? cfg.humanContactSkinBand : cfg.humanContactSkinBand * 1.6) ?? null;
+                const gf = gloveFront(out.ik.arm, dn.clone().negate());
+                return sk === null || gf === null ? plainR : sk + gf - cfg.humanContactSkinSink;
+              };
               // THE LAND FINDS THE GAP (humanLandGap): on the head, the point it arrives at is turned within a cone that
               // suits the punch toward the part his arms leave open (the temple behind a glove at the cheek, over the
               // gloves, under them to the chin), chosen early, held, eased in
@@ -799,15 +883,19 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
               if (gapDir) {
                 // (the HAND only: everything else that reads the contact — the clip's reach, the body's lean and travel —
                 //  is given the plain point, as with the key off: fed the turned one, head and feet jumped 10 cm)
-                const R = oppBody.headR + rest, dh = dir.clone().normalize();
+                const dh = dir.clone().normalize(), R = contactR(dh);
                 anim.feedTarget(c.x + dh.x * R, c.y, c.z + dh.z * R);
                 gapPlain = c.clone().addScaledVector(dh, R + off);
                 landPlain.copy(gapPlain);
-                T.copy(c).addScaledVector(gapDir, R + off);
+                T.copy(c).addScaledVector(gapDir, contactR(gapDir) + off);
               } else {
-              anim.feedTarget(c.x + dir.x / dir.length() * ((ci.part === 'head' ? oppBody.headR : oppBody.r) + rest), c.y, c.z + dir.z / dir.length() * ((ci.part === 'head' ? oppBody.headR : oppBody.r) + rest));
-              T.copy(c).add(dir.setLength((ci.part === 'head' ? oppBody.headR : oppBody.r) + rest + off));
+              const dn = dir.clone().normalize(), R = contactR(dn);
+              anim.feedTarget(c.x + dn.x * R, c.y, c.z + dn.z * R);
+              T.copy(c).addScaledVector(dn, R + off);
               }
+              // (the keep-out below holds the LANDING glove this far off the part's centre, not the stand-in radius: it was
+              //  putting every skin contact back out at mocapHeadR + gloveR)
+              if (cfg.humanContactSkin) skinLand = contactR(dir.clone().normalize());
               // (humanBodyAim: a landed body punch's glove is at the rules' contact height; the lane it rested on was 1-8 cm under it)
               if (cfg.humanBodyHandAim && ci.part === 'body' && VARIANTS[next.punch.variant].body) T.y = simAt.y;
               landT.copy(T); landHeld = true; landPlainOn = !!gapPlain;
@@ -820,7 +908,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             if (dir.lengthSq() < 1e-8) dir.set(x - c.x, 0, z - c.z);
             T.copy(c).add(dir.setLength(r + rest));
           }
-        } else landHeld = false;
+        } else { landHeld = false; skinLand = 0; }
         outcomeT = T.clone();
         group.updateMatrixWorld(true);
         clipG ??= new THREE.Vector3().fromArray(gloveOf(out.ik.arm));
@@ -1148,9 +1236,11 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             //  slipped by the head was held 20-30 cm back by the gap round his chest — it never extended — then squirted
             //  past and snapped home, 35 cm in a frame. A slipped head punch now goes by over the shoulder.)
             const atBody = anim.conformInfo.part === 'body';
-            const P = closestOn(ob.a, ob.b, push ?? G), td = (push ?? G).distanceTo(P), tmin = ob.r + (!contactDrawn || atBody ? rest : rest0) + (atBody ? early : 0);
+            // (humanContactSkin: the landing glove is held off the part it LANDS on by the skin distance, not the stand-in)
+            const onSkin = skinLand > 0 && mine && ck === 'land';
+            const P = closestOn(ob.a, ob.b, push ?? G), td = (push ?? G).distanceTo(P), tmin = onSkin && atBody ? Math.min(skinLand, ob.r + rest) + early : ob.r + (!contactDrawn || atBody ? rest : rest0) + (atBody ? early : 0);
             if (td < tmin) push = P.clone().add((push ?? G).clone().sub(P).setLength(tmin));
-            const hd = (push ?? G).distanceTo(ob.head), hmin = ob.headR + (!contactDrawn || !atBody ? rest : rest0) + (!atBody ? early : 0);
+            const hd = (push ?? G).distanceTo(ob.head), hmin = onSkin && !atBody ? Math.min(skinLand, ob.headR + rest) + early : ob.headR + (!contactDrawn || !atBody ? rest : rest0) + (!atBody ? early : 0);
             if (hd < hmin) push = ob.head.clone().add((push ?? G).clone().sub(ob.head).setLength(hmin));
             // GLOVE ON GLOVE: two guards never sit inside each other; each man gives half (a punch resting on his guard is left where the block put it)
             if (!cfg.humanArmClear && cfg.humanInertia && cfg.humanGloveClear > 0 && !(next.punch.type !== null && out.ik?.arm === a)) {
