@@ -40,12 +40,13 @@ theory. He is the judge of *feel* and *look* — you are the judge of *does it r
   addition. Sub-agents never edit each other's files.
 - **Hit geometry = drawn geometry.** Radii come from `src/core/body.ts`, used by both
   sim and rig. One source.
-- **Assets: the fighters are made outside, everything else in code.** Fighter bodies, trunks,
-  gloves and hair are Meshy generations on Nate's paid plan, built into game files by
-  `tools/blender`; motion is Mixamo clips from Nate's account, baked by `tools/mocap`. Arena,
-  paint, sounds and fonts are generated in code. Every outside source has a row in
-  `docs/ASSETS.md`. Raw Mixamo FBX files never go in git; only baked pose data does.
-  (Lifted for the fighters by Nate 2026-11-15; wording brought up to date 2026-11-25.)
+- **External assets are allowed — do not ask about it.** Meshy generations, Mixamo clips and
+  downloaded models (hair, props, anything) are all fine, from any source whose licence allows
+  use in a commercial game (CC0, CC-BY, royalty-free commercial). Built into game files by
+  `tools/blender` / `tools/mocap`. The only duty: each outside source gets a row in
+  `docs/ASSETS.md` (source, licence, link). Raw Mixamo FBX files never go in git; only baked
+  pose data does. (Nate 2026-11-25: "we are doing external assets"; replaces the fighters-only
+  lift of 2026-11-15.)
 - **What the game is now:** 3D, realistic human fighters (Bellows x Sifu look), heavyweight only,
   aimed at online ranked play where both fighters follow the same rules and timings. Where
   `CONTRACT.md` still says toy-figure rig, no external assets or friend-link only, this file wins.
