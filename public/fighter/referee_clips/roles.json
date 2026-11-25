@@ -1,0 +1,76 @@
+{
+ "idle": null,
+ "jab": {
+  "slug": "counting",
+  "from": 58,
+  "to": 85,
+  "contact": 72,
+  "body": true
+ },
+ "cross": null,
+ "lead_hook": {
+  "slug": "counting",
+  "from": 34,
+  "to": 55,
+  "contact": 46,
+  "body": true
+ },
+ "rear_hook": {
+  "slug": "counting",
+  "from": 276,
+  "to": 302,
+  "contact": 288,
+  "body": true
+ },
+ "lead_uppercut": null,
+ "rear_uppercut": null,
+ "body_jab": {
+  "slug": "counting",
+  "from": 58,
+  "to": 85,
+  "contact": 72
+ },
+ "body_cross": null,
+ "body_hook": {
+  "slug": "counting",
+  "from": 34,
+  "to": 55,
+  "contact": 46
+ },
+ "block": null,
+ "body_block": null,
+ "block_hit": null,
+ "hit_head_light": {
+  "slug": "breathing_idle",
+  "from": 0,
+  "to": 298,
+  "impact": 12
+ },
+ "hit_head_medium": null,
+ "hit_head_heavy": null,
+ "hit_body": null,
+ "hit_uppercut": null,
+ "knockdown": {
+  "slug": "tripping",
+  "from": 0,
+  "to": 63,
+  "settle": 48
+ },
+ "down_idle": null,
+ "getup": null,
+ "stunned": null,
+ "walk_fwd": null,
+ "walk_back": null,
+ "walk_left": null,
+ "walk_right": null,
+ "step_fwd": null,
+ "step_back": null,
+ "step_left": null,
+ "step_right": null,
+ "slip_left": null,
+ "slip_right": null,
+ "duck": null,
+ "lean_back": null,
+ "win": null,
+ "lose": null
+}

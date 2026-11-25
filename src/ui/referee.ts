@@ -20,7 +20,7 @@ import {
   type Config, type FighterState, type FighterView, type Hand, type SimEvent, type SimState, type Vec2, type Vec3,
 } from '../core';
 import { createFighterView } from '../rig';
-import { createRefereeBody, preloadReferee, refereeReady, type RefereeBody } from '../human/referee';
+import { createRefereeBody, preloadReferee, refereeReady, type RefCue, type RefereeBody } from '../human/referee';
 
 type Gesture = 'hang' | 'point' | 'wave';
 interface HandLocal { fwd: number; up: number; lat: number }
@@ -37,6 +37,8 @@ export class Referee {
   /** The Meshy man (human mode, refMeshy); meshyOk goes false if his file fails to load, and the old rig draws. */
   private body: RefereeBody | null = null;
   private meshyOk = true;
+  private cue: RefCue = { mode: 'watch', close: 0, look: null, nod: 0 };
+  private nodCool = 0;
   private state: FighterState;
   private vel: Vec2 = { x: 0, z: 0 };
   private hands: [HandLocal, HandLocal];
@@ -70,9 +72,12 @@ export class Referee {
       }
       else if (e.type === 'decision') { this.method = 'decision'; this.winner = e.winner; }
       else if (e.type === 'roundStart') { this.method = null; this.winner = null; this.waveT = -1; }
+      // the Meshy man nods at a moment worth acknowledging: a clean counter, a man rocked, a guard broken
+      else if ((e.type === 'counter' || e.type === 'rocked' || e.type === 'guardBreak') && this.nodCool <= 0) { this.cue.nod++; this.nodCool = c.refNodCooldown; }
     }
     if (s.tick === 0) { this.method = null; this.winner = null; this.waveT = -1; }
     if (this.waveT >= 0) this.waveT += dt;
+    this.nodCool -= dt;
 
     // ── Where to stand, what to face, what to do with the hands ──
     const a = s.fighters[0].pos, f1 = s.fighters[1].pos;
@@ -197,18 +202,25 @@ export class Referee {
       // bowed the elbow the wrong way ("arms inverted", 2026-10-15).
       me.arms[i] = solveArm(b, c, REFEREE.stance, hand, chest, hips, fr, 0, 0, g, { level: 0, back: 1, flare: armFlareTarget(0, g.y, chest.y, b, c) });
     }
-    this.drawState(me, dt);
+
+    // ── The Meshy man's cue (human/referee.ts): what he is doing, what he watches ──
+    const counting = downSide !== null && (ph === 'count' || ph === 'over') && gesture === 'hang';
+    const apart = Math.hypot(f1.x - a.x, f1.z - a.z);
+    this.cue.mode = gesture !== 'hang' ? 'hide' : counting && toLen < 0.5 ? 'count' : 'watch';   // no clip yet for the winner's arm or the wave-off
+    this.cue.close = ph === 'fighting' ? Math.max(0, Math.min(1, (c.refCloseFar - apart) / Math.max(0.05, c.refCloseFar - c.refCloseNear))) : 0;
+    this.cue.look = counting ? { x: s.fighters[downSide].pos.x, y: 0.35, z: s.fighters[downSide].pos.z } : { x: mid.x, y: 1.45, z: mid.z };
+    this.drawState(me, dt, this.cue);
   }
 
   /** Draw a state: the Meshy man in human mode (human/referee.ts; nothing until his file has loaded), else the old rig. */
-  private drawState(st: FighterState, dt: number): void {
+  private drawState(st: FighterState, dt: number, cue: RefCue): void {
     if (this.cfg.humanBody && this.cfg.refMeshy && this.meshyOk) {
       if (this.view) { this.view.dispose(); this.view = null; }
       if (!this.body) {
         void preloadReferee().then(() => { if (!refereeReady()) this.meshyOk = false; });
         this.body = createRefereeBody(this.cfg, this.scene);
       }
-      this.body?.apply(st, dt);
+      this.body?.apply(st, cue, dt);
       return;
     }
     if (this.body) { this.body.dispose(); this.body = null; }
@@ -217,11 +229,11 @@ export class Referee {
   }
 
   /** A copy of the state he is drawn from right now (the knockdown replay keeps one per tick). */
-  snapshot(): FighterState { return structuredClone(this.state); }
+  snapshot(): FighterState { return Object.assign(structuredClone(this.state), { refCue: structuredClone(this.cue) }); }
 
-  /** Draw him from a kept snapshot instead of walking him (the replay). */
+  /** Draw him from a kept snapshot instead of walking him (the replay; the snapshot carries his cue). */
   draw(snap: FighterState, dt: number): void {
-    this.drawState(snap, dt);
+    this.drawState(snap, dt, (snap as FighterState & { refCue?: RefCue }).refCue ?? this.cue);
   }
 
   /** Floor position and yaw (probes / checks). */
