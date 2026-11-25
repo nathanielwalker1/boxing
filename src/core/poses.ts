@@ -46,17 +46,43 @@ export interface RPose {
 const zeroFoot = (): RFoot => ({ stepF: 0, stepL: 0, pivot: 0, heel: 0 });
 const cloneR = (r: RPose): RPose => ({ ...r, clPro: [r.clPro[0], r.clPro[1]], clElev: [r.clElev[0], r.clElev[1]], hand: [{ ...r.hand[0] }, { ...r.hand[1] }], foot: [{ ...r.foot[0] }, { ...r.foot[1] }] });
 const c = (cfg: Config, k: string): number => (cfg as unknown as Record<string, number>)[k] ?? 0;
+// Config key names, built once per (part, part, channel) and reused. Building `pose_${punch}_${key}_${ch}` afresh
+// for every read was a quarter of a simulated fight's CPU (about 100 built names a fighter a tick, each one hashed
+// against a 2,000-key config). Same keys, same values: only the name strings are remembered.
+function names2(make: (a: string, b: string) => string): (a: string, b: string) => string {
+  const byA = new Map<string, Map<string, string>>();
+  return (a, b) => {
+    let m = byA.get(a); if (!m) byA.set(a, m = new Map());
+    let s = m.get(b); if (s === undefined) m.set(b, s = make(a, b));
+    return s;
+  };
+}
+const guardKey = names2((shape, ch) => (shape === '' ? `pose_guard_${ch}` : `pose_guard_${shape}_${ch}`));
+const punchkKey = names2((punch, ch) => `punchk_${punch}_${ch}`);
+const poseKeyTables = new Map<string, (key: string, ch: string) => string>();
+function poseKey(punch: string): (key: string, ch: string) => string {
+  let t = poseKeyTables.get(punch);
+  if (!t) poseKeyTables.set(punch, t = names2((key, ch) => `pose_${punch}_${key}_${ch}`));
+  return t;
+}
+const HAND_CH = {
+  lead: { F: 'leadF', U: 'leadU', L: 'leadL', swivel: 'leadSwivel', pron: 'leadPron' },
+  rear: { F: 'rearF', U: 'rearU', L: 'rearL', swivel: 'rearSwivel', pron: 'rearPron' },
+} as const;
 export const poseScale = (body: BodyDims): number => body.heightM / POSE_REF_HEIGHT;
 
 /** The guard (or the block), absolute. */
 export function guardPose(cfg: Config, body: BodyDims, stance: Stance, shape: GuardShape, block: boolean): RPose {
   const sr = handLateralSign('rear', stance), s = poseScale(body);
-  const g = (ch: string): number => c(cfg, `pose_guard_${ch}`);
-  const sh = (ch: string): number => (shape === 'high' ? g(ch) : c(cfg, `pose_guard_${shape}_${ch}`));
-  const hand = (pre: 'lead' | 'rear'): RHand => ({
-    cF: sh(`${pre}F`) * s, cU: sh(`${pre}U`) * s, cL: sh(`${pre}L`) * s, aF: 0, aU: 0, aL: 0, aim: 0, out: 0,
-    swivel: g(`${pre}Swivel`) * D, pron: g(`${pre}Pron`) * D,
-  });
+  const g = (ch: string): number => c(cfg, guardKey('', ch));
+  const sh = (ch: string): number => (shape === 'high' ? g(ch) : c(cfg, guardKey(shape, ch)));
+  const hand = (pre: 'lead' | 'rear'): RHand => {
+    const n = HAND_CH[pre];
+    return {
+      cF: sh(n.F) * s, cU: sh(n.U) * s, cL: sh(n.L) * s, aF: 0, aU: 0, aL: 0, aim: 0, out: 0,
+      swivel: g(n.swivel) * D, pron: g(n.pron) * D,
+    };
+  };
   const r: RPose = {
     pelYaw: sr * g('pelYaw') * D, pelPitch: 0, pelRoll: 0, pelFwd: 0, pelUp: g('pelUp') * s, pelLat: 0,
     spTwist: sr * g('spTwist') * D, spFlex: g('spFlex') * D, spSide: 0,
@@ -108,7 +134,8 @@ export function guardStanceDrop(cfg: Config, body: BodyDims): number {
 export function punchKey(cfg: Config, body: BodyDims, stance: Stance, guard: RPose, punch: PosePunch, hand: Hand, key: 'load' | 'contact' | 'follow', bodyLevel: boolean, drive = 1): RPose {
   const r = cloneR(guard);
   const sp = handLateralSign(hand, stance), s = poseScale(body), ip = hand === 'lead' ? 0 : 1;
-  const k = (ch: string): number => c(cfg, `pose_${punch}_${key}_${ch}`);
+  const pk = poseKey(punch);
+  const k = (ch: string): number => c(cfg, pk(key, ch));
   // `drive` (0..1, from the range at the press): how much of the key's body turn and travel this punch has room for.
   const dv = key === 'load' ? 1 : drive;
   r.pelYaw += sp * k('pelYaw') * D * dv; r.pelPitch += k('pelPitch') * D; r.pelRoll += sp * k('pelRoll') * D;
@@ -122,14 +149,14 @@ export function punchKey(cfg: Config, body: BodyDims, stance: Stance, guard: RPo
   h.aF = k('hAF') * s; h.aU = k('hAU') * s; h.aL = k('hAL') * s; h.aim = k('hAim'); h.out = key === 'load' ? 0 : 1;
   // The lane (punchk_<punch>_aim* / bodyAim*): where on him the contact is, on top of the key's own aim offsets.
   if (key !== 'load') {
-    h.aU += c(cfg, `punchk_${punch}_${bodyLevel ? 'bodyAimU' : 'aimU'}`);
-    h.aL += c(cfg, `punchk_${punch}_${bodyLevel ? 'bodyAimL' : 'aimL'}`);
+    h.aU += c(cfg, punchkKey(punch, bodyLevel ? 'bodyAimU' : 'aimU'));
+    h.aL += c(cfg, punchkKey(punch, bodyLevel ? 'bodyAimL' : 'aimL'));
   }
   h.swivel += k('hSwivel') * D; h.pron += k('hPron') * D;
   // The BODY hook drops its elbow (punchk_hook*_bodySwivel / bodyContactU; 0 for the other punches).
   if (bodyLevel) {
-    h.swivel += c(cfg, `punchk_${punch}_bodySwivel`) * D;
-    if (key !== 'load') h.cU += c(cfg, `punchk_${punch}_bodyContactU`) * s;
+    h.swivel += c(cfg, punchkKey(punch, 'bodySwivel')) * D;
+    if (key !== 'load') h.cU += c(cfg, punchkKey(punch, 'bodyContactU')) * s;
   }
   const fp = r.foot[ip], fo = r.foot[ip === 0 ? 1 : 0];
   fp.stepF += k('fpStepF') * s; fp.stepL += k('fpStepL') * s; fp.pivot += sp * k('fpPivot') * D; fp.heel += k('fpHeel') * s;
@@ -137,13 +164,13 @@ export function punchKey(cfg: Config, body: BodyDims, stance: Stance, guard: RPo
   r.weight += k('weight') * dv;
   if (bodyLevel && key !== 'follow') {
     // The BODY version: the level is the knees (the pelvis drops), the waist bends no further than poseBodyFlexMax.
-    r.pelUp -= c(cfg, `punchk_${punch}_bodyDrop`) * s * (key === 'load' ? 0.7 : 1);
+    r.pelUp -= c(cfg, punchkKey(punch, 'bodyDrop')) * s * (key === 'load' ? 0.7 : 1);
     // …and the hand drops in the wind-up, so the drive comes in under his elbows, not down through his forearms
     // (from face height the body jab met his guard arms: a 'through' land at 0.69× — measured).
-    if (key === 'load') h.cU += c(cfg, `punchk_${punch}_bodyLoadU`) * s;
+    if (key === 'load') h.cU += c(cfg, punchkKey(punch, 'bodyLoadU')) * s;
   }
   if (bodyLevel) {
-    r.pelUp -= key === 'follow' ? c(cfg, `punchk_${punch}_bodyDrop`) * s : 0;
+    r.pelUp -= key === 'follow' ? c(cfg, punchkKey(punch, 'bodyDrop')) * s : 0;
     r.spFlex = Math.min(r.spFlex, cfg.poseBodyFlexMax * D);
   }
   return r;
@@ -184,7 +211,7 @@ export interface KeyedInput {
 export function driveWeights(cfg: Config, punch: PosePunch, u0: number, t: number, t1: number): Record<Group, number> {
   const span = Math.max(1e-6, t1 - u0);
   const g = (d: number, ease: (x: number) => number): number => ease(clamp01((t - u0 - d) / Math.max(1e-6, span - d)));
-  const dS = Math.min(span * 0.9, c(cfg, `punchk_${punch}_dSpine`)), dC = Math.min(span * 0.9, c(cfg, `punchk_${punch}_dShoulder`)), dH = Math.min(span * 0.9, c(cfg, `punchk_${punch}_dHand`));
+  const dS = Math.min(span * 0.9, c(cfg, punchkKey(punch, 'dSpine'))), dC = Math.min(span * 0.9, c(cfg, punchkKey(punch, 'dShoulder'))), dH = Math.min(span * 0.9, c(cfg, punchkKey(punch, 'dHand')));
   const pe = Math.max(1, cfg.poseHandEase);
   return { feet: g(0, smooth), pelvis: g(0, smooth), spine: g(dS, smooth), shoulder: g(dC, smooth), hand: g(dH, x => Math.pow(x, pe)) };
 }
@@ -197,26 +224,25 @@ export function keyedPose(inp: KeyedInput): RPose {
   const pp = posePunchOf(punch.type, punch.hand);
   const ck = punch.clock, e = punch.elapsed;
   const dv = punch.drive ?? 1;
-  const L = punchKey(cfg, body, stance, guard, pp, punch.hand, 'load', punch.bodyLevel, dv);
-  const C = punchKey(cfg, body, stance, guard, pp, punch.hand, 'contact', punch.bodyLevel, dv);
-  const F = punchKey(cfg, body, stance, guard, pp, punch.hand, 'follow', punch.bodyLevel, dv);
-  const tL = ck.cock * clamp01(c(cfg, `punchk_${pp}_loadAt`));
+  // Only the two keys this instant blends between are built (each one is about 40 config reads).
+  const keyAt = (key: 'load' | 'contact' | 'follow'): RPose => punchKey(cfg, body, stance, guard, pp, punch.hand, key, punch.bodyLevel, dv);
+  const tL = ck.cock * clamp01(c(cfg, punchkKey(pp, 'loadAt')));
   const tC = ck.cock + ck.extend;
-  const tF = tC + Math.max(ck.hold, c(cfg, `punchk_${pp}_followMin`)) * ck.recover;
+  const tF = tC + Math.max(ck.hold, c(cfg, punchkKey(pp, 'followMin'))) * ck.recover;
   const tE = ck.total;
-  if (e <= tL) return blend(guard, L, all(smooth(e / Math.max(1e-6, tL))));
+  if (e <= tL) return blend(guard, keyAt('load'), all(smooth(e / Math.max(1e-6, tL))));
   if (e <= tC) {
     const w = driveWeights(cfg, pp, tL, e, tC);
     // A hook's elbow lifts as the hips unwind (the pelvis group's clock), spread over the swing — on the hand's clock
     // it snapped up from the ribs in the last ticks.
-    return blend(L, C, w, punch.type === 'hook' && punch.hand === 'lead' ? w.pelvis : undefined);
+    return blend(keyAt('load'), keyAt('contact'), w, punch.type === 'hook' && punch.hand === 'lead' ? w.pelvis : undefined);
   }
-  if (e <= tF) return blend(C, F, all(smooth((e - tC) / Math.max(1e-6, tF - tC))));
+  if (e <= tF) return blend(keyAt('contact'), keyAt('follow'), all(smooth((e - tC) / Math.max(1e-6, tF - tC))));
   // Recovery: the hand is home in no more time than its drive took (ease-out); the body settles over the rest.
-  const handOut = Math.max(1e-6, tC - tL - Math.min((tC - tL) * 0.9, c(cfg, `punchk_${pp}_dHand`)));
+  const handOut = Math.max(1e-6, tC - tL - Math.min((tC - tL) * 0.9, c(cfg, punchkKey(pp, 'dHand'))));
   const wb = smooth((e - tF) / Math.max(1e-6, tE - tF));
   const uh = clamp01((e - tF) / Math.min(handOut, Math.max(1e-6, tE - tF)));
-  return blend(F, guard, { feet: wb, pelvis: wb, spine: wb, shoulder: wb, hand: 1 - (1 - uh) * (1 - uh) });
+  return blend(keyAt('follow'), guard, { feet: wb, pelvis: wb, spine: wb, shoulder: wb, hand: 1 - (1 - uh) * (1 - uh) });
 }
 
 // ── Applying a pose ─────────────────────────────────────────────────────────
