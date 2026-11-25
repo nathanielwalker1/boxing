@@ -5,28 +5,28 @@ Entries are the number of EXPOSED must-cover skin vertices (fail above 40). The 
 
 | pose | red (short) | boiler (classic) | raffle (belt) | alambre (long) | monsoon (skirt) | grandad (split) |
 |---|---:|---:|---:|---:|---:|---:|
-| guard (high) | 1 | 2 | 0 | 1 | 0 | 0 |
+| guard (high) | 1 | 1 | 2 | 1 | 0 | 0 |
 | block | 0 | 1 | 4 | 1 | 0 | 0 |
 | jab, full reach | 1 | 3 | 3 | 1 | 0 | 0 |
 | cross, full reach | 1 | 2 | 3 | 0 | 0 | 0 |
 | hook, lead, full | 1 | 5 | 2 | 0 | 0 | 0 |
-| hook, rear, full | 1 | 11 | 3 | 0 | 0 | 0 |
+| hook, rear, full | 1 | 13 | 3 | 0 | 0 | 0 |
 | uppercut, lead, full | 1 | 0 | 1 | 0 | 0 | 0 |
-| uppercut, rear, full | 1 | 6 | 2 | 0 | 0 | 0 |
-| deep crouch | 0 | 1 | 2 | 1 | 0 | 0 |
-| torso twisted | 0 | 1 | 2 | 1 | 0 | 1 |
-| arms overhead | 0 | 12 | 2 | 1 | 0 | 0 |
-| slip left | 1 | 3 | 6 | 2 | 0 | 0 |
-| slip right | 0 | 2 | 14 | 1 | 3 | 0 |
+| uppercut, rear, full | 0 | 6 | 2 | 0 | 0 | 0 |
+| deep crouch | 0 | 1 | 3 | 1 | 0 | 0 |
+| torso twisted | 0 | 1 | 2 | 1 | 0 | 0 |
+| arms overhead | 0 | 11 | 3 | 1 | 0 | 0 |
+| slip left | 1 | 1 | 7 | 1 | 0 | 0 |
+| slip right | 1 | 1 | 14 | 1 | 3 | 1 |
 | roll | 1 | 0 | 0 | 0 | 0 | 0 |
-| wide step | 0 | 1 | 1 | 1 | 1 | 1 |
-| mid-step | 0 | 3 | 2 | 0 | 3 | 0 |
-| knee (falling) | 1 | 1 | 1 | 2 | 0 | 0 |
-| on the back / prone | 6 | 13 | 34 | 45 | 13 | 9 |
-| down, arms out | 23 | 32 | 45 | 73 | 19 | 24 |
-| hands and knees | 17 | 32 | 43 | 40 | 24 | 12 |
-| seated | 8 | 7 | 2 | 51 | 0 | 0 |
-| getting up | 0 | 1 | 1 | 58 | 0 | 0 |
+| wide step | 0 | 0 | 1 | 1 | 4 | 0 |
+| mid-step | 0 | 1 | 2 | 0 | 1 | 1 |
+| knee (falling) | 1 | 1 | 0 | 6 | 0 | 0 |
+| on the back / prone | 6 | 16 | 27 | 46 | 8 | 10 |
+| down, arms out | 1 | 19 | 55 | 17 | 20 | 31 |
+| hands and knees | 23 | 39 | 44 | 20 | 24 | 12 |
+| seated | 8 | 7 | 1 | 54 | 0 | 0 |
+| getting up | 0 | 1 | 3 | 55 | 0 | 0 |
 | must-cover vertices | 871 | 831 | 974 | 987 | 853 | 859 |
 
-Worst: alambre (long) in "down, arms out": 73 vertices.
+Worst: raffle (belt) in "down, arms out": 55 vertices.
