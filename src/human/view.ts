@@ -1364,6 +1364,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
                   const [c1, c2] = segSegPts(qa === S ? qa : qa.clone().add(D), qb.clone().add(D), pa, pb);
                   // (a BLOCKED glove against the guard glove it rests on: the measured leather-to-leather distance, not two
                   //  stand-in radii and a margin — that put the gap back however the block was aimed)
+                  // (and once the block is scored the arm is left where the block put it, on his guard: measured 2026-11-25,
+                  //  a blocked uppercut was set 29 cm from his head on his glove, then moved out to 38 by its own forearm's
+                  //  clearance off his arms — the gap Nate saw)
+                  if (blockSkin > 0 && mineAct === 1 && out.ik?.arm === a && anim.conformInfo.resolved) continue;
                   const onGuard = blockSkin > 0 && mineAct === 1 && out.ik?.arm === a && qa === G && qb === G && pa === pb;
                   const d = c1.distanceTo(c2), need = (onGuard ? Math.min(qr + pr + mg, blockSkin) : qr + pr + mg) - d;
                   if (need <= 0 || d < 1e-5) continue;

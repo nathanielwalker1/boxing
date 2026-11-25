@@ -53,8 +53,11 @@ await page.addInitScript(() => {
         window.__evN = (window.__evN | 0) + 1;
         if ((e.type !== 'punchLand' && e.type !== 'punchBlock' && e.type !== 'perfectBlock') || e.side !== s) continue;
         const leadL = P[s].gloves.lead[0] === P[s].gloves.left[0];
-        const g = (e.hand === 'lead') === leadL ? 'L' : 'R';
-        const rec = { f, s, g, punch: e.punch, part: e.part === 'head' ? 'head' : 'torso', land: e.type === 'punchLand', v: e.type === 'punchLand' ? 0 : 1e9, at: 0, n: 0, tl: P[1 - s].label, row: [] };
+        // (a block event carries no hand: the sim's punch in flight has it. Without this every blocked LEAD punch was
+        //  measured on the rear glove, at home 30-50 cm away)
+        const hand = e.hand ?? window.__sim.state().fighters[s].punch.hand;
+        const g = (hand === 'lead') === leadL ? 'L' : 'R';
+        const rec = { f, s, g, hand: e.hand, punch: e.punch, part: e.part === 'head' ? 'head' : 'torso', land: e.type === 'punchLand', v: e.type === 'punchLand' ? 0 : 1e9, at: 0, n: 0, tl: P[1 - s].label, row: [] };
         open.push(rec); (rec.land ? lands : blocks).push(rec);
       }
       for (const r of open) {
@@ -68,7 +71,12 @@ await page.addInitScript(() => {
               + ` || ${window.__depthDbg} || target's ${r.part} centre moved ${(Math.hypot(...hc.map((v, k) => v - prevC[1 - r.s][r.part][k])) * 100).toFixed(1)} cm this frame, puncher ${P[r.s].label}`;
           }
         }
-        else { const d = Math.min(window.__minGap(G, o.L), window.__minGap(G, o.R)); if (d < r.v) { r.v = d; r.at = r.n; } }
+        else {
+          const d = Math.min(window.__minGap(G, o.L), window.__minGap(G, o.R)); if (d < r.v) { r.v = d; r.at = r.n; }
+          // (argv[4] = blockshots: stop on the 3rd frame of a block still over 8 cm from his gloves, for a picture)
+          if (window.__shootBlock && r.n === 2 && r.v > 0.08 && !r.shot) { r.shot = true; r.n++; const gp = P[r.s].gloves[r.g === 'L' ? 'left' : 'right'], hc = cen(o.head), tc = cen(o.torso);
+            return { lands, blocks, stop: `side ${r.s} ${r.punch} -> ${r.part} BLOCKED, glove ${(r.v * 100).toFixed(0)} cm from his nearer glove; glove point to his head centre ${(Math.hypot(...gp.map((v, k) => v - hc[k])) * 100).toFixed(0)} cm, to his torso centre ${(Math.hypot(...gp.map((v, k) => v - tc[k])) * 100).toFixed(0)} cm; layers ${(window.__humanStages[r.s] ?? []).map(([n, L, R]) => `${n} ${(Math.hypot(...(r.g === 'L' ? L : R).map((v, k) => v - hc[k])) * 100).toFixed(0)}`).join(', ')}; puncher ${P[r.s].label}, target ${P[1 - r.s].label}; SIM: apart ${(Math.hypot(window.__sim.state().fighters[0].pos.x - window.__sim.state().fighters[1].pos.x, window.__sim.state().fighters[0].pos.z - window.__sim.state().fighters[1].pos.z) * 100).toFixed(0)} cm, punch ${JSON.stringify((({ type, hand, phase, resolved, contact, variant }) => ({ type, hand, phase, resolved, variant, contact: contact && [contact.x, contact.y, contact.z].map(v => +v.toFixed(2)) }))(window.__sim.state().fighters[r.s].punch))}, glove point ${gp.map(v => +v.toFixed(2))}, his gloves ${JSON.stringify([P[1 - r.s].gloves.left, P[1 - r.s].gloves.right].map(a => a.map(v => +v.toFixed(2))))}, event hand ${r.hand}` }; }
+        }
         r.n++;
       }
       for (let i = open.length - 1; i >= 0; i--) if (open[i].n >= (open[i].land ? 24 : 10)) open.splice(i, 1);
@@ -105,11 +113,11 @@ await page.evaluate(async CFG => {
 }, CFG);
 // throwaway frames, stepped from here until the sim is really running (the flow's own timers need real time to pass)
 for (let i = 0; i < 200; i++) { const tk = await page.evaluate(() => { window.__stepFrames(2, 1000 / 60); return window.__tick.simTicks; }); if (tk > 60) break; }
-if (process.argv[4] === 'shots') {
-  await page.evaluate(() => { window.__shootDeep = true; });
+if (process.argv[4] === 'shots' || process.argv[4] === 'blockshots') {
+  await page.evaluate(b => { if (b) window.__shootBlock = true; else window.__shootDeep = true; }, process.argv[4] === 'blockshots');
   for (let k = 0; k < 4; k++) {
     const r = await page.evaluate(n => window.__run(n), 900);
-    if (!r.stop) break;
+    if (!r.stop) continue;
     await page.screenshot({ path: new URL(`./output/deep_${k}.png`, import.meta.url).pathname });
     console.log(`deep_${k}.png: ${r.stop}`);
   }
