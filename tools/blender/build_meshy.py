@@ -768,7 +768,8 @@ ch[0] = ch[0] * np.clip((cutb + 0.002 - zb) / 0.004, 0, 1)
 ch[3] = np.maximum(ch[3], _c0 - ch[0])          # what the cut took from the trunks is skin
 # boots: the shaft above SOCK_Z becomes a short white sock band (boxing boots read low and matte, not tall and shiny)
 SOCK_Z = 0.19
-zrb = bleed(zr, 6)
+zrb = bleed(zr, 6)               # smoothed: the raw per-texel height is a triangle sawtooth, which made the band edge jagged
+for _ in range(3): zrb = box(zrb, 2)   # three box passes (= blur(.., 3, 2)); blur() is defined further down, so inline here
 sock = ch[2] * sm(SOCK_Z - 0.006, SOCK_Z + 0.006, zrb)
 ch[2] = ch[2] - sock
 mask = np.ones((N1, N1, 4), dtype=np.float32)
