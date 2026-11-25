@@ -362,7 +362,8 @@ export class HumanAnim {
         //  by what the take's contact frame overshoots the target, from the punch's start. Only the closed loop took it
         //  back before, in the last ticks: the jab take steps 32 cm in, the men stand closer than that, and with the step
         //  cancelled the arm was still pulled back a median 13 cm, up to 68, on the hit frame)
-        const back = (p.type === 'jab' || p.type === 'cross') && kind === 'land' ? cfg.humanShiftBack : 0;
+        // (the jab has its own, larger cap, humanShiftBackJab: its take steps 32 cm in; at that cap the cross's tail got worse)
+        const back = kind !== 'land' ? 0 : p.type === 'jab' ? cfg.humanShiftBackJab : p.type === 'cross' ? cfg.humanShiftBack : 0;
         exF = clamp(dC, -back, cfg.humanShiftFwd) * cfg.humanShiftPredict - L;
         wL = (u <= peak ? smooth(u / Math.max(1e-6, peak)) :1 - smooth((u - out0) / Math.max(1e-6, 1 - out0))) * this.ocKindW;
       }
@@ -380,7 +381,9 @@ export class HumanAnim {
         // arm was bent across to make it up. That angle, seen from his own spot, is turned out by the WHOLE body on the
         // whole-punch envelope, so the take flies on its own line. (Tried first with the figures of the wrong body —
         // see mocapGeoDrawnBody — and it overshot, 9 cm one way to 12 the other. Hooks and uppercuts: not yet.)
-        if (cfg.humanPunchTurn > 0 && (p.type === 'cross' || p.type === 'jab') && kind === 'land') {
+        // (the hook too, 2026-11-25: its sideways pull went a median 20 cm to 15. NOT the uppercut: its sideways pull
+        //  went 11 to 6 but two of six landed deeper, 5 and 6.8 cm inside the head, was 1.5)
+        if (cfg.humanPunchTurn > 0 && p.type !== 'uppercut' && kind === 'land') {
           const cap = cfg.humanPunchTurn * Math.PI / 180;
           turn = clamp(Math.atan2(tL, Math.max(0.3, tF)) - Math.atan2(-CG2.x, Math.max(0.3, CG2.z)), -cap, cap) * wL;
         }
