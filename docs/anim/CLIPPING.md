@@ -5,28 +5,28 @@ Entries are the number of EXPOSED must-cover skin vertices (fail above 40). The 
 
 | pose | red (short) | boiler (classic) | raffle (belt) | alambre (long) | monsoon (skirt) | grandad (split) |
 |---|---:|---:|---:|---:|---:|---:|
-| guard (high) | 0 | 2 | 1 | 1 | 0 | 0 |
-| block | 0 | 2 | 4 | 1 | 0 | 0 |
-| jab, full reach | 1 | 3 | 2 | 1 | 0 | 0 |
-| cross, full reach | 1 | 1 | 3 | 0 | 0 | 0 |
-| hook, lead, full | 1 | 0 | 2 | 0 | 0 | 0 |
-| hook, rear, full | 1 | 2 | 3 | 0 | 0 | 0 |
+| guard (high) | 0 | 1 | 2 | 1 | 0 | 0 |
+| block | 0 | 1 | 2 | 1 | 0 | 0 |
+| jab, full reach | 1 | 3 | 6 | 1 | 0 | 0 |
+| cross, full reach | 1 | 2 | 3 | 0 | 0 | 0 |
+| hook, lead, full | 1 | 5 | 3 | 0 | 0 | 0 |
+| hook, rear, full | 1 | 13 | 4 | 0 | 0 | 0 |
 | uppercut, lead, full | 1 | 0 | 1 | 0 | 0 | 0 |
-| uppercut, rear, full | 1 | 2 | 2 | 0 | 0 | 0 |
-| deep crouch | 1 | 2 | 2 | 1 | 0 | 0 |
-| torso twisted | 0 | 1 | 2 | 1 | 0 | 1 |
-| arms overhead | 1 | 14 | 0 | 1 | 0 | 0 |
-| slip left | 0 | 2 | 7 | 2 | 0 | 0 |
-| slip right | 0 | 3 | 14 | 1 | 3 | 0 |
-| roll | 0 | 2 | 1 | 2 | 0 | 0 |
-| wide step | 0 | 1 | 3 | 2 | 1 | 1 |
-| mid-step | 1 | 1 | 2 | 0 | 3 | 0 |
-| knee (falling) | 1 | 1 | 0 | 0 | 0 | 0 |
-| on the back / prone | 10 | 10 | 27 | 42 | 8 | 11 |
-| down, arms out | 24 | 31 | 54 | 115 | 23 | 28 |
-| hands and knees | 23 | 23 | 53 | 60 | 23 | 18 |
-| seated | 10 | 2 | 2 | 47 | 1 | 0 |
-| getting up | 0 | 2 | 0 | 59 | 0 | 0 |
+| uppercut, rear, full | 1 | 6 | 2 | 0 | 0 | 0 |
+| deep crouch | 0 | 1 | 2 | 1 | 0 | 0 |
+| torso twisted | 0 | 1 | 4 | 1 | 0 | 0 |
+| arms overhead | 0 | 12 | 0 | 1 | 0 | 0 |
+| slip left | 0 | 2 | 5 | 2 | 0 | 0 |
+| slip right | 0 | 3 | 20 | 1 | 3 | 0 |
+| roll | 0 | 2 | 0 | 1 | 0 | 0 |
+| wide step | 0 | 1 | 1 | 2 | 1 | 0 |
+| mid-step | 0 | 1 | 3 | 1 | 2 | 0 |
+| knee (falling) | 1 | 1 | 1 | 0 | 0 | 0 |
+| on the back / prone | 6 | 11 | 31 | 48 | 8 | 9 |
+| down, arms out | 21 | 38 | 50 | 98 | 22 | 27 |
+| hands and knees | 19 | 32 | 49 | 79 | 24 | 13 |
+| seated | 8 | 7 | 2 | 44 | 0 | 0 |
+| getting up | 0 | 1 | 1 | 52 | 0 | 0 |
 | must-cover vertices | 871 | 831 | 974 | 987 | 853 | 859 |
 
-Worst: alambre (long) in "down, arms out": 115 vertices.
+Worst: alambre (long) in "down, arms out": 98 vertices.

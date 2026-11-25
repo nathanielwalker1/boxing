@@ -53,7 +53,7 @@ const drawnBodies: (DrawnBody | null)[] = [null, null];
 
 /** Load the body and the clips once. Resolves to false (and logs) if anything is missing. */
 /** cfg.humanBodyFile: which body glb the human fighters wear (read once, at preload). */
-export const HUMAN_BODY_FILES = ['boxer_v2.glb', 'boxer_m1.glb', 'boxer_m2.glb'] as const;
+export const HUMAN_BODY_FILES = ['boxer_v2.glb', 'boxer_m1.glb', 'boxer_m2.glb', 'boxer_m3.glb', 'boxer_m4.glb', 'boxer_m5.glb'] as const;
 
 export async function preloadHuman(bodyFile = 2): Promise<boolean> {
   if (assets) return true;

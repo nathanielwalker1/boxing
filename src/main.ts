@@ -101,7 +101,7 @@ if (params.get('human') === '1') cfg.humanBody = true;
 // which body (0 v2, 1 m1, 2 m2): ?body=N, or the dev server's VITE_BODY (so a second server on the same code runs the
 // whole browser suite on another body, for the m1-vs-m2 A/B)
 const bodyParam = params.get('body') ?? (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_BODY;
-if (bodyParam !== undefined && bodyParam !== null && /^[0-2]$/.test(bodyParam)) cfg.humanBodyFile = Number(bodyParam);
+if (bodyParam !== undefined && bodyParam !== null && /^[0-5]$/.test(bodyParam)) cfg.humanBodyFile = Number(bodyParam);
 if (cfg.humanBody && !(await preloadHuman(cfg.humanBodyFile))) cfg.humanBody = false;
 applyHumanMode(cfg);   // (core/humanMode.ts: does nothing unless cfg.humanBody)
 if (cfg.humanBody) cfg.mocapGeo = await loadMocapGeo();   // the sim's punching glove = the drawn mocap glove (core/mocap.ts)
