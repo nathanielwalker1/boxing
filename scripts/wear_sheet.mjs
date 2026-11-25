@@ -38,19 +38,22 @@ for (let i = 0; i < 4; i++) {
 }
 const cells = [];
 for (let f = 0; f < FIGHTERS; f++) {
-  await frames(page, 150);
+  // (the turntable shows a new fighter from the FRONT and then turns: shoot as soon as his arms are down)
+  if (f === 0) { await page.keyboard.press('ArrowRight'); await frames(page, 30); await page.keyboard.press('ArrowLeft'); }
+  if (cells.length) await page.waitForFunction(last => window.__flow.state().shown !== last, cells[cells.length - 1].name, { timeout: 15000 });
+  await frames(page, 45);
   const name = await page.evaluate(() => window.__flow.state().shown);
   let landed = 0;
   for (const n of STAGES) {
     const state = await page.evaluate(([from, to, stream]) => {
       const w = window.__humanWear[0];
       if (from === 0) w.reset();
-      for (let i = from; i < to; i++) { const s = stream[i % stream.length]; w.hit(s[0], s[1], s[2], s[3]); }
+      for (let i = from; i < to; i++) { const s = stream[i % stream.length]; w.hit(s[0], s[1], s[2], s[3]); w.age(1.5); }   // (about 1.5 s of fight a landed head punch: 115 of them in 180 s)
       return w.state();
     }, [landed, n, STREAM]);
     landed = n;
     await frames(page, 3);
-    const png = await page.screenshot({ clip: { x: 470, y: 30, width: 115, height: 115 } });
+    const png = await page.screenshot({ clip: { x: 440, y: 20, width: 150, height: 150 } });
     cells.push({ name, n, state, src: `data:image/png;base64,${png.toString('base64')}` });
     console.log(`${name} after ${n}: spots ${state.dmg.join(' ')}  cut ${state.cut < 0 ? 'none' : state.cut === 0 ? 'left brow' : 'right brow'}`);
   }

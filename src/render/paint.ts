@@ -207,12 +207,15 @@ function kitMaskFor(bodyFile: number): { value: THREE.Texture | null } {
 export interface FaceWear {
   uDmgPos: { value: THREE.Vector3[] }; uDmg: { value: number[] }; uDmgR: { value: number }; /** each spot's size against uDmgR */ uDmgSize: { value: number[] };
   uCut: { value: THREE.Vector4 }; uCutDir: { value: THREE.Vector3 };
+  /** Down the face in the mesh's rest space, and how far the blood has run from the cut, 0..1. */
+  uCutDown: { value: THREE.Vector3 }; uCutDrip: { value: number };
 }
 export const FACE_SPOTS = 6;
 export function makeFaceWear(): FaceWear {
   return {
     uDmgPos: { value: Array.from({ length: FACE_SPOTS }, () => new THREE.Vector3()) }, uDmg: { value: new Array<number>(FACE_SPOTS).fill(0) }, uDmgR: { value: 1 }, uDmgSize: { value: new Array<number>(FACE_SPOTS).fill(1) },
     uCut: { value: new THREE.Vector4(0, 0, 0, 0) }, uCutDir: { value: new THREE.Vector3(1, 0, 0) },
+    uCutDown: { value: new THREE.Vector3(0, -1, 0) }, uCutDrip: { value: 0 },
   };
 }
 const NO_WEAR = makeFaceWear();
@@ -234,7 +237,7 @@ function paintFighterMaterial(mat: THREE.Material, kitAll: number, maskU: { valu
         uniform float uBandOn, uDesatOn, uBandMix, uMaskDbg, uRimStr, uRimPow;
         uniform vec3 uLitCol, uShadeCol, uRimCol;
         uniform sampler2D uKitMask;
-        uniform vec3 uDmgPos[${FACE_SPOTS}]; uniform float uDmg[${FACE_SPOTS}]; uniform float uDmgSize[${FACE_SPOTS}]; uniform float uDmgR; uniform vec4 uCut; uniform vec3 uCutDir;
+        uniform vec3 uDmgPos[${FACE_SPOTS}]; uniform float uDmg[${FACE_SPOTS}]; uniform float uDmgSize[${FACE_SPOTS}]; uniform float uDmgR; uniform vec4 uCut; uniform vec3 uCutDir; uniform vec3 uCutDown; uniform float uCutDrip;
         varying vec3 vBindP;
         ${LUMA}
         void main() {`)
@@ -272,9 +275,17 @@ function paintFighterMaterial(mat: THREE.Material, kitAll: number, maskU: { valu
           vec3 sore = mix(col * vec3(1.3, 0.6, 0.58), col * vec3(0.55, 0.36, 0.58), smoothstep(0.45, 1.0, dm));
           col = mix(col, sore, clamp(dm * 1.5, 0.0, 1.0) * (1.0 - kit));
           vec3 dc = vBindP - uCut.xyz;
+          // (measured ACROSS the face, not through it: the brow stands proud of the eye socket, a 3D distance broke the line)
           float along = dot(dc, uCutDir);
-          float cutM = uCut.w * (1.0 - smoothstep(0.035 * uDmgR, 0.07 * uDmgR, length(dc - along * uCutDir))) * (1.0 - smoothstep(0.3 * uDmgR, 0.42 * uDmgR, abs(along)));
-          col = mix(col, vec3(0.3, 0.015, 0.02), cutM * (1.0 - kit));
+          float dn = dot(dc, uCutDown);
+          vec3 cSide = normalize(uCutDir - uCutDown * dot(uCutDir, uCutDown));
+          float nearFace = 1.0 - smoothstep(uDmgR, 1.4 * uDmgR, abs(dot(dc, cross(cSide, uCutDown))));
+          // (a 2.5 cm nick, 3 mm wide: at 5 cm by 7 mm it read as a stripe of war paint)
+          float cutM = (1.0 - smoothstep(0.03 * uDmgR, 0.055 * uDmgR, abs(dn - 0.25 * along))) * (1.0 - smoothstep(0.16 * uDmgR, 0.22 * uDmgR, abs(along)));
+          // the blood runs down from it, further as uCutDrip grows, thinning toward its end
+          float dripLen = max(1e-4, uCutDrip * 1.7 * uDmgR);
+          float dripM = step(1e-3, uCutDrip) * step(0.0, dn) * (1.0 - smoothstep(0.6 * dripLen, dripLen, dn)) * (1.0 - smoothstep(0.018 * uDmgR, 0.04 * uDmgR, abs(dot(dc, cSide))));
+          col = mix(col, vec3(0.4, 0.015, 0.025), uCut.w * nearFace * max(cutM, 0.8 * dripM) * (1.0 - kit));
           outgoingLight = col;
           if (uMaskDbg > 0.5) outgoingLight = kit > 0.5 ? vec3(1.0, 0.0, 0.0) : (bootM > 0.5 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0));
         }

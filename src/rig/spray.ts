@@ -30,9 +30,10 @@ export class Spray {
   private dir = new THREE.Vector3();
   private static readonly UP = new THREE.Vector3(0, 1, 0);
 
-  constructor(parent: THREE.Object3D) {
+  /** `color` / `emissive`: sweat by default; human/view.ts makes a second, red one for blood off a cut man. */
+  constructor(parent: THREE.Object3D, color = 0xeef4fa, emissive = 0x8fa3b8) {
     const geo = new THREE.IcosahedronGeometry(1, 0);
-    const mat = new THREE.MeshPhongMaterial({ color: 0xeef4fa, emissive: 0x8fa3b8, emissiveIntensity: 0.9, specular: 0xffffff, shininess: 120, transparent: true, opacity: 0.92, depthWrite: false });
+    const mat = new THREE.MeshPhongMaterial({ color, emissive, emissiveIntensity: 0.9, specular: 0xffffff, shininess: 120, transparent: true, opacity: 0.92, depthWrite: false });
     this.mesh = new THREE.InstancedMesh(geo, mat, MAX);
     this.mesh.name = 'sweatSpray';
     this.mesh.frustumCulled = false;
