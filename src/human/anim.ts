@@ -358,7 +358,12 @@ export class HumanAnim {
         const dC = tF + L - CG2.z;
         // (the body carries the punch there first, as a step; the arm correction only closes what is left)
         // (only a forward step is predicted from the clip; the closed loop, feedReach, does the rest from the drawn glove)
-        exF = clamp(dC, 0, cfg.humanShiftFwd) * cfg.humanShiftPredict - L;
+        // (humanShiftBack, predicted too for a landing jab / cross thrown from INSIDE the take's reach: the hips sit BACK
+        //  by what the take's contact frame overshoots the target, from the punch's start. Only the closed loop took it
+        //  back before, in the last ticks: the jab take steps 32 cm in, the men stand closer than that, and with the step
+        //  cancelled the arm was still pulled back a median 13 cm, up to 68, on the hit frame)
+        const back = (p.type === 'jab' || p.type === 'cross') && kind === 'land' ? cfg.humanShiftBack : 0;
+        exF = clamp(dC, -back, cfg.humanShiftFwd) * cfg.humanShiftPredict - L;
         wL = (u <= peak ? smooth(u / Math.max(1e-6, peak)) :1 - smooth((u - out0) / Math.max(1e-6, 1 - out0))) * this.ocKindW;
       }
       const Ln = cfg.humanInertia ? (L + exF) * wL : L + exF * wL;
