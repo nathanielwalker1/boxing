@@ -213,7 +213,8 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     pressWeight: 8, probeWeight: 1, circleWeight: 0.5, holdWeight: 0.5,
     jabWeight: 4, crossWeight: 3, hookWeight: 3, uppercutWeight: 1, bodyRate: 0.3,
     attackDelayMin: 0.55, attackDelayMax: 1.2, comboChance: 0.7, comboMax: 3,
-    combos: [[J, X], [J, J, X], [J, X, LH], [bJ, X], [X, LH, X]], comboSignature: 0.75,
+    // (audit P6, 2026-11-24: no signature had an uppercut, and signatures are half of what he throws. One of five does now.)
+    combos: [[J, X], [J, J, X], [J, X, LH], [bJ, X], [J, RU, LH]], comboSignature: 0.75,
     resetChance: 0.1, hitResetChance: 0.15, burstChance: 0.1, feintChance: 0.08,
     blockChance: 0.5, slipShare: 0.15, rollShare: 0.2, counterChance: 0.5,
     giveGroundChance: 0.15, chaseDelay: 0.15,
@@ -283,7 +284,9 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     //  approachSlip 1.6 -> 0.6, readChance 0.5 -> 0.3; and with jabs now in his work the clock is a little slower.)
     // (pace: he threw 65 a minute against about 50 for every other style; insideTempo 2.5 -> 1.8, comboChance 0.85 -> 0.7)
     attackDelayMin: 0.55, attackDelayMax: 1.1, comboChance: 0.7, comboMax: 3,
-    combos: [[J, bLH, RH], [J, X, LH], [J, J, bRH], [bLH, LH, X], [X, LH]], comboSignature: 0.7,
+    // (audit P6, 2026-11-24: "short hooks and uppercuts in bunches" and not one uppercut in a signature. Two of five now:
+    //  body hook - uppercut - hook, and the uppercut behind the jab; the two that led with or doubled the hook are gone.)
+    combos: [[J, bLH, RH], [J, X, LH], [J, J, bRH], [bLH, RU, LH], [J, LU, X]], comboSignature: 0.7,
     resetChance: 0, hitResetChance: 0.05, burstChance: 0, feintChance: 0.05,
     blockChance: 0.45, slipShare: 0.15, rollShare: 0.3, counterChance: 0.25,
     giveGroundChance: 0, chaseDelay: 0.05,
@@ -303,7 +306,7 @@ const STYLE_OVERRIDES: Record<AiStyle, Partial<StyleParams>> = {
     pressWeight: 6, probeWeight: 2, circleWeight: 0.5, holdWeight: 1,
     jabWeight: 1.5, crossWeight: 4, hookWeight: 4, uppercutWeight: 2.5, bodyRate: 0.15,
     attackDelayMin: 0.55, attackDelayMax: 1.15, comboChance: 0.45, comboMax: 2,
-    combos: [[X, LH], [LH, X], [J, X]], comboSignature: 0.7,
+    combos: [[X, LH], [LH, X], [J, X], [RU, LH]], comboSignature: 0.7,   // (audit P6: the uppercut - hook added)
     resetChance: 0.15, hitResetChance: 0.1, burstChance: 0, feintChance: 0.02,
     blockChance: 0.25, slipShare: 0.1, rollShare: 0.1, counterChance: 0.7,
     giveGroundChance: 0.1, chaseDelay: 0.3,

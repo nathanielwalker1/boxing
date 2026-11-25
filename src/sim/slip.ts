@@ -148,7 +148,8 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
       // who taps to the side, or one moving sideways who taps back, starts the evade on that tap: without it the push
       // "began" only from a still stick, and a player on the move could never slip (Nate 2026-11-20: three rounds,
       // "could not slip a single punch"). Going forward is never an evade, and the shared clock stops it being spammed.
-      if (cfg.evadeV2 && cfg.evadeHeldTap && p.t > 0) {
+      // (input.walk: the AI's steer. Its pushes are footwork; the evades it chooses come as macros without the flag.)
+      if (cfg.evadeV2 && cfg.evadeHeldTap && p.t > 0 && !input.walk) {
         const now = Math.abs(mx) >= Math.abs(my) ? ((mx > 0 ? 1 : -1) * handLateralSign('rear', f.stance)) : my < 0 ? 2 : 3;
         if (now !== p.dir && now !== 3 && (evadeCd(f) <= 0 || leanFromDuck(f, now, input, cfg))) p.t = 0;
         // (back to plain FORWARD after a side tap: the push is forward again. Left as the old side direction, the next
@@ -166,7 +167,7 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
         // evadeV2: THE EVADE STARTS ON THE PUSH, not on its release (measured 2026-11-19: waiting for the release left
         // 200 ms from the other man's press to beat a jab, under human reaction time). A push that turns out to be held
         // is footwork that began with the head going that way; the shared clock (evadeCooldown) stops it being spammed.
-        if (cfg.evadeV2 && (!input.block || cfg.evadeFromBlock) && p.dir !== 3 && (evadeCd(f) <= 0 || leanFromDuck(f, p.dir, input, cfg)) && !(punchMask(input) & ~prevPunchMask(f))) flick(f, side, p.dir, input, cfg, events, req);
+        if (cfg.evadeV2 && !input.walk && (!input.block || cfg.evadeFromBlock) && p.dir !== 3 && (evadeCd(f) <= 0 || leanFromDuck(f, p.dir, input, cfg)) && !(punchMask(input) & ~prevPunchMask(f))) flick(f, side, p.dir, input, cfg, events, req);
       }
       p.t += dt;
       if (p.t > cfg.slipFlickMax) p.hold = true;   // outlived the flick window: footwork

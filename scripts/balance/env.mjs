@@ -44,6 +44,7 @@ const blank = () => ({
   vsOk: { land: 0, block: 0, miss: 0 },
   stamSum: 0, stamMin: 1, ticks: 0, stamEnd: 0, healthEnd: 0, distSum: 0, away: 0, blockTicks: 0,
   stamAtRoundEnd: [],
+  dodgeKinds: {}, counterAfter: {}, counterDmg: 0,   // which evade dodged (slip / roll / duck / lean / pull = made to miss by range), which one each counter followed, health the counters took
 });
 
 function specFor(env, p) {
@@ -89,7 +90,7 @@ export function fight(env, p0, p1, seed, cfgOver = null) {
   let s = sim.createState(specs, cfg, seed);
   const drv = [driver(env, cfg, p0, 0, seed, specs[0]), driver(env, cfg, p1, 1, seed, specs[1])];
   const stats = [blank(), blank()];
-  const rockedOpen = [false, false];
+  const rockedOpen = [false, false], lastDodge = [null, null];
   const maxTicks = 60 * (cfg.roundCount * (cfg.roundSeconds + cfg.betweenRoundSeconds + 40)) + 600;
   let winner = null, method = 'none', t = 0, firstRocked = null;   // firstRocked: the side that was rocked first (the comeback rate)
   for (; t < maxTicks; t++) {
@@ -115,7 +116,7 @@ export function fight(env, p0, p1, seed, cfgOver = null) {
           const q = stats[e.side], pp = q.p[e.punch], body = e.part !== 'head';
           const dmg = Math.max(0, preHealth[e.target] - s.fighters[e.target].health);
           if (body) { pp.landBody++; pp.powBody += e.power; pp.dmgBody += dmg; } else { pp.landHead++; pp.powHead += e.power; pp.dmgHead += dmg; }
-          if (e.counter) q.counters++;
+          if (e.counter) { q.counters++; const k = lastDodge[e.side] || 'none'; q.counterAfter[k] = (q.counterAfter[k] || 0) + 1; q.counterDmg += dmg; }
           if (q.grades[e.grade] !== undefined) q.grades[e.grade]++;
           (preHurt[e.target] ? q.vsHurt : q.vsOk).land++;
           break;
@@ -127,7 +128,7 @@ export function fight(env, p0, p1, seed, cfgOver = null) {
           (preHurt[1 - e.side] ? stats[e.side].vsHurt : stats[e.side].vsOk).miss++;
           break;
         }
-        case 'slip': if (e.dodged) stats[e.side].slipsDodged++; break;
+        case 'slip': if (e.dodged) { const q = stats[e.side]; q.slipsDodged++; const k = e.kind === 'pull' && e.chain === 0 ? 'range' : e.kind || 'slip' + (e.dir ?? ''); /* 'range' = made to miss by range (no evade pressed) */ q.dodgeKinds[k] = (q.dodgeKinds[k] || 0) + 1; lastDodge[e.side] = k; } break;
         case 'feint': stats[e.side].feints++; break;
         case 'rocked': stats[e.by].rockedGiven++; rockedOpen[e.side] = true; if (firstRocked === null) firstRocked = e.side; break;
         case 'bodyHurt': stats[e.by].bodyHurtGiven++; break;

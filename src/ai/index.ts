@@ -78,13 +78,19 @@ import { defaultStyle, type ComboStep, type StyleParams } from './style';
 const MOCAP_STYLE = new WeakMap<StyleParams, { s: number; st: StyleParams }>();
 function mocapStyle(st: StyleParams, cfg: Config): StyleParams {
   // (outcome first: the engage distances are the bands' far ends — sim/outcome.ts — less a margin, so what he commits lands)
-  const oc = cfg.mocapOutcome, s = cfg.mocapRangeScale, key = oc ? -(cfg.mocapFarCross + cfg.mocapFarLeadHook * 3 + cfg.mocapFarLeadUpper * 7 + cfg.mocapFarRearHook * 11 + cfg.mocapFarRearUpper * 13) : s, hit = MOCAP_STYLE.get(st);
+  // (audit P6, 2026-11-24: the uppercut's distance. MEASURED: no style threw one uppercut in 400 fights. It was armed 5-8% of the
+  //  time and never pressed: it committed inside the short lead clip's far end (0.82 x 0.95 x the body = 0.63 m) and two men are
+  //  never closer than 0.79. The rules already carry the lead uppercut as far as the rear one (iqLoadedCounter, iqLeadUpperReach),
+  //  so the far end is that one; and it stays an inside punch: never committed from further out than the hook.)
+  const leadUpper = cfg.iqLoadedCounter ? Math.max(cfg.mocapFarLeadUpper, cfg.iqLeadUpperReach) : cfg.mocapFarLeadUpper;
+  const hookFar = Math.min(cfg.mocapFarLeadHook, cfg.mocapFarRearHook);
+  const oc = cfg.mocapOutcome, s = cfg.mocapRangeScale, key = oc ? -(cfg.mocapFarCross + cfg.mocapFarLeadHook * 3 + leadUpper * 7 + cfg.mocapFarRearHook * 11 + cfg.mocapFarRearUpper * 13) : s, hit = MOCAP_STYLE.get(st);
   if (hit && hit.s === key) return hit.st;
   const k = 0.95;
   const out: StyleParams = { ...st, standoff: st.standoff * s, standoffBand: st.standoffBand * s, probeDist: st.probeDist * s, resetDist: st.resetDist * s,
     engageStraight: oc ? cfg.mocapFarCross * k : st.engageStraight * s,
-    engageHook: oc ? Math.min(cfg.mocapFarLeadHook, cfg.mocapFarRearHook) * k : st.engageHook * s,
-    engageUppercut: oc ? Math.min(cfg.mocapFarLeadUpper, cfg.mocapFarRearUpper) * k : st.engageUppercut * s };
+    engageHook: oc ? hookFar * k : st.engageHook * s,
+    engageUppercut: oc ? Math.min(leadUpper, cfg.mocapFarRearUpper, hookFar) * k : st.engageUppercut * s };
   MOCAP_STYLE.set(st, { s: key, st: out });
   return out;
 }
@@ -1127,6 +1133,11 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai:
     else if (a.stickT > 0 && a.stickT <= cfg.slipFlickMax + SIM_DT) { input.move.x = a.holdX; input.move.y = a.holdY; }
   }
   trackStick(a, input, dt, cfg, pressed, true);
+  // The steer's stick is footwork (audit 2026-11-24). With evadeV2 an evade starts on the PUSH, so every time the steer began
+  // to back up or circle the sim read a lean back or a slip: MEASURED in one medium fight, 92 evades started for the pressure
+  // style against the 2 it chose, 67 against 13 for the counter style, and a quarter of them dodged a punch and opened the
+  // counter window (counters were a third of all lands and half of all damage). Its chosen evades are macros (above).
+  input.walk = true;
   // Never the clinch by accident: level and block together are a macro's.
   if (input.block) input.level = false;
   // …except the knee: block + level held, standing still, until the sim puts it down (in clinch range the same hold ties up).
