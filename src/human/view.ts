@@ -53,7 +53,7 @@ const drawnBodies: (DrawnBody | null)[] = [null, null];
 
 /** Load the body and the clips once. Resolves to false (and logs) if anything is missing. */
 /** cfg.humanBodyFile: which body glb the human fighters wear (read once, at preload). */
-export const HUMAN_BODY_FILES = ['boxer_v2.glb', 'boxer_m1.glb', 'boxer_m2.glb'] as const;
+export const HUMAN_BODY_FILES = ['boxer_v2.glb', 'boxer_m1.glb', 'boxer_m2.glb', 'boxer_m3.glb', 'boxer_m4.glb', 'boxer_m5.glb'] as const;
 
 export async function preloadHuman(bodyFile = 2): Promise<boolean> {
   if (assets) return true;
@@ -175,7 +175,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   if (!assets) throw new Error('createHumanView: call preloadHuman() first');
   const { boxer, lib, roles, index } = assets;
   const tone = luminance(spec.skin) < 0.3 ? 'dark' : 'light';
-  const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c' };
+  // ?trunks=t2 (red) / ?trunks2=t3 (blue) pick a trunks style on the fight page too, as on the proof page
+  const q = new URLSearchParams(location.search);
+  const trunksStyle = side === 0 ? q.get('trunks') : (q.get('trunks2') ?? q.get('trunks'));
+  // ?hair=h1 (red) / ?hair2=h1 (blue): the hair part worn; none = bald. Each side is its own choice (no fallback).
+  const hairStyle = q.get(side === 0 ? 'hair' : 'hair2');
+  const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c', ...(trunksStyle ? { trunksStyle } : {}), ...(hairStyle ? { hairStyle } : {}) };
   const model = boxer.spawn(tone, kit);
   paintFighter(model, cfg);   // the paint look's banded shading + ink outline (render/paint.ts; hidden when cfg.paintLook is off)
   const { skel, bones } = skeletonOf(model);

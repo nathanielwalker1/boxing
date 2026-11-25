@@ -56,19 +56,53 @@ const gloveName = process.env.GLOVE_NAME || 'g1';
 if (!existsSync(gloveZip)) { console.error(`glove zip not found: ${gloveZip} (set GLOVE_ZIP)`); process.exit(1); }
 const gloveCache = resolve(root, '.cache/meshy', basename(gloveZip, '.zip'));
 if (!existsSync(gloveCache) || !readdirSync(gloveCache).some(f => f.toLowerCase().endsWith('.fbx'))) unzip(gloveZip, gloveCache);
+// the trunks are a separate, swappable part too: cut from a full-body T-pose boxer wearing them (same zip layout as a body)
+// The styles (name -> donor zip in Nate's "boxer model" folder); TRUNKS=t1,t3 builds a subset (default: all).
+const TRUNKS_DIR = process.env.TRUNKS_DIR || '/Users/nathanielwalker/repos/boxinggame/boxer model';
+const TRUNKS_STYLES = {
+  t1: 'vintage trunks.zip',                                                             // short vintage cut
+  t2: 'Meshy_AI_gladiator_boxer_model_20261125_image-to-3d-texture_fbx.zip',            // pleated gladiator skirt
+  t3: 'Meshy_AI_side_tasseled_boxer_model_20261125_image-to-3d-texture_fbx.zip',        // tassels down the sides
+  t4: 'Meshy_AI_stylized_boxer_muay_thai_20261125_image-to-3d-texture_fbx.zip',         // side-split Muay Thai
+};
+const trunksNames = (process.env.TRUNKS || Object.keys(TRUNKS_STYLES).join(',')).split(',');
+const trunksCaches = trunksNames.map(n => {
+  if (!TRUNKS_STYLES[n]) { console.error(`unknown trunks style ${n}`); process.exit(1); }
+  const zipT = resolve(TRUNKS_DIR, TRUNKS_STYLES[n]);
+  if (!existsSync(zipT)) { console.error(`trunks zip not found: ${zipT}`); process.exit(1); }
+  const dir = resolve(root, '.cache/meshy', basename(zipT, '.zip'));
+  if (!existsSync(dir) || !readdirSync(dir).some(f => f.toLowerCase().endsWith('.fbx'))) unzip(zipT, dir);
+  return dir;
+});
+const trunksCache = trunksCaches.join('|'), trunksName = trunksNames.join(',');
+// hair is a swappable part as well: cut from a bust wearing it (name -> donor zip); HAIR=h1 builds a subset, HAIR=none none
+const HAIR_STYLES = {
+  h1: 'Meshy_AI_boxer_cornrows_bust_20261125_image-to-3d-texture_fbx.zip',              // cornrows with a knot at the back
+};
+const hairNames = process.env.HAIR === 'none' ? [] : (process.env.HAIR || Object.keys(HAIR_STYLES).join(',')).split(',');
+const hairCaches = hairNames.map(n => {
+  if (!HAIR_STYLES[n]) { console.error(`unknown hair style ${n}`); process.exit(1); }
+  const zipH = resolve(TRUNKS_DIR, HAIR_STYLES[n]);
+  if (!existsSync(zipH)) { console.error(`hair zip not found: ${zipH}`); process.exit(1); }
+  const dir = resolve(root, '.cache/meshy', basename(zipH, '.zip'));
+  if (!existsSync(dir) || !readdirSync(dir).some(f => f.toLowerCase().endsWith('.fbx'))) unzip(zipH, dir);
+  return dir;
+});
 const outDir = resolve(root, 'public/fighter');
 const glb = resolve(outDir, `boxer_${name}.glb`);
 const shots = resolve(root, 'scripts/output');
 mkdirSync(shots, { recursive: true });
 const t0 = Date.now();
 const r = spawnSync(blender, ['--background', '--python', resolve(root, 'tools/blender/build_meshy.py'), '--',
-  cache, glb, `_${name}`, shots, process.env.PROBE === 'glove' ? 'probeglove' : process.env.PROBE ? 'probe' : 'build', gloveCache, gloveName], { stdio: 'inherit' });
+  cache, glb, `_${name}`, shots, process.env.PROBE === 'glove' ? 'probeglove' : process.env.PROBE ? 'probe' : 'build', gloveCache, gloveName, trunksCache, trunksName, process.env.UNDER === 'briefs' ? 'briefs' : 'shorts', hairCaches.join('|'), hairNames.join(',')], { stdio: 'inherit' });
 if (r.status !== 0) process.exit(r.status ?? 1);
 console.log(`blender ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 if (process.env.PROBE) process.exit(0);
+// Blender exits 0 even when the Python script raised: a build that did not rewrite the glb is a failed build
+if (!existsSync(glb) || statSync(glb).mtimeMs < t0) { console.error(`BUILD FAILED: ${glb} was not written by this run (look for a Traceback above)`); process.exit(1); }
 let total = 0;
 for (const f of readdirSync(outDir)) {
-  if (!f.startsWith(`boxer_${name}`) && !f.startsWith(`glove_${gloveName}`)) continue;
+  if (!f.startsWith(`boxer_${name}`) && !f.startsWith(`glove_${gloveName}`) && !trunksNames.some(n => f.startsWith(`trunks_${n}_`)) && !hairNames.some(n => f.startsWith(`hair_${n}_`))) continue;
   const sz = statSync(resolve(outDir, f)).size;
   total += sz;
   console.log(`${f.padEnd(28)} ${(sz / 1e6).toFixed(2)} MB`);

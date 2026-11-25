@@ -32,6 +32,8 @@ export interface FrameInput {
   level: boolean;
   /** guardHolesV2: this fighter's timed-block skill 0..1 (absent = 1, a human). The AI sets it from its difficulty; the sim rolls it when a block qualifies as well-timed. */
   timedSkill?: number;
+  /** evadeV2: this tick's stick is FOOTWORK, never an evade tap (absent = a human, whose push may be a tap). The AI sets it on every tick its steer drives the stick; the evades it chooses are macros, which leave it off. (audit 2026-11-24: an AI starting to back up or circle fired a lean back or a slip each time, 67-92 a fight against the 2-13 it meant.) */
+  walk?: boolean;
 }
 
 export const NULL_INPUT: Readonly<FrameInput> = Object.freeze({
@@ -40,7 +42,7 @@ export const NULL_INPUT: Readonly<FrameInput> = Object.freeze({
 });
 
 export function cloneInput(i: Readonly<FrameInput>): FrameInput {
-  return { move: { x: i.move.x, y: i.move.y }, jab: i.jab, cross: i.cross, hook: i.hook, uppercut: i.uppercut, block: i.block, level: i.level ?? false, ...(i.timedSkill !== undefined ? { timedSkill: i.timedSkill } : {}) };
+  return { move: { x: i.move.x, y: i.move.y }, jab: i.jab, cross: i.cross, hook: i.hook, uppercut: i.uppercut, block: i.block, level: i.level ?? false, ...(i.timedSkill !== undefined ? { timedSkill: i.timedSkill } : {}), ...(i.walk ? { walk: true } : {}) };
 }
 
 // ── Fighter definition (CONTRACT §5) ──────────────────────────────────────────

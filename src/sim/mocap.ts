@@ -29,21 +29,24 @@ export const MOCAP_CLOSE_KEYS = ['separationDist', 'smotherDist', 'clinchHoldDis
 const SCALED = new WeakMap<Config, Config>();
 const IS_SCALED = new WeakSet<Config>();
 /**
- * The config the sim and the AI read with mocapGeo on: a stable copy (one per source config, refreshed on every call
- * so the tuning panel stays live; no allocation after the first) with MOCAP_SCALED_KEYS × mocapRangeScale.
- * Off (or already scaled): the config itself.
+ * The config the sim and the AI read with mocapGeo on: a stable VIEW of the source config (one per source config, made
+ * once). Every key reads through to the source, so the tuning panel stays live; the MOCAP_SCALED_KEYS read
+ * × mocapRangeScale and the MOCAP_CLOSE_KEYS × mocapCloseScale. Off (or already scaled): the config itself.
+ * (Was a full copy of every key on every call, several calls a tick: half of a headless fight's time, 2026-11-24.)
+ * It is a view, not a copy: its own keys are only the scaled ones, so never spread or enumerate it.
  */
 export function mocapCfg(cfg: Config): Config {
   if (!cfg.mocapGeo || IS_SCALED.has(cfg)) return cfg;
   let c = SCALED.get(cfg);
-  if (!c) { c = { ...cfg }; SCALED.set(cfg, c); IS_SCALED.add(c); }
-  const src = cfg as unknown as Record<string, unknown>, dst = c as unknown as Record<string, unknown>;
-  for (const k in src) dst[k] = src[k];
-  const s = cfg.mocapRangeScale;
-  for (const k of MOCAP_SCALED_KEYS) dst[k] = (cfg[k] as number) * s;
-  for (const k of MOCAP_CLOSE_KEYS) dst[k] = (cfg[k] as number) * cfg.mocapCloseScale;
+  if (c) return c;
+  const view = Object.create(cfg) as Config;
+  const def = (k: string, get: () => number): void => { Object.defineProperty(view, k, { get, enumerable: true }); };
+  for (const k of MOCAP_SCALED_KEYS) def(k, () => (cfg[k] as number) * cfg.mocapRangeScale);
   // outcome first (sim/outcome.ts): the separation is the measured one for two mocap bodies; the straights' ramp starts outside it
-  if (cfg.mocapOutcome) { c.separationDist = cfg.mocapSeparation; c.smotherDist = cfg.mocapSeparation + cfg.mocapSmotherSpan; c.clinchHoldDist = Math.max(c.clinchHoldDist, cfg.mocapSeparation); }
+  def('separationDist', () => cfg.mocapOutcome ? cfg.mocapSeparation : cfg.separationDist * cfg.mocapCloseScale);
+  def('smotherDist', () => cfg.mocapOutcome ? cfg.mocapSeparation + cfg.mocapSmotherSpan : cfg.smotherDist * cfg.mocapCloseScale);
+  def('clinchHoldDist', () => cfg.mocapOutcome ? Math.max(cfg.clinchHoldDist * cfg.mocapCloseScale, cfg.mocapSeparation) : cfg.clinchHoldDist * cfg.mocapCloseScale);
+  c = view; SCALED.set(cfg, c); IS_SCALED.add(c);
   return c;
 }
 

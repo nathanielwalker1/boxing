@@ -8,6 +8,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run_tests.mjs",
+    "balance": "node scripts/balance/run.mjs",
     "test:quick": "node scripts/run_tests.mjs",
     "legacy": "vite legacy --port 5175",
     "gym": "vite spike/gym --port 5174",

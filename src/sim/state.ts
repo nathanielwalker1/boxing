@@ -210,6 +210,15 @@ const HIST_EVADE = 76;        // evadeV2: +0 seconds the level input has been do
 export function duckT(f: FighterState): number { return f.moveHist[HIST_EVADE] ?? 0; }
 export function setDuckT(f: FighterState, t: number): void { const h = f.moveHist; while (h.length < HIST_EVADE + 2) h.push(0); h[HIST_EVADE] = t; }
 /** evadeV2: seconds until a new slip / duck / lean may start (its own window plus the cooldown). */
+const HIST_REPEAT = 80;       // repeat read (audit P4): +0 key of the last punch (0 = none, else 1 + type*4 + hand*2 + body), +1 repeats in a row, +2 seconds since its start, +3 counted repeats of the punch in flight
+function repSlot(f: FighterState, i: number): number { const h = f.moveHist; while (h.length < HIST_REPEAT + 4) h.push(0); return h[HIST_REPEAT + i] ?? 0; }
+function setRepSlot(f: FighterState, i: number, v: number): void { const h = f.moveHist; while (h.length < HIST_REPEAT + 4) h.push(0); h[HIST_REPEAT + i] = v; }
+export function repeatKey(f: FighterState): number { return repSlot(f, 0); }
+export function repeatRun(f: FighterState): number { return repSlot(f, 1); }
+export function repeatAge(f: FighterState): number { return repSlot(f, 2); }
+export function repeatCounted(f: FighterState): number { return repSlot(f, 3); }
+export function setRepeat(f: FighterState, key: number, run: number, counted: number): void { setRepSlot(f, 0, key); setRepSlot(f, 1, run); setRepSlot(f, 2, 0); setRepSlot(f, 3, counted); }
+export function ageRepeat(f: FighterState, dt: number): void { if (repSlot(f, 0) !== 0) setRepSlot(f, 2, repSlot(f, 2) + dt); }
 export function evadeCd(f: FighterState): number { return f.moveHist[HIST_EVADE + 1] ?? 0; }
 export function setEvadeCd(f: FighterState, t: number): void { const h = f.moveHist; while (h.length < HIST_EVADE + 2) h.push(0); h[HIST_EVADE + 1] = t; }
 /** The head at home. */

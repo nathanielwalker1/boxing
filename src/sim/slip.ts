@@ -64,6 +64,13 @@ export function slipHeadDip(f: FighterState, cfg: Config): number {
   return f.slip.kind === 'roll' ? f.slip.dip : cfg.slipDip * slipShape(f, cfg);
 }
 
+/** A ROCKED man's head movement is worse, not gone (Nate 2026-11-24, after audit P1 took it away entirely): 1 healthy or winded, hurtEvadeWindow / hurtEvadeCooldown rocked. */
+const rocked = (f: FighterState): boolean => f.hurt > 0 && f.hurtKind === 'head';
+/** evadeV2: how long a slip / lean back / timed duck protects this fighter, s. Shorter while rocked. */
+export function evadeWindowOf(f: FighterState, cfg: Config): number { return cfg.evadeWindow * (rocked(f) ? cfg.hurtEvadeWindow : 1); }
+/** evadeV2: the wait after an evade before the next may start, s. Longer while rocked. */
+const evadeCooldownOf = (f: FighterState, cfg: Config): number => cfg.evadeCooldown * (rocked(f) ? cfg.hurtEvadeCooldown : 1);
+
 function triggerSlip(f: FighterState, side: Side, dir: -1 | 1 | 2, kind: SlipKind, cfg: Config, events: SimEvent[]): void {
   const s = f.slip;
   let from = 0, chain = 1;
@@ -77,7 +84,7 @@ function triggerSlip(f: FighterState, side: Side, dir: -1 | 1 | 2, kind: SlipKin
     from = s.offset; chain = s.chain + 1;
   }
   f.slip = { active: true, dir, t: 0, offset: from, kind, from, chain, dip: 0 };
-  if (cfg.evadeV2) setEvadeCd(f, (kind === 'roll' ? cfg.rollDuration : cfg.evadeWindow) + cfg.evadeCooldown);
+  if (cfg.evadeV2) setEvadeCd(f, (kind === 'roll' ? cfg.rollDuration : evadeWindowOf(f, cfg)) + evadeCooldownOf(f, cfg));
   // The weight goes where the head went: lead side → the lead hand is loaded,
   // rear side (and the pull, onto the back foot) → the rear hand.
   if (cfg.slipLoadedOn) { f.loaded = dir === 2 ? 1 : dir; f.loadedT = cfg.slipLoadedTime; }
@@ -128,7 +135,7 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
     if (!input.level || f.down) { if (dk !== 0) setDuckT(f, 0); }
     else if (dk === 0) {
       if (evadeCd(f) > 0 || (input.block && !cfg.evadeFromBlock) || (cfg.blockStunOn && f.blockStun > 0)) setDuckT(f, -1);
-      else { setDuckT(f, dt); setEvadeCd(f, cfg.evadeWindow + cfg.evadeCooldown); }
+      else { setDuckT(f, dt); setEvadeCd(f, evadeWindowOf(f, cfg) + evadeCooldownOf(f, cfg)); }
     } else if (dk > 0) setDuckT(f, dk + dt);
   }
   // The tap window runs from the flick's release to the START of the next push; once that push is down the tap waits for its confirm.
@@ -145,7 +152,8 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
       // who taps to the side, or one moving sideways who taps back, starts the evade on that tap: without it the push
       // "began" only from a still stick, and a player on the move could never slip (Nate 2026-11-20: three rounds,
       // "could not slip a single punch"). Going forward is never an evade, and the shared clock stops it being spammed.
-      if (cfg.evadeV2 && cfg.evadeHeldTap && p.t > 0) {
+      // (input.walk: the AI's steer. Its pushes are footwork; the evades it chooses come as macros without the flag.)
+      if (cfg.evadeV2 && cfg.evadeHeldTap && p.t > 0 && !input.walk) {
         const now = Math.abs(mx) >= Math.abs(my) ? ((mx > 0 ? 1 : -1) * handLateralSign('rear', f.stance)) : my < 0 ? 2 : 3;
         if (now !== p.dir && now !== 3 && (evadeCd(f) <= 0 || leanFromDuck(f, now, input, cfg))) p.t = 0;
         // (back to plain FORWARD after a side tap: the push is forward again. Left as the old side direction, the next
@@ -163,7 +171,7 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
         // evadeV2: THE EVADE STARTS ON THE PUSH, not on its release (measured 2026-11-19: waiting for the release left
         // 200 ms from the other man's press to beat a jab, under human reaction time). A push that turns out to be held
         // is footwork that began with the head going that way; the shared clock (evadeCooldown) stops it being spammed.
-        if (cfg.evadeV2 && (!input.block || cfg.evadeFromBlock) && p.dir !== 3 && (evadeCd(f) <= 0 || leanFromDuck(f, p.dir, input, cfg)) && !(punchMask(input) & ~prevPunchMask(f))) flick(f, side, p.dir, input, cfg, events, req);
+        if (cfg.evadeV2 && !input.walk && (!input.block || cfg.evadeFromBlock) && p.dir !== 3 && (evadeCd(f) <= 0 || leanFromDuck(f, p.dir, input, cfg)) && !(punchMask(input) & ~prevPunchMask(f))) flick(f, side, p.dir, input, cfg, events, req);
       }
       p.t += dt;
       if (p.t > cfg.slipFlickMax) p.hold = true;   // outlived the flick window: footwork
@@ -203,7 +211,7 @@ export function stepSlip(f: FighterState, side: Side, input: Readonly<FrameInput
   const rise = roll ? cfg.rollDuration : s.chain > 1 ? cfg.slipChainRise : cfg.slipRise;
   // (The window: longer for a high defense rating and for a guard that lives on head movement.)
   // (evadeV2: one window for everyone, so it can be learned: evadeWindow from the push.)
-  const window = roll ? cfg.rollDuration : cfg.evadeV2 ? cfg.evadeWindow : cfg.slipDuration * rated(f, 'defense', cfg.ratingDefenseSlip, cfg) * guardOf(f, cfg).slip;
+  const window = roll ? cfg.rollDuration : cfg.evadeV2 ? evadeWindowOf(f, cfg) : cfg.slipDuration * (rocked(f) ? cfg.hurtEvadeWindow : 1) * rated(f, 'defense', cfg.ratingDefenseSlip, cfg) * guardOf(f, cfg).slip;
   if (s.t >= window + cfg.slipReturn) { f.slip = idleSlip(); return; }
   s.active = s.t < window;
   const full = s.dir === 2 ? cfg.slipBackOffset : cfg.slipHeadOffset * s.dir;

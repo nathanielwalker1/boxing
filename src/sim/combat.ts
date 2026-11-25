@@ -13,7 +13,7 @@
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { SIM_DT, atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, iqClass, setIqClass, IQ_BLOCKED, IQ_FAST, IQ_MISSED, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist, pressDist, duckT } from './state';
+import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, iqClass, setIqClass, IQ_BLOCKED, IQ_FAST, IQ_MISSED, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist, pressDist, duckT, repeatKey, repeatRun, repeatAge, repeatCounted, setRepeat, ageRepeat } from './state';
 import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -99,7 +99,13 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // punch's follow-through, so the wind-up is comboCockScale as long.
   const chained = f.punch.type !== null;
   // iqMissCost: only a punch chained off a clean land gets the shortened wind-up; off a block, a glance or a miss it is a cold throw.
-  const fastChain = chained && (!cfg.iqMissCost || iqClass(f) === IQ_FAST);
+  // Repeat read (audit P4): the same punch (type + hand + level) again inside repeatWindow of the last one's start. The first
+  // repeatFreeJab jab repeats are free; every counted repeat costs more, is easier to read, and never gets the fast chain.
+  const key = 1 + (['jab', 'cross', 'hook', 'uppercut'] as PunchType[]).indexOf(type) * 4 + (hand === 'rear' ? 2 : 0) + (v.body ? 1 : 0);
+  const run = cfg.repeatMax > 0 && repeatKey(f) === key && repeatAge(f) <= cfg.repeatWindow ? repeatRun(f) + 1 : 0;
+  const repeats = cfg.repeatMax > 0 ? Math.min(cfg.repeatMax, Math.max(0, run - (type === 'jab' ? cfg.repeatFreeJab : 0))) : 0;
+  if (cfg.repeatMax > 0) setRepeat(f, key, run, repeats);
+  const fastChain = chained && repeats === 0 && (!cfg.iqMissCost || iqClass(f) === IQ_FAST);
   // iqLoadedCounter: a DUCK loads both hands for the punches that come up out of it: a rising uppercut or a body hook pressed while
   // ducked (inside slipLoadedTime of the duck) or inside the rise window after (the same load a slip gives its side, spent the same way).
   const duckLoad = !!cfg.iqLoadedCounter && (variant === 'risingUppercut' || variant === 'bodyHook') && duckT(f) >= 0 && duckT(f) <= cfg.slipLoadedTime;   // (duckT 0 = released this tick or inside the rise window; -1 = crouched with no evade, no load)
@@ -141,7 +147,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // wind-up blends out of it instead of snapping to zero and reloading.
   // (Polish phase: also out of a pose still unwinding after a feint or a stuff — the hands are free, the body is not home yet.)
   setChainCarry(f, { on: chained || (cfg.carryFadeOn && (f.torsoTwist !== 0 || f.lean.fwd !== 0)), twist: f.torsoTwist, fwd: f.lean.fwd, lat: f.lean.lat, crouch: f.crouch });
-  f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost * throwWeight(type, cfg) * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg));   // (polish phase: by the punch's weight)
+  f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost * throwWeight(type, cfg) * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * (1 + cfg.repeatStaminaCost * repeats));   // (polish phase: by the punch's weight)
   // WORK TIRES (workCapLoss, 0 = off): every punch thrown, landed or not, wears the stamina ceiling by its weight
   if (cfg.workCapLoss > 0) f.wear += cfg.workCapLoss * throwWeight(type, cfg);
   f.punch = {
@@ -152,7 +158,8 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   };
   if (loaded) { f.loaded = 0; f.loadedT = 0; }
   // Phase 1.4 (punch keys): the range at the press, which sizes the keyed body drive for this punch (sim/skel.ts).
-  if ((cfg.skelOn && cfg.punchKeysOn) || cfg.evadeV2) setPressDist(f, opp ? Math.hypot(opp.pos.x - f.pos.x, opp.pos.z - f.pos.z) : 2);
+  // (…and the range the smother ramp reads for a man who stepped into his own straight: smotherStepInMin.)
+  if ((cfg.skelOn && cfg.punchKeysOn) || cfg.evadeV2 || cfg.smotherStepInMin < 1) setPressDist(f, opp ? Math.hypot(opp.pos.x - f.pos.x, opp.pos.z - f.pos.z) : 2);
   const fr = frameOf(f.yaw);
   // The step-in (2026-09-16): a straight thrown with the stick pushed forward
   // takes a short lunge step with it — a burst on the stagger channel (it
@@ -207,6 +214,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
  */
 export function stepActions(f: FighterState, side: Side, input: Readonly<FrameInput>, cfg: Config, dt: number, events: SimEvent[], opp: FighterState | null = null, inStop = false): void {
   const mask = punchMask(input);
+  ageRepeat(f, dt);
   setTimedSkill(f, input.timedSkill ?? 1);
   const pressed = fastestOf(mask & ~prevPunchMask(f));
   setPrevPunchMask(f, mask);
@@ -709,9 +717,15 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // `soft`: the losses a land already carries for being cramped or rolled with — a glancing grade never stacks on them.
   let soft = 1 - retreat * cfg.punchRollWith * rollKeep;
   let ramp = 1;   // the close-range ramp's share of full power (measured; rides on the land event)
-  if (def.smotherable && dist < cfg.smotherDist) {
+  // (A man stepping into his own straight is not smothered by his own step: the ramp reads the range he pressed from.
+  //  If the TARGET walked in on him, or he threw it already cramped, it reads the contact range as before.)
+  //  "The target walked in" = he is closing at smotherStepInMin of walking speed or more at the hit; otherwise the gap
+  //  shrank because the puncher stepped (a cross plants the feet before it lands, so the puncher's own speed says nothing).
+  //  Only a punch PRESSED from clean range gets this: pressed already inside smotherDist it is a cramped punch, step or no step.
+  const rampDist = closing < cfg.smotherStepInMin && pressDist(a) >= cfg.smotherDist ? Math.max(dist, pressDist(a)) : dist;
+  if (def.smotherable && rampDist < cfg.smotherDist) {
     const span = Math.max(1e-6, cfg.smotherDist - cfg.separationDist);
-    ramp = lerp(cfg.smotherPowerFloor, 1, clamp((dist - cfg.separationDist) / span, 0, 1));
+    ramp = lerp(cfg.smotherPowerFloor, 1, clamp((rampDist - cfg.separationDist) / span, 0, 1));
     soft *= ramp;
   }
   mag *= soft;
@@ -764,7 +778,9 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const flight = a.punch.timeMult > 0 ? a.punch.tell / a.punch.timeMult : a.punch.tell;
   // Only a HELD block can be perfect — a fist absorbed by a relaxed guard pinned on the face is a plain block.
   // (From a guard that takes a beat to come up — hands low — the block must at least be half-way there.)
-  const perfect = d.block && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight) && d.blockT >= guardOf(d, cfg).raise * 0.5;
+  // (A hurt man has no perfect block: his guard is loose, it cannot also be a clean read. Audit P1, 2026-11-24.)
+  const readWide = 1 + cfg.repeatReadBonus * repeatCounted(a);   // a counted repeat is easier to read (audit P4)
+  const perfect = d.block && !(d.hurt > 0) && d.blockT <= Math.min(cfg.perfectBlockWindow * readWide, cfg.perfectBlockLateFrac * readWide * flight) && d.blockT >= guardOf(d, cfg).raise * 0.5;
   // The guard's shape and wear (overhaul): how much of it this punch meets. A perfect block meets all of it.
   // A RESTING guard that the fist pinned against the face is not a block: the hands were in the way (guardPinnedCover).
   // (Outcome first: full block while held — no geometric guard holes; wear still breaks the guard, below.)
@@ -784,7 +800,7 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   let combo = 0, finisher = false;
   if (!blocked) {
     // (Outcome first: the range is read against the band's far end and the punch is square — it landed by rule.)
-    const res = gradeHit({ a, d, def, v, part, dist, centre, glove: g.pos, line: afr.fwd, rising: type === 'uppercut', retreat, closing, wrongWay, reach: oc ? oc.far : undefined, square: oc ? 1 : undefined }, cfg);
+    const res = gradeHit({ a, d, def, v, part, dist: def.smotherable && dist < cfg.smotherDist ? Math.min(rampDist, cfg.smotherDist) : dist, centre, glove: g.pos, line: afr.fwd, rising: type === 'uppercut', retreat, closing, wrongWay, reach: oc ? oc.far : undefined, square: oc ? 1 : undefined }, cfg);
     grade = through && res.grade === 'flush' ? 'clean' : res.grade;
     // Glancing: the larger of this and the losses already taken, never both. Flush: on top.
     if (grade === 'glancing') mag *= Math.min(1, cfg.gradeGlancingPower / Math.max(1e-6, soft));

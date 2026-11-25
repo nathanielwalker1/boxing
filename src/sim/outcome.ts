@@ -19,7 +19,7 @@ import type { BodyPart, Config, FighterState, Hand, PunchType, PunchVariant } fr
 import { GUARDS, handLateralSign, v2dist } from '../core';
 import { makeDrawnTargets, mocapBandFar, mocapBandStep, mocapDrawnTargets, mocapLib, type DrawnTargets } from '../core/mocap';
 import { VARIANTS } from './variants';
-import { slipLateral } from './slip';
+import { evadeWindowOf, slipLateral } from './slip';
 import { duckT } from './state';
 
 export type OutcomeKind = 'land' | 'block' | 'dodge' | 'whiff';
@@ -106,14 +106,15 @@ export function predictOutcome(a: FighterState, d: FighterState, cfg: Config, ou
       // (the LEAN BACK beats every head punch, Nate 2026-11-20: it is the safe evade and opens only the short counter window)
       // (duckBeatsStraights, Nate 2026-11-24: "if I duck I expect that to be a slip as well, so it's satisfying to duck and
       //  go to the body": a TIMED duck also takes the head under a jab or cross; only the uppercut punishes a duck)
-      const ducked = dk > 0 && dk <= cfg.evadeWindow;
+      const ew = evadeWindowOf(d, cfg);   // (shorter for a rocked man: sim/slip.ts)
+      const ducked = dk > 0 && dk <= ew;
       const beaten = (s.active && s.dir === 2)
         || (p.type === 'hook' ? ducked || (lateral && s.kind === 'roll') : p.type !== 'uppercut' && (lateral || (cfg.duckBeatsStraights && ducked)));
       if (beaten) {
         o.kind = 'dodge'; o.slip = true;
         // how late: a slip / lean / roll is timed off its own clock (slip.t), a duck off the duck clock; both run from the press
-        if (s.active && s.dir !== 0) { o.evadeAge = s.t; o.evadeLeft = (s.kind === 'roll' ? cfg.rollDuration : cfg.evadeWindow) - s.t; }
-        else { o.evadeAge = dk; o.evadeLeft = cfg.evadeWindow - dk; }
+        if (s.active && s.dir !== 0) { o.evadeAge = s.t; o.evadeLeft = (s.kind === 'roll' ? cfg.rollDuration : ew) - s.t; }
+        else { o.evadeAge = dk; o.evadeLeft = ew - dk; }
         return o;
       }
     } else if (s.active && s.dir !== 0) {
