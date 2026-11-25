@@ -182,6 +182,7 @@ const MESHY = {
   gloveRoughness: 0.34,     // the separate glove part (glove_<name>): leather sheen, clearly glossier than skin (~0.62)
   trunksGain: 0.95,         // kit trunks colour at the trunks' mean shading
   trunksContrast: 1.0,      // the baked folds multiply through the tint unchanged
+  trunksPartRoughness: 0.5, // the separate trunks part (trunks_<name>): satin, the moulded shorts' baked mean
   kitDesaturate: 0.15,      // kit colours pulled this far towards their own grey: satin, not flat plastic
 };
 
@@ -230,6 +231,27 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
     }
     gMeanY = n ? s / n : 1;
   }
+  // the swappable trunks part (build_meshy.py 6c): one mesh named trunks, material named after its texture stem
+  // (trunks_<name>), textures <stem>_c / _n next to the glb; tinted whole, like the glove
+  let trunksStem = '';
+  scene.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && m.name.startsWith('trunks') && !trunksStem) trunksStem = (m.material as THREE.Material).name; });
+  let tSrc: Uint8ClampedArray | null = null, tNormal: THREE.Texture | null = null, trunksW = 0, trunksH = 0, tMeanY = 1;
+  if (trunksStem) {
+    const [tImg, tn] = await Promise.all([il.loadAsync(`${base}${trunksStem}_c.webp`), tl.loadAsync(`${base}${trunksStem}_n.webp`)]);
+    tn.flipY = false; tn.colorSpace = THREE.NoColorSpace; tn.anisotropy = 8;
+    tNormal = tn; trunksW = tImg.width; trunksH = tImg.height;
+    const cv = document.createElement('canvas');
+    cv.width = trunksW; cv.height = trunksH;
+    const g = cv.getContext('2d', { willReadFrequently: true })!;
+    g.drawImage(tImg, 0, 0);
+    tSrc = g.getImageData(0, 0, trunksW, trunksH).data;
+    let s = 0, n = 0;
+    for (let i = 0; i < tSrc.length; i += 4) {
+      const y = 0.2126 * tSrc[i]! + 0.7152 * tSrc[i + 1]! + 0.0722 * tSrc[i + 2]!;
+      if (y > 2) { s += y; n++; }   // skip the black gutter between UV islands
+    }
+    tMeanY = n ? s / n : 1;
+  }
   // region statistics, mask-weighted: mean luminance of trunks and gloves, mean skin colour
   let tY = 0, tW = 0, gY = 0, gW = 0, sR = 0, sG = 0, sB = 0, sW = 0;
   for (let i = 0; i < src.length; i += 4) {
@@ -270,6 +292,31 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
     gloveMats.set(kit.glove, m);
     return m;
   };
+  /** The trunks part's material per kit trunks colour: every texel tinted, the baked folds kept. */
+  const trunksMats = new Map<string, THREE.MeshStandardMaterial>();
+  const trunksMat = (kit: KitColors): THREE.MeshStandardMaterial | null => {
+    if (!tSrc || !tNormal) return null;
+    const hit = trunksMats.get(kit.trunks);
+    if (hit) return hit;
+    const kc = rgb(kit.trunks), out = new Uint8ClampedArray(tSrc);
+    for (let i = 0; i < out.length; i += 4) {
+      const y = 0.2126 * tSrc[i]! + 0.7152 * tSrc[i + 1]! + 0.0722 * tSrc[i + 2]!;
+      const f = Math.pow(y / tMeanY, MESHY.trunksContrast) * MESHY.trunksGain;
+      out[i] = kc[0] * f; out[i + 1] = kc[1] * f; out[i + 2] = kc[2] * f;
+    }
+    const cv = document.createElement('canvas');
+    cv.width = trunksW; cv.height = trunksH;
+    cv.getContext('2d')!.putImageData(new ImageData(out, trunksW, trunksH), 0, 0);
+    const t = new THREE.CanvasTexture(cv);
+    t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    const m = new THREE.MeshStandardMaterial({
+      name: 'meshy_trunks', map: t, normalMap: tNormal, normalScale: new THREE.Vector2(MESHY.normalScale, MESHY.normalScale),
+      roughness: MESHY.trunksPartRoughness, metalness: 0,
+      side: THREE.DoubleSide,   // single-shell cloth: the inside shows up the leg when the hem swings
+    });
+    trunksMats.set(kit.trunks, m);
+    return m;
+  };
   const colourMap = (tone: SkinTone, kit: KitColors): THREE.Texture => {
     const key = `${tone}|${kit.trunks}|${kit.glove}`;
     const hit = cache.get(key);
@@ -306,17 +353,79 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
         roughness: 1, roughnessMap: rm, metalness: MESHY.metalness, metalnessMap: rm,
         side: THREE.DoubleSide,   // single-shell cloth: the trunks' side slits open in knee lifts and show the inside
       });
-      const gmat = gloveMat(kit);
+      const gmat = gloveMat(kit), tmat = trunksMat(kit);
+      const hems: THREE.Bone[] = [];
+      const part: { trunks?: THREE.Mesh } = {};
       root.traverse(o => {
+        if ((o as THREE.Bone).isBone && o.name.startsWith('hem_')) hems.push(o as THREE.Bone);
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
         m.castShadow = true;
         m.receiveShadow = true;
         m.frustumCulled = false;
-        m.material = gmat && m.name.startsWith('glove') ? gmat : mat;
+        const isTrunks = !!tmat && m.name.startsWith('trunks');
+        if (isTrunks) part.trunks = m;
+        m.material = gmat && m.name.startsWith('glove') ? gmat : isTrunks ? tmat! : mat;
       });
+      if (part.trunks && hems.length) hemSway(part.trunks, hems);
       return root;
     },
+  };
+}
+
+/** Hem sway of the trunks part (render-only): each hem bone's tip is a damped spring chasing where the thigh puts it. */
+const HEM = {
+  length: 0.14,       // bone length (m), HEM_LEN in tools/blender/build_meshy.py
+  stiffness: 170,     // spring constant (1/s^2): ~2 Hz, a loose satin leg
+  damping: 9,         // velocity damping (1/s): settles in about two swings
+  maxAngleDeg: 28,    // the hem never swings further than this off the thigh
+  step: 1 / 120,      // fixed sub-step (s)
+  maxDt: 1 / 20,      // a longer frame than this is treated as this long (tab switch, slow capture)
+  snap: 0.4,          // the tip is this far (m) from its rest place: a teleport, snap instead of whip
+};
+
+/**
+ * Drive the hem bones (hem_<Left|Right>_<f|o|b>, children of the thighs, +Y along the bone) from the trunks mesh's
+ * onBeforeRender: once per rendered frame, on the render clock. The sim never sees them.
+ */
+function hemSway(trunks: THREE.Mesh, bones: THREE.Bone[]): void {
+  const st = bones.map(b => ({ b, rest: b.quaternion.clone(), p: new THREE.Vector3(), v: new THREE.Vector3(), live: false }));
+  const head = new THREE.Vector3(), target = new THREE.Vector3(), dir = new THREE.Vector3(), restDir = new THREE.Vector3();
+  const pq = new THREE.Quaternion(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), a = new THREE.Vector3();
+  const maxCos = Math.cos(THREE.MathUtils.degToRad(HEM.maxAngleDeg)), maxSin = Math.sin(THREE.MathUtils.degToRad(HEM.maxAngleDeg));
+  let lastFrame = -1, lastT = 0;
+  trunks.onBeforeRender = (renderer) => {
+    const frame = renderer.info.render.frame;
+    if (frame === lastFrame) return;   // one step per frame, however many passes draw the mesh
+    lastFrame = frame;
+    const now = performance.now() / 1000;
+    const dt = Math.min(lastT ? now - lastT : 0, HEM.maxDt);
+    lastT = now;
+    for (const s of st) {
+      const parent = s.b.parent!;
+      head.copy(s.b.position).applyMatrix4(parent.matrixWorld);
+      restDir.copy(up).applyQuaternion(s.rest);
+      target.copy(restDir).multiplyScalar(HEM.length).add(s.b.position).applyMatrix4(parent.matrixWorld);
+      if (!s.live || s.p.distanceTo(target) > HEM.snap) { s.p.copy(target); s.v.set(0, 0, 0); s.live = true; }
+      for (let t = dt; t > 1e-6; t -= HEM.step) {
+        const h = Math.min(t, HEM.step);
+        a.copy(target).sub(s.p).multiplyScalar(HEM.stiffness).addScaledVector(s.v, -HEM.damping);
+        s.v.addScaledVector(a, h);
+        s.p.addScaledVector(s.v, h);
+      }
+      // direction in the thigh's space, clamped to the cone around the rest direction
+      parent.getWorldQuaternion(pq).invert();
+      dir.copy(s.p).sub(head).normalize().applyQuaternion(pq);
+      const c = dir.dot(restDir);
+      if (c < maxCos) {
+        a.copy(dir).addScaledVector(restDir, -c);
+        if (a.lengthSq() < 1e-10) dir.copy(restDir);
+        else dir.copy(restDir).multiplyScalar(maxCos).addScaledVector(a.normalize(), maxSin);
+        s.v.multiplyScalar(0.5);
+      }
+      s.b.quaternion.copy(q.setFromUnitVectors(restDir, dir)).multiply(s.rest);
+      s.b.updateMatrixWorld(true);
+    }
   };
 }
 

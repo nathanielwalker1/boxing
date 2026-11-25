@@ -56,19 +56,25 @@ const gloveName = process.env.GLOVE_NAME || 'g1';
 if (!existsSync(gloveZip)) { console.error(`glove zip not found: ${gloveZip} (set GLOVE_ZIP)`); process.exit(1); }
 const gloveCache = resolve(root, '.cache/meshy', basename(gloveZip, '.zip'));
 if (!existsSync(gloveCache) || !readdirSync(gloveCache).some(f => f.toLowerCase().endsWith('.fbx'))) unzip(gloveZip, gloveCache);
+// the trunks are a separate, swappable part too: cut from a full-body T-pose boxer wearing them (same zip layout as a body)
+const trunksZip = process.env.TRUNKS_ZIP || '/Users/nathanielwalker/repos/boxinggame/boxer model/vintage trunks.zip';
+const trunksName = process.env.TRUNKS_NAME || 't1';
+if (!existsSync(trunksZip)) { console.error(`trunks zip not found: ${trunksZip} (set TRUNKS_ZIP)`); process.exit(1); }
+const trunksCache = resolve(root, '.cache/meshy', basename(trunksZip, '.zip'));
+if (!existsSync(trunksCache) || !readdirSync(trunksCache).some(f => f.toLowerCase().endsWith('.fbx'))) unzip(trunksZip, trunksCache);
 const outDir = resolve(root, 'public/fighter');
 const glb = resolve(outDir, `boxer_${name}.glb`);
 const shots = resolve(root, 'scripts/output');
 mkdirSync(shots, { recursive: true });
 const t0 = Date.now();
 const r = spawnSync(blender, ['--background', '--python', resolve(root, 'tools/blender/build_meshy.py'), '--',
-  cache, glb, `_${name}`, shots, process.env.PROBE === 'glove' ? 'probeglove' : process.env.PROBE ? 'probe' : 'build', gloveCache, gloveName], { stdio: 'inherit' });
+  cache, glb, `_${name}`, shots, process.env.PROBE === 'glove' ? 'probeglove' : process.env.PROBE ? 'probe' : 'build', gloveCache, gloveName, trunksCache, trunksName], { stdio: 'inherit' });
 if (r.status !== 0) process.exit(r.status ?? 1);
 console.log(`blender ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 if (process.env.PROBE) process.exit(0);
 let total = 0;
 for (const f of readdirSync(outDir)) {
-  if (!f.startsWith(`boxer_${name}`) && !f.startsWith(`glove_${gloveName}`)) continue;
+  if (!f.startsWith(`boxer_${name}`) && !f.startsWith(`glove_${gloveName}`) && !f.startsWith(`trunks_${trunksName}_`)) continue;
   const sz = statSync(resolve(outDir, f)).size;
   total += sz;
   console.log(`${f.padEnd(28)} ${(sz / 1e6).toFixed(2)} MB`);
