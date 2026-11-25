@@ -426,6 +426,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   let ikKey = -1;
   // CONTACT (humanContactDrawn): seconds since his punch was resolved, and the world point his landed glove holds once it stops following
   let landAge = 0, landHeld = false, earlyS = 0;
+  let hitSeen = false, hitNext: FighterState | null = null;   // (humanContactGlide) the tick state his punch in flight was resolved on
   // humanGloveGuard: per arm (Left, Right) the glove as the body alone puts it this frame, and the correction layers' share kept last frame
   const gBase = { Left: new THREE.Vector3(), Right: new THREE.Vector3() }, gOff = { Left: new THREE.Vector3(), Right: new THREE.Vector3() };
   let gOn = false, gX = 1e9, gZ = 1e9;
@@ -763,7 +764,15 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       //  it threw a glove that was already near him 20-50 cm in a tick)
       {
         const ci = anim.conformInfo;
-        const want = contactDrawn && out.ik?.outcome && ci.kind === 'land' && !ci.resolved && next.punch.type !== null ? Math.min(cfg.humanContactStandoffMax, ci.toHit * cfg.humanContactCloseSpeed) : 0;
+        // (humanContactGlide: the time left is counted to the DRAWN instant, not to the tick being drawn toward. MEASURED
+        //  2026-11-25 in the real quarter-speed replay, 4 lands of 4: the glove closed 1.5 cm a drawn frame, then 3.9-4.6 cm
+        //  in the ONE frame the hit tick came up and stood still for the tick's other three: the stand-off was a whole
+        //  tick's worth (8 cm) until then and nothing after, so the last of every punch was a jump, not a hit)
+        if (ci.resolved && !hitSeen) hitNext = next;
+        hitSeen = !!out.ik?.outcome && ci.resolved;
+        const sub = cfg.humanContactGlide ? (1 - Math.min(1, Math.max(0, alpha))) * SIM_DT : 0;
+        const left = !ci.resolved ? ci.toHit + sub : cfg.humanContactGlide && next === hitNext ? sub : 0;
+        const want = contactDrawn && out.ik?.outcome && ci.kind === 'land' && (!ci.resolved || left > 0) && next.punch.type !== null ? Math.min(cfg.humanContactStandoffMax, left * cfg.humanContactCloseSpeed) : 0;
         earlyS = Math.min(want, earlyS + cfg.humanContactStandoffRate * dt);
       }
       // (humanLandGap: a new frame may ease the chosen contact once; no head land in flight = back to the plain point)
@@ -870,7 +879,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
               if (dir.lengthSq() < 1e-8) dir.set(Math.cos(yaw), 0, Math.sin(yaw)).negate();
               // (it ARRIVES on the hit tick, not before: steered on early, the glove sat on a face that then leaned away and
               //  the rules called a miss — 7% of live misses were drawn touching. Until the hit it stands off by its closing speed.)
-              const off = ci.resolved ? 0 : earlyS;
+              const off = ci.resolved && !cfg.humanContactGlide ? 0 : earlyS;
               // ON THE SKIN (humanContactSkin): glove centre to part centre = how far HIS skin reaches from that centre along
               // the line + how far MY glove's skin reaches past my glove point toward him − the leather's give. MEASURED on the
               // real replay (2026-11-24): with the stand-in radii (mocapHeadR, mocapTorsoR, gloveR) the glove skin stopped
