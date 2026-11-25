@@ -103,6 +103,17 @@ theory. He is the judge of *feel* and *look* — you are the judge of *does it r
     illustrating one decision. Summaries are prose: what changed, which file, what to
     test. Restating code is what hits the output cap and loops.
 
+12. **Session start and slow checks (added 2026-11-24 after a session lost its first hour).**
+    When the prompt names memory files, open and read each one in full before the first
+    command; the index line is not the memory. Work in a worktree off `main`: from
+    `f9fad8b` on, `main`'s browser scripts draw on the real GPU by themselves
+    (`scripts/devUrl.js` loads `scripts/gpu_preload.mjs`), `anim_film.mjs` stops under
+    10 fps, and every browser script prints `SLOW RUN` every 2 minutes. On a branch
+    without that (check: `grep gpu_preload scripts/devUrl.js`), merge `main` first. If any
+    probe or film takes over 2 minutes, stop it and find out why before running another.
+    Find a tuning value with config overrides in one run, not by editing source and
+    re-booting per value.
+
 ## Sub-agents
 When a stage's work is split by workstream, the orchestrator: (a) confirms `src/core` is
 frozen, (b) writes each sub-agent a brief that names its folders, its deliverable from
