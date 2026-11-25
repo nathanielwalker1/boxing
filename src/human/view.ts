@@ -269,21 +269,17 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     if (bx !== 1 || by !== 1 || bz !== 1) { spine[0]!.scale.multiply(vA.set(bx, by, bz)); undo(spine[1]!, bx, by, bz); }
     if (cx !== 1 || cy !== 1 || cz !== 1) { spine[2]!.scale.multiply(vA.set(cx, cy, cz)); undo(neck, cx, cy, cz); undo(clav.Left, cx, cy, cz); undo(clav.Right, cx, cy, cz); }
   };
-  // (humanSoftOn) the wobble springs: belly, chest (each a displacement and its speed, 1 = a flush body shot), and the head's swing along world x / z, rad
-  const soft = { b: 0, bv: 0, c: 0, cv: 0, hx: 0, hxv: 0, hz: 0, hzv: 0 };
-  const softGain = bodyFile === 4 ? 1 : -1;   // (-1: read humanSoftLean live)
-  // (for the checks: what the soft layers are doing to him right now — belly and chest scale front to back against the build's, the head's swing in degrees)
-  /** A land of size k (1 = flush, nominal power) on his body or head, pushed along world (ix, iz): the springs are kicked. */
+  // (humanSoftOn) the head's swing past a hit: a spring along world x / z, rad, and its speed
+  const soft = { hx: 0, hxv: 0, hz: 0, hzv: 0 };
+  /** A land of size k (1 = flush, nominal power) on his body or head, pushed along world (ix, iz): the spring is kicked. */
   const softKick = (k: number, part: 'head' | 'body', ix: number, iz: number): void => {
-    const body = part === 'body' ? 1 : cfg.humanSoftCross, hd = part === 'head' ? 1 : cfg.humanSoftCross;
-    const w = 2 * Math.PI * cfg.humanSoftHz, wh = 2 * Math.PI * cfg.humanSoftHeadHz, il = Math.hypot(ix, iz) || 1;
-    soft.bv += k * body * w; soft.cv += k * body * w;
-    const a = k * hd * cfg.humanSoftHeadDeg * Math.PI / 180 * wh;
+    const wh = 2 * Math.PI * cfg.humanSoftHeadHz, il = Math.hypot(ix, iz) || 1;
+    const a = k * (part === 'head' ? 1 : cfg.humanSoftCross) * cfg.humanSoftHeadDeg * Math.PI / 180 * wh;
     soft.hxv += a * ix / il; soft.hzv += a * iz / il;
   };
-  // (.kick: the review film sets the wobble off on a man standing with his hands down, where nothing covers it)
+  // (for the checks: the head's swing right now, degrees; .kick sets it off without a punch)
   ((window as unknown as { __humanSoft?: Record<number, unknown> }).__humanSoft ??= {})[side] = Object.assign(() => ({
-    belly: spine[0]!.scale.z / softBase[0]!.z, chest: spine[2]!.scale.z / softBase[2]!.z, headDeg: Math.hypot(soft.hx, soft.hz) * 180 / Math.PI,
+    headDeg: Math.hypot(soft.hx, soft.hz) * 180 / Math.PI,
   }), { kick: softKick });
   let hipSlow = NaN, flatW = 0;   // (humanTiredFlat) the clip's hip height averaged, and how much of the bounce is being taken out
   let menuW = 0;   // (humanMenuHandsDown) 0..1: how far the arms are down at his sides
@@ -776,27 +772,20 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       hips.position.set(fitOut.hipsPos[0], fitOut.hipsPos[1], fitOut.hipsPos[2]);
       // ---- ALIVE (drawn only), on the clip and before every hand is placed: the breath in the chest and shoulders, the tired
       //      head, the flatter stance. The breath is the one anim.ts already leans the head on (same phase), so they move as one. ----
-      let bl = 0, sw = 0;   // this frame's swell of belly and chest (fractions, front to back)
-      // SOFT BODY ON A HIT (humanSoftOn): each land on him kicks the springs; they ring and die
+      // THE HEAD SWINGS ON PAST A HIT (humanSoftOn): each land on him kicks the spring; it rings and dies
       if (cfg.humanSoftOn && !cfg.humanRawPose) {
         for (const e of events) {
           if (e.type !== 'punchLand' || e.target !== side) continue;
           const k = (e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.7 : 0.35) * Math.max(0.5, Math.min(1.5, e.power));
           softKick(k, e.part === 'body' ? 'body' : 'head', e.impulse.x, e.impulse.z);
         }
-        const w = 2 * Math.PI * cfg.humanSoftHz, wh = 2 * Math.PI * cfg.humanSoftHeadHz;
+        const wh = 2 * Math.PI * cfg.humanSoftHeadHz;
         const n = Math.max(1, Math.ceil(Math.min(dt, 0.1) * 240)), h = Math.min(dt, 0.1) / n;
         for (let i = 0; i < n; i++) {
-          soft.bv += (-w * w * soft.b - 2 * cfg.humanSoftDamp * w * soft.bv) * h; soft.b += soft.bv * h;
-          // (the chest is stiffer: it rings a third faster)
-          soft.cv += (-w * w * 1.7 * soft.c - 2 * cfg.humanSoftDamp * w * 1.3 * soft.cv) * h; soft.c += soft.cv * h;
           soft.hxv += (-wh * wh * soft.hx - 2 * cfg.humanSoftHeadDamp * wh * soft.hxv) * h; soft.hx += soft.hxv * h;
           soft.hzv += (-wh * wh * soft.hz - 2 * cfg.humanSoftHeadDamp * wh * soft.hzv) * h; soft.hz += soft.hzv * h;
         }
-        const g = softGain > 0 ? softGain : cfg.humanSoftLean;
-        bl -= Math.max(-0.4, Math.min(0.4, soft.b * cfg.humanSoftBelly * g));
-        sw -= Math.max(-0.25, Math.min(0.25, soft.c * cfg.humanSoftChest * g));
-      } else { soft.b = soft.bv = soft.c = soft.cv = soft.hx = soft.hxv = soft.hz = soft.hzv = 0; }
+      } else { soft.hx = soft.hxv = soft.hz = soft.hzv = 0; }
       if (cfg.humanTiredOn && !cfg.humanRawPose) {
         const td = next.down ? 0 : tiredOf(next, cfg);
         // the bounce: the clip's hip height pulled toward its own slow average
@@ -808,9 +797,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         // the breath, 0 (out) .. 1 (in)
         const ph = (anim as unknown as { breath: number }).breath;
         const inB = 0.5 - 0.5 * Math.sin(ph), br = (cfg.humanBreathChest + cfg.humanBreathChestTired * td) * inB;
-        sw += br; bl += br * cfg.humanBreathBelly;
-        // (pushed in front to back, the flesh goes out to the sides: 0.6 of it across for the wobble, the breath's own half)
-        softScale(1 + (bl < 0 ? -0.6 : 0.5) * bl, 1, 1 + bl, 1 + (sw < 0 ? -0.6 : 0.5) * sw, 1, 1 + sw);
+        const bl = br * cfg.humanBreathBelly;
+        softScale(1 + bl * 0.5, 1, 1 + bl, 1 + br * 0.5, 1, 1 + br);
         group.updateMatrixWorld(true);
         group.getWorldQuaternion(qG);
         // shoulders up on the breath in (each collar bone turned about his front-to-back axis)
@@ -832,16 +820,16 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           group.updateMatrixWorld(true);
           rotateWorld(head, q2);
         }
-      } else softScale(1 - 0.6 * Math.min(0, bl), 1, 1 + bl, 1 - 0.6 * Math.min(0, sw), 1, 1 + sw);
-      // the head and neck swing on past the hit: turned about the level axis square to the swing, so the crown goes along it
+      } else softScale(1, 1, 1, 1, 1, 1);
+      // the head, neck and (a share) the shoulders swing on past the hit: turned about the level axis square to the swing, so the crown goes along it
       if (Math.abs(soft.hx) + Math.abs(soft.hz) > 1e-4) {
-        const ang = Math.min(0.5, Math.hypot(soft.hx, soft.hz));
+        const ang = Math.min(0.9, Math.hypot(soft.hx, soft.hz)), sh = cfg.humanSoftShoulderShare;
         vN.set(soft.hz, 0, -soft.hx).normalize();   // up × swing
-        const q2 = qI.setFromAxisAngle(vN, ang * 0.5);
-        group.updateMatrixWorld(true);
-        rotateWorld(neck, q2);
-        group.updateMatrixWorld(true);
-        rotateWorld(head, q2);
+        for (const [b, share] of [[spine[2]!, sh], [neck, (1 - sh) / 2], [head, (1 - sh) / 2]] as const) {
+          if (share <= 0) continue;
+          group.updateMatrixWorld(true);
+          rotateWorld(b, qI.setFromAxisAngle(vN, ang * share));
+        }
       }
       group.updateMatrixWorld(true);
       stamp('clip');
