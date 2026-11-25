@@ -42,6 +42,10 @@ export class Referee {
   /** Meshy man in the round: which side of the shot he stands on (+1 / -1), and the spot he keeps (null = none yet). */
   private side = 1;
   private spot: Vec2 | null = null;
+  /** ...his small shuffle about that spot: the offset now, seconds to the next, how many so far. */
+  private fidget: Vec2 = { x: 0, z: 0 };
+  private fidgetT = 0;
+  private fidgetN = 0;
   private state: FighterState;
   private vel: Vec2 = { x: 0, z: 0 };
   private hands: [HandLocal, HandLocal];
@@ -132,7 +136,16 @@ export class Referee {
           const corners: Vec2[] = [{ x: k, z: k }, { x: -k, z: k }, { x: k, z: -k }, { x: -k, z: -k }];
           this.spot = corners.reduce((best, p) => (far(p) > far(best) ? p : best));
         }
-        target = { x: this.spot!.x, z: this.spot!.z };
+        // ...and shuffles a step now and then ("he's just standing there", 2026-11-25): every refFidgetEvery s (varied
+        // 0.7-1.3x) a new point within refFidgetM of the corner. Golden-angle steps: never the same place twice running.
+        this.fidgetT -= dt;
+        if (this.fidgetT <= 0) {
+          this.fidgetN++;
+          const ang = this.fidgetN * 2.39996, f = (this.fidgetN * 0.618034) % 1;
+          this.fidget = { x: Math.cos(ang) * c.refFidgetM * (0.5 + 0.5 * f), z: Math.sin(ang) * c.refFidgetM * (0.5 + 0.5 * f) };
+          this.fidgetT = c.refFidgetEvery * (0.7 + 0.6 * f);
+        }
+        target = { x: this.spot!.x + this.fidget.x, z: this.spot!.z + this.fidget.z };
       }
     }
     if (ph !== 'fighting' || downSide !== null) this.spot = null;

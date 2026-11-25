@@ -1316,6 +1316,8 @@ export const SCHEMA = {
   refMeshy:         bool(true, 'referee', 'human mode (?human=1): draw the Meshy referee (public/fighter/referee.glb, human/referee.ts) instead of the old rig; where he stands and where his hands go still come from ui/referee.ts'),
   refCornerInsetM:  num(0.35, 0, 1.5, 0.05, 'referee', 'Meshy referee in the round: he stands in the ring corner farthest from both fighters, this far in from the ropes\' limit, and keeps it until a fighter comes within refClear (Nate 2026-11-25: "moving way too much", "out of the frame most times, or barely in frame"), m'),
   refRoundWalkSpeed: num(0.8, 0.3, 2, 0.1, 'referee', 'Meshy referee in the round: walking speed when he moves to a new spot, m/s (the walk to a knockdown keeps refWalkSpeed)'),
+  refFidgetM:       num(0.4, 0, 1.2, 0.05, 'referee', 'Meshy referee in the round: how far from his corner spot his small idle shuffles go, m ("he\'s just standing there", 2026-11-25; 0 = stands still)'),
+  refFidgetEvery:   num(5.5, 1, 20, 0.5, 'referee', 'Meshy referee in the round: about how often he shuffles to a new point near his spot, s (varied 0.7-1.3x)'),
   refClipFade:      num(0.3, 0.05, 1.5, 0.05, 'referee', 'Meshy referee: time constant of every change between his clips (watch / crouch / count / walk directions), s; the crouch eases at twice this'),
   refWalkFrom:      num(0.12, 0, 1, 0.01, 'referee', 'Meshy referee: below this speed he stands (idle clips), m/s'),
   refWalkFull:      num(0.45, 0.1, 2, 0.05, 'referee', 'Meshy referee: from this speed the walk clips are fully in, m/s (between: blended)'),
