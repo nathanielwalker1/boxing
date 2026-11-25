@@ -56,6 +56,11 @@ theory. He is the judge of *feel* and *look* — you are the judge of *does it r
   by a merge Nate has accepted. If a push fails, say so in the same report; an unpushed
   commit is not "done". (Changed 2026-11-24 from "Nate pushes": too many sessions and
   worktrees for one person to be the backup.)
+- **Screenshots and films are not committed.** Contact sheets, filmstrips, before/after
+  captures and clips go to `scripts/output/` (gitignored), never under `docs/`. Commit an
+  image only when Nate asks to keep that one. (Added 2026-11-24: 4 GB of the repo's
+  history was `docs/**` screenshots, which is what broke pushing. Any old state can be
+  re-filmed from its commit.)
 - **Don't add unrequested features.** Flag ideas in one line; don't build them.
 - **Ambiguity → ask.** The spec is precise; gaps are questions, not license.
 - **Porting rule:** a v1 system is ported when its `legacy/scripts/*_test.mjs` assertion
