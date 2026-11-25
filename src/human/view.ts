@@ -32,7 +32,7 @@ let assets: Assets | null = null;
  */
 const heads: ({ drawn: THREE.Vector3; sim: THREE.Vector3 } | null)[] = [null, null];
 /** (humanContactSkin) per side: how far that man's SKIN reaches from point c along unit dir (vertices within band m of the ray), m; null = none. */
-const skins: (((part: 'head' | 'torso', c: THREE.Vector3, dir: THREE.Vector3, band: number) => number | null) | null)[] = [null, null];
+const skins: (((part: 'head' | 'torso' | 'L' | 'R', c: THREE.Vector3, dir: THREE.Vector3, band: number) => number | null) | null)[] = [null, null];
 /** The states each human view was last given (the other view reads them: the sim's aim needs the opponent). */
 const shown: ({ prev: FighterState; next: FighterState } | null)[] = [null, null];
 /** Outcome mode: each view's drawn lunge along its facing last frame (the other caps its own by it), m. */
@@ -484,6 +484,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   const landT = new THREE.Vector3();
   /** (humanContactSkin) this frame's landed glove: its centre's distance off the struck part's centre on the skin, m (0 = none). */
   let skinLand = 0;
+  let blockSkin = 0;   // a blocked punch this frame: the measured distance its glove point rests from his guard glove's, m (0 = none)
   const ikOff = new THREE.Vector3();
   /** The guard tuck applied to each hand last frame (world m), so a punch's press offset starts from the tucked hand. */
   const tuckD = { Left: new THREE.Vector3(), Right: new THREE.Vector3() };
@@ -852,6 +853,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         return dirOf(gapYaw, gapPitch).normalize();
       };
       const aimOutcome = (): void => {
+        blockSkin = 0;
         if (!(out.ik?.outcome && out.ik.w > 1e-3) || !simAt) { skinLand = 0; return; }
         const oppBody = drawnBodies[side === 0 ? 1 : 0];
         const T = new THREE.Vector3(simAt.x, simAt.y, simAt.z);
@@ -861,7 +863,16 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         if (ci.kind === 'block' && oppBody) {
           const g0 = oppBody.gloves[0], g1 = oppBody.gloves[1], gp = g0.distanceTo(T) <= g1.distanceTo(T) ? g0 : g1;
           const dir = new THREE.Vector3(x - gp.x, 0, z - gp.z).normalize();
-          T.copy(gp).addScaledVector(dir, next.body.gloveR * (2 - cfg.contactSquash));
+          // LEATHER ON LEATHER (humanContactSkin, 2026-11-25, Nate: "punches are being blocked but aren't even making
+          // contact"): the distance between the two glove points is measured from both gloves' skinned vertices along the
+          // line, as a land's is from the face. The stand-in (two glove radii) left a visible gap, as it did on lands.
+          let blockR = next.body.gloveR * (2 - cfg.contactSquash);
+          if (cfg.humanContactSkin && out.ik) {
+            const sk = skins[side === 0 ? 1 : 0]?.(gp === g0 ? 'L' : 'R', gp, dir, cfg.humanContactSkinBand) ?? null;
+            const gf = gloveFront(out.ik.arm, dir.clone().negate());
+            if (sk !== null && gf !== null) blockR = Math.min(blockR, sk + gf - cfg.humanContactSkinSink);
+          }
+          T.copy(gp).addScaledVector(dir, blockR); blockSkin = blockR;
           // (humanBodyAim: a blocked BODY punch rests on his guard at belly-to-rib height, not wherever his guard glove sits)
           if (cfg.humanBodyHandAim && ci.part === 'body' && VARIANTS[next.punch.variant].body) T.y = Math.max(simAt.y - 0.1, Math.min(simAt.y + 0.08, gp.y));
         }
@@ -1340,7 +1351,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
                   // (my upper arm is tested against the lane only: it moves with the elbow)
                   if ((qr === UA || (qa === G && qb !== G && qb !== E)) && pb !== ob.laneTo[k]) continue;
                   const [c1, c2] = segSegPts(qa === S ? qa : qa.clone().add(D), qb.clone().add(D), pa, pb);
-                  const d = c1.distanceTo(c2), need = qr + pr + mg - d;
+                  // (a BLOCKED glove against the guard glove it rests on: the measured leather-to-leather distance, not two
+                  //  stand-in radii and a margin — that put the gap back however the block was aimed)
+                  const onGuard = blockSkin > 0 && mineAct === 1 && out.ik?.arm === a && qa === G && qb === G && pa === pb;
+                  const d = c1.distanceTo(c2), need = (onGuard ? Math.min(qr + pr + mg, blockSkin) : qr + pr + mg) - d;
                   if (need <= 0 || d < 1e-5) continue;
                   const n = c1.sub(c2).divideScalar(d);
                   // (my own punch out of his lane is BRUSHED DOWN, not lifted over it nor dragged back through me)
