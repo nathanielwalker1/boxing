@@ -590,9 +590,11 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         const ci = anim.conformInfo, ob = drawnBodies[side === 0 ? 1 : 0];
         const dropNow = Math.min(0.45, Math.max(0, out.drop));
         let want = 0, wantLean = 0;
-        if (cfg.humanCrossRise > 0 && cfg.mocapOutcome && !cfg.humanRawPose && !next.down && next.punch.type === 'cross' && out.ik?.outcome && ci.kind === 'land' && ob) {
+        if (cfg.humanCrossRise > 0 && cfg.mocapOutcome && !cfg.humanRawPose && !next.down && (next.punch.type === 'cross' || next.punch.type === 'uppercut') && out.ik?.outcome && ci.kind === 'land' && ob) {
           if (!ci.resolved) {
-            const ty = ci.part === 'head' ? ob.head.y : ci.at ? ci.at.y : NaN;
+            // (the height it lands at on the head: the centre, or under / over it by the angle the land comes in at,
+            //  humanLandGap — an uppercut arrives under the chin, not at the middle of the head)
+            const ty = ci.part === 'head' ? ob.head.y + Math.sin(gapPitch) * ob.headR : ci.at ? ci.at.y : NaN;
             // (against the take's glove at its CONTACT frame, and on the whole-punch envelope: read off the glove in
             //  flight and weighted like the hand, the rise came in over the last ticks — Nate: "upon being close to
             //  the fighter's face, it grows and extends weirdly")
