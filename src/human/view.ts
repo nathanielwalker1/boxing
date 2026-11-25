@@ -272,6 +272,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   // (humanSoftOn) the wobble springs: belly, chest (each a displacement and its speed, 1 = a flush body shot), and the head's swing along world x / z, rad
   const soft = { b: 0, bv: 0, c: 0, cv: 0, hx: 0, hxv: 0, hz: 0, hzv: 0 };
   const softGain = bodyFile === 4 ? 1 : -1;   // (-1: read humanSoftLean live)
+  // (for the checks: what the soft layers are doing to him right now — belly and chest scale front to back against the build's, the head's swing in degrees)
+  ((window as unknown as { __humanSoft?: Record<number, unknown> }).__humanSoft ??= {})[side] = () => ({
+    belly: spine[0]!.scale.z / softBase[0]!.z, chest: spine[2]!.scale.z / softBase[2]!.z, headDeg: Math.hypot(soft.hx, soft.hz) * 180 / Math.PI,
+  });
   let hipSlow = NaN, flatW = 0;   // (humanTiredFlat) the clip's hip height averaged, and how much of the bounce is being taken out
   let menuW = 0;   // (humanMenuHandsDown) 0..1: how far the arms are down at his sides
   const headTop = bones.find(b => b.name.endsWith('HeadTop_End')) ?? null;
@@ -785,8 +789,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           soft.hzv += (-wh * wh * soft.hz - 2 * cfg.humanSoftHeadDamp * wh * soft.hzv) * h; soft.hz += soft.hzv * h;
         }
         const g = softGain > 0 ? softGain : cfg.humanSoftLean;
-        bl -= Math.max(-0.3, Math.min(0.3, soft.b * cfg.humanSoftBelly * g));
-        sw -= Math.max(-0.2, Math.min(0.2, soft.c * cfg.humanSoftChest * g));
+        bl -= Math.max(-0.4, Math.min(0.4, soft.b * cfg.humanSoftBelly * g));
+        sw -= Math.max(-0.25, Math.min(0.25, soft.c * cfg.humanSoftChest * g));
       } else { soft.b = soft.bv = soft.c = soft.cv = soft.hx = soft.hxv = soft.hz = soft.hzv = 0; }
       if (cfg.humanTiredOn && !cfg.humanRawPose) {
         const td = next.down ? 0 : tiredOf(next, cfg);
