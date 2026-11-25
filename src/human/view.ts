@@ -175,7 +175,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   if (!assets) throw new Error('createHumanView: call preloadHuman() first');
   const { boxer, lib, roles, index } = assets;
   const tone = luminance(spec.skin) < 0.3 ? 'dark' : 'light';
-  const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c' };
+  // ?trunks=t2 (red) / ?trunks2=t3 (blue) pick a trunks style on the fight page too, as on the proof page
+  const q = new URLSearchParams(location.search);
+  const trunksStyle = side === 0 ? q.get('trunks') : (q.get('trunks2') ?? q.get('trunks'));
+  const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c', ...(trunksStyle ? { trunksStyle } : {}) };
   const model = boxer.spawn(tone, kit);
   paintFighter(model, cfg);   // the paint look's banded shading + ink outline (render/paint.ts; hidden when cfg.paintLook is off)
   const { skel, bones } = skeletonOf(model);
