@@ -2373,6 +2373,7 @@ export const SCHEMA = {
   humanFaceMarkSize: num(0.3, 0.1, 0.6, 0.01, 'human', 'face marks: the reach of one spot, as a share of the head\'s height. Read when his body is built'),
   humanHeadHeight:   num(0.2, 0.12, 0.3, 0.005, 'human', 'face marks: the head\'s height, head joint to crown, m at the body\'s native height, for a body with no crown bone (the Meshy ones). Read when his body is built'),
   humanCutAt:        num(0.85, 0.2, 1.01, 0.01, 'human', 'face marks: an eye or cheek marked this far opens the cut (above 1 = never cut)'),
+  humanCutChance:    num(0.35, 0, 1, 0.05, 'human', 'the cut: the share of fighter-fights in which he CAN cut at all (decided once a fight for each man; he still has to be marked to humanCutAt). 1 = every well-marked man cuts, 0 = nobody ever does'),
   humanCutDripTime:  num(25, 3, 120, 1, 'human', 'the cut: seconds for the blood to run its full length down the face from it'),
   humanBloodCount:   num(12, 0, 40, 1, 'human', 'blood: droplets thrown off a CUT man\'s head by a flush head shot (a clean one half, glancing none; nothing before he is cut). 0 = no blood spray'),
   humanBloodSize:    num(0.014, 0.004, 0.04, 0.001, 'human', 'blood: droplet size, m'),

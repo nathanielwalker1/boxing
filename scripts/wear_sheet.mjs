@@ -47,7 +47,7 @@ for (let f = 0; f < FIGHTERS; f++) {
   for (const n of STAGES) {
     const state = await page.evaluate(([from, to, stream]) => {
       const w = window.__humanWear[0];
-      if (from === 0) w.reset();
+      if (from === 0) { w.reset(); w.prone(true); }   // (the sheet shows a fight he DOES cut in: humanCutChance of them)
       for (let i = from; i < to; i++) { const s = stream[i % stream.length]; w.hit(s[0], s[1], s[2], s[3]); w.age(1.5); }   // (about 1.5 s of fight a landed head punch: 115 of them in 180 s)
       return w.state();
     }, [landed, n, STREAM]);

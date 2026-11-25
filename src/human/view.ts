@@ -263,6 +263,14 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   // The spots are fixed once, in the body mesh's own rest space: fractions of the head's height (head joint to crown) along the
   // head bone's axes — x to his left, y up, z out of the face. Order: L eye, R eye, L cheek, R cheek, nose, mouth.
   let wet = 0, cutAt = -1, myEpoch = wearEpoch;
+  // NOT EVERY FIGHT HAS A CUT (Nate 2026-11-25, as in boxing): each fight, each man is or is not going to cut, decided once
+  // by humanCutChance from the fight's number, his corner and his name (no Math.random: the same fight draws the same).
+  const cutRoll = (): boolean => {
+    let hsh = (wearEpoch * 2654435761 + side * 40503) >>> 0;
+    for (let i = 0; i < spec.id.length; i++) hsh = (Math.imul(hsh ^ spec.id.charCodeAt(i), 1664525) + 1013904223) >>> 0;
+    return hsh / 4294967296 < cfg.humanCutChance;
+  };
+  let cutProne = cutRoll();
   let drip = 0;   // 0..1: how far the blood has run down from the cut (humanCutDripTime seconds to its full length)
   const cutPos = [new THREE.Vector3(), new THREE.Vector3()];
   const blood = new Spray(parent, 0x8a0a10, 0x4a0508);   // off a cut man's head on a clean or flush shot
@@ -293,8 +301,9 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       wear.uDmgR.value = at(cfg.humanFaceMarkSize, 0, 0).distanceTo(o);
       wear.uCutDir.value.copy(at(1, 0.25, 0)).sub(o).normalize();
       wear.uCutDown.value.copy(at(0, -1, 0)).sub(o).normalize();
-      // the cut: on the forehead just ABOVE the eyebrow (on the brow itself it was dark red on a black eyebrow: not seen)
-      cutPos[0]!.copy(at(0.24, 0.74, 0.46)); cutPos[1]!.copy(at(-0.24, 0.74, 0.46));    }
+      // the cut: at the outer corner of the eye, just under the tail of the eyebrow (Nate 2026-11-25: "the closer to the eye
+      // the better"; it was on the forehead above the brow. ON the brow it is dark red on a black eyebrow: not seen)
+      cutPos[0]!.copy(at(0.29, 0.57, 0.42)); cutPos[1]!.copy(at(-0.29, 0.57, 0.42));    }
   }
   /** THE RULE (one landed head punch -> marks). `k`: 0 = it landed on his left side, 1 = his right. A flush punch adds
    *  humanFaceMarkPerHit, a clean one 0.6 of it, a glancing one 0.25, shared out by where it landed:
@@ -313,19 +322,22 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     else if (punch === 'hook') { add(k, 1); add(2 + k, 0.3); }
     else if (punch === 'uppercut') add(5, 0.4, 0.5);
     else { add(4, 0.6); add(k, 0.5); }
-    if (cutAt < 0) for (const s of [k, 1 - k]) if (Math.max(dmg[s]!, dmg[2 + s]!) >= cfg.humanCutAt) { cutAt = s; break; }
+    if (cutAt < 0 && cutProne) for (const s of [k, 1 - k]) if (Math.max(dmg[s]!, dmg[2 + s]!) >= cfg.humanCutAt) { cutAt = s; break; }
   };
   /** window.__humanWear[side] (scripts/wear_sheet.mjs): land punches on his face by hand, and read what it did. */
   ((window as unknown as { __humanWear?: Record<number, unknown> }).__humanWear ??= {})[side] = {
     hit: (zone: string | undefined, punch: string, k: number, grade: string) => { wearForce = true; markHit(zone, punch, k, grade); },
     reset: () => { dmg.fill(0); cutAt = -1; wet = 0; drip = 0; },
+    /** Make this a fight he does (or does not) cut in, whatever the roll said. */
+    prone: (on: boolean) => { cutProne = on; },
+    isProne: () => cutProne,
     /** As if `seconds` of the fight had passed since: the blood runs. */
     age: (seconds: number) => { if (cutAt >= 0) drip = Math.min(1, drip + seconds / Math.max(1, cfg.humanCutDripTime)); },
     state: () => ({ dmg: dmg.map(v => Math.round(v * 100) / 100), cut: cutAt, wet }),
   };
   /** Each drawn frame: sweat on, marks from the punches that landed on his head this frame, and what the materials show. */
   const wearStep = (dt: number, next: FighterState, events: readonly SimEvent[]): void => {
-    if (myEpoch !== wearEpoch) { myEpoch = wearEpoch; wet = 0; cutAt = -1; drip = 0; dmg.fill(0); }
+    if (myEpoch !== wearEpoch) { myEpoch = wearEpoch; wet = 0; cutAt = -1; drip = 0; dmg.fill(0); cutProne = cutRoll(); }
     if (cutAt >= 0 && !handsDown) drip = Math.min(1, drip + dt / Math.max(1, cfg.humanCutDripTime));
     if (!handsDown) wet = Math.min(1, wet + dt / Math.max(1, cfg.humanSweatFull) * (1 + cfg.humanSweatTired * (1 - next.stamina)));
     if (cfg.humanFaceDamage) for (const e of events) {
