@@ -39,6 +39,8 @@ export class Referee {
   private meshyOk = true;
   private cue: RefCue = { mode: 'watch', close: 0, look: null, nod: 0 };
   private nodCool = 0;
+  /** Which way round from behind the fighters he stands in the round (+1 / -1; refSideDeg). */
+  private side = 1;
   private state: FighterState;
   private vel: Vec2 = { x: 0, z: 0 };
   private hands: [HandLocal, HandLocal];
@@ -113,7 +115,17 @@ export class Referee {
       const nl = Math.hypot(nx, nz);
       if (nl < 1e-3) { nx = -cam.x; nz = -cam.z; } else { nx /= nl; nz /= nl; }
       if (nx * cam.x + nz * cam.z > 0) { nx = -nx; nz = -nz; }
-      target = { x: mid.x + nx * c.refStandoff, z: mid.z + nz * c.refStandoff };
+      // ...turned refSideDeg round from straight behind them: the follow camera sits side-on to the fighters' line, so
+      // "far side, perpendicular" was dead behind the pair from the lens and they hid him the whole fight (2026-11-25).
+      // The side with more room inside the ropes, kept unless the other is clearly roomier (no flip-flopping).
+      const sd = c.refSideDeg * Math.PI / 180;
+      const at = (sg: number): Vec2 => {
+        const cs = Math.cos(sg * sd), sn = Math.sin(sg * sd);
+        return { x: mid.x + (nx * cs - nz * sn) * c.refStandoff, z: mid.z + (nx * sn + nz * cs) * c.refStandoff };
+      };
+      const room = (p: Vec2): number => Math.min(bound - Math.abs(p.x), bound - Math.abs(p.z));
+      if (room(at(-this.side)) > room(at(this.side)) + 0.5) this.side = -this.side;
+      target = at(this.side);
       face = mid;
     }
     target.x = Math.max(-bound, Math.min(bound, target.x));

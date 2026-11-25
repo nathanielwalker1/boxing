@@ -1314,6 +1314,7 @@ export const SCHEMA = {
   refArmLambda:     num(10, 2, 30, 0.5, 'referee', 'how fast the hands move between poses (hang, the winner\'s arm up), 1/s'),
   humanRef:         bool(true, 'referee', 'human mode (?human=1): the referee is in the ring (core/humanMode.ts sets refEnabled from this every frame; it was forced off before 2026-11-25). Drawn only, no hitbox: the fight is the same with him or without'),
   refMeshy:         bool(true, 'referee', 'human mode (?human=1): draw the Meshy referee (public/fighter/referee.glb, human/referee.ts) instead of the old rig; where he stands and where his hands go still come from ui/referee.ts'),
+  refSideDeg:       num(60, 0, 85, 5, 'referee', 'in the round he stands this far round from straight behind the fighters (as the camera sees them), degrees: 0 = dead behind the pair, where the side-on follow camera lost him behind them ("he disappears", 2026-11-25)'),
   refClipFade:      num(0.3, 0.05, 1.5, 0.05, 'referee', 'Meshy referee: time constant of every change between his clips (watch / crouch / count / walk directions), s; the crouch eases at twice this'),
   refWalkFrom:      num(0.12, 0, 1, 0.01, 'referee', 'Meshy referee: below this speed he stands (idle clips), m/s'),
   refWalkFull:      num(0.45, 0.1, 2, 0.05, 'referee', 'Meshy referee: from this speed the walk clips are fully in, m/s (between: blended)'),

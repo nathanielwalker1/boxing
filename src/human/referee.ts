@@ -102,7 +102,12 @@ export function createRefereeBody(cfg: Config, parent: THREE.Object3D): RefereeB
   group.scale.setScalar(REFEREE.heightM / src.height);
   root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; } });
   parent.add(group);
+  /** window.__refMeshy(): is the Meshy referee in the scene and drawn (checks; read-only). */
   const { skel, bones } = skeletonOf(root);
+  (window as unknown as { __refMeshy: () => unknown }).__refMeshy = () => ({
+    inScene: group.parent !== null, visible: group.visible, pos: group.position.toArray().map(v => +v.toFixed(2)), rotY: group.rotation.y,
+    scale: group.scale.x, hips: bones[0]!.position.toArray(), spine: bones[1]!.quaternion.toArray(), meshes: (() => { let n = 0; root.traverse(o => { if ((o as THREE.Mesh).isMesh && o.visible) n++; }); return n; })(),
+  });
   const fit: Fit = buildFit(lib.index.source, lib.bones, lib.index.parents, skel);
   const clip = (slug: string): Clip => { const c = lib.clips.get(slug); if (!c) throw new Error('referee clip missing: ' + slug); return c; };
   const C = Object.fromEntries(Object.entries(CLIP).map(([k, s]) => [k, clip(s)])) as Record<keyof typeof CLIP, Clip>;
@@ -145,8 +150,11 @@ export function createRefereeBody(cfg: Config, parent: THREE.Object3D): RefereeB
       const want = { fwd: Math.max(0, vf) / sp, back: Math.max(0, -vf) / sp, right: Math.max(0, vr) / sp, left: Math.max(0, -vr) / sp };
       for (const k of ['fwd', 'back', 'left', 'right'] as const) wDir[k] = smooth(wDir[k], speed > 0.05 ? want[k] : wDir[k], dt, fade * 0.5);
       const wsum = wDir.fwd + wDir.back + wDir.left + wDir.right || 1;
-      const net = walks.reduce((a, w) => a + w.net * wDir[w.k] / wsum, 0);
-      cycle += dt * speed / net;   // one clip loop per its own travel: the feet keep to the floor at any speed
+      // (no direction weighted yet, e.g. placed standing by a menu: the weights are all 0 and net was 0/0 = NaN, which
+      // poisoned the cycle and then every bone the moment he walked: "he disappears", 2026-11-25)
+      const net = Math.max(0.3, walks.reduce((a, w) => a + w.net * wDir[w.k] / wsum, 0));
+      cycle = (cycle + dt * speed / net) % 1;   // one clip loop per its own travel: the feet keep to the floor at any speed
+      if (!Number.isFinite(cycle)) cycle = 0;
       walkW = smooth(walkW, Math.max(0, Math.min(1, (speed - cfg.refWalkFrom) / Math.max(0.01, cfg.refWalkFull - cfg.refWalkFrom))), dt, fade * 0.5);
       if (walkW > 0.001) {
         let acc = 0;
@@ -203,9 +211,8 @@ export function createRefereeBody(cfg: Config, parent: THREE.Object3D): RefereeB
         rotateWorld(b, qT.setFromAxisAngle(right, lookPitch * share));                 // pitch about his right (+ = up)
       }
     },
-    dispose() {
-      parent.remove(group);
-      root.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh) m.geometry.dispose(); });
-    },
+    // The geometry and textures are SHARED with the loaded original (SkeletonUtils.clone): disposing them here blanked
+    // every later copy (the menu removes him, the fight makes a new one: "flashes in the main menu then goes", 2026-11-25).
+    dispose() { parent.remove(group); },
   };
 }
