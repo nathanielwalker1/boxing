@@ -46,7 +46,8 @@ console.log('\n=== 1. Rocked ===');
   check(`COVERING UP: the hands stay on the head (lead glove ${((gloveY('cover') - gloveY('legs')) * 100).toFixed(1)} cm higher than a legs-gone man's)`, gloveY('cover') > gloveY('legs') + 0.02);
   const chip = style => { const s = fresh(cfg, 0.76); const f = s.fighters[1]; f.hurt = 2; f.hurtMax = 3; f.hurtKind = 'head'; f.hurtStyle = style; const r = run(s, 30, i => [inp({ cross: i === 0 }), inp({ block: true })]); return { blocked: of(r.evs, 'punchBlock').length, lost: 1 - r.s.fighters[1].health }; };
   const cc = chip('cover'), cl = chip('legs');
-  check(`…and his held guard is a real guard: a blocked cross takes ${(cc.lost * 100).toFixed(2)}% against ${(cl.lost * 100).toFixed(2)}% from a legs-gone man's loose one`, cc.blocked === 1 && cl.blocked === 1 && cc.lost < cl.lost * 0.8);
+  // (audit P1, 2026-11-24: hurtCoverBlock 1 -> 0.65, a hurt man's cover leaks. It is still the tightest of the three, by less: was < 0.8 of the loose one.)
+  check(`…and his held guard is still the tighter one: a blocked cross takes ${(cc.lost * 100).toFixed(2)}% against ${(cl.lost * 100).toFixed(2)}% from a legs-gone man's loose one`, cc.blocked === 1 && cl.blocked === 1 && cc.lost < cl.lost * 0.9);
   const lock = style => { const s = fresh(cfg, 1.6); const f = s.fighters[1]; f.hurt = 3; f.hurtMax = 3; f.hurtKind = 'head'; f.hurtStyle = style; let n = 0; let st = s; while (!sim.canStartPunch(st.fighters[1], cfg) && n < 200) { st = sim.step(st, [NONE, NONE], cfg).state; n++; } return n; };
   check(`…but he is the slowest to punch back (${lock('cover')} ticks locked against ${lock('legs')})`, lock('cover') >= lock('legs') * 1.7);
   const off = hook({ ...RAW, hurtVarietyOn: false }, 1.7, 3);

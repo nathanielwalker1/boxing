@@ -764,7 +764,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   const flight = a.punch.timeMult > 0 ? a.punch.tell / a.punch.timeMult : a.punch.tell;
   // Only a HELD block can be perfect — a fist absorbed by a relaxed guard pinned on the face is a plain block.
   // (From a guard that takes a beat to come up — hands low — the block must at least be half-way there.)
-  const perfect = d.block && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight) && d.blockT >= guardOf(d, cfg).raise * 0.5;
+  // (A hurt man has no perfect block: his guard is loose, it cannot also be a clean read. Audit P1, 2026-11-24.)
+  const perfect = d.block && !(d.hurt > 0) && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight) && d.blockT >= guardOf(d, cfg).raise * 0.5;
   // The guard's shape and wear (overhaul): how much of it this punch meets. A perfect block meets all of it.
   // A RESTING guard that the fist pinned against the face is not a block: the hands were in the way (guardPinnedCover).
   // (Outcome first: full block while held — no geometric guard holes; wear still breaks the guard, below.)

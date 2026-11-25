@@ -82,5 +82,6 @@ inside('inside AI-vs-AI fights, all', r => aiTags.includes(r.tag));
   const f = rows.filter(r => aiTags.includes(r.tag) && r.r.firstRocked != null && r.r.winner != null);
   console.log(`\n== comeback rate: the fighter rocked first still won ${pct(f.filter(r => r.r.winner === r.r.firstRocked).length, f.length)} of ${f.length} fights (of ${rows.filter(r => aiTags.includes(r.tag)).length}; the rest had no rock or no winner)`);
 }
+if (process.env.BRIEF) process.exit(0);   // BRIEF=1: the headline tables only, no per-style blocks
 for (const st of ['pressure', 'outboxer', 'counter', 'swarmer', 'slugger'])
   if (rows.some(r => r.tag === 'style_med' && (r.a.startsWith(st) || r.b.startsWith(st)))) inside(`style ${st} (medium, its own numbers)`, r => r.tag === 'style_med', (r, side) => (side === (r.swap ? 1 : 0) ? r.a : r.b).startsWith(st));

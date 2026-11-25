@@ -65,6 +65,9 @@ export function slipHeadDip(f: FighterState, cfg: Config): number {
 }
 
 function triggerSlip(f: FighterState, side: Side, dir: -1 | 1 | 2, kind: SlipKind, cfg: Config, events: SimEvent[]): void {
+  // A ROCKED man has no head movement (audit P1, 2026-11-24): MEASURED, rocked AIs slipped their way through the window.
+  // (Winded from a body shot he still can.)
+  if (f.hurt > 0 && f.hurtKind === 'head') return;
   const s = f.slip;
   let from = 0, chain = 1;
   if (s.dir !== 0) {

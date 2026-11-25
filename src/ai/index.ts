@@ -172,7 +172,9 @@ export interface AiState {
   stickX: number; stickY: number; stickT: number;
   /** It was hurt last tick (the survive plan is rolled on the rising edge) and the plan: tie up, or cover and move. */
   wasHurt: boolean;
-  hurtPlan: 'none' | 'clinch' | 'cover' | 'swing' | 'knee';
+  hurtPlan: 'none' | 'clinch' | 'cover' | 'swing' | 'knee' | 'reel';   // reel: he gives ground but does not get his guard up (aiHurtCover*)
+  /** The opponent is hurt and this AI is going after him (rolled once as he is hurt: aiFinishChase*); oppWasHurt is the edge. */
+  chasing: boolean; oppWasHurt: boolean;
   /** Shots taken lately (decays one a second): two = it is taking a combination. Seconds left of walking in behind the guard after being picked off at range. */
   hits: number; shellT: number;
   /** Phase 2. The opponent was inside range last tick, and whether it decided (as he got there) to keep its guard up in there. */
@@ -252,7 +254,7 @@ export function createAi(side: Side, seed: number, cfg: Config, style: StylePara
     macro: null,
     stickX: 0, stickY: 999, stickT: 0,
     wasHurt: false,
-    hurtPlan: 'none',
+    hurtPlan: 'none', chasing: false, oppWasHurt: false,
     hits: 0, shellT: 0,
     wasInside: false, insideHold: false, oppRate: 0, queue: [], queueT: 0, armedOver: false, armedTold: false, armedBack: false, lastStun: 0, oppResolved: false, pushFollow: 0, resting: false, interceptCd: 0, oppQuiet: 9, armedWait: 0, coverT: -1, holdX: 0, holdY: 0,
     checkT: 0, burstInT: 0, jabRes: false, guardT: 0, guardCap: 0, guardOffT: 0,
@@ -429,7 +431,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai:
   // under a combination it could not punch at all: 16 punches started in a 28 s fight, 55 against.)
   const meStumbling = Math.hypot(me.stagger.x, me.stagger.z) > (tools ? Math.max(st.stumbleSpeed, OWN_STUMBLE) : st.stumbleSpeed) || me.hurt > 0;
   const oppStumbling = Math.hypot(opp.stagger.x, opp.stagger.z) > st.stumbleSpeed || opp.hurt > 0;
-  if (me.hurt > 0 && a.hurtPlan !== 'swing') a.blockTimer = Math.max(a.blockTimer, st.coverTime);
+  if (me.hurt > 0 && a.hurtPlan !== 'swing' && a.hurtPlan !== 'reel') a.blockTimer = Math.max(a.blockTimer, st.coverTime);
   // A rush (phase 2): how many punches a second the opponent has been MISSING with. (Starts alone would not do:
   // measured, a man throwing clean three-punch combinations was read as wild and the AI stopped fighting him.)
   a.oppRate = Math.max(0, a.oppRate - a.oppRate * dt / WILD_WINDOW) + (oppMissed ? 1 : 0);
@@ -466,7 +468,10 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai:
     a.hurtPlan = tools && rngChance(a.rngT, st.hurtClinch) ? 'clinch' : tools && rngChance(a.rngT, st.hurtSwing) ? 'swing' : 'cover';
     // (The clinch is off by default now: a man whose plan was to tie up covers and gives ground instead of walking in to nothing.)
     if (a.hurtPlan === 'clinch' && !cfg.clinchOn) a.hurtPlan = 'cover';
-    if (a.hurtPlan === 'swing') a.blockTimer = 0;
+    // Covering up when hurt is a skill (audit P1, 2026-11-24: every AI got its guard up the tick it was rocked, and a hurt
+    // man was hit 20% of the time against 67% healthy). A man who fails the roll reels: he gives ground with his hands down.
+    if (a.hurtPlan === 'cover' && !rngChance(a.rngT, st.diffIdx === 0 ? cfg.aiHurtCoverEasy : st.diffIdx === 1 ? cfg.aiHurtCoverMed : cfg.aiHurtCoverHard)) a.hurtPlan = 'reel';
+    if (a.hurtPlan === 'swing' || a.hurtPlan === 'reel') a.blockTimer = 0;
     // Taking a knee (polish phase): rocked, worn, nobody near enough to tie up, and not yet down this round — sometimes
     // it uses the count. (The extra roll is only made when all of that holds, so no other fight's dice move.)
     if (tools && cfg.takeKneeOn && cfg.hurtVarietyOn && me.hurtKind === 'head' && me.health < cfg.aiKneeHealth && me.knockdowns === 0 && a.hurtPlan !== 'swing' && rngChance(a.rngT, cfg.aiKneeChance)) a.hurtPlan = 'knee';
@@ -758,6 +763,14 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai:
     a.mode = 'reset'; a.modeTimer = st.resetTime; a.resetPending = false;
   }
   if (a.resetPending && !punching) { a.mode = 'reset'; a.modeTimer = st.resetTime; a.resetPending = false; }
+  // Going after a hurt man (audit P1, 2026-11-24): MEASURED, the AI stepped out after the shot that rocked him like after
+  // any other, and a rocked man faced 1.3 punches before he recovered. Rolled once as he is hurt, by skill; while it
+  // holds the AI presses (no reset, no circling away) unless it is hurt itself.
+  const oppHurtNow = opp.hurt > 0 && !opp.down;
+  if (oppHurtNow && !a.oppWasHurt) a.chasing = tools && rngChance(a.rngT, st.diffIdx === 0 ? cfg.aiFinishChaseEasy : st.diffIdx === 1 ? cfg.aiFinishChaseMed : cfg.aiFinishChaseHard);
+  if (!oppHurtNow) a.chasing = false;
+  a.oppWasHurt = oppHurtNow;
+  if (a.chasing && me.hurt <= 0) { a.mode = 'press'; a.resetPending = false; a.modeTimer = Math.max(a.modeTimer, st.modeMin); if (opp.punch.type === null) a.blockTimer = 0; }   // (and it does not walk him down behind its guard)
   a.modeTimer = Math.max(0, a.modeTimer - dt);
   if (a.modeTimer === 0) rollMode(a, me.stamina, st);
   // Ring use: a style that circles away always goes away from the opponent's POWER hand (his rear hand is on my
@@ -875,7 +888,7 @@ export function aiStep(ai: Readonly<AiState>, s: SimState, cfgIn: Config): { ai:
   // punch's range (and drifts back out to the standoff once it has thrown) —
   // except mid-reset (it is leaving) and on hold (it is standing).
   // hurt: get out of range, keep the feet moving. The same against a rush: give him the ring until he is gassed.
-  const surviving = tools && ((nowHurt && a.hurtPlan === 'cover') || evade);
+  const surviving = tools && ((nowHurt && (a.hurtPlan === 'cover' || a.hurtPlan === 'reel')) || evade);
   const mode = surviving ? 'reset' : a.mode;
   let standoff = mode === 'reset' ? st.resetDist : mode === 'probe' ? st.probeDist : mode === 'circle' ? st.standoff + st.standoffBand : st.standoff;
   let band = mode === 'circle' ? st.standoffBand * 2 : st.standoffBand;
