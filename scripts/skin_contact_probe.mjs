@@ -45,6 +45,11 @@ await page.addInitScript(() => {
     const arms = { n: 0, both: 0, cross: 0, crossBoth: 0, deep: 0, cap: 0, cap5: 0, capClose: 0, close: 0, byKey: {}, dbg: 0, pops: 0, popWorst: 0 };
     let gp1 = null, gp2 = null;
     const form = { by: {}, prev: [null, null] };
+    // PATH STABILITY (Nate 2026-11-25: "punch paths are still unstable... they move and change direction and look weird
+    // in slow motion"): per punching glove and frame, how much the drawing layers' correction (final glove minus the
+    // clip's own glove) CHANGED since the frame before, in all and per layer; and the kink of the path (second difference)
+    // of the clip's own glove against the final one.
+    const path = { by: {}, prev: [null, null] };
     const cen = a => { let x = 0, y = 0, z = 0; const n = a.length / 3; for (let i = 0; i < a.length; i += 3) { x += a[i]; y += a[i + 1]; z += a[i + 2]; } return [x / n, y / n, z / n]; };
     let prevC = [0, 1].map(s => { const x = window.__humanMesh[s](); return { head: cen(x.head), torso: cen(x.torso) }; });
     for (let f = 0; f < frames; f++) {
@@ -110,8 +115,29 @@ await page.addInitScript(() => {
       // PUNCH FORM: per punching arm, the wrist bend (forearm line against the line from the wrist to the middle of the
       // glove's own mesh) and the elbow angle (shoulder - elbow - wrist), degrees, and how much each changed in a frame
       for (const s of [0, 1]) {
-        const pn = window.__sim.state().fighters[s].punch; if (!pn.type) { form.prev[s] = null; continue; }
+        const pn = window.__sim.state().fighters[s].punch; if (!pn.type) { form.prev[s] = null; path.prev[s] = null; continue; }
         const leadL = P[s].gloves.lead[0] === P[s].gloves.left[0], side = (pn.hand === 'lead') === leadL ? 'left' : 'right';
+        { const st = window.__humanStages[s] ?? [];
+          // (the APPROACH only, from the punch's start to its hit: after it the glove is meant to stop on the face and
+          //  come home, and that reads as a kink that is no fault)
+          if (st.length > 1 && !pn.resolved) {
+            const gi = side === 'left' ? 1 : 2, key = pn.type + pn.hand, pr = path.prev[s] && path.prev[s].key === key ? path.prev[s] : null;
+            const cur = { key, pos: st.map(x => [x[0], x[gi]]), pp: pr ? { pos: pr.pos } : null };
+            const d3 = (a, c) => Math.hypot(a[0] - c[0], a[1] - c[1], a[2] - c[2]) * 100, sub = (a, c) => [a[0] - c[0], a[1] - c[1], a[2] - c[2]];
+            if (pr) {
+              const b = (path.by[pn.type] ??= { corr: [], clip2: [], fin2: [], layer: {} });
+              const cN = cur.pos[0][1], fN = cur.pos[cur.pos.length - 1][1], cP = pr.pos[0][1], fP = pr.pos[pr.pos.length - 1][1];
+              b.corr.push(d3(sub(fN, cN), sub(fP, cP)));
+              // (per layer, the KINK of its own move: this frame's change of it against last frame's change — a layer
+              //  that eases in smoothly reads near 0, one that jerks the glove about reads high)
+              if (pr.pp) for (let i = 1; i < cur.pos.length; i++) { const nm = cur.pos[i][0], j = pr.pos.findIndex(x => x[0] === nm), k = pr.pp.pos.findIndex(x => x[0] === nm); if (j < 1 || k < 1) continue;
+                const a = sub(cur.pos[i][1], cur.pos[i - 1][1]), c = sub(pr.pos[j][1], pr.pos[j - 1][1]), e = sub(pr.pp.pos[k][1], pr.pp.pos[k - 1][1]);
+                (b.layer[nm] ??= []).push(d3(sub(a, c), sub(c, e))); }
+              if (pr.pp) { const cQ = pr.pp.pos[0][1], fQ = pr.pp.pos[pr.pp.pos.length - 1][1];
+                b.clip2.push(d3(sub(cN, cP), sub(cP, cQ))); b.fin2.push(d3(sub(fN, fP), sub(fP, fQ))); }
+            }
+            path.prev[s] = cur;
+          } else path.prev[s] = null; }
         const E = P[s].elbows[side], G = P[s].gloves[side], S = P[s].shoulders[side], gc = cen(m[s][side === 'left' ? 'L' : 'R']);
         const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], ang = (a, b) => Math.acos(Math.max(-1, Math.min(1, (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / ((Math.hypot(...a) * Math.hypot(...b)) || 1)))) * 180 / Math.PI;
         const fa = sub(G, E), fl = Math.hypot(...fa), W = G.map((v, k) => v - fa[k] / fl * window.__cfg.humanGloveOffset);
@@ -154,7 +180,8 @@ await page.addInitScript(() => {
     const st = window.__sim.state();
     const q = (a, p) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.floor(p * b.length))] : NaN; };
     const formOut = Object.entries(form.by).map(([k, b]) => `  ${k.padEnd(8)} wrist bend median ${q(b.wrist, 0.5).toFixed(0)}, p95 ${q(b.wrist, 0.95).toFixed(0)}, max ${q(b.wrist, 1).toFixed(0)} deg; change a frame p95 ${q(b.dW, 0.95).toFixed(1)}, max ${q(b.dW, 1).toFixed(0)} | elbow min ${q(b.elbow, 0).toFixed(0)}, max ${q(b.elbow, 1).toFixed(0)}, over 172 on ${b.elbow.filter(x => x > 172).length}/${b.elbow.length} frames; change a frame p95 ${q(b.dE, 0.95).toFixed(1)}, max ${q(b.dE, 1).toFixed(0)}`);
-    return { lands, blocks, body, arms, formOut, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
+    const pathOut = Object.entries(path.by).map(([k, b]) => `  ${k.padEnd(8)} the layers' correction changes by a median ${q(b.corr, 0.5).toFixed(1)} cm a frame, p95 ${q(b.corr, 0.95).toFixed(1)}, max ${q(b.corr, 1).toFixed(0)}; over 3 cm on ${b.corr.filter(x => x > 3).length}/${b.corr.length} frames | path kink a frame, p95: the clip's own ${q(b.clip2, 0.95).toFixed(1)} cm, as drawn ${q(b.fin2, 0.95).toFixed(1)} (max ${q(b.clip2, 1).toFixed(0)} v ${q(b.fin2, 1).toFixed(0)})\n           by layer (frames its own move KINKED by over 2 cm, and its p95): ${Object.entries(b.layer).map(([n, a]) => [n, a.filter(x => x > 2).length, q(a, 0.95)]).filter(r => r[1] > 0).sort((x, y) => y[1] - x[1]).slice(0, 7).map(r => `${r[0]} ${r[1]} (${r[2].toFixed(1)})`).join(', ')}`);
+    return { lands, blocks, body, arms, formOut, pathOut, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
   };
 });
 await page.goto(`${DEV_URL}/?menu=1&human=1&ko=1`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
@@ -211,8 +238,9 @@ if (process.argv[4] === 'shots' || process.argv[4] === 'blockshots') {
   }
   await browser.close(); process.exit(0);
 }
-const { lands, blocks, info, body, arms, formOut } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
+const { lands, blocks, info, body, arms, formOut, pathOut } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
 console.log(info);
+console.log('PATH STABILITY, the punching glove on its way in (punch start to its hit; every punch, landing or not):\n' + pathOut.join('\n'));
 console.log('PUNCH FORM, the punching arm while a punch is out:\n' + formOut.join('\n'));
 console.log(`ARMS: a forearm's centre line within 5 cm of one of the other man's on ${arms.cross}/${arms.n} frames (within 2 cm: ${arms.deep}); while BOTH are punching: ${arms.crossBoth}/${arms.both} frames`);
 console.log(`ARMS AS CAPSULES: overlapping by over 2 cm on ${arms.cap}/${arms.n} frames (over 5 cm: ${arms.cap5}); hips within 80 cm on ${arms.close} frames, of those overlapping ${arms.capClose}. GLOVE POPS over 6 cm: ${arms.pops} glove-frames, worst ${(arms.popWorst * 100).toFixed(0)} cm. By what the two arms are doing (2 lands, 1 punch that will not, 0 guard) and parts: ${Object.entries(arms.byKey).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`);
