@@ -40,8 +40,12 @@ for (const ek of ['N', 'L', 'R', 'B', 'D']) for (const shift of [false, true]) f
   SC.push({ name: `${ek}${shift ? '_shift' : ''}${pk ? '_' + pk : ''}`, ek, shift, pk });
 }
 const all = [];
-for (const sc of SC) {
-  if (ONLY && !ONLY.includes(sc.name)) continue;
+// (the first scenario of a run is played twice and its first play thrown away: on the real GPU the first play starts
+//  before the views are ready and reads 0 everywhere — 2026-11-24, a plain left lean read 0.0 of 33 when run first)
+const RUN = SC.filter(sc => !ONLY || ONLY.includes(sc.name));
+let warm = RUN.length > 0;
+for (const sc of RUN.length ? [RUN[0], ...RUN] : []) {
+  const warmUp = warm; warm = false;
   const r = await page.evaluate(sc => {
     const w = window, N = 34;
     const script = [];
@@ -75,10 +79,16 @@ for (const sc of SC) {
     }
     return rows;
   }, sc);
+  if (warmUp) continue;
   // summary
   const dirOf = { L: 'lat-', R: 'lat+', B: 'fwd-', D: 'up-' }[sc.ek];
   const val = row => dirOf === 'lat-' ? -row.lat : dirOf === 'lat+' ? row.lat : dirOf === 'fwd-' ? -row.fwd : -row.up;
   const peak = Math.max(...r.map(val)), simPeak = Math.max(...r.map(x => Math.abs(x.off)));
+  // THE NUMBER FOR "IS THE LEAN KEPT WHILE PUNCHING": the peak above includes the lean BEFORE the press, so it reads well
+  // even when the punch pulls the head back to the line. This is the lowest drawn travel while the punch is out and the
+  // sim still holds the lean (2026-11-24: 20 minutes were spent tuning against the peak).
+  const held = r.filter(x => x.punch && String(x.punch).trim() && x.off !== 0);
+  const keptTxt = sc.pk ? ` | WHILE PUNCHING lowest ${held.length ? Math.min(...held.map(val)).toFixed(1) : 'n/a'} cm (judge the lean on this, not the peak)` : '';
   let popH = 0, popS = 0, popT = 0, popAt = 0, popG = 0, popGAt = 0;
   for (let i = 2; i < r.length; i++) {
     const a = r[i - 2], b = r[i - 1], c = r[i];
@@ -90,7 +100,7 @@ for (const sc of SC) {
   }
   const at10 = r[Math.min(r.length - 1, 16)];
   all.push({ name: sc.name, peak, simPeak });
-  console.log(`${sc.name.padEnd(18)} drawn head ${dirOf} peak ${peak.toFixed(1)} cm (sim ${simPeak.toFixed(1)}) | head jerk ${popH.toFixed(1)} cm/t2 @${popAt}, spine jerk ${popS.toFixed(1)} deg, turn jerk ${popT.toFixed(1)} deg, glove jerk ${popG.toFixed(1)} cm @${popGAt} | t16: tiltB ${at10.tiltB} tiltS ${at10.tiltS} turn ${at10.turn} ${at10.clip}`);
+  console.log(`${sc.name.padEnd(18)} drawn head ${dirOf} peak ${peak.toFixed(1)} cm (sim ${simPeak.toFixed(1)})${keptTxt} | head jerk ${popH.toFixed(1)} cm/t2 @${popAt}, spine jerk ${popS.toFixed(1)} deg, turn jerk ${popT.toFixed(1)} deg, glove jerk ${popG.toFixed(1)} cm @${popGAt} | t16: tiltB ${at10.tiltB} tiltS ${at10.tiltS} turn ${at10.turn} ${at10.clip}`);
   if (ROWS) for (const x of r) console.log(`   t${String(x.t).padStart(2)} off ${String(x.off).padStart(5)} d${x.dir} ${x.punch.padEnd(10)} head fwd ${String(x.fwd).padStart(6)} lat ${String(x.lat).padStart(6)} up ${String(x.up).padStart(6)} | tiltB ${String(x.tiltB).padStart(6)} tiltS ${String(x.tiltS).padStart(6)} turn ${String(x.turn).padStart(6)} | ${x.clip}`);
 }
 console.log(`console errors/warnings: ${logs.length}${logs.length ? ' — ' + logs.slice(0, 3).join(' | ') : ''}`);
