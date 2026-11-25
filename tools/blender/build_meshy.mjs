@@ -68,7 +68,7 @@ const shots = resolve(root, 'scripts/output');
 mkdirSync(shots, { recursive: true });
 const t0 = Date.now();
 const r = spawnSync(blender, ['--background', '--python', resolve(root, 'tools/blender/build_meshy.py'), '--',
-  cache, glb, `_${name}`, shots, process.env.PROBE === 'glove' ? 'probeglove' : process.env.PROBE ? 'probe' : 'build', gloveCache, gloveName, trunksCache, trunksName], { stdio: 'inherit' });
+  cache, glb, `_${name}`, shots, process.env.PROBE === 'glove' ? 'probeglove' : process.env.PROBE ? 'probe' : 'build', gloveCache, gloveName, trunksCache, trunksName, process.env.UNDER === 'briefs' ? 'briefs' : 'shorts'], { stdio: 'inherit' });
 if (r.status !== 0) process.exit(r.status ?? 1);
 console.log(`blender ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 if (process.env.PROBE) process.exit(0);

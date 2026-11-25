@@ -13,6 +13,7 @@ argv = sys.argv[sys.argv.index("--") + 1:]
 CACHE, OUT, SUFFIX, SHOTS, MODE = argv[:5]
 GLOVE_CACHE, GLOVE_NAME = (argv[5], argv[6]) if len(argv) > 6 else (None, "g1")
 TRUNKS_CACHE, TRUNKS_NAME = (argv[7], argv[8]) if len(argv) > 8 else (None, "t1")
+UNDER = argv[9] if len(argv) > 9 else "shorts"   # what the body wears under the trunks part: moulded "shorts" or "briefs" (bare legs)
 H = 1.80                    # target standing height (m)
 TRI_TARGET = 45000
 T0 = time.time()
@@ -201,6 +202,23 @@ wr_y, wr_z = arm_centre(wrist - 0.09)                 # forearm axis (the hand p
 REF_SH_X, REF_WRIST_X, REF_NECK_Z, REF_TIP = 0.175, 0.685, 1.51, 0.218
 log("reference skeleton: shoulder x %.3f -> %.3f, wrist x %.3f -> %.3f, neck z (measured below) -> %.3f, glove tip %.3f past the wrist"
     % (sh_x, REF_SH_X, wrist, REF_WRIST_X, REF_NECK_Z, REF_TIP))
+if UNDER == "briefs":
+    # the new bare bodies differ in build (a fat man's arm leaves the torso 13 cm further out and his wrist sits 6 cm
+    # further out). Reach is the reference skeleton's on every body, so the ARM MESH is scaled along x, armpit fixed,
+    # until its measured wrist is on the reference wrist; the joints are then measured again on the scaled arm.
+    _k = (REF_WRIST_X - armpit) / (wrist - armpit)
+    _sel = (np.abs(X) > armpit) & (Z > 1.2)
+    V[_sel, 0] = np.sign(X[_sel]) * (armpit + (np.abs(X[_sel]) - armpit) * _k)
+    body.data.vertices.foreach_set("co", V.ravel()); body.data.update()
+    X, Y, Z = V[:, 0], V[:, 1], V[:, 2]
+    ARM = [r for r in arm_profile() if r[1] is not None]
+    _w0 = wrist
+    cuff = first([r for r in ARM if r[0] >= 0.5], lambda r, p: yw(r) - yw(p) > 0.006)[0]
+    wrist = first([r for r in ARM if r[0] >= cuff + 0.04], lambda r, p: yw(r) - yw(p) > 0.01)[0] - 0.005
+    tip = float(X.max())
+    sh_y, sh_z = arm_centre(armpit + 0.06)
+    wr_y, wr_z = arm_centre(wrist - 0.09)
+    log("arm mesh scaled x%.3f from the armpit (%.3f): wrist %.3f -> %.3f, cuff %.3f, tip %.3f" % (_k, armpit, _w0, wrist, cuff, tip))
 sh_x, wrist = REF_SH_X, REF_WRIST_X
 GLOVE_TIP = wrist + REF_TIP                           # the fitted glove's tip (|x|); was the old mitten's tip
 el_x = sh_x + 0.54 * (wrist - sh_x)                   # humerus : forearm ~ 0.31 : 0.26 of stature
@@ -249,6 +267,14 @@ _om = (X > cuff) & (Z > 1.2)
 OLD_GLOVE = (V[_om].min(0), V[_om].max(0))
 log("old mitten bbox cm: size %s  min %s max %s" % (np.round(100 * (OLD_GLOVE[1] - OLD_GLOVE[0]), 1).tolist(),
     np.round(100 * OLD_GLOVE[0], 1).tolist(), np.round(100 * OLD_GLOVE[1], 1).tolist()))
+if UNDER == "briefs":
+    # the new bare bodies (2026-11-24) come with any hand: a fat mitten, a bare fist. The glove is the same size on
+    # every one of them, m2's (18.6 x 13.5 cm section, the size the hits were checked on), centred on this hand.
+    REF_GLOVE_YZ = np.array([0.186, 0.135])
+    _c = (OLD_GLOVE[0][1:] + OLD_GLOVE[1][1:]) / 2
+    OLD_GLOVE[0][1:] = _c - REF_GLOVE_YZ / 2
+    OLD_GLOVE[1][1:] = _c + REF_GLOVE_YZ / 2
+    log("glove box set to the reference section 18.6 x 13.5 cm, centred y %.3f z %.3f" % (_c[0], _c[1]))
 sm = lambda a, b, x: np.clip((x - a) / (b - a), 0, 1) ** 2 * (3 - 2 * np.clip((x - a) / (b - a), 0, 1))
 
 # ---- the glove source, imported early: its own proportions set where its cuff opening lands on the arm ----
@@ -287,6 +313,9 @@ def glove_source():
     return hi, sc_, sx, float(GLOVE_TIP - (ghi[0] - glo[0]) * sx), cuffsec
 GLOVE_HI, GLOVE_SC, GLOVE_SX, GLOVE_OPEN, GLOVE_CUFFSEC = glove_source()
 GLOVE_CUT = GLOVE_OPEN + 0.015   # body faces past this (|x|, arm height) are deleted: 1.5 cm of forearm inside the cuff
+if UNDER == "briefs" and not cuff < GLOVE_OPEN - 0.01:
+    log("this body's own cuff starts at %.3f, inside the fitted glove (opening %.3f): the forearm is tapered into the opening from %.3f" % (cuff, GLOVE_OPEN, GLOVE_OPEN - 0.03))
+    cuff = GLOVE_OPEN - 0.03
 if not cuff < GLOVE_OPEN - 0.01: raise SystemExit("glove opening %.3f not past the old cuff %.3f" % (GLOVE_OPEN, cuff))
 GRIP = min(wrist, GLOVE_OPEN)    # the forearm stub from here on is inside the glove: rigid to the Hand (weights, step 5)
 log("glove: opening at |x| %.3f (wrist joint %.3f, old cuff %.3f), length %.1f cm; body cut at %.3f"
@@ -1070,21 +1099,49 @@ def build_trunks():
         return zc, rows
     T = verts(lo).astype(np.float64)
     dzc, dpr = profile(D, dz0, dz1)
-    bzc, bpr = profile(Pb, tz0, tz1)
     zb = dz1 - TRUNKS_BAND
-    zt = np.where(T[:, 2] >= zb, tz1 - (dz1 - T[:, 2]), tz0 + (T[:, 2] - dz0) / (zb - dz0) * (tz1 - TRUNKS_BAND - tz0))
-    a = np.stack([np.interp(T[:, 2], dzc, dpr[:, k]) for k in range(4)], 1)
-    b = np.stack([np.interp(zt, bzc, bpr[:, k]) for k in range(4)], 1)
-    b[:, 0] = np.maximum(b[:, 0] - TRUNKS_EASE, 0); b[:, 1] += TRUNKS_EASE; b[:, 2] -= TRUNKS_EASE; b[:, 3] += TRUNKS_EASE
-    u =np.clip((np.abs(T[:, 0]) - a[:, 0]) / np.maximum(a[:, 1] - a[:, 0], 1e-3), 0, 1.05)
-    v = np.clip((T[:, 1] - a[:, 2]) / np.maximum(a[:, 3] - a[:, 2], 1e-3), -0.05, 1.05)
-    T = np.stack([np.sign(T[:, 0]) * (b[:, 0] + u * (b[:, 1] - b[:, 0])), b[:, 2] + v * (b[:, 3] - b[:, 2]), zt], 1)
-    # the body's moulded shorts under the part are deleted (below), so only the two rims that stay need clearance:
-    # the waistband on the belly and the hem over the old hem's lip. Pushed sideways only, so the cuts stay level.
+    if UNDER == "briefs":
+        # a bare body (underpants): the trunks keep their own length and cut. One scale for the whole garment, taken
+        # where the waistband sits (its width / depth onto the body's waist plus the ease); every vertex then gets the
+        # clearance, so hips and thighs wider than the donor's push the cloth out instead of poking through it.
+        # ...except that the hem always ends at least 5 cm below this body's crotch (a heavy man's sits 10 cm lower
+        # than the donor's): the legs are stretched down to there, the waistband is not.
+        # (the crotch: the 1 cm height band with the most centre-line vertices, the underside where the legs meet;
+        # the lowest centre-line vertex is no use, thick thighs touch well below it)
+        _cz = np.arange(0.60, 0.95, 0.01)
+        _cn = [int(((np.abs(Pb[:, 0]) < 0.012) & (Pb[:, 2] >= z_) & (Pb[:, 2] < z_ + 0.01)).sum()) for z_ in _cz]
+        crotch = float(_cz[int(np.argmax(_cn))])
+        tz0, tz1 = min(dz0, crotch - 0.05), dz1
+        T[:, 2] = np.where(T[:, 2] >= zb, T[:, 2], tz0 + (T[:, 2] - dz0) / (zb - dz0) * (zb - tz0))
+        log("crotch at %.3f: hem %.3f -> %.3f" % (crotch, dz0, tz0))
+        bzc, bpr = profile(Pb, tz0, tz1)
+        wb = (dzc > zb + 0.01) & (dzc < dz1 - 0.01)
+        am, bm2 = dpr[wb].mean(0), np.stack([np.interp(dzc[wb], bzc, bpr[:, k]) for k in range(4)], 1).mean(0)
+        sx_ = (bm2[1] + TRUNKS_EASE) / am[1]
+        sy_ = (bm2[3] - bm2[2] + 2 * TRUNKS_EASE) / (am[3] - am[2])
+        T = np.stack([T[:, 0] * sx_, (bm2[2] - TRUNKS_EASE) + (T[:, 1] - am[2]) * sy_, T[:, 2]], 1)
+        cut = (tz0 + 0.06, tz1 - 0.03)
+        rim = list(range(len(T)))
+        stretch = 1.0
+        log("trunks on a bare body: true length, scale x %.3f y %.3f at the waistband" % (sx_, sy_))
+    else:
+        bzc, bpr = profile(Pb, tz0, tz1)
+        zt = np.where(T[:, 2] >= zb, tz1 - (dz1 - T[:, 2]), tz0 + (T[:, 2] - dz0) / (zb - dz0) * (tz1 - TRUNKS_BAND - tz0))
+        a = np.stack([np.interp(T[:, 2], dzc, dpr[:, k]) for k in range(4)], 1)
+        b = np.stack([np.interp(zt, bzc, bpr[:, k]) for k in range(4)], 1)
+        b[:, 0] = np.maximum(b[:, 0] - TRUNKS_EASE, 0); b[:, 1] += TRUNKS_EASE; b[:, 2] -= TRUNKS_EASE; b[:, 3] += TRUNKS_EASE
+        u = np.clip((np.abs(T[:, 0]) - a[:, 0]) / np.maximum(a[:, 1] - a[:, 0], 1e-3), 0, 1.05)
+        v = np.clip((T[:, 1] - a[:, 2]) / np.maximum(a[:, 3] - a[:, 2], 1e-3), -0.05, 1.05)
+        T = np.stack([np.sign(T[:, 0]) * (b[:, 0] + u * (b[:, 1] - b[:, 0])), b[:, 2] + v * (b[:, 3] - b[:, 2]), zt], 1)
+        cut = BODY_CUT
+        # the body's moulded shorts under the part are deleted (below), so only the two rims that stay need
+        # clearance: the waistband on the belly and the hem over the old hem's lip
+        rim = np.nonzero((T[:, 2] > cut[1] - 0.02) | (T[:, 2] < cut[0] + 0.02))[0].tolist()
+        stretch = (tz1 - TRUNKS_BAND - tz0) / (zb - dz0)
+    # clearance: pushed sideways only, so the level cuts stay level
     bmb = bmesh.new(); bmb.from_mesh(body.data)
     bvh_b = BVHTree.FromBMesh(bmb)
     pushed = 0
-    rim = np.nonzero((T[:, 2] > BODY_CUT[1] - 0.02) | (T[:, 2] < BODY_CUT[0] + 0.02))[0].tolist()
     for it in range(3):
         for i in rim:
             loc, nrm, _, _ = bvh_b.find_nearest(Vector(T[i].tolist()))
@@ -1100,7 +1157,7 @@ def build_trunks():
     lo.data.update()
     log("trunks: %d -> %d tris; z %.3f..%.3f (leg stretch x%.2f); %d of %d rim verts pushed out to %.0f mm clearance"
         % (tris_hi, sum(len(p.vertices) - 2 for p in lo.data.polygons), T[:, 2].min(), T[:, 2].max(),
-           (tz1 - TRUNKS_BAND - tz0) / (zb - dz0), pushed, len(rim), 1000 * TRUNKS_CLEAR))
+           stretch, pushed, len(rim), 1000 * TRUNKS_CLEAR))
 
     # ---- hem bones: front / outer / back of each leg, vertical, head HEM_LEN above the hem ----
     hem = {}
@@ -1158,7 +1215,7 @@ def build_trunks():
     lo.data.name = "trunks"
     # the body's own moulded shorts between the two rims go: the part replaces them (no poke-through, fewer triangles)
     bmb = bmesh.new(); bmb.from_mesh(body.data)
-    gone = [f for f in bmb.faces if BODY_CUT[0] < f.calc_center_median().z < BODY_CUT[1] and abs(f.calc_center_median().x) < 0.30]
+    gone = [f for f in bmb.faces if cut[0] < f.calc_center_median().z < cut[1] and abs(f.calc_center_median().x) < 0.30]
     bmesh.ops.delete(bmb, geom=gone, context="FACES")
     bmb.to_mesh(body.data); bmb.free(); body.data.update()
     log("body: %d faces of the moulded shorts deleted under the trunks part" % len(gone))
