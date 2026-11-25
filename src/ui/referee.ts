@@ -20,6 +20,7 @@ import {
   type Config, type FighterState, type FighterView, type Hand, type SimEvent, type SimState, type Vec2, type Vec3,
 } from '../core';
 import { createFighterView } from '../rig';
+import { createRefereeBody, preloadReferee, refereeReady, type RefereeBody } from '../human/referee';
 
 type Gesture = 'hang' | 'point' | 'wave';
 interface HandLocal { fwd: number; up: number; lat: number }
@@ -33,6 +34,9 @@ declare global {
 
 export class Referee {
   private view: FighterView | null = null;
+  /** The Meshy man (human mode, refMeshy); meshyOk goes false if his file fails to load, and the old rig draws. */
+  private body: RefereeBody | null = null;
+  private meshyOk = true;
   private state: FighterState;
   private vel: Vec2 = { x: 0, z: 0 };
   private hands: [HandLocal, HandLocal];
@@ -45,7 +49,7 @@ export class Referee {
   constructor(private cfg: Config, private scene: THREE.Object3D) {
     this.state = restFighterState(REFEREE, cfg, { x: 0, z: -2.2 }, Math.PI / 2);
     this.hands = [this.hangPose('lead'), this.hangPose('rear')];
-    window.__refGesture = () => this.view ? { gesture: this.gesture, hands: [this.hands[0].up, this.hands[1].up], lat: [this.hands[0].lat, this.hands[1].lat] } : null;
+    window.__refGesture = () => this.view || this.body ? { gesture: this.gesture, hands: [this.hands[0].up, this.hands[1].up], lat: [this.hands[0].lat, this.hands[1].lat] } : null;
   }
 
   /** The hands by the hips, a little out from the thighs. */
@@ -56,8 +60,7 @@ export class Referee {
 
   /** `snap`: put him on his spot, facing what he watches, instead of walking there (a cut to a new scene). */
   update(s: SimState, events: readonly SimEvent[], dt: number, camAz: number, visible: boolean, snap = false): void {
-    if (!visible) { if (this.view) { this.view.dispose(); this.view = null; } return; }
-    if (!this.view) this.view = createFighterView(1, REFEREE, this.cfg, this.scene, { key: 2, probe: false });
+    if (!visible) { this.dispose(); return; }
     const c = this.cfg, me = this.state, b = me.body;
     for (const e of events) {
       if (e.type === 'ko' || e.type === 'tko') {
@@ -194,7 +197,23 @@ export class Referee {
       // bowed the elbow the wrong way ("arms inverted", 2026-10-15).
       me.arms[i] = solveArm(b, c, REFEREE.stance, hand, chest, hips, fr, 0, 0, g, { level: 0, back: 1, flare: armFlareTarget(0, g.y, chest.y, b, c) });
     }
-    this.view.apply(me, me, 1, dt, []);
+    this.drawState(me, dt);
+  }
+
+  /** Draw a state: the Meshy man in human mode (human/referee.ts; nothing until his file has loaded), else the old rig. */
+  private drawState(st: FighterState, dt: number): void {
+    if (this.cfg.humanBody && this.cfg.refMeshy && this.meshyOk) {
+      if (this.view) { this.view.dispose(); this.view = null; }
+      if (!this.body) {
+        void preloadReferee().then(() => { if (!refereeReady()) this.meshyOk = false; });
+        this.body = createRefereeBody(this.cfg, this.scene);
+      }
+      this.body?.apply(st, dt);
+      return;
+    }
+    if (this.body) { this.body.dispose(); this.body = null; }
+    if (!this.view) this.view = createFighterView(1, REFEREE, this.cfg, this.scene, { key: 2, probe: false });
+    this.view.apply(st, st, 1, dt, []);
   }
 
   /** A copy of the state he is drawn from right now (the knockdown replay keeps one per tick). */
@@ -202,13 +221,15 @@ export class Referee {
 
   /** Draw him from a kept snapshot instead of walking him (the replay). */
   draw(snap: FighterState, dt: number): void {
-    if (!this.view) this.view = createFighterView(1, REFEREE, this.cfg, this.scene, { key: 2, probe: false });
-    this.view.apply(snap, snap, 1, dt, []);
+    this.drawState(snap, dt);
   }
 
   /** Floor position and yaw (probes / checks). */
   get pose(): { pos: Vec2; yaw: number } { return { pos: { x: this.state.pos.x, z: this.state.pos.z }, yaw: this.state.yaw }; }
 
-  dispose(): void { if (this.view) { this.view.dispose(); this.view = null; } }
+  dispose(): void {
+    if (this.view) { this.view.dispose(); this.view = null; }
+    if (this.body) { this.body.dispose(); this.body = null; }
+  }
 }
 

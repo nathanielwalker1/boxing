@@ -1312,6 +1312,17 @@ export const SCHEMA = {
   refAccel:         num(6, 1, 20, 0.5, 'referee', 'velocity chase rate toward the walk target, 1/s'),
   refTurnRate:      num(5, 1, 15, 0.5, 'referee', 'turn rate toward what he faces, rad/s'),
   refArmLambda:     num(10, 2, 30, 0.5, 'referee', 'how fast the hands move between poses (hang, the winner\'s arm up), 1/s'),
+  humanRef:         bool(true, 'referee', 'human mode (?human=1): the referee is in the ring (core/humanMode.ts sets refEnabled from this every frame; it was forced off before 2026-11-25). Drawn only, no hitbox: the fight is the same with him or without'),
+  refMeshy:         bool(true, 'referee', 'human mode (?human=1): draw the Meshy referee (public/fighter/referee.glb, human/referee.ts) instead of the old rig; where he stands and where his hands go still come from ui/referee.ts'),
+  refSwayM:         num(0.025, 0, 0.08, 0.005, 'referee', 'Meshy referee standing: how far his hips drift side to side as the weight moves from foot to foot, m'),
+  refSwayHz:        num(0.22, 0.05, 1, 0.01, 'referee', 'Meshy referee standing: weight shifts per second (one full left-right-left)'),
+  refSwayDropM:     num(0.01, 0, 0.04, 0.002, 'referee', 'Meshy referee standing: how far the hips sink at the ends of the weight shift, m'),
+  refSwayRollDeg:   num(2.5, 0, 8, 0.5, 'referee', 'Meshy referee standing: how far the hips tilt toward the loaded leg at the ends of the weight shift, degrees'),
+  refSwayKneeDeg:   num(6, 0, 20, 1, 'referee', 'Meshy referee standing: knee bend of the unloaded leg at the ends of the weight shift, degrees'),
+  refStrideM:       num(0.65, 0.3, 1.2, 0.05, 'referee', 'Meshy referee walking: one step (one foot passing the other), m: the legs\' cycle comes from the distance he covers'),
+  refStrideFullSpeed: num(1.2, 0.3, 3, 0.1, 'referee', 'Meshy referee walking: the speed at which the stride is full size (slower = a smaller stride), m/s'),
+  refLegSwingDeg:   num(24, 0, 45, 1, 'referee', 'Meshy referee walking: how far each thigh swings forward and back, degrees'),
+  refKneeDeg:       num(35, 0, 70, 1, 'referee', 'Meshy referee walking: knee bend as the leg swings through, degrees'),
 
   // ── input (UI) — touch joystick, touch buttons, gamepad. src/ui/input.ts ──
   joyRadius:        num(70, 30, 160, 1, 'input', 'floating joystick max knob travel, px (full deflection = 1)'),

@@ -11,7 +11,7 @@ import type { Config } from './config';
 
 export function applyHumanMode(cfg: Config): void {
   if (!cfg.humanBody) return;
-  cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = false; cfg.variantOverhand = !cfg.humanNoOverhand;
+  cfg.punchTimeScale = cfg.humanPunchTimeScale; cfg.refEnabled = cfg.humanRef; cfg.variantOverhand = !cfg.humanNoOverhand;
   cfg.evadeV2 = cfg.humanEvade; cfg.evadeFromBlock = cfg.humanEvadeFromBlock; cfg.evadeHeldTap = cfg.humanEvadeHeldTap; cfg.audioSlipOn = cfg.humanAudioSlip;
   cfg.aiHesitateScale = cfg.humanAiHesitate; cfg.aiStepInAfter = cfg.humanAiStepInAfter; cfg.aiHumanTempoEasy = cfg.humanAiTempoEasy; cfg.aiHumanTempoMed = cfg.humanAiTempoMed;
   cfg.staggerSpeedMax = cfg.humanStaggerSpeedMax; cfg.handNeutral = cfg.humanHandNeutral; cfg.contactSquash = cfg.humanContactSquash;
