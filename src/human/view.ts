@@ -1267,7 +1267,18 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
             const onSkin = skinLand > 0 && mine && ck === 'land';
             const P = closestOn(ob.a, ob.b, push ?? G), td = (push ?? G).distanceTo(P), tmin = onSkin && atBody ? Math.min(skinLand, ob.r + rest) + early : ob.r + (!contactDrawn || atBody ? rest : rest0) + (atBody ? early : 0);
             if (td < tmin) push = P.clone().add((push ?? G).clone().sub(P).setLength(tmin));
-            const hd = (push ?? G).distanceTo(ob.head), hmin = onSkin && !atBody ? Math.min(skinLand, ob.headR + rest) + early : ob.headR + (!contactDrawn || !atBody ? rest : rest0) + (!atBody ? early : 0);
+            const hd = (push ?? G).distanceTo(ob.head);
+            let hmin = onSkin && !atBody ? Math.min(skinLand, ob.headR + rest) + early : ob.headR + (!contactDrawn || !atBody ? rest : rest0) + (!atBody ? early : 0);
+            // THE GLOVE AS IT IS DRAWN NOW (humanSkinKeepOut): how far his face reaches toward this glove + how far this
+            // glove's leather reaches toward his head, both read off the skinned mesh after the arm was bent. MEASURED
+            // 2026-11-25 (Nate: "punches going through skulls"): a landed hook's distance was taken with the glove as the
+            // clip held it, side-on (6 cm of leather toward him); bent onto the target the glove turned end-on (14 cm) and
+            // a vertex of it sat 2-4 cm from the centre of his head. Any glove near his head, landing or not.
+            if (cfg.humanSkinKeepOut && cfg.humanContactSkin && hd < ob.headR + 0.3 && hd > 1e-4) {
+              const dn = (push ?? G).clone().sub(ob.head).divideScalar(hd);
+              const sk = skins[side === 0 ? 1 : 0]?.('head', ob.head, dn, cfg.humanContactSkinBand) ?? null, gf = gloveFront(a, dn.clone().negate());
+              if (sk !== null && gf !== null) { const tr = sk + gf - cfg.humanContactSkinSink + early; hmin = onSkin && !atBody ? tr : Math.max(hmin, tr); }
+            }
             if (hd < hmin) push = ob.head.clone().add((push ?? G).clone().sub(ob.head).setLength(hmin));
             // GLOVE ON GLOVE: two guards never sit inside each other; each man gives half (a punch resting on his guard is left where the block put it)
             if (!cfg.humanArmClear && cfg.humanInertia && cfg.humanGloveClear > 0 && !(next.punch.type !== null && out.ik?.arm === a)) {
