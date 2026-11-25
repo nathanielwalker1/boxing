@@ -52,7 +52,18 @@ theory. He is the judge of *feel* and *look* — you are the judge of *does it r
 - **Within a stage, report at every sub-part boundary** — one or two lines: what landed,
   what's next. If a part runs past 15 minutes, say what it's doing and why. A heartbeat,
   never a silent hour.
-- **Commit after each confirmed sub-part.** Small commits, one concern each. Nate pushes.
+- **Commit after each confirmed sub-part.** Small commits, one concern each.
+- **Push after every commit.** Each session pushes its own branch to GitHub
+  (`git push -u origin <branch>` the first time, plain `git push` after). Never force,
+  never push another session's branch, never push straight to `main` — `main` moves only
+  by a merge Nate has accepted. If a push fails, say so in the same report; an unpushed
+  commit is not "done". (Changed 2026-11-24 from "Nate pushes": too many sessions and
+  worktrees for one person to be the backup.)
+- **Screenshots and films are not committed.** Contact sheets, filmstrips, before/after
+  captures and clips go to `scripts/output/` (gitignored), never under `docs/`. Commit an
+  image only when Nate asks to keep that one. (Added 2026-11-24: 4 GB of the repo's
+  history was `docs/**` screenshots, which is what broke pushing. Any old state can be
+  re-filmed from its commit.)
 - **Don't add unrequested features.** Flag ideas in one line; don't build them.
 - **Ambiguity → ask.** The spec is precise; gaps are questions, not license.
 - **Porting rule:** a v1 system is ported when its `legacy/scripts/*_test.mjs` assertion
@@ -97,10 +108,14 @@ theory. He is the judge of *feel* and *look* — you are the judge of *does it r
 
 12. **Session start and slow checks (added 2026-11-24 after a session lost its first hour).**
     When the prompt names memory files, open and read each one in full before the first
-    command; the index line is not the memory. Browser scripts draw on the real GPU by
-    default (`scripts/devUrl.js` loads `scripts/gpu_preload.mjs`); if any probe or film
-    takes over 2 minutes, stop it and find out why before running another. Find a tuning
-    value with config overrides in one run, not by editing source and re-booting per value.
+    command; the index line is not the memory. Work in a worktree off `main`: from
+    `f9fad8b` on, `main`'s browser scripts draw on the real GPU by themselves
+    (`scripts/devUrl.js` loads `scripts/gpu_preload.mjs`), `anim_film.mjs` stops under
+    10 fps, and every browser script prints `SLOW RUN` every 2 minutes. On a branch
+    without that (check: `grep gpu_preload scripts/devUrl.js`), merge `main` first. If any
+    probe or film takes over 2 minutes, stop it and find out why before running another.
+    Find a tuning value with config overrides in one run, not by editing source and
+    re-booting per value.
 
 13. **Rules and balance work (added 2026-11-24 after a session took 2.5 hours over 2 parts).**
     - **Split a number by its source before tuning it.** A balance number far off target is
