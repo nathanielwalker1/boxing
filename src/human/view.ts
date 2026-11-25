@@ -485,6 +485,10 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   const landPlain = new THREE.Vector3();
   // the upper-body reach given last frame and so far this frame, m at the shoulder (it grows at humanContactLeanRate)
   let leanPrev = 0, leanUsed = 0;
+  /** (humanCrossRise) the hips' rise into a landing cross as drawn, m; and the height the take's glove lacked to the scored part, held from the hit. */
+  let riseY = 0, riseGap = 0;
+  /** (humanCrossRise) what the legs could not give, which the trunk gives by straightening: the punching shoulder's rise as drawn, m, and its arm. */
+  let riseLean = 0, riseArm: 'Left' | 'Right' = 'Left';
   /** 0..1: the non-punching hand held home through a body straight (humanOffHandHome). */
   let offHome = 0;
   /** (probe) the last reach solve: glove to contact point before the upper body gave, after, the hand weight, and contact point to the clip's own glove, m. */
@@ -577,10 +581,42 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       stamp('clip');
 
       // ---- level / crouch / dip / hit sink: the hips go down by the sim's head drop, feet pinned by leg IK ----
-      if (out.drop > 0.002 || Math.hypot(lx, lz) > 0.002) {
+      // THE BODY RISES INTO A CROSS (humanCrossRise, Nate 2026-11-25: punch form breaks down at the hit). The cross takes
+      // land about a head-height low, so the arm IK lifted the glove a median 19 cm on every land and rebuilt the arm's
+      // shape each time. The height the take's own glove lacks to the scored part is given by the HIPS instead (weighted
+      // like the hand, so it comes in with the extension; held from the hit, so his reeling head does not pull the
+      // puncher about; capped where the legs would pass humanLegSoft), and the arm only fine-tunes what is left.
+      {
+        const ci = anim.conformInfo, ob = drawnBodies[side === 0 ? 1 : 0];
+        const dropNow = Math.min(0.45, Math.max(0, out.drop));
+        let want = 0, wantLean = 0;
+        if (cfg.humanCrossRise > 0 && cfg.mocapOutcome && !cfg.humanRawPose && !next.down && next.punch.type === 'cross' && out.ik?.outcome && ci.kind === 'land' && ob) {
+          if (!ci.resolved) {
+            const ty = ci.part === 'head' ? ob.head.y : ci.at ? ci.at.y : NaN;
+            if (!Number.isNaN(ty)) riseGap = ty - (gloveOf(out.ik.arm)[1]! - dropNow);
+          }
+          want = riseGap * out.ik.w * cfg.humanCrossRise;
+          if (want > 0) {
+            let room = Infinity;
+            for (const s of ['Left', 'Right'] as const) {
+              const [u, m, e] = leg[s];
+              u.getWorldPosition(vS); m.getWorldPosition(vE); e.getWorldPosition(vW);
+              const L = (vE.distanceTo(vS) + vW.distanceTo(vE)) * cfg.humanLegSoft, h = Math.hypot(vS.x - vW.x, vS.z - vW.z);
+              room = Math.min(room, Math.sqrt(Math.max(0, L * L - h * h)) - (vS.y - vW.y) + dropNow);
+            }
+            // (the cross take stands on nearly straight legs and leans the trunk down: the legs gave 3-4 cm of the 19,
+            //  the trunk straightening gives the rest — applied below, after the pose layers, before the hand)
+            const hipsGive = Math.min(want, Math.max(0, room));
+            wantLean = want - hipsGive; want = hipsGive; riseArm = out.ik.arm;
+          }
+        }
+        const k = 1 - Math.exp(-Math.LN2 * dt / Math.max(1e-3, cfg.humanLeanHalf));
+        riseY += (want - riseY) * k; riseLean += (wantLean - riseLean) * k;
+      }
+      if (out.drop > 0.002 || Math.hypot(lx, lz) > 0.002 || Math.abs(riseY) > 0.002) {
         const feet = (['Left', 'Right'] as const).map(s => ({ s, p: leg[s][2].getWorldPosition(new THREE.Vector3()), q: leg[s][2].getWorldQuaternion(new THREE.Quaternion()) }));
         const hp = hips.getWorldPosition(new THREE.Vector3());
-        hp.y -= Math.min(0.45, Math.max(0, out.drop));
+        hp.y += riseY - Math.min(0.45, Math.max(0, out.drop));
         hp.x += lx; hp.z += lz;
         hips.parent!.worldToLocal(hp);
         hips.position.copy(hp);
@@ -744,6 +780,16 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         }
       }
 
+      // (humanCrossRise, the trunk's share: the lowest spine joint turns so the punching shoulder comes up by what the legs
+      //  could not give; it only ever straightens him toward upright, never leans him back past it)
+      if (riseLean > 0.002) {
+        group.updateMatrixWorld(true);
+        const r0 = arm[riseArm][0].getWorldPosition(new THREE.Vector3()).sub(spine[0]!.getWorldPosition(vA)), r1 = r0.clone();
+        r1.y += riseLean;
+        qR.setFromUnitVectors(r0.normalize(), r1.normalize());
+        rotateWorld(spine[0]!, qR);
+        group.updateMatrixWorld(true);
+      }
       stamp('impact');
       // (glove guard: the glove as the body alone puts it; a man who jumped more than half a metre is a new scene)
       gBase.Left.fromArray(gloveOf('Left')); gBase.Right.fromArray(gloveOf('Right'));
