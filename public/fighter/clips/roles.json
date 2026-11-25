@@ -418,5 +418,23 @@
   "to": 225,
   "hold": 109,
   "up": 145
+ },
+ "getup_back": {
+  "slug": "stand_up",
+  "from": 0,
+  "lie": 100,
+  "to": 356
+ },
+ "getup_front": {
+  "slug": "standing_up",
+  "from": 25,
+  "lie": 200,
+  "to": 494
+ },
+ "getup_front_2": {
+  "slug": "getting_up",
+  "from": 0,
+  "lie": 10,
+  "to": 300
  }
 }

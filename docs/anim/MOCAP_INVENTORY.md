@@ -31,6 +31,7 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 | dodging | Dodging.fbx | 2.25 | slips | mixed (mostly southpaw) | back 0.49 / 0.49 | no | with trimming | evasion sequence: bobs, slips and leans, guard low, drifts 0.5 m back; cut single slips / a duck out of it [auto: walk back] |
 | dodging_copy | Dodging.fbx copy | 1.65 | slips | orthodox | in place (0.08) | yes | yes | from a long guard (lead arm out), one deep slip / duck to his right at f30-60, back up; in place [auto: hit head heavy] |
 | entry | Entry.fbx | 3.35 | entry (walk in) | mixed (mostly orthodox) | forward 2.46 / 2.46 | no | with trimming | walks in from standing 2.5 m and settles into guard; not a fight move [auto: walk forward] |
+| getting_up | Getting Up.fbx | 7.6 | get up | mixed (mostly orthodox) | back 0.66 / 0.87 | no | with trimming | hips drop to 14% of standing at 0.9s, head 2.14 m down |
 | happy_walk_backward | Happy Walk Backward.fbx | 1.05 | walk back | mixed (mostly orthodox) | back 1.28 / 1.28 | no | yes | travels 1.28 m back in 1.05s, guard 0% |
 | head_hit_1 | Head Hit (1).fbx | 1.25 | hit head medium | orthodox | in place (0.16) | yes | yes | head snaps back, lead arm flung wide (no punch) [auto: rear hook] |
 | head_hit_1_copy | Head Hit (1).fbx copy | 1.07 | hit head light | orthodox | in place (0.07) | yes | yes | head moves 0.17 m back at 0.27s |
@@ -71,6 +72,9 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 | short_left_side_step | Short Left Side Step.fbx | 0.8 | step left | orthodox | in place (0.22) | no | yes | travels 0.21 m left in 0.8s, guard 100% |
 | short_right_side_step | Short Right Side Step.fbx | 0.88 | step right | orthodox | right 0.26 / 0.26 | no | yes | travels 0.26 m right in 0.88s, guard 100% |
 | side_hit | Side Hit.fbx | 0.98 | hit body | orthodox | in place (0.16) | yes | yes | head moves 0.22 m forward+right at 0.37s |
+| stand_up | Stand Up.fbx | 8.28 | get up | square | forward 0.81 / 0.81 | no | with trimming | hips drop to 9% of standing at 0.77s, head 2.17 m down |
+| standing_up_1 | Standing Up (1).fbx | 1.67 | get up | mixed (mostly orthodox) | right 0.89 / 0.89 | no | with trimming | hips drop to 21% of standing at 0s, head 1.35 m down |
+| standing_up | Standing Up.fbx | 11.4 | get up | mixed (mostly orthodox) | in place (0.19) | no | yes | hips drop to 10% of standing at 0s, head 2.04 m down |
 | step_backward_1 | Step Backward (1).fbx | 0.82 | step back | orthodox | back 0.6 / 0.6 | no | yes | travels 0.6 m back in 0.82s, guard 100% |
 | step_backward | Step Backward.fbx | 0.83 | step back | orthodox | back 0.69 / 0.69 | no | yes | travels 0.69 m back in 0.83s, guard 76% |
 | stomach_hit | Stomach Hit.fbx | 1.2 | hit body | orthodox | in place (0.11) | yes | yes | head moves 0.23 m down+forward at 0.28s |
@@ -133,7 +137,7 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 - **Stagger / stunned:** dizzy_idle, receiving_a_big_uppercut
 - **Knockdown fall:** boxing_8, knockdown1, knockdown2, knockdown3, knockdown4
 - **Down (on the canvas):** floored
-- **Get up (from lying):** _none_
+- **Get up (from lying):** getting_up, stand_up, standing_up_1, standing_up
 - **Win:** victory
 - **Lose:** _none_
 - **Walk to corner:** entry, happy_walk_backward, walk_backward, walking_1_copy, walking_copy
@@ -165,7 +169,7 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 - **knockdown_5:** knockdown6 f0-234 (settles f234)
 - **knockdown_6:** knockdown2 f0-155 (settles f99)
 - **down_idle:** floored f0-412
-- **getup:** _none_
+- **getup:** standing_up f0-683
 - **stunned:** dizzy_idle f0-256
 - **walk_fwd:** long_step_forward f0-60
 - **walk_back:** step_backward_1 f0-48
@@ -193,10 +197,8 @@ Loop = first and last pose within 6 deg mean bone rotation and 10 cm hips. Mirro
 
 - Rear uppercut
 - Lean back
-- Get up (from lying)
 - Lose
 - role rear_uppercut: no head-level clip; the body-level boxing_3 stands in
-- role getup: no clip
 - role slip_left: no clip (mirror slip_right)
 - role lose: no clip
 - role combo_jab_cross: no head-level clip; the body-level body_jab_cross_1 stands in

@@ -82,6 +82,12 @@ SCENARIOS.kd_hook = { dist: 0.79, s0: at({ 2: { hook: true, move: { x: -1, y: 0 
 // The whole fall AND get-up with the lens held on the DOWNED man (focus 1 = side 1's position, the film camera only): 12 to 204 every 8 ticks.
 SCENARIOS.kd_cross_full = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: KD, from: 12, to: 204, step: 8, focus: 1 };
 SCENARIOS.kd_hook_full = { dist: 0.79, s0: at({ 2: { hook: true, move: { x: -1, y: 0 } } }), s1: [], cfg: KD, from: 12, to: 204, step: 8, focus: 1 };
+// get-ups (Nate's takes, 2026-11-24): the count fixed so each picks a different variant (humanGetUpTakes)
+const GU = c => ({ ...KD, healthDamagePerImpulse: 0.02, getUpCountBest: c, getUpCountWorst: c, getUpJitter: 0 });
+SCENARIOS.n_getup_5 = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: GU(5), from: 12, to: 432, step: 20, focus: 1 };
+SCENARIOS.n_getup_6 = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: GU(6), from: 12, to: 492, step: 20, focus: 1 };
+SCENARIOS.n_getup_7 = { dist: 0.79, s0: at({ 2: { cross: true } }), s1: [], cfg: GU(7), from: 12, to: 552, step: 20, focus: 1 };
+SCENARIOS.n_getup_body = { dist: 0.85, s0: hold(at({ 2: { cross: true } }), 'level', 0, 8), s1: [], cfg: GU(6), from: 12, to: 492, step: 20, focus: 1 };
 SCENARIOS.kd_upper ={ dist: 0.65, s0: at({ 2: { uppercut: true, move: { x: 1, y: 0 } } }), s1: [], cfg: KD, from: 12, to: 100, step: 4 };
 
 // The level held (crouch) for a second at fighting distance.
@@ -99,6 +105,19 @@ SCENARIOS.n_rear_upper = { dist: 0.75, s0: at({ 4: { uppercut: true, move: { x: 
 SCENARIOS.n_slip_left = { dist: 1.2, s0: at({ ...flick(-1, 4) }), s1: [], from: 4, to: 28, step: 2 };
 SCENARIOS.n_slip_right = { dist: 1.2, s0: at({ ...flick(1, 4) }), s1: [], from: 4, to: 28, step: 2 };
 SCENARIOS.n_mash_hooks = { dist: 0.85, s0: at({ 4: { hook: true, move: { x: -1, y: 0 } }, 8: { hook: true, move: { x: 1, y: 0 } }, 12: { hook: true, move: { x: -1, y: 0 } }, 16: { hook: true, move: { x: 1, y: 0 } } }), s1: [], from: 4, to: 40, step: 2 };
+// 2026-11-24 LEAN + PUNCH (Nate: "the angle, body movement, torso and rotation is off"): a flick at tick 4 (left / right / back)
+// or the level held from 4 (duck), the punch pressed at tick 10 while the lean is held, stick neutral (the evade picks the hand).
+// _b = the punch to the body (level held with the press, the duck keeps it). Blue stands at 1.0 m.
+{
+  const EV = { L: at({ ...flick(-1, 4) }), R: at({ ...flick(1, 4) }), B: at({ 4: { move: { x: 0, y: -1 } }, 5: { move: { x: 0, y: -1 } } }), D: hold([], 'level', 4, 30) };
+  for (const [ek, ev] of Object.entries(EV)) for (const pk of ['jab', 'cross', 'hook', 'uppercut']) for (const body of [false, true]) {
+    if (body && (pk === 'uppercut' || ek === 'B')) continue;
+    const s0 = ev.map(x => x && { ...x });
+    s0[10] = { ...(s0[10] ?? {}), [pk]: true };
+    if (body) hold(s0, 'level', 9, 24);
+    SCENARIOS[`lp_${ek}_${pk}${body ? '_b' : ''}`] = { dist: 1.0, s0, s1: [], from: 4, to: 34, step: 3 };
+  }
+}
 SCENARIOS.close_exchange ={ dist: 0.7, s0: at({ 2: { jab: true }, 22: { hook: true, move: { x: -1, y: 0 } } }), s1: at({ 10: { cross: true }, 30: { uppercut: true, move: { x: 1, y: 0 } } }), from: 2, to: 60, step: 3 };
 
 // outcome_v2 (human mode): the set at the AI's distance (1.2) and close (0.9). Side 0 (red, back to camera) throws at
