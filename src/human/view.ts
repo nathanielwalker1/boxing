@@ -371,8 +371,18 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       else if (e.k !== 'rest') skinIdx[e.k].push(e);
     }
   };
+  // THE SKIN AS POSED NOW (2026-11-25): a skinned vertex is read through the skeleton's bone matrices, which three.js
+  // refreshes only when it draws. Read mid-frame without this, the face and the glove were where they were LAST frame
+  // against joints that had already moved: a punch travels 8-20 cm a frame and a struck head up to 25, so the contact
+  // distance was wrong by that much on exactly the fast punches, trades and heavy hits (Nate: "going through skulls").
+  let skels: THREE.Skeleton[] | null = null;
+  const freshSkin = (): void => {
+    model.updateMatrixWorld(true);
+    if (!skels) { const set = new Set<THREE.Skeleton>(); model.traverse(o => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) set.add(m.skeleton); }); skels = [...set]; }
+    if (cfg.humanSkinFresh) for (const s of skels) s.update();
+  };
   skins[side] = (part, c, dir, band) => {
-    skinPrep(); model.updateMatrixWorld(true);
+    skinPrep(); freshSkin();
     let best = -Infinity;
     for (const e of skinIdx[part]) {
       e.m.getVertexPosition(e.i, sv); sv.applyMatrix4(e.m.matrixWorld).sub(c);
@@ -397,7 +407,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   };
   /** How far this man's glove SKIN reaches past its glove point (gloveOf) toward unit dir, m; null = no glove vertices. */
   const gloveFront = (a: 'Left' | 'Right', dir: THREE.Vector3): number | null => {
-    skinPrep(); model.updateMatrixWorld(true);
+    skinPrep(); freshSkin();
     const G = new THREE.Vector3().fromArray(gloveOf(a));
     let best = -Infinity;
     for (const e of skinIdx[a === 'Left' ? 'L' : 'R']) {
@@ -533,6 +543,13 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       const shift = cfg.humanShiftPlanted && cfg.humanInertia && cfg.mocapOutcome && !cfg.humanRawPose && !next.down;
       const lx = shift ? out.lunge.x : 0, lz = shift ? out.lunge.z : 0;
       group.position.set(x - Math.cos(yaw) * cfg.humanBackShift + out.lunge.x - lx, 0, z - Math.sin(yaw) * cfg.humanBackShift + out.lunge.z - lz);
+      // THE ROPES' SLIDE IS PART OF THE POSE (ropesPoseIn, 2026-11-25): render/ropes.ts slides a man who is past a rope back
+      // inside it AFTER both views have run, so every glove had been put on (and kept out of) a head that then moved.
+      // MEASURED in live play on the skinned mesh: the keep-out sphere 25 cm from the head joints it is built 10 cm from,
+      // a jab's glove 7 cm from the centre of the head (Nate: "punches going through skulls"). The view now starts from
+      // the slide the ropes last gave him; ropes.ts takes it back off before working out the next one.
+      const ro = cfg.ropesPoseIn ? group.userData.ropeOff as [number, number] | undefined : undefined;
+      if (ro) { group.position.x += ro[0]; group.position.z += ro[1]; group.userData.ropeIn = true; }
       group.rotation.y = Math.PI / 2 - yaw - out.turn;
       group.visible = true;
       group.updateMatrixWorld(true);

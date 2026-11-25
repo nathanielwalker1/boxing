@@ -68,7 +68,8 @@ await page.addInitScript(() => {
           if (d > 0.08 && !r.trace) {
             const hc = cen(o[r.part]);
             r.trace = `frame +${r.n}: ` + (window.__humanStages[r.s] ?? []).map(([n, L, R]) => `${n} ${(Math.hypot(...(r.g === 'L' ? L : R).map((v, k) => v - hc[k])) * 100).toFixed(0)}`).join(', ')
-              + ` || ${window.__depthDbg} || target's ${r.part} centre moved ${(Math.hypot(...hc.map((v, k) => v - prevC[1 - r.s][r.part][k])) * 100).toFixed(1)} cm this frame, puncher ${P[r.s].label}`;
+              + ` || ${window.__depthDbg} || ${(() => { const T = P[1 - r.s], d3 = (a, b) => (Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) * 100).toFixed(0); if (!T.drawn) return `CHECK no drawn body (headTop ${!!T.headTop}); mesh head centre to head joint ${d3(hc, T.head)}`; const mid = T.headTop ? T.head.map((v, k) => (v + T.headTop[k]) / 2) : T.head, gp = P[r.s].gloves[r.g === 'L' ? 'left' : 'right'];
+                return `CHECK mesh head centre to joint midpoint ${d3(hc, mid)}, to the keep-out sphere centre ${d3(hc, T.drawn.head)}; joint midpoint to sphere centre ${d3(mid, T.drawn.head)}; glove point to sphere centre ${d3(gp, T.drawn.head)}, to mesh centre ${d3(gp, hc)}, sphere R ${(T.drawn.headR * 100).toFixed(0)}`; })()} || target's ${r.part} centre moved ${(Math.hypot(...hc.map((v, k) => v - prevC[1 - r.s][r.part][k])) * 100).toFixed(1)} cm this frame, puncher ${P[r.s].label}`;
           }
         }
         else {

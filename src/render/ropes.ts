@@ -303,9 +303,11 @@ export class Ropes {
       const F = this.fighters[f]!, g = F.group;
       if (!g) continue;
       // back to the pose as the view left it (it sets the position absolutely every frame it runs)
-      if (F.applied && Math.abs(g.position.x - F.last[0]) < 1e-9 && Math.abs(g.position.z - F.last[1]) < 1e-9) { g.position.x -= F.off[0]; g.position.z -= F.off[1]; }
+      // (ropesPoseIn: or the view ran and put last frame's slide into its pose itself — human/view.ts)
+      if (g.userData.ropeIn || (F.applied && Math.abs(g.position.x - F.last[0]) < 1e-9 && Math.abs(g.position.z - F.last[1]) < 1e-9)) { g.position.x -= F.off[0]; g.position.z -= F.off[1]; }
+      g.userData.ropeIn = false;
       F.applied = false;
-      if (!on || !g.visible) { F.off[0] = 0; F.off[1] = 0; F.has = false; continue; }
+      if (!on || !g.visible) { F.off[0] = 0; F.off[1] = 0; F.has = false; g.userData.ropeOff = undefined; continue; }
       g.updateMatrixWorld(true);
       if (!this.read(F)) { F.has = false; continue; }
       F.has = true;
@@ -326,6 +328,7 @@ export class Ropes {
         F.off[0] = ease(F.off[0], tx); F.off[1] = ease(F.off[1], tz);
       } else { F.off[0] = 0; F.off[1] = 0; }
       F.last[0] = g.position.x += F.off[0]; F.last[1] = g.position.z += F.off[1]; F.applied = true;
+      g.userData.ropeOff = [F.off[0], F.off[1]];
       this.body(F, F.off[0], F.off[1], 1);
       if (nSkin) this.skinPush(nSkin, F.off[0], F.off[1]);
       any = true;
