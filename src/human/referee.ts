@@ -9,8 +9,7 @@
  *   v.apply(state, cue, dt);                      // state = ui/referee.ts's FighterState (pos, vel, yaw)
  *
  * The pose each frame, all clips fitted onto his skeleton by core/mocapFit (the same fit the boxers use):
- *   base     the watch: breathing idle, settling into the crouched "monitoring" idle as the fighters close (cue.close);
- *            the count: the counting clip from the moment he arrives beside the fallen man
+ *   base     the watch: breathing idle; the count: the counting clip from the moment he arrives beside the fallen man
  *   walk     strafe left / right, walk back, walk forward, blended by the direction he moves in his own frame, all on
  *            one shared cycle advanced by the distance covered (so the feet keep to the floor), faded in with speed
  *   nod      the head-nod clip on the spine top, neck and head only, played once per cue.nod tick
@@ -28,8 +27,6 @@ import { applyFit, buildFit, type Fit, type Skeleton } from '../core/mocapFit';
 /** What ui/referee.ts wants him doing this frame. */
 export interface RefCue {
   mode: 'watch' | 'count' | 'hide';
-  /** 0..1: how close and busy the fighters are (1 = in an exchange): the crouched watch. */
-  close: number;
   /** World point he looks at, or null (straight ahead). */
   look: Vec3 | null;
   /** Incremented to play one nod. */
@@ -59,8 +56,8 @@ export interface RefereeBody { apply(s: FighterState, cue: RefCue, dt: number): 
 
 /** The clips he uses (slugs in referee_clips/index.json, from Nate's file names). */
 const CLIP = {
-  breathe: 'breathing_idle', crouch: 'slight_crouch_monitoring_idle', count: 'counting', nod: 'thoughtful_head_nod',
-  fwd: 'sad_walk', back: 'walking_backwards', left: 'walk_strafe_left', right: 'walk_strafe_right',
+  breathe: 'breathing_idle', count: 'counting', nod: 'thoughtful_head_nod',
+  fwd: 'walking', back: 'walking_backwards', left: 'walk_strafe_left', right: 'walk_strafe_right',
 } as const;
 
 function skeletonOf(root: THREE.Object3D): { skel: Skeleton; bones: THREE.Bone[] } {
@@ -121,7 +118,7 @@ export function createRefereeBody(cfg: Config, parent: THREE.Object3D): RefereeB
   // cycle length (m of travel per clip loop) of each walk
   const walks = (['fwd', 'back', 'left', 'right'] as const).map(k => ({ k, c: C[k], net: Math.max(0.3, C[k].travel.net) }));
 
-  let t = 0, cycle = 0, walkW = 0, crouchW = 0, countW = 0, countT = 0, nodT = -1, nodSeen = 0, lookYaw = 0, lookPitch = 0;
+  let t = 0, cycle = 0, walkW = 0, countW = 0, countT = 0, nodT = -1, nodSeen = 0, lookYaw = 0, lookPitch = 0;
   const wDir = { fwd: 0, back: 0, left: 0, right: 0 };
 
   return {
@@ -136,13 +133,11 @@ export function createRefereeBody(cfg: Config, parent: THREE.Object3D): RefereeB
       const speed = Math.hypot(vf, vr);
       const fade = cfg.refClipFade;
 
-      // ── base: watch (breathing -> crouched with the fighters' closeness) or the count ──
-      crouchW = smooth(crouchW, cue.close, dt, fade * 2);
+      // ── base: watch (breathing idle) or the count ──
       if (cue.mode === 'count' && countW < 0.01) countT = 0;
       countW = smooth(countW, cue.mode === 'count' ? 1 : 0, dt, fade);
       countT += dt;
       sample(lib, C.breathe, t, { loop: true, root: 'inPlace' }, P.base);
-      if (crouchW > 0.001) crossfade(P.base, sample(lib, C.crouch, t, { loop: true, root: 'inPlace' }, P.a), crouchW, P.base);
       if (countW > 0.001) crossfade(P.base, sample(lib, C.count, countT, { loop: true, root: 'inPlace' }, P.a), countW, P.base);
 
       // ── walk: directional blend on one shared cycle ──

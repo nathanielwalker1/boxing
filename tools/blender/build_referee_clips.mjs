@@ -17,7 +17,11 @@ const cache = resolve(root, '.cache/mocap_ref');
 const rawDir = join(cache, 'raw');
 mkdirSync(rawDir, { recursive: true });
 const slugOf = (name) => name.replace(/\.fbx/i, ' ').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-const clips = readdirSync(dir).filter(n => /\.fbx$/i.test(n)).sort().map(file => ({ slug: slugOf(file), file, size: statSync(join(dir, file)).size }));
+// Only the clips he uses (Nate 2026-11-25: "remove the sad walk completely", "remove the crouching staring one").
+const USE = ['Breathing Idle.fbx', 'Counting.fbx', 'Thoughtful Head Nod.fbx', 'Walking.fbx', 'Walking Backwards.fbx', 'Walk Strafe Left.fbx', 'Walk Strafe Right.fbx'];
+const missing = USE.filter(f => !readdirSync(dir).includes(f));
+if (missing.length) { console.error('missing clip files: ' + missing.join(', ')); process.exit(1); }
+const clips = USE.map(file => ({ slug: slugOf(file), file, size: statSync(join(dir, file)).size }));
 const todo = clips.filter(c => !existsSync(join(rawDir, c.slug + '.json')));
 if (todo.length) {
   const jobPath = join(cache, 'job.json');

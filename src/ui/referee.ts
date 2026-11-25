@@ -37,10 +37,11 @@ export class Referee {
   /** The Meshy man (human mode, refMeshy); meshyOk goes false if his file fails to load, and the old rig draws. */
   private body: RefereeBody | null = null;
   private meshyOk = true;
-  private cue: RefCue = { mode: 'watch', close: 0, look: null, nod: 0 };
+  private cue: RefCue = { mode: 'watch', look: null, nod: 0 };
   private nodCool = 0;
-  /** Which way round from behind the fighters he stands in the round (+1 / -1; refSideDeg). */
+  /** Meshy man in the round: which side of the shot he stands on (+1 / -1), and the spot he keeps (null = none yet). */
   private side = 1;
+  private spot: Vec2 | null = null;
   private state: FighterState;
   private vel: Vec2 = { x: 0, z: 0 };
   private hands: [HandLocal, HandLocal];
@@ -86,6 +87,7 @@ export class Referee {
     const mid = { x: (a.x + f1.x) / 2, z: (a.z + f1.z) / 2 };
     const cam = { x: Math.cos(camAz), z: Math.sin(camAz) };   // from the look point toward the lens, on the floor
     const bound = RING_HALF - c.ringInset - 0.1;
+    const meshy = c.humanBody && c.refMeshy && this.meshyOk;
     const downSide: 0 | 1 | null = s.fighters[0].down ? 0 : s.fighters[1].down ? 1 : null;
     const ph = s.round.phase;
     let target: Vec2, face: Vec2, gesture: Gesture = 'hang';
@@ -115,19 +117,25 @@ export class Referee {
       const nl = Math.hypot(nx, nz);
       if (nl < 1e-3) { nx = -cam.x; nz = -cam.z; } else { nx /= nl; nz /= nl; }
       if (nx * cam.x + nz * cam.z > 0) { nx = -nx; nz = -nz; }
-      // ...turned refSideDeg round from straight behind them: the follow camera sits side-on to the fighters' line, so
-      // "far side, perpendicular" was dead behind the pair from the lens and they hid him the whole fight (2026-11-25).
-      // The side with more room inside the ropes, kept unless the other is clearly roomier (no flip-flopping).
-      const sd = c.refSideDeg * Math.PI / 180;
-      const at = (sg: number): Vec2 => {
-        const cs = Math.cos(sg * sd), sn = Math.sin(sg * sd);
-        return { x: mid.x + (nx * cs - nz * sn) * c.refStandoff, z: mid.z + (nx * sn + nz * cs) * c.refStandoff };
-      };
-      const room = (p: Vec2): number => Math.min(bound - Math.abs(p.x), bound - Math.abs(p.z));
-      if (room(at(-this.side)) > room(at(this.side)) + 0.5) this.side = -this.side;
-      target = at(this.side);
+      target = { x: mid.x + nx * c.refStandoff, z: mid.z + nz * c.refStandoff };
       face = mid;
+      if (meshy) {
+        // The Meshy man (Nate 2026-11-25: "out of the frame most times, or barely in frame"; "moving way too much"):
+        // he stands in the ring corner farthest from both fighters (refCornerInsetM in from the posts) and stays there
+        // until a fighter comes within refClear of it, then walks (refRoundWalkSpeed) to the corner now farthest from
+        // them. The close follow camera frames the middle of the ring, so a corner is mostly out of the shot or at its
+        // edge. (A spot tied to the camera walked him 20 m in 30 s: the follow camera swings all the time.)
+        const k = bound - c.refCornerInsetM;
+        const far = (p: Vec2): number => Math.min(...s.fighters.map(f => Math.hypot(f.pos.x - p.x, f.pos.z - p.z)));
+        const sp = this.spot;
+        if (!sp || far(sp) < c.refClear) {
+          const corners: Vec2[] = [{ x: k, z: k }, { x: -k, z: k }, { x: k, z: -k }, { x: -k, z: -k }];
+          this.spot = corners.reduce((best, p) => (far(p) > far(best) ? p : best));
+        }
+        target = { x: this.spot!.x, z: this.spot!.z };
+      }
     }
+    if (ph !== 'fighting' || downSide !== null) this.spot = null;
     target.x = Math.max(-bound, Math.min(bound, target.x));
     target.z = Math.max(-bound, Math.min(bound, target.z));
 
@@ -136,7 +144,7 @@ export class Referee {
     const toX = target.x - me.pos.x, toZ = target.z - me.pos.z;
     const toLen = Math.hypot(toX, toZ);
     let wantX = 0, wantZ = 0;
-    if (toLen > 0.08) { const sp = Math.min(c.refWalkSpeed, toLen * 2.5); wantX = toX / toLen * sp; wantZ = toZ / toLen * sp; }
+    if (toLen > 0.08) { const sp = Math.min(this.spot ? c.refRoundWalkSpeed : c.refWalkSpeed, toLen * 2.5); wantX = toX / toLen * sp; wantZ = toZ / toLen * sp; }
     // Keep out of their way: a fighter inside refClear pushes him straight
     // back, harder the closer — he has no body, so he gives ground instead.
     for (const f of s.fighters) {
@@ -217,9 +225,7 @@ export class Referee {
 
     // ── The Meshy man's cue (human/referee.ts): what he is doing, what he watches ──
     const counting = downSide !== null && (ph === 'count' || ph === 'over') && gesture === 'hang';
-    const apart = Math.hypot(f1.x - a.x, f1.z - a.z);
     this.cue.mode = gesture !== 'hang' ? 'hide' : counting && toLen < 0.5 ? 'count' : 'watch';   // no clip yet for the winner's arm or the wave-off
-    this.cue.close = ph === 'fighting' ? Math.max(0, Math.min(1, (c.refCloseFar - apart) / Math.max(0.05, c.refCloseFar - c.refCloseNear))) : 0;
     this.cue.look = counting ? { x: s.fighters[downSide].pos.x, y: 0.35, z: s.fighters[downSide].pos.z } : { x: mid.x, y: 1.45, z: mid.z };
     this.drawState(me, dt, this.cue);
   }
