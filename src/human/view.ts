@@ -275,6 +275,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   // A SPECTRUM OF BLOOD (Nate 2026-11-25): `cutHits` = head punches landed on him since the cut opened; a fresh cut gives
   // a little blood, one that keeps getting hit gives a lot (bloodAmt: 0.4 fresh to 2 at humanCutWorsen punches).
   let cutHits = 0;
+  /** What landed on him this fight, as the rules reported it: "part:zone:punch" -> count (window.__humanWear state; a check reads it). */
+  const zoneTally: Record<string, number> = {};
   const bloodAmt = (): number => 0.4 + 1.6 * Math.min(1, cutHits / Math.max(1, cfg.humanCutWorsen));
   let drip = 0;   // 0..1: how far the blood has run down from the cut (humanCutDripTime seconds to its full length)
   const cutPos = [new THREE.Vector3(), new THREE.Vector3()];
@@ -321,20 +323,23 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   /** THE RULE (one landed head punch -> marks). `k`: 0 = it landed on his left side, 1 = his right. A flush punch adds
    *  humanFaceMarkPerHit, a clean one 0.6 of it, a glancing one 0.25, shared out by where it landed:
    *    nose: nose 1, both eyes 0.25        temple / forehead: that brow 1, that eye 0.5
-   *    jaw / chin: lip 0.4 only (the lip never passes 0.5: redness, no bruise)
-   *    no zone given: a hook = that eye 1, that brow 0.3; an uppercut = lip 0.4; a straight = nose 0.6, that eye 0.5
+   *    anything else (the rules say 'chin' or 'jaw' for nearly every head punch): by the punch —
+   *      a hook = that eye 1, that brow 0.5; a jab or cross = nose 0.6, that eye 0.5, that brow 0.2;
+   *      an uppercut = lip 0.4 (the lip never passes 0.5: redness, no bruise), nose 0.3
    *  A spot reads as redness from about 0.1, turns to bruise from 0.45, is full at 1. ONE cut a fight: on the brow of the
    *  first side whose eye or brow reaches humanCutAt. */
   let wearForce = false;   // (the review sheet: show the marks on a menu screen too)
   const markHit = (zone: string | undefined, punch: string, k: number, grade: string): void => {
     const a = cfg.humanFaceMarkPerHit * (grade === 'flush' ? 1 : grade === 'clean' ? 0.6 : 0.25);
     const add = (i: number, w: number, cap = 1): void => { dmg[i] = Math.min(Math.max(cap, dmg[i]!), dmg[i]! + a * w); };
+    // (MEASURED 2026-11-25 in a live fight: the rules reported 23 of 23 head punches as 'chin' (jab, cross) or 'jaw'
+    //  (hook), never nose / temple / forehead. Sending those to the lip left every face clean round the eyes. So chin
+    //  and jaw say nothing about WHERE on the face: the punch and its side do.)
     if (zone === 'nose') { add(4, 1); add(0, 0.25); add(1, 0.25); }
     else if (zone === 'temple' || zone === 'forehead') { add(2 + k, 1); add(k, 0.5); }
-    else if (zone === 'jaw' || zone === 'chin') add(5, 0.4, 0.5);
-    else if (punch === 'hook') { add(k, 1); add(2 + k, 0.3); }
-    else if (punch === 'uppercut') add(5, 0.4, 0.5);
-    else { add(4, 0.6); add(k, 0.5); }
+    else if (punch === 'hook') { add(k, 1); add(2 + k, 0.5); }
+    else if (punch === 'uppercut') { add(5, 0.4, 0.5); add(4, 0.3); }
+    else { add(4, 0.6); add(k, 0.5); add(2 + k, 0.2); }
     if (cutAt < 0 && cutProne) for (const s of [k, 1 - k]) if (Math.max(dmg[s]!, dmg[2 + s]!) >= cfg.humanCutAt) { cutAt = s; break; }
   };
   /** THE BODY RULE (one landed body punch -> a red mark; never past humanBodyMarkMax: sore, not black). ribs = that side's
@@ -362,7 +367,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     isProne: () => cutProne,
     /** As if `seconds` of the fight had passed since: the blood runs. */
     age: (seconds: number) => { if (cutAt >= 0) drip = Math.min(1, drip + seconds / Math.max(1, cfg.humanCutDripTime)); },
-    state: () => ({ dmg: dmg.map(v => Math.round(v * 100) / 100), cut: cutAt, wet }),
+    state: () => ({ dmg: dmg.map(v => Math.round(v * 100) / 100), cut: cutAt, wet, zones: { ...zoneTally } }),
   };
   /** Each drawn frame: sweat on, marks from the punches that landed on his head this frame, and what the materials show. */
   const wearStep = (dt: number, next: FighterState, events: readonly SimEvent[]): void => {
@@ -374,6 +379,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       // which side of his face: the punch pushes his head AWAY from the side it landed on
       const lat = arm.Left[0].getWorldPosition(vA).sub(arm.Right[0].getWorldPosition(vB));
       const k = e.impulse.x * lat.x + e.impulse.z * lat.z > 0 ? 1 : 0;   // 0 = his left side, 1 = his right
+      const tk = `${e.part}:${e.zone ?? 'none'}:${e.punch}`;
+      zoneTally[tk] = (zoneTally[tk] ?? 0) + 1;
       if (e.part === 'head' && cutAt >= 0) cutHits += e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.6 : 0.25;
       if (e.part === 'head') markHit(e.zone, e.punch, k, e.grade); else markBody(e.liver ? 'liver' : e.zone, e.punch, k, e.grade);
     }

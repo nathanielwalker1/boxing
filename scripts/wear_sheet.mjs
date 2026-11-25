@@ -15,9 +15,11 @@ import { mkdirSync } from 'node:fs';
 // A fight's worth of head punches, in the order they land: [zone, punch, side (0 his left, 1 his right), grade].
 // Mostly jabs and crosses to the nose and eyes, hooks to the temple and jaw, a few glancing: 8 punches, repeated.
 const STREAM = [
-  ['nose', 'jab', 0, 'clean'], ['temple', 'hook', 1, 'clean'], ['jaw', 'cross', 0, 'clean'], ['nose', 'cross', 0, 'flush'],
-  ['forehead', 'jab', 1, 'glancing'], ['chin', 'uppercut', 0, 'clean'], ['temple', 'hook', 1, 'flush'], ['nose', 'jab', 1, 'glancing'],
-];   // (the heavy side is his RIGHT: the side the select screen's camera sees)
+  ['chin', 'jab', 1, 'clean'], ['chin', 'jab', 0, 'glancing'], ['chin', 'cross', 1, 'clean'], ['chin', 'jab', 1, 'clean'],
+  ['jaw', 'hook', 1, 'flush'], ['chin', 'jab', 0, 'glancing'], ['chin', 'cross', 1, 'flush'], ['chin', 'jab', 0, 'clean'],
+];   // (AS THE GAME REPORTS THEM — measured in a live fight 2026-11-25: every head punch came as 'chin' (jab, cross) or
+     //  'jaw' (hook); and in the measured share, bots over 8 fights: 5 jabs, 2 crosses, 1 hook in 8. An earlier stream
+     //  used nose / temple / forehead zones the game never sent, and the sheet did not match a real fight.)
 // Body punches, in the order they land (one for every 8 head punches): [zone, punch, side, grade].
 const BODY = [['ribs', 'hook', 0, 'clean'], ['liver', 'hook', 1, 'flush'], ['solar', 'cross', 0, 'clean'], ['belly', 'jab', 1, 'clean'], ['ribs', 'hook', 0, 'flush']];
 const STAGES = [0, 10, 20, 40, 60, 80];
