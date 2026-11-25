@@ -617,8 +617,20 @@ for it in range(6):
     np.add.at(acc, E[:, 1], W[E[:, 0]])
     avg = acc / np.maximum(deg, 1)[:, None]
     W[trunks] = 0.5 * W[trunks] + 0.5 * avg[trunks]
+if UNDER == "briefs":
+    # neck base and the tops of the shoulders: bone heat leaves single vertices on the wrong side of the neck /
+    # shoulder / spine split on a thick neck, and they stand up as a flap when the shoulder turns in a hook (seen on
+    # the fat body, dark from behind). Smoothed over that band so no vertex differs from its neighbours.
+    traps = (Z > sh_z - 0.06) & (Z < head_z + 0.03) & (ax < 0.24)
+    for it in range(8):
+        acc = np.zeros_like(W)
+        np.add.at(acc, E[:, 0], W[E[:, 1]])
+        np.add.at(acc, E[:, 1], W[E[:, 0]])
+        avg = acc / np.maximum(deg, 1)[:, None]
+        W[traps] = 0.5 * W[traps] + 0.5 * avg[traps]
+    log("neck / shoulder-top weights smoothed over %d verts" % int(traps.sum()))
 # the cloth between the legs follows the pelvis as much as the thighs
-crotch = (ax < 0.06) & (Z > hem_z - 0.06) & (Z < upleg_z)
+crotch =(ax < 0.06) & (Z > hem_z - 0.06) & (Z < upleg_z)
 one(crotch, "Hips", 0.5 * (1 - sm(0.0, 0.06, ax)))
 # limit 4 influences, normalise
 order = np.argsort(-W, 1)
@@ -768,8 +780,7 @@ ch[0] = ch[0] * np.clip((cutb + 0.002 - zb) / 0.004, 0, 1)
 ch[3] = np.maximum(ch[3], _c0 - ch[0])          # what the cut took from the trunks is skin
 # boots: the shaft above SOCK_Z becomes a short white sock band (boxing boots read low and matte, not tall and shiny)
 SOCK_Z = 0.19
-zrb = bleed(zr, 6)               # smoothed: the raw per-texel height is a triangle sawtooth, which made the band edge jagged
-for _ in range(3): zrb = box(zrb, 2)   # three box passes (= blur(.., 3, 2)); blur() is defined further down, so inline here
+zrb = bleed(zt, 6)               # the texel's own height, as the waistband cut uses (zr is per TRIANGLE: its cut was a sawtooth)
 sock = ch[2] * sm(SOCK_Z - 0.006, SOCK_Z + 0.006, zrb)
 ch[2] = ch[2] - sock
 mask = np.ones((N1, N1, 4), dtype=np.float32)
@@ -1156,6 +1167,27 @@ def build_trunks(TRUNKS_CACHE, TRUNKS_NAME):
                 k_ = (TRUNKS_CLEAR - sd) / max(nh, 0.4) / nh
                 T[i, 0] += nrm.x * k_; T[i, 1] += nrm.y * k_
                 pushed += it == 0
+    if UNDER == "briefs":
+        # a belly that overhangs the waistband: the nearest skin there faces DOWN, so the sideways push above leaves
+        # the cloth inside it and the top edge tears through. Above the crotch the body is one tube: look in from
+        # outside at each vertex's own height and direction, and keep the cloth outside the outermost skin found.
+        yc_ = float(Pb[(Pb[:, 2] > crotch + 0.06) & (Pb[:, 2] < tz1), 1].mean())
+        belly = 0
+        for i in range(len(T)):
+            w_ = float(sm(crotch + 0.04, crotch + 0.10, T[i, 2]))
+            if w_ <= 0: continue
+            dx_, dy_ = T[i, 0], T[i, 1] - yc_
+            r_ = math.hypot(dx_, dy_)
+            if r_ < 1e-4: continue
+            ux_, uy_ = dx_ / r_, dy_ / r_
+            loc, _, _, dist_ = bvh_b.ray_cast(Vector((ux_, yc_ + uy_, T[i, 2])), Vector((-ux_, -uy_, 0.0)), 1.0)
+            if loc is None: continue
+            need = 1.0 - dist_ + TRUNKS_CLEAR
+            if r_ < need:
+                rn_ = r_ + w_ * (need - r_)
+                T[i, 0] = ux_ * rn_; T[i, 1] = yc_ + uy_ * rn_
+                belly += 1
+        log("trunks %s: %d verts above the crotch moved outside the outermost skin (belly overhang)" % (TRUNKS_NAME, belly))
     bmb.free()
     lo.data.vertices.foreach_set("co", T.astype(np.float32).ravel())
     lo.data.update()
@@ -1186,6 +1218,7 @@ def build_trunks(TRUNKS_CACHE, TRUNKS_NAME):
     for i in range(len(Pb)): kd.insert(Pb[i].tolist(), i)
     kd.balance()
     Wt = W[[kd.find(T[i].tolist())[1] for i in range(len(T))]].copy()
+    Wraw_ = Wt.copy()
     me_ = lo.data
     Et = np.empty(len(me_.edges) * 2, dtype=np.int64); me_.edges.foreach_get("vertices", Et); Et = Et.reshape(-1, 2)
     degt = np.bincount(Et.ravel(), minlength=len(T)).astype(float)
@@ -1193,6 +1226,11 @@ def build_trunks(TRUNKS_CACHE, TRUNKS_NAME):
         acc = np.zeros_like(Wt)
         np.add.at(acc, Et[:, 0], Wt[Et[:, 1]]); np.add.at(acc, Et[:, 1], Wt[Et[:, 0]])
         Wt = 0.5 * Wt + 0.5 * acc / np.maximum(degt, 1)[:, None]
+    if UNDER == "briefs":
+        # the waistband lies on bare skin: there it keeps the skin's own weights exactly (unsmoothed), so in a crouch
+        # it moves with the belly under it instead of sinking into it (seen on the fat body: skin through the band)
+        kz_ = sm(zb, zb - 0.06, T[:, 2])[:, None]
+        Wt = Wraw_ * (1 - kz_) + Wt * kz_
     Wh = np.zeros((len(T), len(HEM_BONES)))
     hfac = 0.9 * sm(tz0 + HEM_LEN, tz0 + 0.01, T[:, 2])
     for si, (s, sg) in enumerate((("Left", 1), ("Right", -1))):
@@ -1241,7 +1279,8 @@ HAIR_CACHE, HAIR_NAME = (argv[10], argv[11]) if len(argv) > 11 and argv[10] else
 HAIR_TRIS = 9000
 HAIR_CLEAR = 0.002        # minimum distance (m) from the scalp
 HAIR_HEAD_FROM = 0.58     # the donor is a bust: its head is everything above this fraction of its height
-HAIR_DARK = 0.22          # hair = base colour's brightest channel under this (skin is ~0.9)
+HAIR_REF_W = 0.097        # reference ear-to-ear half width (m) the part is cut and baked at, whatever the body
+HAIR_DARK = 0.22         # hair = base colour's brightest channel under this (skin is ~0.9)
 def build_hair(HCACHE, HNAME):
     from mathutils.kdtree import KDTree
     HSTEM = "hair_" + HNAME
@@ -1302,8 +1341,9 @@ def build_hair(HCACHE, HNAME):
     log("hair %s donor: half width %.3f, scalp top %.3f, ears y %.3f; body: crown %.3f, half width %.3f, ears y %.3f; scale %.4f; %d dark verts on the head, %d brow / eye verts left out"
         % (HNAME, wd, stop, ey, top_b, wb, eyb, s, int((dark & headm & ~brow).sum()), int((dark & headm & brow).sum())))
     hm_.transform(Matrix.Translation(Vector((-xc, -ey, -stop))))
-    hm_.transform(Matrix.Scale(s, 4))
-    hm_.transform(Matrix.Translation(Vector((0.0, eyb, top_b))))
+    # cut, decimate, unwrap and bake at ONE reference size about the origin (scalp top at 0): the mesh, its UVs and
+    # the shared hair_<name> textures then come out the same for every body; the per-body fit is applied after
+    hm_.transform(Matrix.Scale(HAIR_REF_W / wd, 4))
     bm_ = bmesh.new(); bm_.from_mesh(hm_)
     bm_.verts.ensure_lookup_table()
     bmesh.ops.delete(bm_, geom=[v for v in bm_.verts if not keep[v.index]], context="VERTS")
@@ -1373,7 +1413,7 @@ def build_hair(HCACHE, HNAME):
     imgs["c"].pixels.foreach_set(a_.ravel())
     log("hair texture: %.0f%% of texels opaque" % (100 * float((a_[..., 3] > 0.5).mean())))
     # clearance: every vertex at least HAIR_CLEAR outside this body's skin
-    T = verts(lo).astype(np.float64)
+    T = verts(lo).astype(np.float64) * (wb / HAIR_REF_W) + np.array([0.0, eyb, top_b])   # onto this body's head
     bmb = bmesh.new(); bmb.from_mesh(body.data)
     bvh_b = BVHTree.FromBMesh(bmb)
     pushed = 0; deep = 0.0
