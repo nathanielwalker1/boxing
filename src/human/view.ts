@@ -195,10 +195,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   const tone = luminance(spec.skin) < 0.3 ? 'dark' : 'light';
   // ?trunks=t2 (red) / ?trunks2=t3 (blue) pick a trunks style on the fight page too, as on the proof page
   const q = new URLSearchParams(location.search);
-  const trunksStyle = side === 0 ? q.get('trunks') : (q.get('trunks2') ?? q.get('trunks'));
+  // (no ?trunks: the roster's cut picks the part — skirt = t2 gladiator, split = t4 Muay Thai, long = t3 tassels, the rest t1 vintage)
+  const cutStyle = ({ skirt: 't2', split: 't4', long: 't3', short: 't1', classic: 't1', belt: 't1' } as const)[spec.trunksStyle];
+  const trunksStyle = (side === 0 ? q.get('trunks') : (q.get('trunks2') ?? q.get('trunks'))) ?? cutStyle;
   // ?hair=h1 (red) / ?hair2=h1 (blue): the hair part worn; none = bald. Each side is its own choice (no fallback).
   const hairStyle = q.get(side === 0 ? 'hair' : 'hair2');
-  const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c', ...(trunksStyle ? { trunksStyle } : {}), ...(hairStyle ? { hairStyle } : {}) };
+  const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c', ...(cfg.humanSkinFromSpec ? { skin: spec.skin } : {}), ...(trunksStyle ? { trunksStyle } : {}), ...(hairStyle ? { hairStyle } : {}) };
   const model = boxer.spawn(tone, kit);
   paintFighter(model, cfg, bodyFile);   // the paint look's banded shading + ink outline (render/paint.ts; hidden when cfg.paintLook is off)
   const { skel, bones } = skeletonOf(model);
@@ -223,6 +225,14 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     Right: [bone('RightUpLeg'), bone('RightLeg'), bone('RightFoot')] as const,
   };
   const neck = bone('Neck');
+  // HEAD SHAPE (humanHeadShape): the roster's head numbers as a stretch of the head bone — width across, height up, chin and
+  // brow front to back — and its neck number as a thicker or thinner neck (the head is un-scaled by the neck's so it keeps its own).
+  // Set once: the pose only writes bone rotations.
+  {
+    const hm = spec.morph.head, k = cfg.humanHeadShape, nk = 1 + cfg.humanNeckShape * spec.morph.neck;
+    neck.scale.set(nk, 1, nk);
+    head.scale.set((1 + k * (0.6 * hm.width + 0.4 * hm.jaw)) / nk, 1 + k * (hm.height + 0.5 * hm.chin), (1 + k * 0.5 * (hm.brow + hm.nose)) / nk);
+  }
   const headTop = bones.find(b => b.name.endsWith('HeadTop_End')) ?? null;
   const spray = new Spray(parent);
   // the hit snap: the sim head relative to his floor point, its slow average, and how long the snap is drawn

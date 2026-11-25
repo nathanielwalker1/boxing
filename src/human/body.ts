@@ -21,7 +21,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 export type SkinTone = 'light' | 'dark';
-export interface KitColors { glove: string; trunks: string; trim: string; boot: string; hair: string; /** which trunks part a Meshy body wears ('t1' vintage, 't2' gladiator skirt, 't3' side tassels, 't4' Muay Thai split); default: the body's first */ trunksStyle?: string; /** which hair part a Meshy body wears ('h1' cornrows); default: none (bald) */ hairStyle?: string }
+export interface KitColors { glove: string; trunks: string; trim: string; boot: string; hair: string; /** which trunks part a Meshy body wears ('t1' vintage, 't2' gladiator skirt, 't3' side tassels, 't4' Muay Thai split); default: the body's first */ trunksStyle?: string; /** which hair part a Meshy body wears ('h1' cornrows); default: none (bald) */ hairStyle?: string; /** Meshy bodies: the skin's own colour as a hex (the baked skin's mean is moved onto it); none = the light / dark pair */ skin?: string }
 
 export interface BoxerAssets {
   spawn(tone: SkinTone, kit: KitColors): THREE.Object3D;
@@ -366,13 +366,13 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
     return m;
   };
   const colourMap = (tone: SkinTone, kit: KitColors): THREE.Texture => {
-    const key = `${tone}|${kit.trunks}|${kit.glove}`;
+    const key = `${tone}|${kit.trunks}|${kit.glove}|${kit.skin ?? ''}`;
     const hit = cache.get(key);
     if (hit) return hit;
     const out = new Uint8ClampedArray(src);
     const kt = rgb(kit.trunks), kg = rgb(kit.glove);
-    const dark = tone === 'dark';
-    const sk = MESHY.darkSkin.map((v, k) => v / skinMean[k]!);
+    const dark = tone === 'dark' || kit.skin !== undefined;   // (kit.skin: every fighter's skin is moved onto his own colour)
+    const sk = (kit.skin !== undefined ? rgb(kit.skin) : MESHY.darkSkin).map((v, k) => v / skinMean[k]!);
     for (let i = 0; i < out.length; i += 4) {
       const r = src[i]!, g = src[i + 1]!, b = src[i + 2]!;
       const mt = mask[i]! / 255, mg = mask[i + 1]! / 255, ms = dark ? skin[i]! / 255 : 0;
