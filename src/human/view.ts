@@ -23,7 +23,7 @@ import { mocapCfg } from '../sim/mocap';
 import { VARIANTS } from '../sim/variants';
 import { createImpact, impactOnEvents, impactPose, impactStep, makeImpactPose, type ImpactBone } from './impact';
 
-interface Assets { boxer: BoxerAssets; lib: ClipLib; roles: Roles; index: BakeIndex }
+interface Assets { boxers: Map<number, BoxerAssets>; forced: number | null; lib: ClipLib; roles: Roles; index: BakeIndex }
 let assets: Assets | null = null;
 /**
  * Where each human fighter's head is DRAWN vs where the sim's head sphere is (last frame). The mocap body
@@ -55,19 +55,35 @@ const drawnBodies: (DrawnBody | null)[] = [null, null];
 /** cfg.humanBodyFile: which body glb the human fighters wear (read once, at preload). */
 export const HUMAN_BODY_FILES = ['boxer_v2.glb', 'boxer_m1.glb', 'boxer_m2.glb', 'boxer_m3.glb', 'boxer_m4.glb', 'boxer_m5.glb'] as const;
 
-export async function preloadHuman(bodyFile = 2): Promise<boolean> {
+/** The bodies a fighter's build can pick when no one body is forced: 2 muscular, 3 average, 4 large, 5 skinny. */
+const BUILD_BODIES = [2, 3, 4, 5] as const;
+/** Which body file a fighter wears, from his build (roster morph): large / skinny / muscular / average. A forced body (?body=N) wins. */
+export function bodyFileFor(spec: FighterSpec): number {
+  if (assets && assets.forced !== null) return assets.forced;
+  const { bodyFat, muscle } = spec.morph;
+  if (bodyFat >= 0.4) return 4;
+  if (bodyFat <= -0.5 && muscle <= -0.3) return 5;
+  if (muscle >= 0.6) return 2;
+  return 3;
+}
+
+/** `forced` = every fighter wears `bodyFile` (?body=N); otherwise each wears the body of his build and all four are loaded. */
+export async function preloadHuman(bodyFile = 2, forced = false): Promise<boolean> {
   if (assets) return true;
   try {
-    const [boxer, index, bin, roles] = await Promise.all([
-      // 0: the art-pass body (kit textures, look 2); 1: the Meshy body (same 52 bones, recoloured by region masks)
-      loadBoxer('/fighter/', HUMAN_BODY_FILES[Math.max(0, Math.min(HUMAN_BODY_FILES.length - 1, Math.round(bodyFile)))]!),
+    const one = Math.max(0, Math.min(HUMAN_BODY_FILES.length - 1, Math.round(bodyFile)));
+    const files: readonly number[] = forced ? [one] : BUILD_BODIES;
+    const [loaded, index, bin, roles] = await Promise.all([
+      // 0: the art-pass body (kit textures, look 2); 1+: the Meshy bodies (same 52 bones, recoloured by region masks)
+      Promise.all(files.map(f => loadBoxer('/fighter/', HUMAN_BODY_FILES[f]!))),
       fetch('/fighter/clips/index.json').then(r => r.json() as Promise<BakeIndex>),
       fetch('/fighter/clips/clips.bin').then(r => r.arrayBuffer()),
       fetch('/fighter/clips/roles.json').then(r => r.json() as Promise<Roles>),
     ]);
     const lib = decode(index, bin);
     synthClips(lib, roles);   // the synthesised takes (roles with `seq`), same as the sim's library
-    assets = { boxer, lib, roles, index };
+    const boxers = new Map<number, BoxerAssets>(files.map((f, i) => [f, loaded[i]!]));
+    assets = { boxers, forced: forced ? one : null, lib, roles, index };
     return true;
   } catch (e) {
     console.error('human fighters: assets failed to load, using the procedural rig', e);
@@ -173,7 +189,9 @@ const lates: Partial<Record<Side, (() => void) | undefined>> = {};
 
 export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, parent: THREE.Object3D): RigView {
   if (!assets) throw new Error('createHumanView: call preloadHuman() first');
-  const { boxer, lib, roles, index } = assets;
+  const { lib, roles, index } = assets;
+  const bodyFile = bodyFileFor(spec);
+  const boxer = assets.boxers.get(bodyFile) ?? [...assets.boxers.values()][0]!;
   const tone = luminance(spec.skin) < 0.3 ? 'dark' : 'light';
   // ?trunks=t2 (red) / ?trunks2=t3 (blue) pick a trunks style on the fight page too, as on the proof page
   const q = new URLSearchParams(location.search);
@@ -182,7 +200,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   const hairStyle = q.get(side === 0 ? 'hair' : 'hair2');
   const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c', ...(trunksStyle ? { trunksStyle } : {}), ...(hairStyle ? { hairStyle } : {}) };
   const model = boxer.spawn(tone, kit);
-  paintFighter(model, cfg);   // the paint look's banded shading + ink outline (render/paint.ts; hidden when cfg.paintLook is off)
+  paintFighter(model, cfg, bodyFile);   // the paint look's banded shading + ink outline (render/paint.ts; hidden when cfg.paintLook is off)
   const { skel, bones } = skeletonOf(model);
   const fit: Fit = buildFit(index.source, index.bones, index.parents, skel);
   const fitOut: FitOut = { localRot: skel.restRot.map(q => [...q] as [number, number, number, number]), hipsPos: [0, 0, 0] };

@@ -189,12 +189,26 @@ export function paintRoom(root: THREE.Object3D, c: Config, kind: 'arena' | 'ring
 }
 
 /** Fighter material: banded diffuse, warm lit / cool shade, skin toward neutral, kit kept saturated. */
-function paintFighterMaterial(mat: THREE.Material, kitAll: number): void {
+/** One region-mask uniform per body file (fighters can wear different bodies in one fight); loaded the first time it is asked for. */
+const kitMasks = new Map<number, { value: THREE.Texture | null }>();
+function kitMaskFor(bodyFile: number): { value: THREE.Texture | null } {
+  let u = kitMasks.get(bodyFile);
+  if (!u) {
+    const made: { value: THREE.Texture | null } = { value: null };
+    u = made;
+    kitMasks.set(bodyFile, made);
+    if (bodyFile >= 1) new THREE.TextureLoader().load(`/fighter/boxer_m${bodyFile}_mask.webp`, t => { t.flipY = false; t.colorSpace = THREE.NoColorSpace; made.value = t; });
+  }
+  return u;
+}
+
+function paintFighterMaterial(mat: THREE.Material, kitAll: number, maskU: { value: THREE.Texture | null } = paintU.uKitMask): void {
   if (mat.userData['painted']) return;
   mat.userData['painted'] = true;
   chain(mat, 'fighter', shader => {
     for (const k of ['uPaint', 'uBandTop', 'uBands', 'uBandSoft', 'uBandFloor', 'uLitCol', 'uShadeCol', 'uTintMix', 'uSkinDesat', 'uKitMask',
       'uBandOn', 'uDesatOn', 'uBandMix', 'uMaskDbg', 'uRimCol', 'uRimStr', 'uRimPow'] as const) shader.uniforms[k] = paintU[k];
+    shader.uniforms['uKitMask'] = maskU;
     shader.uniforms['uKitAll'] = { value: kitAll };
     shader.fragmentShader = shader.fragmentShader
       .replace('void main() {', `uniform float uPaint, uBandTop, uBands, uBandSoft, uBandFloor, uTintMix, uSkinDesat, uKitAll;
@@ -242,7 +256,8 @@ function paintFighterMaterial(mat: THREE.Material, kitAll: number): void {
  * Give a spawned fighter the painted look: patch its materials and add an inverted-hull outline to each skinned mesh
  * (same geometry, same skeleton, pushed out along the skinned normal). The hulls are hidden when the switch is off.
  */
-export function paintFighter(model: THREE.Object3D, c: Config): void {
+export function paintFighter(model: THREE.Object3D, c: Config, bodyFile?: number): void {
+  const maskU = bodyFile === undefined ? paintU.uKitMask : kitMaskFor(bodyFile);
   const skinned: THREE.SkinnedMesh[] = [];
   model.traverse(o => {
     const m = o as THREE.Mesh;
@@ -252,7 +267,7 @@ export function paintFighter(model: THREE.Object3D, c: Config): void {
       if (!(mt as THREE.MeshStandardMaterial).isMeshStandardMaterial) return mt;
       let mm = mt;
       if (glove && !mt.userData['kitMat']) { mm = mt.clone(); mm.userData['painted'] = false; mm.userData['kitMat'] = true; }   // never share the body's material
-      paintFighterMaterial(mm, glove || /^(glove|trunks|trim|boot)$/.test(mm.name) ? 1 : 0);
+      paintFighterMaterial(mm, glove || /^(glove|trunks|trim|boot)$/.test(mm.name) ? 1 : 0, maskU);
       return mm;
     };
     m.material = Array.isArray(m.material) ? m.material.map(fix) : fix(m.material);
