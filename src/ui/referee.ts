@@ -46,6 +46,10 @@ export class Referee {
   private fidget: Vec2 = { x: 0, z: 0 };
   private fidgetT = 0;
   private fidgetN = 0;
+  /** ...hurrying out of the fighters' way; the slow drift along the ropes (seconds). */
+  private hurry = false;
+  private stepping = false;
+  private driftT = 0;
   private state: FighterState;
   private vel: Vec2 = { x: 0, z: 0 };
   private hands: [HandLocal, HandLocal];
@@ -131,11 +135,21 @@ export class Referee {
         // edge. (A spot tied to the camera walked him 20 m in 30 s: the follow camera swings all the time.)
         const k = bound - c.refCornerInsetM;
         const far = (p: Vec2): number => Math.min(...s.fighters.map(f => Math.hypot(f.pos.x - p.x, f.pos.z - p.z)));
-        const sp = this.spot;
-        if (!sp || far(sp) < c.refClear) {
+        // He leaves as soon as a fighter is within refCornerLeaveM of HIM (not of his corner: "he's right there in the
+        // corner with us"), hurrying (refHurrySpeed) until he is clear.
+        if (!this.spot || far(me.pos) < c.refCornerLeaveM) {
           const corners: Vec2[] = [{ x: k, z: k }, { x: -k, z: k }, { x: k, z: -k }, { x: -k, z: -k }];
-          this.spot = corners.reduce((best, p) => (far(p) > far(best) ? p : best));
+          const best = corners.reduce((b0, p) => (far(p) > far(b0) ? p : b0));
+          if (this.spot && (best.x !== this.spot.x || best.z !== this.spot.z)) this.hurry = true;
+          this.spot = best;
         }
+        if (this.hurry && far(me.pos) > c.refCornerLeaveM + 0.5) this.hurry = false;
+        // ...not pinned to the corner: his spot drifts up to refDriftM along each rope from it and back, slowly
+        // (refDriftPeriod; the two ropes out of step), so over a round he wanders a little across the ring.
+        this.driftT += dt;
+        const w = 2 * Math.PI * this.driftT / c.refDriftPeriod;
+        const u = 0.5 - 0.5 * Math.cos(w), v = 0.5 - 0.5 * Math.cos(w * 0.77 + 1.3);
+        const drift = { x: -Math.sign(this.spot!.x) * u * c.refDriftM, z: -Math.sign(this.spot!.z) * v * c.refDriftM };
         // ...and shuffles a step now and then ("he's just standing there", 2026-11-25): every refFidgetEvery s (varied
         // 0.7-1.3x) a new point within refFidgetM of the corner. Golden-angle steps: never the same place twice running.
         this.fidgetT -= dt;
@@ -145,7 +159,7 @@ export class Referee {
           this.fidget = { x: Math.cos(ang) * c.refFidgetM * (0.5 + 0.5 * f), z: Math.sin(ang) * c.refFidgetM * (0.5 + 0.5 * f) };
           this.fidgetT = c.refFidgetEvery * (0.7 + 0.6 * f);
         }
-        target = { x: this.spot!.x + this.fidget.x, z: this.spot!.z + this.fidget.z };
+        target = { x: this.spot!.x + drift.x + this.fidget.x, z: this.spot!.z + drift.z + this.fidget.z };
       }
     }
     if (ph !== 'fighting' || downSide !== null) this.spot = null;
@@ -157,7 +171,10 @@ export class Referee {
     const toX = target.x - me.pos.x, toZ = target.z - me.pos.z;
     const toLen = Math.hypot(toX, toZ);
     let wantX = 0, wantZ = 0;
-    if (toLen > 0.08) { const sp = Math.min(this.spot ? c.refRoundWalkSpeed : c.refWalkSpeed, toLen * 2.5); wantX = toX / toLen * sp; wantZ = toZ / toLen * sp; }
+    // (the Meshy man walks at a real pace or not at all: easing to a crawl near the spot slid his feet, "floating")
+    // (and sets off only once his spot is refStepStartM away, then walks all the way: no tiny step every second)
+    if (meshy) this.stepping = toLen > (this.stepping ? 0.08 : c.refStepStartM);
+    if (meshy ? this.stepping : toLen > 0.08) { const sp = Math.min(this.spot ? (this.hurry ? c.refHurrySpeed : c.refRoundWalkSpeed) : c.refWalkSpeed, Math.max(meshy ? c.refStepMinSpeed : 0, toLen * 2.5)); wantX = toX / toLen * sp; wantZ = toZ / toLen * sp; }
     // Keep out of their way: a fighter inside refClear pushes him straight
     // back, harder the closer — he has no body, so he gives ground instead.
     for (const f of s.fighters) {
