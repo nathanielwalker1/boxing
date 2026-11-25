@@ -18,7 +18,7 @@ const STREAM = [
   ['nose', 'jab', 0, 'clean'], ['temple', 'hook', 1, 'clean'], ['jaw', 'cross', 0, 'clean'], ['nose', 'cross', 0, 'flush'],
   ['forehead', 'jab', 1, 'glancing'], ['chin', 'uppercut', 0, 'clean'], ['temple', 'hook', 1, 'flush'], ['nose', 'jab', 1, 'glancing'],
 ];   // (the heavy side is his RIGHT: the side the select screen's camera sees)
-const STAGES = [0, 5, 10, 20, 30, 45];
+const STAGES = [0, 10, 20, 40, 60, 80];
 const FIGHTERS = 2;   // the first N on the select screen
 
 const out = new URL('./output/', import.meta.url).pathname;
