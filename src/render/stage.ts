@@ -498,7 +498,9 @@ export class Stage {
 
     // The clear line (camclear.ts): on the play camera only, the seat that keeps posts and ropes off both fighters,
     // eased toward at camClearLambda. Directed shots, the fixed seat and camClear off all ease back to no change.
-    const clearOn = c.camClear && !shot && this.following;
+    // (flowReplayClear, Nate 2026-11-25: the knockdown replay's low lens sat "behind and under the ropes, most of the
+    //  action is missed because the rope is in the way" — the replay shot takes the same clear seat, lifted over the top rope)
+    const clearOn = c.camClear && ((!shot && this.following) || (shot?.key === 'replay' && c.flowReplayClear));
     if (clearOn) this.clearPick = clearSeat(this.lookTarget, az, this.el, this.dist, [a, b], this.clearPick, c);
     const wantLift = clearOn ? this.clearPick.liftDeg * Math.PI / 180 : 0, wantScale = clearOn ? this.clearPick.scale : 1;
     const cl = snap ? 1 : 1 - Math.exp(-c.camClearLambda * dt);

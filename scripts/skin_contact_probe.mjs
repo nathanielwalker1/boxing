@@ -1,0 +1,136 @@
+// CONTACT IN LIVE PLAY, on the skinned mesh. A flow fight, the player's side on a scripted masher (walks in on the AI's
+// feet, throws jab / cross / hook / uppercut in turn, every third one to the body), damage scaled down so nobody falls.
+// Frame clock stepped by hand at 60 fps for argv[3] seconds (default 30). Every frame, in the page:
+//   depth  = how far each man's glove vertices sit inside the other's head / torso (radial map from the part's centroid)
+//   blocks = for 10 frames after a punchBlock, the gap between the punching glove's vertices and the nearest guard glove's
+// Prints per punch type: lands, deepest-in-part (median / worst / over 2 cm / over 5 cm) and blocks, glove-to-glove gap.
+// argv[2] = cfg overlay JSON or '-'.
+import { chromium } from 'playwright';
+import { DEV_URL } from './devUrl.js';
+import { until, bootReady } from './waits.js';
+const CFG = process.argv[2] && process.argv[2] !== '-' ? JSON.parse(process.argv[2]) : {};
+const SECS = +(process.argv[3] || 30);
+const t0 = Date.now();
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
+const logs = [];
+page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.text()); });
+page.on('pageerror', e => logs.push(e.message));
+await page.addInitScript(() => {
+  const raf = window.requestAnimationFrame.bind(window);
+  let q = [], T = 0;
+  window.__manual = false;
+  window.requestAnimationFrame = cb => { if (window.__manual) { q.push(cb); return 1; } return raf(cb); };
+  window.__goManual = () => { T = performance.now(); window.__manual = true; };
+  window.__stepFrames = (n, ms) => { for (let i = 0; i < n; i++) { const cbs = q; q = []; T += ms; for (const c of cbs) c(T); } };
+  window.__depth = (G, P) => {
+    // centre: the centroid of the part's UPPER 60% by height (the 'head' set runs down the neck: its plain centroid sat
+    // 11 cm off the head and every reading in a trade was inflated). Points below the centre's lower bound are not judged.
+    let lo = 1e9, hi = -1e9; for (let i = 1; i < P.length; i += 3) { if (P[i] < lo) lo = P[i]; if (P[i] > hi) hi = P[i]; }
+    const cut = lo + (hi - lo) * 0.4;
+    let n = 0, cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < P.length; i += 3) { if (P[i + 1] < cut) continue; cx += P[i]; cy += P[i + 1]; cz += P[i + 2]; n++; }
+    cx /= n; cy /= n; cz /= n;
+    const NT = 24, NP = 12, R = new Float32Array(NT * NP);
+    const bin = (x, y, z, d) => Math.min(NT - 1, Math.floor((Math.atan2(z, x) + Math.PI) / (2 * Math.PI) * NT)) * NP + Math.min(NP - 1, Math.floor(Math.acos(Math.max(-1, Math.min(1, y / d))) / Math.PI * NP));
+    for (let i = 0; i < P.length; i += 3) { const x = P[i] - cx, y = P[i + 1] - cy, z = P[i + 2] - cz, d = Math.hypot(x, y, z) || 1e-9; const b = bin(x, y, z, d); if (d > R[b]) R[b] = d; }
+    let deep = 0;
+    for (let i = 0; i < G.length; i += 3) { if (G[i + 1] < cut) continue; const x = G[i] - cx, y = G[i + 1] - cy, z = G[i + 2] - cz, d = Math.hypot(x, y, z) || 1e-9; const k = R[bin(x, y, z, d)] - d; if (k > deep) { deep = k; if (k > 0.1) window.__depthDbg = `part height ${((hi - lo) * 100).toFixed(0)} cm, ${n} verts above the cut; deepest glove vertex ${(d * 100).toFixed(0)} cm from the centre (dy ${(y * 100).toFixed(0)}), part reaches ${(R[bin(x, y, z, d)] * 100).toFixed(0)} cm that way`; } }
+    return deep;
+  };
+  window.__minGap = (A, B) => { let best = 1e9; for (let i = 0; i < A.length; i += 9) for (let j = 0; j < B.length; j += 9) { const d = (A[i] - B[j]) ** 2 + (A[i + 1] - B[j + 1]) ** 2 + (A[i + 2] - B[j + 2]) ** 2; if (d < best) best = d; } return Math.sqrt(best); };
+  window.__run = frames => {
+    const lands = [], blocks = [], open = [];   // open: events still being followed
+    const cen = a => { let x = 0, y = 0, z = 0; const n = a.length / 3; for (let i = 0; i < a.length; i += 3) { x += a[i]; y += a[i + 1]; z += a[i + 2]; } return [x / n, y / n, z / n]; };
+    let prevC = [0, 1].map(s => { const x = window.__humanMesh[s](); return { head: cen(x.head), torso: cen(x.torso) }; });
+    for (let f = 0; f < frames; f++) {
+      window.__humanStages = {}; window.__lateDbg = {};
+      window.__stepFrames(1, 1000 / 60);
+      if (window.__flow.state().screen !== 'fight') break;
+      const m = [0, 1].map(s => window.__humanMesh[s]());
+      const P = [0, 1].map(s => window.__humanProbe(s));
+      for (const s of [0, 1]) for (const e of (P[s]?.events ?? [])) {
+        window.__evN = (window.__evN | 0) + 1;
+        if ((e.type !== 'punchLand' && e.type !== 'punchBlock' && e.type !== 'perfectBlock') || e.side !== s) continue;
+        const leadL = P[s].gloves.lead[0] === P[s].gloves.left[0];
+        const g = (e.hand === 'lead') === leadL ? 'L' : 'R';
+        const rec = { f, s, g, punch: e.punch, part: e.part === 'head' ? 'head' : 'torso', land: e.type === 'punchLand', v: e.type === 'punchLand' ? 0 : 1e9, at: 0, n: 0, tl: P[1 - s].label, row: [] };
+        open.push(rec); (rec.land ? lands : blocks).push(rec);
+      }
+      for (const r of open) {
+        const o = m[1 - r.s], G = m[r.s][r.g];
+        if (r.land) {
+          const d = window.__depth(G, o[r.part]); r.row.push(+(d * 100).toFixed(1)); if (d > r.v) { r.v = d; r.at = r.n; }
+          // the first frame it is over 8 cm inside: where each drawing layer left this glove point, as distance to the part's centre as finally drawn
+          if (d > 0.08 && !r.trace) {
+            const hc = cen(o[r.part]);
+            r.trace = `frame +${r.n}: ` + (window.__humanStages[r.s] ?? []).map(([n, L, R]) => `${n} ${(Math.hypot(...(r.g === 'L' ? L : R).map((v, k) => v - hc[k])) * 100).toFixed(0)}`).join(', ')
+              + ` || ${window.__depthDbg} || target's ${r.part} centre moved ${(Math.hypot(...hc.map((v, k) => v - prevC[1 - r.s][r.part][k])) * 100).toFixed(1)} cm this frame, puncher ${P[r.s].label}`;
+          }
+        }
+        else { const d = Math.min(window.__minGap(G, o.L), window.__minGap(G, o.R)); if (d < r.v) { r.v = d; r.at = r.n; } }
+        r.n++;
+      }
+      for (let i = open.length - 1; i >= 0; i--) if (open[i].n >= (open[i].land ? 24 : 10)) open.splice(i, 1);
+      prevC = m.map(x => ({ head: cen(x.head), torso: cen(x.torso) }));
+      if (window.__shootDeep) { const r = open.find(r => r.land && r.trace && !r.shot && r.row[r.row.length - 1] > 8); if (r) { r.shot = true; return { lands, blocks, stop: `side ${r.s} ${r.punch} -> ${r.part}, depth ${r.row[r.row.length - 1]}, target ${r.tl}; ${r.trace}` }; } }
+    }
+    const st = window.__sim.state();
+    return { lands, blocks, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
+  };
+});
+await page.goto(`${DEV_URL}/?menu=1&human=1&ko=1`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+await bootReady(page);
+const key = async k => { await page.keyboard.press(k); await page.waitForTimeout(0); };
+const on = s => until(page, x => window.__flow.state().screen === x, s, { label: `screen ${s}`, timeout: 60_000 });
+await key('Enter'); await on('select');
+await key('Enter'); await on('opponent');
+await key('Enter'); await on('fight');
+await until(page, () => !!window.__humanMesh?.[0] && !!window.__humanMesh?.[1] && window.__tick.simTicks > 5, undefined, { label: 'fight + mesh hook', timeout: 150_000 });
+await page.evaluate(async CFG => {
+  const c = window.__cfg; Object.assign(c, CFG); c.healthDamagePerImpulse *= 0.1; c.flowReplayOn = false; window.__flow.rounds(1, 900);
+  const AI = await import('/src/ai/index.ts'), core = await import('/src/core/index.ts');
+  const st = window.__sim.state(); const spec = core.ROSTER.find(r => r.id === st.fighters[0].specId);
+  let ai = AI.createAi(0, 7, c, AI.styleFor(spec, c)), t = 0;
+  const cyc = ['jab', 'cross', 'hook', 'uppercut', 'hook', 'cross'];
+  window.__sim.drive(0, s => {
+    const d = AI.aiStep(ai, s, c); ai = d.ai; t++;
+    const i = { ...d.input, jab: false, cross: false, hook: false, uppercut: false, block: false, level: false };
+    const k = Math.floor(t / 16);
+    if (t % 16 === 0) i[cyc[k % cyc.length]] = true;
+    if (k % 3 === 2 && t % 16 < 3) i.level = true;
+    return i;
+  });
+  window.__goManual();
+}, CFG);
+// throwaway frames, stepped from here until the sim is really running (the flow's own timers need real time to pass)
+for (let i = 0; i < 200; i++) { const tk = await page.evaluate(() => { window.__stepFrames(2, 1000 / 60); return window.__tick.simTicks; }); if (tk > 60) break; }
+if (process.argv[4] === 'shots') {
+  await page.evaluate(() => { window.__shootDeep = true; });
+  for (let k = 0; k < 4; k++) {
+    const r = await page.evaluate(n => window.__run(n), 900);
+    if (!r.stop) break;
+    await page.screenshot({ path: new URL(`./output/deep_${k}.png`, import.meta.url).pathname });
+    console.log(`deep_${k}.png: ${r.stop}`);
+  }
+  await browser.close(); process.exit(0);
+}
+const { lands, blocks, info } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
+console.log(info);
+const pct = (a, q) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.floor(q * b.length))] : NaN; };
+console.log(`cfg ${JSON.stringify(CFG)}: ${lands.length} lands, ${blocks.length} blocks in ${SECS} s`);
+console.log('LANDS, glove deepest inside the scored part in the 24 frames from the hit, cm');
+for (const s of [0, 1]) for (const p of ['jab', 'cross', 'hook', 'uppercut']) for (const part of ['head', 'torso']) {
+  const g = lands.filter(l => l.s === s && l.punch === p && l.part === part); if (!g.length) continue;
+  const v = g.map(l => l.v * 100);
+  console.log(`  side ${s} ${p.padEnd(8)} ${part.padEnd(5)} n ${String(g.length).padStart(2)}: median ${pct(v, 0.5).toFixed(1)}, worst ${Math.max(...v).toFixed(1)}, over 2 cm ${v.filter(x => x > 2).length}, over 5 cm ${v.filter(x => x > 5).length}`);
+}
+const all = lands.map(l => l.v * 100);
+console.log(`  ALL: over 2 cm ${all.filter(x => x > 2).length}/${all.length}, over 5 cm ${all.filter(x => x > 5).length}/${all.length}`);
+for (const l of [...lands].sort((a, b) => b.v - a.v).slice(0, 5)) console.log(`   worst: f${l.f} side ${l.s} ${l.punch} -> ${l.part}, target ${l.tl}; depth by frame from the hit: ${l.row.slice(0, 10).join(' ')}\n      layers, ${l.trace ?? 'none'}`);
+console.log('BLOCKS, smallest gap between the punching glove and his nearer guard glove in the 10 frames from the block, cm');
+for (const s of [0, 1]) { const g = blocks.filter(b => b.s === s).map(b => b.v * 100); if (g.length) console.log(`  side ${s} n ${g.length}: median ${pct(g, 0.5).toFixed(1)}, p90 ${pct(g, 0.9).toFixed(1)}, worst ${Math.max(...g).toFixed(1)}, over 3 cm ${g.filter(x => x > 3).length}`); }
+for (const b of [...blocks].sort((a, c) => c.v - a.v).slice(0, 4)) console.log(`   worst: f${b.f} side ${b.s} ${b.punch} -> ${b.part}, gap ${(b.v * 100).toFixed(1)}, target ${b.tl}`);
+console.log(`console errors/warnings: ${logs.length}${logs.length ? ' — ' + logs.slice(0, 3).join(' | ') : ''}`);
+console.log(`wall ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+await browser.close();
