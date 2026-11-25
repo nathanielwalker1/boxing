@@ -14,7 +14,7 @@ import { setHealthCap } from './sim/state';
 import { aiStep, createAi, type AiState, type StyleParams } from './ai';
 import * as aiModule from './ai';
 import { createFighterView as createRigView, type RigView } from './rig';
-import { createHumanView, humanReady, preloadHuman } from './human/view';
+import { createHumanView, HUMAN_BODY_FILES, humanReady, preloadHuman } from './human/view';
 import { addFighterLights } from './human/body';
 import * as THREE from 'three';
 import { loadMocapGeo } from './core/mocapLoad';
@@ -105,7 +105,9 @@ const bodyParam = params.get('body') ?? (import.meta as unknown as { env?: Recor
 if (bodyParam !== undefined && bodyParam !== null && /^[0-5]$/.test(bodyParam)) cfg.humanBodyFile = Number(bodyParam);
 if (cfg.humanBody && !(await preloadHuman(cfg.humanBodyFile))) cfg.humanBody = false;
 applyHumanMode(cfg);   // (core/humanMode.ts: does nothing unless cfg.humanBody)
-if (cfg.humanBody) cfg.mocapGeo = await loadMocapGeo();   // the sim's punching glove = the drawn mocap glove (core/mocap.ts)
+// (mocapGeoDrawnBody: the takes' glove figures are fitted to the body that is drawn, not to the first body, boxer.glb)
+if (params.get('geobody') === '0') cfg.mocapGeoDrawnBody = false;
+if (cfg.humanBody) cfg.mocapGeo = await loadMocapGeo('/fighter', cfg.mocapGeoDrawnBody ? HUMAN_BODY_FILES[cfg.humanBodyFile] : undefined);   // the sim's punching glove = the drawn mocap glove (core/mocap.ts)
 if (cfg.mocapGeo) cfg.mocapOutcome = true;   // outcome first: the sim decides by rule, the drawing conforms (sim/outcome.ts)
 // The human fighters' own key + rims (human/body.ts), aimed each frame at the pair's midpoint.
 const fighterLights = cfg.humanBody ? addFighterLights(stage.scene) : null;

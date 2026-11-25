@@ -72,7 +72,7 @@ await page.addInitScript(() => {
             // (the sideways pull, layer by layer: how far to his right the final glove is of where each layer left it; and
             //  what the animation side predicted: the target to the right of the take's contact-frame glove, his own frame)
             rec.sideBy = L.map(x => { const q = x[g === 'L' ? 1 : 2]; return [x[0], ((b[0] - q[0]) * -fz + (b[2] - q[2]) * fx) / fl * 100]; });
-            const td = P[s].turnDbg; if (td) { rec.predR = -(td[0] - td[1]) * 100; rec.predF = (td[2] - td[3]) * 100;
+            const td = P[s].turnDbg; if (td) { rec.predR = (td[0] - td[1]) * 100;   /* (anim.ts's "left" axis, (-sin yaw, cos yaw), is the puncher's RIGHT as this probe measures it) */ rec.predF = (td[2] - td[3]) * 100;
               // (the glove as the clip alone DREW it this frame, in the puncher's own frame from his sim spot, against the
               //  animation side's own figure for the take's contact frame: [left, forward] drawn minus figured, cm)
               const F = window.__sim.state().fighters[s], cy = Math.cos(F.yaw), sy = Math.sin(F.yaw), dx = a[0] - F.pos.x, dz = a[2] - F.pos.z;

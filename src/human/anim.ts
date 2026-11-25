@@ -369,12 +369,16 @@ export class HumanAnim {
       // (humanCrossRise: the whole-punch envelope and the take's glove height at its contact frame, for the view)
       if (cfg.humanInertia) {
         wBody = wL; hitY = CG2.y; this.turnDbg = [tL, -CG2.x, tF, CG2.z];
-        // (A WHOLE-BODY TURN onto the target, by the angle between the take's contact-frame glove and the target seen
-        //  from his own spot, on this envelope: tried 2026-11-25 for jab and cross, removed. MEASURED: his facing is on
-        //  the line at every land (0-1 deg, pivots included), and the arm's sideways pull is near constant per take
-        //  (jab 9-13 cm one way, hook 22, cross 4), but turning by that angle OVERSHOT — the jab went from 9 cm one way
-        //  to 12 the other, p90 18 to 36. The angle predicted here is not the error the arm corrects in the view; find
-        //  out why with a per-land trace of the two before turning the body again.)
+        // THE BODY TURNS INTO A LANDING STRAIGHT (humanPunchTurn, Nate 2026-11-25: "his punches are angled weirdly... his
+        // shoulders get disjointed... the symmetry is off"). MEASURED: his facing is on the line at every land (0-1 deg);
+        // it is each TAKE whose glove is off to one side of the target at its contact frame (every jab 14 cm), and the
+        // arm was bent across to make it up. That angle, seen from his own spot, is turned out by the WHOLE body on the
+        // whole-punch envelope, so the take flies on its own line. (Tried first with the figures of the wrong body —
+        // see mocapGeoDrawnBody — and it overshot, 9 cm one way to 12 the other. Hooks and uppercuts: not yet.)
+        if (cfg.humanPunchTurn > 0 && (p.type === 'cross' || p.type === 'jab') && kind === 'land') {
+          const cap = cfg.humanPunchTurn * Math.PI / 180;
+          turn = clamp(Math.atan2(tL, Math.max(0.3, tF)) - Math.atan2(-CG2.x, Math.max(0.3, CG2.z)), -cap, cap) * wL;
+        }
       }
     }
     // A MISS IS STILL A COMMITTED PUNCH: he steps with it (the view holds the glove humanMissGap short of the other man)

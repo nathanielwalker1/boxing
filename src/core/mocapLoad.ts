@@ -6,14 +6,15 @@
 import type { BakeIndex, Roles } from './mocapClip';
 import { buildMocapLib, mocapLib, setMocapLib } from './mocap';
 
-export async function loadMocapGeo(base = '/fighter'): Promise<boolean> {
+/** (bodyFile: the glb whose skeleton the takes are fitted to — the body that is DRAWN, see cfg.mocapGeoDrawnBody) */
+export async function loadMocapGeo(base = '/fighter', bodyFile = 'boxer.glb'): Promise<boolean> {
   if (mocapLib()) return true;
   try {
     const [index, bin, roles, glb] = await Promise.all([
       fetch(`${base}/clips/index.json`).then(r => r.json() as Promise<BakeIndex>),
       fetch(`${base}/clips/clips.bin`).then(r => r.arrayBuffer()),
       fetch(`${base}/clips/roles.json`).then(r => r.json() as Promise<Roles>),
-      fetch(`${base}/boxer.glb`).then(r => r.arrayBuffer()),
+      fetch(`${base}/${bodyFile}`).then(r => r.arrayBuffer()),
     ]);
     setMocapLib(buildMocapLib(index, bin, roles, glb));
     return true;
