@@ -76,6 +76,8 @@ export class Ropes {
   private scene: THREE.Scene | null = null;
   private retry = 0;
   private bendOn = false;
+  /** (ropesContainSkin) scratch: a fighter's sampled skin points, world xyz flat */
+  private readonly skinBuf: number[] = [];
   /** the cost of update(), ms: running mean over frames that did work */
   readonly cost = { sum: 0, n: 0 };
 
@@ -226,6 +228,46 @@ export class Ropes {
     }
   }
 
+  /** (ropesContainSkin) the deepest the unshifted SKIN sits past each side's rope as far as it may bow (a man down: hardly at all). */
+  private skinExcess(F: Fighter, n: number, down: boolean): void {
+    const { h, c } = this, B = this.skinBuf, top = c.ropeTopY + 0.05, rr0 = c.ropeThickR;
+    for (let i = 0; i < n; i += 3) {
+      const x = B[i]!, y = B[i + 1]!, z = B[i + 2]!;
+      if (y > top) continue;   // over the top rope: a head or an arm may lean out over it
+      for (let k = 0; k < SIDES; k++) {
+        const qn = x * NX[k]! + z * NZ[k]!;
+        if (qn < h - 0.5) continue;
+        const qu = x * TX[k]! + z * TZ[k]!;
+        // (past the post along the side, as a foot backed into a corner is: held as AT the post, where a rope cannot bow)
+        if (qu < -h - 0.4 || qu > h + 0.4) continue;
+        const allow = down ? c.ropeContainDownBow : c.ropeBowMax * Math.sin(Math.PI * Math.max(0, Math.min(1, (qu + h) / (2 * h))));
+        const ex = qn + rr0 - h - allow;
+        if (ex > F.ex[k]!) F.ex[k] = ex;
+      }
+    }
+  }
+
+  /** (ropesContainSkin) the ropes bow round the SKIN (shifted by sx, sz) as well as the capsules: a skin point at a rope's height raises that rope's requirement there. */
+  private skinPush(n: number, sx: number, sz: number): void {
+    const { h, count, c } = this, B = this.skinBuf, rr0 = c.ropeThickR, cell = 2 * h / N;
+    for (let i = 0; i < n; i += 3) {
+      const x = B[i]! + sx, y = B[i + 1]!, z = B[i + 2]! + sz;
+      for (let k = 0; k < SIDES; k++) {
+        const qn = x * NX[k]! + z * NZ[k]!;
+        const e = qn + rr0 - h;
+        if (e <= 0) continue;
+        const qu = x * TX[k]! + z * TZ[k]!;
+        if (qu <= -h || qu >= h) continue;
+        for (let j = 0; j < count; j++) {
+          const dy = y - this.yRope[j]!;
+          if (dy > rr0 + 0.04 || (dy < -(rr0 + 0.04) && j > 0)) continue;   // (under the bottom rope counts: nothing slides under it)
+          const fi = (qu + h) / cell, i0 = Math.max(1, Math.min(N - 1, Math.round(fi))), base = (k * count + j) * NP;
+          if (this.req[base + i0]! < e) this.req[base + i0] = e;
+        }
+      }
+    }
+  }
+
   /** Every capsule of one fighter as sample spheres, shifted by (sx, sz). */
   private body(F: Fighter, sx: number, sz: number, mode: number): void {
     const J = F.J;
@@ -267,9 +309,13 @@ export class Ropes {
       g.updateMatrixWorld(true);
       if (!this.read(F)) { F.has = false; continue; }
       F.has = true;
+      // (ropesContainSkin) the drawn SKIN, sampled, when he is near a rope: what the slide and the bow answer to
+      const sp = g.userData.skinPoints as ((stride: number, out: number[]) => number) | undefined;
+      const nSkin = c.ropesContainSkin && sp && Math.max(Math.abs(g.position.x), Math.abs(g.position.z)) > this.h - c.ropeSkinNear ? sp(c.ropeSkinStride, this.skinBuf) : 0;
       if (c.ropesContain) {
         F.ex.fill(0);
         this.body(F, 0, 0, 0);
+        if (nSkin) this.skinExcess(F, nSkin, !!g.userData.down);
         // target: slide away from each side by how far the unshifted body is past the limited rope
         const tx = -F.ex[1]! + F.ex[3]!, tz = -F.ex[2]! + F.ex[0]!;   // side 1 normal +x, 3 normal -x; side 2 +z, 0 -z (z side 2 pushes -z)
         const ease = (cur: number, tgt: number): number => {
@@ -281,8 +327,12 @@ export class Ropes {
       } else { F.off[0] = 0; F.off[1] = 0; }
       F.last[0] = g.position.x += F.off[0]; F.last[1] = g.position.z += F.off[1]; F.applied = true;
       this.body(F, F.off[0], F.off[1], 1);
+      if (nSkin) this.skinPush(nSkin, F.off[0], F.off[1]);
       any = true;
-      if (force) g.updateMatrixWorld(true);
+      // (ALWAYS: this runs in scene.onBeforeRender, AFTER the renderer has computed every world matrix for the frame, so a
+      //  slide written to g.position alone was never drawn — the body the ropes "held" was shown where it fell, 1.2 m past
+      //  them, while the capsules here, which refresh their own matrices, read it held. Found 2026-11-24 on the skin.)
+      g.updateMatrixWorld(true);
     }
     if (on) {
       let touched = false;
