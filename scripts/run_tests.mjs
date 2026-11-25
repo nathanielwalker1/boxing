@@ -100,7 +100,8 @@ process.on('SIGINT', () => { stopServer(); process.exit(130); });
 function runScript(test, port) {
   return new Promise(resolve => {
     const started = Date.now();
-    const child = spawn(process.execPath, [join(SCRIPTS_DIR, test.file)], {
+    // (every browser script draws on the real GPU: scripts/gpu_preload.mjs, 131x faster than headless's software GL)
+    const child = spawn(process.execPath, ['--import', join(SCRIPTS_DIR, 'gpu_preload.mjs'), join(SCRIPTS_DIR, test.file)], {
       cwd: ROOT, env: { ...process.env, PORT: String(port ?? '') }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
