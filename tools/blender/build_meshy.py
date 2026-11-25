@@ -192,13 +192,24 @@ def arm_centre(x):
     return ((r[3] + r[4]) / 2, (r[1] + r[2]) / 2)    # (y, z)
 sh_x = armpit - 0.015
 sh_y, sh_z = arm_centre(armpit + 0.06)
+wr_y, wr_z = arm_centre(wrist - 0.09)                 # forearm axis (the hand part of the glove is offset), at the MEASURED wrist
+# REFERENCE SKELETON (2026-11-24): the clips, the hit tracking and humanGloveOffset are calibrated on m1, so every Meshy
+# body is rigged onto m1's arm lengths and neck height (rest joints read from public/fighter/boxer_m1.glb), and its
+# glove tip sits m1's distance past the hand bone. A mitten measured long (m2: wrist found 8 cm up the arm, glove tip
+# 34.6 cm past the hand vs m1's 21.8) drew every guard and head punch 10-19 cm high. The mesh follows the skeleton.
+REF_SH_X, REF_WRIST_X, REF_NECK_Z, REF_TIP = 0.175, 0.685, 1.51, 0.218
+log("reference skeleton: shoulder x %.3f -> %.3f, wrist x %.3f -> %.3f, neck z (measured below) -> %.3f, glove tip %.3f past the wrist"
+    % (sh_x, REF_SH_X, wrist, REF_WRIST_X, REF_NECK_Z, REF_TIP))
+sh_x, wrist = REF_SH_X, REF_WRIST_X
+GLOVE_TIP = wrist + REF_TIP                           # the fitted glove's tip (|x|); was the old mitten's tip
 el_x = sh_x + 0.54 * (wrist - sh_x)                   # humerus : forearm ~ 0.31 : 0.26 of stature
 el_y, el_z = arm_centre(el_x)
-wr_y, wr_z = arm_centre(wrist - 0.09)                 # forearm axis (the hand part of the glove is offset)
 def slice_c(m):
     return (float((X[m].min() + X[m].max()) / 2), float((Y[m].min() + Y[m].max()) / 2))
 tw = [(z, (lambda m: float(X[m].max() - X[m].min()))((np.abs(X) < 0.28) & (Z >= z) & (Z < z + 0.01))) for z in np.arange(1.45, 1.60, 0.01)]
 neck_z = next(z for z, w in tw if w < 0.30)          # top of the shoulders: the slice narrows to the neck
+log("neck z measured %.3f, rigged at the reference %.3f" % (neck_z, REF_NECK_Z))
+neck_z = REF_NECK_Z
 head_z = neck_z + 0.065                               # skull base, level with the mouth
 _, neck_y = slice_c((np.abs(X) < 0.08) & (Z >= neck_z + 0.02) & (Z < neck_z + 0.03))
 leg = lambda z0: (X > 0.02) & (Z >= z0) & (Z < z0 + 0.01)
@@ -266,17 +277,19 @@ def glove_source():
     sx = 0.5 * (sc_[1] + sc_[2])
     # the cuff tube's section where the forearm goes in (first 8% of the length), in fitted body coordinates
     cm = G[:, 0] < glo[0] + 0.08 * (ghi[0] - glo[0])
-    fit = lambda a, v: OLD_GLOVE[0][a] + (v - glo[a]) * sc_[a]
+    fit = lambda a, v: OLD_GLOVE[0][a] + (v - glo[a]) * sc_[a]   # y / z only (x: the tip on GLOVE_TIP)
     cuffsec = ((fit(1, G[cm, 1].min()) + fit(1, G[cm, 1].max())) / 2, (fit(2, G[cm, 2].min()) + fit(2, G[cm, 2].max())) / 2,
                np.ptp(G[cm, 1]) * sc_[1] / 2, np.ptp(G[cm, 2]) * sc_[2] / 2)
     bpy.ops.object.select_all(action="DESELECT")
     body.select_set(True)
     bpy.context.view_layer.objects.active = body     # later steps act on the active object
-    return hi, sc_, sx, float(OLD_GLOVE[1][0] - (ghi[0] - glo[0]) * sx), cuffsec
+    return hi, sc_, sx, float(GLOVE_TIP - (ghi[0] - glo[0]) * sx), cuffsec
 GLOVE_HI, GLOVE_SC, GLOVE_SX, GLOVE_OPEN, GLOVE_CUFFSEC = glove_source()
 GLOVE_CUT = GLOVE_OPEN + 0.015   # body faces past this (|x|, arm height) are deleted: 1.5 cm of forearm inside the cuff
+if not cuff < GLOVE_OPEN - 0.01: raise SystemExit("glove opening %.3f not past the old cuff %.3f" % (GLOVE_OPEN, cuff))
+GRIP = min(wrist, GLOVE_OPEN)    # the forearm stub from here on is inside the glove: rigid to the Hand (weights, step 5)
 log("glove: opening at |x| %.3f (wrist joint %.3f, old cuff %.3f), length %.1f cm; body cut at %.3f"
-    % (GLOVE_OPEN, wrist, cuff, 100 * (OLD_GLOVE[1][0] - GLOVE_OPEN), GLOVE_CUT))
+    % (GLOVE_OPEN, wrist, cuff, 100 * (GLOVE_TIP - GLOVE_OPEN), GLOVE_CUT))
 # the old mitten between its cuff line and the new cut becomes forearm: an elliptical tube continuing the forearm's
 # section just above the old cuff (tapering a little to the wrist), blended in over 3 cm so the seam does not show
 for s in (1, -1):
@@ -538,9 +551,9 @@ def one(mask, bone_of, val=1.0):
 sm = lambda a, b, x: np.clip((x - a) / (b - a), 0, 1) ** 2 * (3 - 2 * np.clip((x - a) / (b - a), 0, 1))
 # the forearm stub inside the glove (and the bare wrist before it): rigid to the Hand, blending into the ForeArm
 # across the wrist joint; the bare forearm above keeps its bone-heat weights
-glove = (ax > wrist - 0.03) & (Z > 1.2)
+glove = (ax > GRIP - 0.03) & (Z > 1.2)
 W[glove] = 0
-t = sm(wrist - 0.03, wrist + 0.01, ax)
+t = sm(GRIP - 0.03, GRIP + 0.01, ax)
 one(glove, np.char.add(side, "ForeArm"), 1.0)
 one(glove, np.char.add(side, "Hand"), t)
 # head above the jaw line (chin at the front, rising to the jaw angle), neck blend below it
@@ -828,7 +841,7 @@ def build_gloves():
     glo, ghi = G.min(0), G.max(0)
     sc_ = (OLD_GLOVE[1] - OLD_GLOVE[0]) / (ghi - glo)
     sx = 0.5 * (sc_[1] + sc_[2])
-    nx = OLD_GLOVE[1][0] - (ghi[0] - G[:, 0]) * sx
+    nx = GLOVE_TIP - (ghi[0] - G[:, 0]) * sx
     ny = OLD_GLOVE[0][1] + (G[:, 1] - glo[1]) * sc_[1]
     nz = OLD_GLOVE[0][2] + (G[:, 2] - glo[2]) * sc_[2]
     lo.data.vertices.foreach_set("co", np.stack([nx, ny, nz], 1).astype(np.float32).ravel())

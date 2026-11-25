@@ -329,6 +329,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; best = si.getComponent(i, k); } }
           const bn = m.skeleton.bones[best]?.name ?? '';
           if (!glove && /Hand/.test(bn)) idx.push({ m, i, k: /Left/.test(bn) ? 'L' : 'R' });   // a one-mesh body: the glove is what the hand carries
+          else if (glove && /(_L|Left)(_\d+)?$/i.test(m.name)) idx.push({ m, i, k: 'L' });   // a separate glove mesh says its side by name (GLTFLoader may suffix _N)
+          else if (glove && /(_R|Right)(_\d+)?$/i.test(m.name)) idx.push({ m, i, k: 'R' });
           else if (glove) {
             m.getVertexPosition(i, v); v.applyMatrix4(m.matrixWorld);
             idx.push({ m, i, k: v.distanceTo(lh.getWorldPosition(new THREE.Vector3())) < v.distanceTo(rh.getWorldPosition(new THREE.Vector3())) ? 'L' : 'R' });
