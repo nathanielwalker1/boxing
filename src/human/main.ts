@@ -197,7 +197,9 @@ function poseFromClip(root: THREE.Object3D, role: string, f: string): string {
 
 type ClipPose = { role: string; f: string; role2?: string | undefined; f2?: string | undefined };
 function makeBoxer(assets: BoxerAssets, side: 'red' | 'blue', pose: PoseName, cp: ClipPose | null): THREE.Group {
-  const root = assets.spawn(side === 'red' ? 'light' : 'dark', KIT[side]);
+  // ?trunks=t2 (red) and ?trunks2=t3 (blue): which trunks part each wears (Meshy bodies; default the body's first)
+  const trunksStyle = params.get(side === 'red' ? 'trunks' : 'trunks2') ?? params.get('trunks');
+  const root = assets.spawn(side === 'red' ? 'light' : 'dark', trunksStyle ? { ...KIT[side], trunksStyle } : KIT[side]);
   const g = new THREE.Group();
   g.add(root);
   g.updateMatrixWorld(true);

@@ -966,10 +966,12 @@ TRUNKS_CLEAR = 0.005      # minimum distance (m) from the body surface
 TRUNKS_EASE = 0.012       # the part's slices are this much (m) wider / deeper than the body's moulded shorts
 BODY_CUT = (hem_z + 0.015, band_z - 0.005)   # the body's moulded shorts are deleted between these heights
 HEM_LEN = 0.14            # the swaying part of the leg (m)
-TSTEM = "trunks_" + TRUNKS_NAME
-HEM_BONES = ["hem_%s_%s" % (s, d) for s in ("Left", "Right") for d in "fob"]
-def build_trunks():
+# Several styles can ride in one glb (TRUNKS_CACHE "dir|dir|...", TRUNKS_NAME "t1,t2,..."): one mesh trunks_<name> and six
+# bones hem_<name>_<Left|Right>_<f|o|b> each; the loader shows one of them.
+def build_trunks(TRUNKS_CACHE, TRUNKS_NAME):
     from mathutils.kdtree import KDTree
+    TSTEM = "trunks_" + TRUNKS_NAME
+    HEM_BONES = ["hem_%s_%s_%s" % (TRUNKS_NAME, s, d) for s in ("Left", "Right") for d in "fob"]
     tfiles = os.listdir(TRUNKS_CACHE)
     def ttex(tag):
         for f in tfiles:
@@ -1003,14 +1005,14 @@ def build_trunks():
     iy = np.clip((vuv[:, 1] % 1.0) * px.shape[0], 0, px.shape[0] - 1).astype(np.int64)
     col = px[iy, ix, :3]
     del px
-    keep = (col.min(1) > 0.42) & (col.max(1) - col.min(1) < 0.13) & (D[:, 2] > 0.72) & (D[:, 2] < 1.12) & (np.abs(D[:, 0]) < 0.30)
+    keep = (col.min(1) > 0.42) & (col.max(1) - col.min(1) < 0.13) & (D[:, 2] > 0.55) & (D[:, 2] < 1.12) & (np.abs(D[:, 0]) < 0.30)
     bm_ = bmesh.new(); bm_.from_mesh(hm_)
     bm_.verts.ensure_lookup_table()
     bmesh.ops.delete(bm_, geom=[v for v in bm_.verts if not keep[v.index]], context="VERTS")
     bmesh.ops.remove_doubles(bm_, verts=bm_.verts[:], dist=1e-5)
     bm_.verts.ensure_lookup_table()
     seen = set(); small = []
-    for v0 in bm_.verts:      # drop specks: islands under 500 vertices
+    for v0 in bm_.verts:      # drop specks: islands under 60 vertices (a tassel is a few hundred)
         if v0.index in seen: continue
         isl = [v0]; seen.add(v0.index); k = 0
         while k < len(isl):
@@ -1018,13 +1020,14 @@ def build_trunks():
                 o_ = e.other_vert(isl[k])
                 if o_.index not in seen: seen.add(o_.index); isl.append(o_)
             k += 1
-        if len(isl) < 500: small += isl
+        if len(isl) < 60: small += isl
     bmesh.ops.delete(bm_, geom=small, context="VERTS")
     # level cuts just inside the ragged colour edge, hem and waistband top: the lowest / highest z the cloth reaches
     # at every angle around the body (36 bins)
     Dk = np.array([v.co[:] for v in bm_.verts])
     ang = ((np.arctan2(Dk[:, 1], Dk[:, 0]) + math.pi) / (2 * math.pi) * 36).astype(np.int64) % 36
-    cut_lo = max(float(Dk[ang == k, 2].min()) for k in range(36) if (ang == k).any()) + 0.003
+    # (hem: the 10th percentile of the per-angle lowest points, so a zigzag or side-split hem keeps its shape)
+    cut_lo = float(np.percentile([float(Dk[ang == k, 2].min()) for k in range(36) if (ang == k).any()], 10)) + 0.003
     cut_hi = min(float(Dk[ang == k, 2].max()) for k in range(36) if (ang == k).any()) - 0.003
     for cz_, nz_ in ((cut_lo, -1.0), (cut_hi, 1.0)):
         geom = bm_.verts[:] + bm_.edges[:] + bm_.faces[:]
@@ -1036,7 +1039,7 @@ def build_trunks():
     log("trunks source: %d tris of cloth, z %.3f..%.3f, half width %.3f, y %.3f..%.3f"
         % (tris_hi, dz0, dz1, np.abs(D[:, 0]).max(), D[:, 1].min(), D[:, 1].max()))
     if tris_hi < 5000: raise SystemExit("trunks: the white cloth was not found on the donor")
-    lo = hi.copy(); lo.data = hi.data.copy(); lo.name = "trunks"
+    lo = hi.copy(); lo.data = hi.data.copy(); lo.name = TSTEM
     bpy.context.scene.collection.objects.link(lo)
     mod = lo.modifiers.new("dec", "DECIMATE")
     mod.decimate_type = "COLLAPSE"; mod.ratio = TRUNKS_TRIS / tris_hi; mod.use_collapse_triangulate = True
@@ -1167,14 +1170,14 @@ def build_trunks():
         cx_, cy_ = (ax_.min() + ax_.max()) / 2, (T[m, 1].min() + T[m, 1].max()) / 2
         hem[s] = (cx_, cy_)
         for d, (px_, py_) in (("f", (cx_, T[m, 1].min())), ("o", (ax_.max(), cy_)), ("b", (cx_, T[m, 1].max()))):
-            hem["hem_%s_%s" % (s, d)] = (sg * px_, py_)
+            hem["hem_%s_%s_%s" % (TRUNKS_NAME, s, d)] = (sg * px_, py_)
     bpy.ops.object.select_all(action="DESELECT"); rig.select_set(True); bpy.context.view_layer.objects.active = rig
     bpy.ops.object.mode_set(mode="EDIT")
     for nme in HEM_BONES:
         eb_ = arm_data.edit_bones.new(nme)
         x_, y_ = hem[nme]
         eb_.head, eb_.tail = Vector((x_, y_, tz0 + HEM_LEN)), Vector((x_, y_, tz0))
-        eb_.parent = arm_data.edit_bones["mixamorig:%sUpLeg" % nme.split("_")[1]]
+        eb_.parent = arm_data.edit_bones["mixamorig:%sUpLeg" % nme.split("_")[2]]
     bpy.ops.object.mode_set(mode="OBJECT")
 
     # ---- weights: the body's own underneath (nearest vertex), smoothed over the cloth, then the hem bones ----
@@ -1212,29 +1215,34 @@ def build_trunks():
     lo.parent = rig
     am = lo.modifiers.new("Armature", "ARMATURE"); am.object = rig
     for p in lo.data.polygons: p.use_smooth = True
-    lo.data.name = "trunks"
-    # the body's own moulded shorts between the two rims go: the part replaces them (no poke-through, fewer triangles)
-    bmb = bmesh.new(); bmb.from_mesh(body.data)
-    gone = [f for f in bmb.faces if cut[0] < f.calc_center_median().z < cut[1] and abs(f.calc_center_median().x) < 0.30]
-    bmesh.ops.delete(bmb, geom=gone, context="FACES")
-    bmb.to_mesh(body.data); bmb.free(); body.data.update()
-    log("body: %d faces of the moulded shorts deleted under the trunks part" % len(gone))
+    lo.data.name = TSTEM
     timg.image = imgs["c"]
-    render("trunks", views=("front", "back", "side"))
+    render(TSTEM, views=("front", "back", "side"))
+    lo.hide_render = True                    # the next style's preview shows that style alone
     for name, img in imgs.items():
         path = os.path.join(OUTDIR, "%s_%s.webp" % (TSTEM, name)); tmp = path[:-5] + "_tmp.webp"
         img.filepath_raw = tmp; img.file_format = "WEBP"; img.save(filepath=tmp, quality=90 if name == "c" else 92)
         os.replace(tmp, path); log("wrote", os.path.basename(path), os.path.getsize(path))
     tl_.node_tree.nodes.remove(timg)         # the loader loads trunks_<name>_* itself; the glb carries no image
-    return lo
-TRUNKS = build_trunks()
+    return lo, cut
+_built = [build_trunks(c_, n_) for c_, n_ in zip(TRUNKS_CACHE.split("|"), TRUNKS_NAME.split(","))]
+TRUNKS = tuple(t for t, _ in _built)
+for t in TRUNKS: t.hide_render = False
+# the body under the trunks goes, between the rims EVERY style covers (no poke-through, fewer triangles): on an old
+# body that is its moulded shorts, on a bare body the hips and the tops of the thighs
+cut = (max(c[0] for _, c in _built), min(c[1] for _, c in _built))
+bmb = bmesh.new(); bmb.from_mesh(body.data)
+gone = [f for f in bmb.faces if cut[0] < f.calc_center_median().z < cut[1] and abs(f.calc_center_median().x) < 0.30]
+bmesh.ops.delete(bmb, geom=gone, context="FACES")
+bmb.to_mesh(body.data); bmb.free(); body.data.update()
+log("body: %d faces deleted under the trunks parts (z %.3f..%.3f)" % (len(gone), cut[0], cut[1]))
 
 # ---------------------------------------------------------------- 7. export
 mat = bpy.data.materials.new("meshy")
 body.data.materials.clear()
 body.data.materials.append(mat)
 for o in list(bpy.data.objects):
-    if o not in (body, rig, TRUNKS) + GLOVES:
+    if o not in (body, rig) + TRUNKS + GLOVES:
         bpy.data.objects.remove(o, do_unlink=True)
 for p in me.polygons:
     p.use_smooth = True
@@ -1250,7 +1258,7 @@ jlen, jtype = struct.unpack("<I4s", blob[12:20])
 js = json.loads(blob[20:20 + jlen].decode("utf8"))
 rest = blob[20 + jlen:]
 # src/human/body.ts reads this: one baked material, textures <glb stem>_{c,n,r,mask,skin}.webp next to the glb
-js.setdefault("asset", {})["extras"] = {"look": 3, "kind": "meshy", "stem": STEM, "height": H, "glove": GSTEM, "trunks": TSTEM}
+js.setdefault("asset", {})["extras"] = {"look": 3, "kind": "meshy", "stem": STEM, "height": H, "glove": GSTEM, "trunks": [t.name for t in TRUNKS]}
 raw = json.dumps(js, separators=(",", ":")).encode("utf8")
 raw += b" " * ((4 - len(raw) % 4) % 4)
 with open(TMP, "wb") as f:

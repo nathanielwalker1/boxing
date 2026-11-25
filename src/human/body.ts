@@ -21,7 +21,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 export type SkinTone = 'light' | 'dark';
-export interface KitColors { glove: string; trunks: string; trim: string; boot: string; hair: string }
+export interface KitColors { glove: string; trunks: string; trim: string; boot: string; hair: string; /** which trunks part a Meshy body wears ('t1' vintage, 't2' gladiator skirt, 't3' side tassels, 't4' Muay Thai split); default: the body's first */ trunksStyle?: string }
 
 export interface BoxerAssets {
   spawn(tone: SkinTone, kit: KitColors): THREE.Object3D;
@@ -233,25 +233,26 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
   }
   // the swappable trunks part (build_meshy.py 6c): one mesh named trunks, material named after its texture stem
   // (trunks_<name>), textures <stem>_c / _n next to the glb; tinted whole, like the glove
-  let trunksStem = '';
-  scene.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && m.name.startsWith('trunks') && !trunksStem) trunksStem = (m.material as THREE.Material).name; });
-  let tSrc: Uint8ClampedArray | null = null, tNormal: THREE.Texture | null = null, trunksW = 0, trunksH = 0, tMeanY = 1;
-  if (trunksStem) {
-    const [tImg, tn] = await Promise.all([il.loadAsync(`${base}${trunksStem}_c.webp`), tl.loadAsync(`${base}${trunksStem}_n.webp`)]);
+  // Several styles can ride in one glb (trunks_t1, trunks_t2, ...): spawn() shows kit.trunksStyle, or the first.
+  interface TrunksPart { src: Uint8ClampedArray; normal: THREE.Texture; w: number; h: number; meanY: number; mats: Map<string, THREE.MeshStandardMaterial> }
+  const trunksStems: string[] = [];
+  scene.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && m.name.startsWith('trunks')) trunksStems.push((m.material as THREE.Material).name); });
+  const trunksParts = new Map<string, TrunksPart>();
+  await Promise.all(trunksStems.map(async stem => {
+    const [tImg, tn] = await Promise.all([il.loadAsync(`${base}${stem}_c.webp`), tl.loadAsync(`${base}${stem}_n.webp`)]);
     tn.flipY = false; tn.colorSpace = THREE.NoColorSpace; tn.anisotropy = 8;
-    tNormal = tn; trunksW = tImg.width; trunksH = tImg.height;
     const cv = document.createElement('canvas');
-    cv.width = trunksW; cv.height = trunksH;
+    cv.width = tImg.width; cv.height = tImg.height;
     const g = cv.getContext('2d', { willReadFrequently: true })!;
     g.drawImage(tImg, 0, 0);
-    tSrc = g.getImageData(0, 0, trunksW, trunksH).data;
+    const tSrc = g.getImageData(0, 0, tImg.width, tImg.height).data;
     let s = 0, n = 0;
     for (let i = 0; i < tSrc.length; i += 4) {
       const y = 0.2126 * tSrc[i]! + 0.7152 * tSrc[i + 1]! + 0.0722 * tSrc[i + 2]!;
       if (y > 2) { s += y; n++; }   // skip the black gutter between UV islands
     }
-    tMeanY = n ? s / n : 1;
-  }
+    trunksParts.set(stem, { src: tSrc, normal: tn, w: tImg.width, h: tImg.height, meanY: n ? s / n : 1, mats: new Map() });
+  }));
   // region statistics, mask-weighted: mean luminance of trunks and gloves, mean skin colour
   let tY = 0, tW = 0, gY = 0, gW = 0, sR = 0, sG = 0, sB = 0, sW = 0;
   for (let i = 0; i < src.length; i += 4) {
@@ -293,28 +294,28 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
     return m;
   };
   /** The trunks part's material per kit trunks colour: every texel tinted, the baked folds kept. */
-  const trunksMats = new Map<string, THREE.MeshStandardMaterial>();
-  const trunksMat = (kit: KitColors): THREE.MeshStandardMaterial | null => {
-    if (!tSrc || !tNormal) return null;
-    const hit = trunksMats.get(kit.trunks);
+  const trunksMat = (kit: KitColors, stem: string): THREE.MeshStandardMaterial | null => {
+    const p = trunksParts.get(stem);
+    if (!p) return null;
+    const hit = p.mats.get(kit.trunks);
     if (hit) return hit;
-    const kc = rgb(kit.trunks), out = new Uint8ClampedArray(tSrc);
+    const kc = rgb(kit.trunks), out = new Uint8ClampedArray(p.src);
     for (let i = 0; i < out.length; i += 4) {
-      const y = 0.2126 * tSrc[i]! + 0.7152 * tSrc[i + 1]! + 0.0722 * tSrc[i + 2]!;
-      const f = Math.pow(y / tMeanY, MESHY.trunksContrast) * MESHY.trunksGain;
+      const y = 0.2126 * p.src[i]! + 0.7152 * p.src[i + 1]! + 0.0722 * p.src[i + 2]!;
+      const f = Math.pow(y / p.meanY, MESHY.trunksContrast) * MESHY.trunksGain;
       out[i] = kc[0] * f; out[i + 1] = kc[1] * f; out[i + 2] = kc[2] * f;
     }
     const cv = document.createElement('canvas');
-    cv.width = trunksW; cv.height = trunksH;
-    cv.getContext('2d')!.putImageData(new ImageData(out, trunksW, trunksH), 0, 0);
+    cv.width = p.w; cv.height = p.h;
+    cv.getContext('2d')!.putImageData(new ImageData(out, p.w, p.h), 0, 0);
     const t = new THREE.CanvasTexture(cv);
     t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
     const m = new THREE.MeshStandardMaterial({
-      name: 'meshy_trunks', map: t, normalMap: tNormal, normalScale: new THREE.Vector2(MESHY.normalScale, MESHY.normalScale),
+      name: 'meshy_trunks', map: t, normalMap: p.normal, normalScale: new THREE.Vector2(MESHY.normalScale, MESHY.normalScale),
       roughness: MESHY.trunksPartRoughness, metalness: 0,
       side: THREE.DoubleSide,   // single-shell cloth: the inside shows up the leg when the hem swings
     });
-    trunksMats.set(kit.trunks, m);
+    p.mats.set(kit.trunks, m);
     return m;
   };
   const colourMap = (tone: SkinTone, kit: KitColors): THREE.Texture => {
@@ -353,19 +354,24 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
         roughness: 1, roughnessMap: rm, metalness: MESHY.metalness, metalnessMap: rm,
         side: THREE.DoubleSide,   // single-shell cloth: the trunks' side slits open in knee lifts and show the inside
       });
-      const gmat = gloveMat(kit), tmat = trunksMat(kit);
+      const gmat = gloveMat(kit);
+      // the style worn: kit.trunksStyle ('t2', as built by build_meshy.mjs) if this body carries it, else its first
+      const want = `trunks_${kit.trunksStyle ?? ''}`;
+      const style = trunksStems.includes(want) ? want : trunksStems[0] ?? '';
+      const tmat = style ? trunksMat(kit, style) : null;
       const hems: THREE.Bone[] = [];
       const part: { trunks?: THREE.Mesh } = {};
       root.traverse(o => {
-        if ((o as THREE.Bone).isBone && o.name.startsWith('hem_')) hems.push(o as THREE.Bone);
+        if ((o as THREE.Bone).isBone && o.name.startsWith(`hem_${style.slice(7)}_`)) hems.push(o as THREE.Bone);
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
         m.castShadow = true;
         m.receiveShadow = true;
         m.frustumCulled = false;
-        const isTrunks = !!tmat && m.name.startsWith('trunks');
+        const isTrunks = m.name.startsWith('trunks');
+        if (isTrunks && m.name !== style) { m.visible = false; return; }
         if (isTrunks) part.trunks = m;
-        m.material = gmat && m.name.startsWith('glove') ? gmat : isTrunks ? tmat! : mat;
+        m.material = gmat && m.name.startsWith('glove') ? gmat : isTrunks && tmat ? tmat : mat;
       });
       if (part.trunks && hems.length) hemSway(part.trunks, hems);
       return root;
