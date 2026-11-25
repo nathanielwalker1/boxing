@@ -42,6 +42,7 @@ await page.addInitScript(() => {
   window.__run = frames => {
     const lands = [], blocks = [], open = [];   // open: events still being followed
     const body = { n: 0, over3: 0, over8: 0, worst: 0, at: 0, roped: 0, ropedOver3: 0 };
+    const arms = { n: 0, both: 0, cross: 0, crossBoth: 0, deep: 0 };
     const cen = a => { let x = 0, y = 0, z = 0; const n = a.length / 3; for (let i = 0; i < a.length; i += 3) { x += a[i]; y += a[i + 1]; z += a[i + 2]; } return [x / n, y / n, z / n]; };
     let prevC = [0, 1].map(s => { const x = window.__humanMesh[s](); return { head: cen(x.head), torso: cen(x.torso) }; });
     for (let f = 0; f < frames; f++) {
@@ -85,12 +86,21 @@ await page.addInitScript(() => {
       { const d = Math.max(window.__depth(m[0].head, m[1].head), window.__depth(m[0].head, m[1].torso), window.__depth(m[1].head, m[0].torso));
         body.n++; if (d > 0.03) body.over3++; if (d > 0.08) body.over8++; if (d > body.worst) { body.worst = d; body.at = f; }
         const ro = [0, 1].map(s => Math.hypot(...(window.__humanProbe(s).ropeOff ?? [0, 0]))); if (Math.max(...ro) > 0.03) { body.roped++; if (d > 0.03) body.ropedOver3++; } }
+      // ARMS THROUGH ARMS: each man's forearms (elbow to glove point) against the other's, centre lines closer than 5 cm
+      { const seg = s => ['left', 'right'].map(k => [P[s].elbows[k], P[s].gloves[k]]);
+        const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        const ss = ([p1, q1], [p2, q2]) => { const d1 = sub(q1, p1), d2 = sub(q2, p2), r = sub(p1, p2), a = dot(d1, d1), e = dot(d2, d2), f = dot(d2, r), c = dot(d1, r), b = dot(d1, d2), den = a * e - b * b;
+          let s = den > 1e-9 ? Math.max(0, Math.min(1, (b * f - c * e) / den)) : 0, t = (b * s + f) / e; if (t < 0) { t = 0; s = Math.max(0, Math.min(1, -c / a)); } else if (t > 1) { t = 1; s = Math.max(0, Math.min(1, (b - c) / a)); }
+          return Math.hypot(...sub([p1[0] + d1[0] * s, p1[1] + d1[1] * s, p1[2] + d1[2] * s], [p2[0] + d2[0] * t, p2[1] + d2[1] * t, p2[2] + d2[2] * t])); };
+        let mn = 1e9; for (const A of seg(0)) for (const B of seg(1)) mn = Math.min(mn, ss(A, B));
+        const both = !/^(idle|block|walk|guard|hit|down)/.test(P[0].label) && !/^(idle|block|walk|guard|hit|down)/.test(P[1].label);
+        arms.n++; if (both) arms.both++; if (mn < 0.05) { arms.cross++; if (both) arms.crossBoth++; } if (mn < 0.02) arms.deep++; }
       for (let i = open.length - 1; i >= 0; i--) if (open[i].n >= (open[i].land ? 24 : 10)) open.splice(i, 1);
       prevC = m.map(x => ({ head: cen(x.head), torso: cen(x.torso) }));
       if (window.__shootDeep) { const r = open.find(r => r.land && r.trace && !r.shot && r.row[r.row.length - 1] > 8); if (r) { r.shot = true; return { lands, blocks, stop: `side ${r.s} ${r.punch} -> ${r.part}, depth ${r.row[r.row.length - 1]}, target ${r.tl}; ${r.trace}` }; } }
     }
     const st = window.__sim.state();
-    return { lands, blocks, body, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
+    return { lands, blocks, body, arms, info: `screen ${window.__flow.state().screen}, sim t ${st.time.toFixed(1)}, phase ${st.round.phase}, ticks ${window.__tick.simTicks}, evs seen ${window.__evN | 0}` };
   };
 });
 await page.goto(`${DEV_URL}/?menu=1&human=1&ko=1`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
@@ -129,8 +139,9 @@ if (process.argv[4] === 'shots' || process.argv[4] === 'blockshots') {
   }
   await browser.close(); process.exit(0);
 }
-const { lands, blocks, info, body } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
+const { lands, blocks, info, body, arms } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
 console.log(info);
+console.log(`ARMS: a forearm's centre line within 5 cm of one of the other man's on ${arms.cross}/${arms.n} frames (within 2 cm: ${arms.deep}); while BOTH are punching: ${arms.crossBoth}/${arms.both} frames`);
 console.log(`BODIES: a head inside the other man's head or torso by over 3 cm on ${body.over3}/${body.n} frames, over 8 cm on ${body.over8}; worst ${(body.worst * 100).toFixed(1)} cm at f${body.at}. Frames with a man slid by the ropes over 3 cm: ${body.roped}, of those overlapping ${body.ropedOver3}`);
 const pct = (a, q) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.floor(q * b.length))] : NaN; };
 console.log(`cfg ${JSON.stringify(CFG)}: ${lands.length} lands, ${blocks.length} blocks in ${SECS} s`);
