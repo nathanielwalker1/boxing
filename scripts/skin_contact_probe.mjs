@@ -42,7 +42,7 @@ await page.addInitScript(() => {
   window.__run = frames => {
     const lands = [], blocks = [], open = [];   // open: events still being followed
     const body = { n: 0, over3: 0, over8: 0, worst: 0, at: 0, roped: 0, ropedOver3: 0 };
-    const arms = { n: 0, both: 0, cross: 0, crossBoth: 0, deep: 0 };
+    const arms = { n: 0, both: 0, cross: 0, crossBoth: 0, deep: 0, cap: 0, cap5: 0, capClose: 0, close: 0, byKey: {}, dbg: 0 };
     const cen = a => { let x = 0, y = 0, z = 0; const n = a.length / 3; for (let i = 0; i < a.length; i += 3) { x += a[i]; y += a[i + 1]; z += a[i + 2]; } return [x / n, y / n, z / n]; };
     let prevC = [0, 1].map(s => { const x = window.__humanMesh[s](); return { head: cen(x.head), torso: cen(x.torso) }; });
     for (let f = 0; f < frames; f++) {
@@ -94,7 +94,20 @@ await page.addInitScript(() => {
           return Math.hypot(...sub([p1[0] + d1[0] * s, p1[1] + d1[1] * s, p1[2] + d1[2] * s], [p2[0] + d2[0] * t, p2[1] + d2[1] * t, p2[2] + d2[2] * t])); };
         let mn = 1e9; for (const A of seg(0)) for (const B of seg(1)) mn = Math.min(mn, ss(A, B));
         const both = !/^(idle|block|walk|guard|hit|down)/.test(P[0].label) && !/^(idle|block|walk|guard|hit|down)/.test(P[1].label);
-        arms.n++; if (both) arms.both++; if (mn < 0.05) { arms.cross++; if (both) arms.crossBoth++; } if (mn < 0.02) arms.deep++; }
+        arms.n++; if (both) arms.both++; if (mn < 0.05) { arms.cross++; if (both) arms.crossBoth++; } if (mn < 0.02) arms.deep++;
+        // AS CAPSULES (the game's own shapes: forearm 4.5 cm, glove = the sim's glove radius): overlap over 2 cm, by what
+        // each arm is doing (0 guard, 1 a punch that will not land, 2 one that lands) and which parts
+        const FA = window.__cfg.humanArmClearForearmR, GR = window.__sim.state().fighters[0].body.gloveR, S0 = seg(0), S1 = seg(1);
+        let worst = 0, key = '';
+        for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
+          const a0 = P[0].armAct?.[i] ?? 0, a1 = P[1].armAct?.[j] ?? 0, acts = `${Math.max(a0, a1)}v${Math.min(a0, a1)}`;
+          const cand = [['forearm-forearm', 2 * FA - ss(S0[i], S1[j])], ['glove-forearm', GR + FA - Math.min(ss([S0[i][1], S0[i][1]], S1[j]), ss(S0[i], [S1[j][1], S1[j][1]]))], ['glove-glove', 2 * GR - ss([S0[i][1], S0[i][1]], [S1[j][1], S1[j][1]])]];
+          for (const [nm, pen] of cand) if (pen > worst) { worst = pen; key = `${acts} ${nm}`; }
+        }
+        if (worst > 0.02) { arms.cap++; arms.byKey[key] = (arms.byKey[key] || 0) + 1; if (worst > 0.05) arms.cap5++;
+          const dst = Math.hypot(P[0].hips[0] - P[1].hips[0], P[0].hips[2] - P[1].hips[2]); if (dst < 0.8) arms.capClose++;
+          arms.dbg = Math.max(arms.dbg, ...(P[0].armDbg ?? [0]), ...(P[1].armDbg ?? [0])); }
+        if (Math.hypot(P[0].hips[0] - P[1].hips[0], P[0].hips[2] - P[1].hips[2]) < 0.8) arms.close++; }
       for (let i = open.length - 1; i >= 0; i--) if (open[i].n >= (open[i].land ? 24 : 10)) open.splice(i, 1);
       prevC = m.map(x => ({ head: cen(x.head), torso: cen(x.torso) }));
       if (window.__shootDeep) { const r = open.find(r => r.land && r.trace && !r.shot && r.row[r.row.length - 1] > 8); if (r) { r.shot = true; return { lands, blocks, stop: `side ${r.s} ${r.punch} -> ${r.part}, depth ${r.row[r.row.length - 1]}, target ${r.tl}; ${r.trace}` }; } }
@@ -111,7 +124,7 @@ await key('Enter'); await on('select');
 await key('Enter'); await on('opponent');
 await key('Enter'); await on('fight');
 await until(page, () => !!window.__humanMesh?.[0] && !!window.__humanMesh?.[1] && window.__tick.simTicks > 5, undefined, { label: 'fight + mesh hook', timeout: 150_000 });
-await page.evaluate(async CFG => {
+await page.evaluate(async ([CFG, MASH2, CLOSE]) => {
   const c = window.__cfg; Object.assign(c, CFG); c.healthDamagePerImpulse *= 0.1; c.flowReplayOn = false; window.__flow.rounds(1, 900);
   const AI = await import('/src/ai/index.ts'), core = await import('/src/core/index.ts');
   const st = window.__sim.state(); const spec = core.ROSTER.find(r => r.id === st.fighters[0].specId);
@@ -123,10 +136,24 @@ await page.evaluate(async CFG => {
     const k = Math.floor(t / 16);
     if (t % 16 === 0) i[cyc[k % cyc.length]] = true;
     if (k % 3 === 2 && t % 16 < 3) i.level = true;
+    if (CLOSE) i.move = { x: 0, y: 1 };   // (argv[5] = close: both walk into each other the whole time, both mashing)
     return i;
   });
+  // argv[5] = mash2: the other man mashes too, half a beat off (close exchanges, both punching)
+  if (MASH2) {
+    const spec1 = core.ROSTER.find(r => r.id === st.fighters[1].specId);
+    let ai1 = AI.createAi(1, 9, c, AI.styleFor(spec1, c)), t1 = 8;
+    const cyc1 = ['cross', 'hook', 'jab', 'uppercut', 'jab', 'hook'];
+    window.__sim.drive(1, s => {
+      const d = AI.aiStep(ai1, s, c); ai1 = d.ai; t1++;
+      const i = { ...d.input, jab: false, cross: false, hook: false, uppercut: false, block: false, level: false };
+      if (t1 % 16 === 0) i[cyc1[Math.floor(t1 / 16) % cyc1.length]] = true;
+      if (CLOSE) i.move = { x: 0, y: 1 };
+      return i;
+    });
+  }
   window.__goManual();
-}, CFG);
+}, [CFG, process.argv[5] === 'mash2' || process.argv[5] === 'close', process.argv[5] === 'close']);
 // throwaway frames, stepped from here until the sim is really running (the flow's own timers need real time to pass)
 for (let i = 0; i < 200; i++) { const tk = await page.evaluate(() => { window.__stepFrames(2, 1000 / 60); return window.__tick.simTicks; }); if (tk > 60) break; }
 if (process.argv[4] === 'shots' || process.argv[4] === 'blockshots') {
@@ -142,6 +169,7 @@ if (process.argv[4] === 'shots' || process.argv[4] === 'blockshots') {
 const { lands, blocks, info, body, arms } = await page.evaluate(n => window.__run(n), Math.round(SECS * 60));
 console.log(info);
 console.log(`ARMS: a forearm's centre line within 5 cm of one of the other man's on ${arms.cross}/${arms.n} frames (within 2 cm: ${arms.deep}); while BOTH are punching: ${arms.crossBoth}/${arms.both} frames`);
+console.log(`ARMS AS CAPSULES: overlapping by over 2 cm on ${arms.cap}/${arms.n} frames (over 5 cm: ${arms.cap5}); hips within 80 cm on ${arms.close} frames, of those overlapping ${arms.capClose}. By what the two arms are doing (2 lands, 1 punch that will not, 0 guard) and parts: ${Object.entries(arms.byKey).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`);
 console.log(`BODIES: a head inside the other man's head or torso by over 3 cm on ${body.over3}/${body.n} frames, over 8 cm on ${body.over8}; worst ${(body.worst * 100).toFixed(1)} cm at f${body.at}. Frames with a man slid by the ropes over 3 cm: ${body.roped}, of those overlapping ${body.ropedOver3}`);
 const pct = (a, q) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.floor(q * b.length))] : NaN; };
 console.log(`cfg ${JSON.stringify(CFG)}: ${lands.length} lands, ${blocks.length} blocks in ${SECS} s`);
