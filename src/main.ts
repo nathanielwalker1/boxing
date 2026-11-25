@@ -10,6 +10,7 @@ import {
   type Config, type FighterSpec, type FighterState, type FighterView, type FrameInput, type Hand, type PunchType, type Side, type SimEvent, type SimState,
 } from './core';
 import { createState, hurtLevel, step } from './sim';
+import { setHealthCap } from './sim/state';
 import { aiStep, createAi, type AiState, type StyleParams } from './ai';
 import * as aiModule from './ai';
 import { createFighterView as createRigView, type RigView } from './rig';
@@ -153,6 +154,10 @@ const wantsFlow = params.get('menu') === '1' || (!navigator.webdriver && params.
 // checks that read it run without the flow, where it stays on).
 if (wantsFlow && params.get('tune') !== '1') cfg.debugFps = false;
 let fightNo = 0;
+// ?ko=0.1: the quick knockdown link. No ring walk, almost no stare-down, the longest replay (more landed punches in it).
+const koParam = Math.min(1, Math.max(0, Number(params.get('ko') ?? 0) || 0));
+// (and a floored man gets up on the same low bar, so each fight gives up to three quick replays)
+if (koParam > 0) { cfg.flowWalkOn = false; cfg.flowStareSeconds = 0.1; cfg.flowReplaySeconds = 3; cfg.knockdownHealthRestore = koParam; }
 /** A fresh fight between `a` (the player, side 0) and `b`: new state, AI and rigs; the HUD renamed. The views array is mutated in place — the read overlay holds it. */
 function startFight(a: FighterSpec, b: FighterSpec, opts: StartOpts | null = null): void {
   const rebuild: [boolean, boolean] = [specs[0].id !== a.id, specs[1].id !== b.id];
@@ -160,6 +165,14 @@ function startFight(a: FighterSpec, b: FighterSpec, opts: StartOpts | null = nul
   const s = seed + fightNo++;
   let st = createState([a, b], cfg, s);
   if (opts?.prepare) st = opts.prepare(st);
+  // ?ko=<health> (a tester's link, 2026-11-25): the opponent starts the fight on this much health, so the first clean
+  // punches floor him and the knockdown replay comes up in seconds instead of after a whole fight
+  // (the cap goes down with it: health regenerates up to its cap, and a bar set low alone was most of the way back in 10 s)
+  if (koParam > 0) {
+    const f1 = { ...st.fighters[1], health: Math.min(st.fighters[1].health, koParam), moveHist: st.fighters[1].moveHist.slice() };
+    setHealthCap(f1, koParam);
+    st = { ...st, fighters: [st.fighters[0], f1] };
+  }
   prev = next = st;
   aiStyle = opts ? styleForOpponent(b, opts.difficulty) : null;
   driver = opts?.driver ?? null;
