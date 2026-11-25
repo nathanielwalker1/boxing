@@ -98,6 +98,7 @@ if (params.get('tune') === '1') mountTuningPanel(cfg);
 // Human fighters (?human=1): the realistic skinned boxer on mocap clips instead of the procedural rig. The
 // assets load before the first view is built; with the switch off nothing below changes.
 if (params.get('human') === '1') cfg.humanBody = true;
+if (params.get('wear')) cfg.humanWearStart = Number(params.get('wear')) || 0;   // (?wear=80: every fight starts in its late-round state)
 // which body (0 v2, 1 m1, 2 m2): ?body=N, or the dev server's VITE_BODY (so a second server on the same code runs the
 // whole browser suite on another body, for the m1-vs-m2 A/B)
 const bodyParam = params.get('body') ?? (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_BODY;

@@ -263,7 +263,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   // `cutAt` = the spot his one cut is over (-1 = none). Reset when a new fight starts (wearEpoch).
   // The spots are fixed once, in the body mesh's own rest space: fractions of the head's height (head joint to crown) along the
   // head bone's axes — x to his left, y up, z out of the face. Order: L eye, R eye, L cheek, R cheek, nose, mouth.
-  let wet = 0, cutAt = -1, myEpoch = wearEpoch;
+  let wet = 0, cutAt = -1, myEpoch = -1;   // (-1: his first drawn frame runs the fight-start reset, so a view built AFTER the fight began still starts it properly)
   // NOT EVERY FIGHT HAS A CUT (Nate 2026-11-25, as in boxing): each fight, each man is or is not going to cut, decided once
   // by humanCutChance from the fight's number, his corner and his name (no Math.random: the same fight draws the same).
   const cutRoll = (): boolean => {
@@ -371,7 +371,21 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   };
   /** Each drawn frame: sweat on, marks from the punches that landed on his head this frame, and what the materials show. */
   const wearStep = (dt: number, next: FighterState, events: readonly SimEvent[]): void => {
-    if (myEpoch !== wearEpoch) { myEpoch = wearEpoch; wet = 0; cutAt = -1; drip = 0; dmg.fill(0); cutProne = cutRoll(); cutHits = 0; stains.clear(); }
+    if (myEpoch !== wearEpoch) {
+      myEpoch = wearEpoch; wet = 0; cutAt = -1; drip = 0; dmg.fill(0); cutProne = cutRoll(); cutHits = 0; stains.clear();
+      // A fight that STARTS late (cfg.humanWearStart, the ?wear=N link): N head punches already on him in the game's real
+      // mix (5 jabs, 2 crosses, 1 hook in 8, most on one side), one body punch per 8, soaked, and a fight he cuts in.
+      const n = Math.round(cfg.humanWearStart);
+      if (n > 0) {
+        cutProne = true; wet = 1;
+        for (let i = 0; i < n; i++) {
+          const j = i % 8;
+          markHit(j === 4 ? 'jaw' : 'chin', j === 4 ? 'hook' : j === 2 || j === 6 ? 'cross' : 'jab', j === 1 || j === 5 || j === 7 ? 0 : 1, j === 4 || j === 6 ? 'flush' : j === 1 || j === 5 ? 'glancing' : 'clean');
+          if (j === 0) markBody(undefined, i % 16 ? 'hook' : 'jab', (i >> 4) & 1, 'clean');
+        }
+        if (cutAt >= 0) { drip = 1; cutHits = n / 4; }
+      }
+    }
     if (cutAt >= 0 && !handsDown) drip = Math.min(1, drip + dt / Math.max(1, cfg.humanCutDripTime));
     if (!handsDown) wet = Math.min(1, wet + dt / Math.max(1, cfg.humanSweatFull) * (1 + cfg.humanSweatTired * (1 - next.stamina)));
     if (cfg.humanFaceDamage) for (const e of events) {
