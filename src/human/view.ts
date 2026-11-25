@@ -281,7 +281,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       origin: [group.position.x, group.position.y, group.position.z], legitHand: anim.legitHand, ropeOff: group.userData.ropeOff ?? null,
       // outcome mode: the drawn head sphere / torso line (what the other man's gloves are kept out of) and the hand's target
       drawn: drawnBodies[side] ? { head: drawnBodies[side]!.head.toArray(), headR: drawnBodies[side]!.headR, a: drawnBodies[side]!.a.toArray(), b: drawnBodies[side]!.b.toArray(), r: drawnBodies[side]!.r } : null,
-      lungeDbg: [...anim.lungeDbg], reach: [...reachDbg], armAct: drawnBodies[side] ? [...drawnBodies[side]!.act] : null, armDbg: [...armDbg],
+      lungeDbg: [...anim.lungeDbg], turnDbg: [...anim.turnDbg],reach: [...reachDbg], armAct: drawnBodies[side] ? [...drawnBodies[side]!.act] : null, armDbg: [...armDbg],
       laneEta: drawnBodies[side] ? [...drawnBodies[side]!.laneEta] : null, toHit: anim.conformInfo.toHit,
       conform: { kind: anim.conformInfo.kind, w: anim.conformInfo.w, at: anim.conformInfo.at ? [anim.conformInfo.at.x, anim.conformInfo.at.y, anim.conformInfo.at.z] : null },
       // the sim events this view was fed on its last tick (the replay filters them to this side), as plain data

@@ -284,6 +284,8 @@ export class HumanAnim {
   private ocPart: BodyPart = 'head';
   /** (audit) the punch's body travel this frame along his facing, m: the sim's own, what the contact frame lacks, and the envelope on that. */
   lungeDbg: [number, number, number] = [0, 0, 0];
+  /** (probe) the target and the take's contact-frame glove in his own frame, m: [target left, glove left, target forward, glove forward]. */
+  turnDbg: [number, number, number, number] = [0, 0, 0, 0];
   private ocKindW = 0;
   private readonly ocT = { x: 0, y: 0, z: 0 };
   private ocKey = -1;
@@ -366,7 +368,7 @@ export class HumanAnim {
       void exL; turn = 0;
       // (humanCrossRise: the whole-punch envelope and the take's glove height at its contact frame, for the view)
       if (cfg.humanInertia) {
-        wBody = wL; hitY = CG2.y;
+        wBody = wL; hitY = CG2.y; this.turnDbg = [tL, -CG2.x, tF, CG2.z];
         // (A WHOLE-BODY TURN onto the target, by the angle between the take's contact-frame glove and the target seen
         //  from his own spot, on this envelope: tried 2026-11-25 for jab and cross, removed. MEASURED: his facing is on
         //  the line at every land (0-1 deg, pivots included), and the arm's sideways pull is near constant per take
