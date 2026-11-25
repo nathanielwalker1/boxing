@@ -335,9 +335,11 @@ export class Arena {
         return t;
       };
       this.barrierMat = new THREE.MeshBasicMaterial({ map: mk(Math.max(1, Math.round(TAU * R0 / 20))), side: THREE.BackSide });
+      this.barrierMat.userData['paintRole'] = 'sponsor';   // paint look: kept in colour, subdued (render/paint.ts)
       const barrier = new THREE.Mesh(new THREE.CylinderGeometry(R0 - 0.03, R0 - 0.03, ledH, 96, 1, true).translate(0, yFront - ledH / 2, 0), this.barrierMat);
       this.ribbonTex = mk(Math.max(1, Math.round(TAU * rU / 22)));
       this.ribbonMat = new THREE.MeshBasicMaterial({ map: this.ribbonTex, side: THREE.BackSide });
+      this.ribbonMat.userData['paintRole'] = 'sponsor';
       const ribbon = new THREE.Mesh(new THREE.CylinderGeometry(rU, rU, c.fasciaH, 96, 1, true).translate(0, ySoffit + c.fasciaH / 2, 0), this.ribbonMat);
       this.group.add(barrier, ribbon);
     }
@@ -457,6 +459,7 @@ export class Arena {
       const [cv] = makeCanvas(512, 288);
       this.boardTex = canvasTexture(cv, this.aniso);
       this.boardMat = new THREE.MeshBasicMaterial({ map: this.boardTex });
+      this.boardMat.userData['paintRole'] = 'sponsor';
       const faces: THREE.BufferGeometry[] = [];
       for (let k = 0; k < 4; k++) faces.push(new THREE.PlaneGeometry(w, h).applyMatrix4(new THREE.Matrix4().makeRotationY(k * Math.PI / 2).multiply(new THREE.Matrix4().makeTranslation(0, y, w / 2 + 0.02))));
       // The housing sits INSIDE the screens' square (phase 1 had it 0.1 m outside them: four black faces, found the

@@ -110,7 +110,7 @@ export class Ropes {
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.8, 0), 12);
     const ropeMat = (staticMesh.material as THREE.Material).clone();
     ropeMat.userData['painted'] = false;   // a clone keeps the flag but not the patched shader: patch it again (render/paint.ts)
-    paintRoomMaterial(ropeMat, c.paintBrushRing, 1);
+    paintRoomMaterial(ropeMat, c.paintBrushRing, 1, 'ring');
     this.mesh = new THREE.Mesh(geo, ropeMat);
     this.mesh.castShadow = true; this.mesh.frustumCulled = false; this.mesh.visible = false;
     this.staticMesh = staticMesh;

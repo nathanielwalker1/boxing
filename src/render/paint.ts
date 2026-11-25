@@ -25,7 +25,15 @@ export const paintU = {
   uOutline: { value: 0.01 },
   uBandOn: { value: 1 }, uDesatOn: { value: 1 }, uBandMix: { value: 0.35 }, uMaskDbg: { value: 0 },
   uRimCol: { value: new THREE.Color() }, uRimStr: { value: 0.5 }, uRimPow: { value: 3 },
+  // step 4 (room)
+  uRoomAmb: { value: new THREE.Color() }, uRingLift: { value: 0.45 }, uRingSat: { value: 1.25 },
+  uSponsorLevel: { value: 0.9 }, uSponsorTint: { value: new THREE.Color() },
+  uCrowdFaceCol: { value: new THREE.Color() }, uCrowdFace: { value: 1.5 }, uCrowdWarm: { value: 0.6 }, uCrowdFogMul: { value: 0.5 },
 };
+
+/** Room surface roles: 0 = the arena structure, 1 = the ring (ropes, pads, posts, canvas, apron), 2 = a sponsor board. A material can pin its own via userData.paintRole. */
+export type PaintRole = 'room' | 'ring' | 'sponsor';
+const ROLE_ID: Record<PaintRole, number> = { room: 0, ring: 1, sponsor: 2 };
 
 const hulls = new Set<THREE.Mesh>();
 let brushSeed = -1;
@@ -95,6 +103,10 @@ export function updatePaint(c: Config): void {
   u.uRoomDesat.value = c.paintRoomDesat; u.uBrushScale.value = c.paintBrushScale;
   u.uCrowdDim.value = c.paintCrowdDim; u.uCrowdDesat.value = c.paintCrowdDesat; u.uCrowdFlat.value = c.paintCrowdFlat; u.uCrowdBrush.value = c.paintCrowdBrush;
   u.uOutline.value = c.paintOutlineM;
+  u.uRoomAmb.value.set(c.paintRoomAmbient).multiplyScalar(c.paintRoomAmbientAmt);
+  u.uRingLift.value = c.paintRingLift; u.uRingSat.value = c.paintRingSat;
+  u.uSponsorLevel.value = c.paintSponsorLevel; u.uSponsorTint.value.set(c.paintSponsorTint);
+  u.uCrowdFaceCol.value.set(c.paintCrowdFaceCol); u.uCrowdFace.value = c.paintCrowdFace; u.uCrowdWarm.value = c.paintCrowdWarm; u.uCrowdFogMul.value = c.paintCrowdFogMul;
   if (outlineCol !== c.paintOutlineColor) { outlineMat.color.set(c.paintOutlineColor); outlineCol = c.paintOutlineColor; }
 }
 
@@ -110,12 +122,14 @@ function chain(mat: THREE.Material, tag: string, patch: (s: THREE.WebGLProgramPa
 }
 
 /** Room surfaces: grey them, dim the unlit ones, brush them in world space. Instanced and plain meshes alike. */
-export function paintRoomMaterial(mat: THREE.Material, brush: number, dim: number): void {
+export function paintRoomMaterial(mat: THREE.Material, brush: number, dim: number, role: PaintRole = 'room'): void {
   if (mat.userData['painted'] || (mat as THREE.ShaderMaterial).isShaderMaterial) return;
   if (!(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial && !(mat as THREE.MeshBasicMaterial).isMeshBasicMaterial) return;
   mat.userData['painted'] = true;
-  chain(mat, `room`, shader => {
-    Object.assign(shader.uniforms, { uPaint: paintU.uPaint, uPool: paintU.uPool, uRoomDesat: paintU.uRoomDesat, uBrushScale: paintU.uBrushScale, uBrush: paintU.uBrush, uBrushAmt: { value: brush }, uRoomDim: { value: dim } });
+  const roleId = ROLE_ID[(mat.userData['paintRole'] as PaintRole | undefined) ?? role];
+  chain(mat, `room${roleId}`, shader => {
+    Object.assign(shader.uniforms, { uPaint: paintU.uPaint, uPool: paintU.uPool, uRoomDesat: paintU.uRoomDesat, uBrushScale: paintU.uBrushScale, uBrush: paintU.uBrush, uBrushAmt: { value: brush }, uRoomDim: { value: dim },
+      uRole: { value: roleId }, uRoomAmb: paintU.uRoomAmb, uRingLift: paintU.uRingLift, uRingSat: paintU.uRingSat, uSponsorLevel: paintU.uSponsorLevel, uSponsorTint: paintU.uSponsorTint });
     shader.vertexShader = shader.vertexShader
       .replace('void main() {', 'varying vec3 vPaintW;\nvoid main() {')
       .replace('#include <project_vertex>', `#include <project_vertex>
@@ -125,22 +139,36 @@ export function paintRoomMaterial(mat: THREE.Material, brush: number, dim: numbe
           #endif
           vPaintW = (modelMatrix * pw).xyz; }`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('void main() {', `uniform float uPaint, uRoomDesat, uBrushScale, uBrushAmt, uRoomDim;
+      .replace('void main() {', `uniform float uPaint, uRoomDesat, uBrushScale, uBrushAmt, uRoomDim, uRole, uRingLift, uRingSat, uSponsorLevel;
         uniform sampler2D uBrush;
-        uniform vec3 uPool;
+        uniform vec3 uPool, uRoomAmb, uSponsorTint;
         varying vec3 vPaintW;
         ${LUMA}
         void main() {`)
       .replace('#include <opaque_fragment>', `
         if (uPaint > 0.5) {
           float l = dot(outgoingLight, pLuma);
-          outgoingLight = mix(outgoingLight, vec3(l), uRoomDesat) * uRoomDim;
-          // the pool of light: full inside the ring, falling to the floor value outside it, in world space
-          outgoingLight *= mix(1.0, uPool.z, smoothstep(uPool.x, uPool.y, max(abs(vPaintW.x), abs(vPaintW.z))));
+          float brAmt = uBrushAmt;
+          if (uRole > 1.5) {
+            // a sponsor board: kept in colour, warm, at a fraction of its lit brightness, outside the pool of light (ad inventory stays readable)
+            outgoingLight *= uSponsorLevel * uSponsorTint;
+            brAmt = 0.0;
+          } else if (uRole > 0.5) {
+            // the ring: its own colour lifted by a self-lit share and made richer, so ropes, pads and canvas stay bright and saturated
+            vec3 b = outgoingLight + diffuseColor.rgb * uRingLift;
+            float lb = dot(b, pLuma);
+            outgoingLight = max(mix(vec3(lb), b, uRingSat), vec3(0.0));
+          } else {
+            outgoingLight = mix(outgoingLight, vec3(l), uRoomDesat) * uRoomDim;
+            // the pool of light: full inside the ring, falling to the floor value outside it, in world space
+            outgoingLight *= mix(1.0, uPool.z, smoothstep(uPool.x, uPool.y, max(abs(vPaintW.x), abs(vPaintW.z))));
+            // warm umber in the darks: added after the pool, so the black room is brown, not navy or grey
+            outgoingLight += uRoomAmb;
+          }
           vec3 gn = abs(normalize(cross(dFdx(vPaintW), dFdy(vPaintW)) + 1e-9));
           vec2 buv = gn.y > max(gn.x, gn.z) ? vPaintW.xz : (gn.x > gn.z ? vPaintW.zy : vPaintW.xy);
           vec3 br = texture2D(uBrush, buv / uBrushScale).rgb;
-          outgoingLight *= 1.0 + (br - 0.5) * 2.0 * uBrushAmt;
+          outgoingLight *= 1.0 + (br - 0.5) * 2.0 * brAmt;
         }
         #include <opaque_fragment>`);
   });
@@ -155,7 +183,7 @@ export function paintRoom(root: THREE.Object3D, c: Config, kind: 'arena' | 'ring
     if (!m.isMesh) return;
     (Array.isArray(m.material) ? m.material : [m.material]).forEach(mt => {
       // Lit materials are already lit by the dimmed key; only unlit (Basic) surfaces get the extra dim.
-      paintRoomMaterial(mt, brush, (mt as THREE.MeshBasicMaterial).isMeshBasicMaterial ? dim : 1);
+      paintRoomMaterial(mt, brush, (mt as THREE.MeshBasicMaterial).isMeshBasicMaterial ? dim : 1, kind === 'ring' ? 'ring' : 'room');
     });
   });
 }
@@ -253,5 +281,68 @@ export function paintFighter(model: THREE.Object3D, c: Config): void {
     hull.matrixAutoUpdate = m.matrixAutoUpdate;
     hull.position.copy(m.position); hull.quaternion.copy(m.quaternion); hull.scale.copy(m.scale);
     hulls.add(hull);
+  }
+}
+
+/**
+ * The tungsten key made visible (step 4): a soft additive pool of warm light on the canvas, and haze in the key's cone.
+ * Both are STATIC (no time input, no noise): with the camera still nothing moves. The haze is the cone's BACK faces only,
+ * so it sits behind the fighters and is hidden by them (a fighter is never veiled), and fades toward the cone's silhouette
+ * so it reads as a volume, not a shell. Two transparent draws, no extra pass.
+ */
+export class PaintGlow {
+  readonly group = new THREE.Group();
+  private pool: THREE.Mesh;
+  private cone: THREE.Mesh;
+  private poolMat: THREE.ShaderMaterial;
+  private coneMat: THREE.ShaderMaterial;
+  private coneKey = '';
+
+  constructor() {
+    this.poolMat = new THREE.ShaderMaterial({
+      uniforms: { uCol: { value: new THREE.Color() } },
+      vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform vec3 uCol; varying vec2 vUv;
+        void main() { float d = length(vUv - 0.5) * 2.0; float a = 1.0 - smoothstep(0.0, 1.0, d); a *= a; gl_FragColor = vec4(uCol * a, 1.0); }`,
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+    });
+    this.pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), this.poolMat);
+    this.pool.position.y = 0.012;
+    this.pool.renderOrder = 2;
+    this.coneMat = new THREE.ShaderMaterial({
+      uniforms: { uCol: { value: new THREE.Color() } },
+      vertexShader: `varying vec3 vN, vV; varying float vH;
+        void main() { vH = uv.y; vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = -mv.xyz; vN = normalMatrix * normal; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `uniform vec3 uCol; varying vec3 vN, vV; varying float vH;
+        void main() {
+          // looking through the cone: brightest through its middle, fading out at its silhouette; denser and brighter near the lamp
+          float k = abs(dot(normalize(vN), normalize(vV)));
+          float a = pow(clamp(k, 0.0, 1.0), 1.2) * mix(0.35, 1.0, vH);
+          gl_FragColor = vec4(uCol * a, 1.0);
+        }`,
+      side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+    });
+    this.cone = new THREE.Mesh(new THREE.BufferGeometry(), this.coneMat);
+    this.cone.renderOrder = 2;
+    this.cone.frustumCulled = false;
+    this.group.add(this.pool, this.cone);
+  }
+
+  update(c: Config): void {
+    this.group.visible = c.paintLook && c.paintAblate >= 5;
+    if (!this.group.visible) return;
+    const col = new THREE.Color(c.paintGlowColor);
+    this.poolMat.uniforms['uCol']!.value.copy(col).multiplyScalar(c.paintGlowPool);
+    this.coneMat.uniforms['uCol']!.value.copy(col).multiplyScalar(c.paintHazeAmt);
+    this.pool.scale.setScalar(c.paintGlowPoolR * 2);
+    const ang = c.paintKeyAngleDeg + c.paintHazeSpreadDeg;
+    const key = `${c.keyHeight}|${ang}`;
+    if (key !== this.coneKey) {   // rebuilt only when the key moves
+      this.coneKey = key;
+      const H = c.keyHeight + 0.4, r = Math.tan(ang * Math.PI / 180) * H;
+      this.cone.geometry.dispose();
+      // apex up at the lamp, open base 0.4 m below the canvas (the canvas hides it); uv.y = 1 at the lamp
+      this.cone.geometry = new THREE.CylinderGeometry(0.02, r, H, 40, 1, true).translate(0, c.keyHeight - H / 2, 0);
+    }
   }
 }

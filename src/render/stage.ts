@@ -17,7 +17,7 @@ import { disposeTree } from './util';
 import { mood, type ReactionKind } from './mood';
 import { additiveGain } from './atmos';
 import { qualityTier, noteRenderer, type Tier } from './tier';
-import { paintRoom, updatePaint } from './paint';
+import { paintRoom, updatePaint, PaintGlow } from './paint';
 import { clearSeat, type ClearSeat } from './camclear';
 
 /** A framing the host asks for instead of the two-fighter default: the knockdown count, looking at the downed fighter. */
@@ -111,6 +111,7 @@ export class Stage {
   private arena: Arena;
   private arenaKey = '';
   private fog: THREE.Fog;
+  private paintGlow = new PaintGlow();
   private key: THREE.SpotLight;
   private fill: THREE.HemisphereLight;
   private rim: THREE.DirectionalLight;
@@ -217,6 +218,7 @@ export class Stage {
     this.arenaKey = arenaKey(cfg);
     this.scene.add(this.arena.group, this.ring, this.hitboxes);
     paintRoom(this.arena.group, cfg, 'arena');
+    this.scene.add(this.paintGlow.group);
     this.rebuildRing();
     this.resize();
 
@@ -384,6 +386,7 @@ export class Stage {
     if (ringKey(c) !== this.ringKey) this.rebuildRing();
     if (arenaKey(c) !== this.arenaKey) { this.arena.rebuild(c); this.arenaKey = arenaKey(c); paintRoom(this.arena.group, c, 'arena'); }
     updatePaint(c);
+    this.paintGlow.update(c);
     // the paint look swaps these lights and the fog for its own (render/paint.ts); off = the old values.
     // paintAblate (debug) holds back the paint fog below step 3 and the paint lights below step 5.
     const PF = c.paintLook && c.paintAblate >= 3;
