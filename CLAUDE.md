@@ -49,7 +49,13 @@ theory. He is the judge of *feel* and *look* — you are the judge of *does it r
 - **Within a stage, report at every sub-part boundary** — one or two lines: what landed,
   what's next. If a part runs past 15 minutes, say what it's doing and why. A heartbeat,
   never a silent hour.
-- **Commit after each confirmed sub-part.** Small commits, one concern each. Nate pushes.
+- **Commit after each confirmed sub-part.** Small commits, one concern each.
+- **Push after every commit.** Each session pushes its own branch to GitHub
+  (`git push -u origin <branch>` the first time, plain `git push` after). Never force,
+  never push another session's branch, never push straight to `main` — `main` moves only
+  by a merge Nate has accepted. If a push fails, say so in the same report; an unpushed
+  commit is not "done". (Changed 2026-11-24 from "Nate pushes": too many sessions and
+  worktrees for one person to be the backup.)
 - **Don't add unrequested features.** Flag ideas in one line; don't build them.
 - **Ambiguity → ask.** The spec is precise; gaps are questions, not license.
 - **Porting rule:** a v1 system is ported when its `legacy/scripts/*_test.mjs` assertion
