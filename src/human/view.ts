@@ -16,7 +16,7 @@ import { applyFit, buildFit, type Fit, type FitOut, type Skeleton } from './reta
 import { HumanAnim, tiredOf } from './anim';
 import { PoseInertia } from './inertia';
 import { Spray } from '../rig/spray';
-import { paintFighter } from '../render/paint';
+import { FACE_SPOTS, makeFaceWear, paintFighter } from '../render/paint';
 import { installRigReplay, type ReplayFeed } from '../rig/replay';
 import { SIM_DT } from '../core';
 import { mocapCfg } from '../sim/mocap';
@@ -58,6 +58,9 @@ export const HUMAN_BODY_FILES = ['boxer_v2.glb', 'boxer_m1.glb', 'boxer_m2.glb',
 /** A menu is showing a fighter off (select / opponent / ladder / champion): the views hang their arms so the face is seen. Set every frame by main.ts. */
 let handsDown = false;
 export function setHumanHandsDown(on: boolean): void { handsDown = on; }
+/** A new fight has started (main.ts startFight): every view dries off and loses its marks, a rematch in the same body included. */
+let wearEpoch = 0;
+export function resetHumanWear(): void { wearEpoch++; }
 
 /** The bodies a fighter's build can pick when no one body is forced: 2 muscular, 3 average, 4 large, 5 skinny. */
 const BUILD_BODIES = [2, 3, 4, 5] as const;
@@ -206,7 +209,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   const hairStyle = q.get(side === 0 ? 'hair' : 'hair2');
   const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c', ...(cfg.humanSkinFromSpec ? { skin: spec.skin } : {}), ...(trunksStyle ? { trunksStyle } : {}), ...(hairStyle ? { hairStyle } : {}) };
   const model = boxer.spawn(tone, kit);
-  paintFighter(model, cfg, bodyFile);   // the paint look's banded shading + ink outline (render/paint.ts; hidden when cfg.paintLook is off)
+  const wear = makeFaceWear();   // his face marks and cut (render/paint.ts draws them; filled below from the punches that land on him)
+  paintFighter(model, cfg, bodyFile, wear);   // the paint look's banded shading + ink outline (render/paint.ts; hidden when cfg.paintLook is off)
   const { skel, bones } = skeletonOf(model);
   const fit: Fit = buildFit(index.source, index.bones, index.parents, skel);
   const fitOut: FitOut = { localRot: skel.restRot.map(q => [...q] as [number, number, number, number]), hipsPos: [0, 0, 0] };
@@ -254,6 +258,61 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   }
   let menuW = 0;   // (humanMenuHandsDown) 0..1: how far the arms are down at his sides
   const headTop = bones.find(b => b.name.endsWith('HeadTop_End')) ?? null;
+  // WEAR OVER THE FIGHT (drawn only; the sim never reads it): `wet` = how sweaty he is, `dmg` = how marked each face spot is,
+  // `cutAt` = the spot his one cut is over (-1 = none). Reset when a new fight starts (wearEpoch).
+  // The spots are fixed once, in the body mesh's own rest space: fractions of the head's height (head joint to crown) along the
+  // head bone's axes — x to his left, y up, z out of the face. Order: L eye, R eye, L cheek, R cheek, nose, mouth.
+  let wet = 0, cutAt = -1, myEpoch = wearEpoch;
+  const dmg = new Array<number>(FACE_SPOTS).fill(0);
+  const skinMats: THREE.MeshStandardMaterial[] = [];
+  {
+    let bodyMesh: THREE.Mesh | null = null;
+    model.traverse(o => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      for (const mt of Array.isArray(m.material) ? m.material : [m.material]) if (mt.name === 'meshy') { skinMats.push(mt as THREE.MeshStandardMaterial); bodyMesh ??= m; }
+    });
+    const bm = bodyMesh as THREE.SkinnedMesh | null;
+    const hi = bm?.isSkinnedMesh ? bm.skeleton.bones.indexOf(head) : -1;
+    if (bm && hi >= 0) {
+      // head-bone space -> the mesh's rest (bind) space, by the skin's own bind data: whatever pose he was spawned in
+      const toGeo = new THREE.Matrix4().copy(bm.bindMatrixInverse).multiply(new THREE.Matrix4().copy(bm.skeleton.boneInverses[hi]!).invert());
+      // the head's height in the head bone's own units: the crown bone if the body has one (the Meshy bodies do not), else
+      // cfg.humanHeadHeight metres at native height, taken back through the bone's world scale
+      group.updateMatrixWorld(true);
+      const h = headTop ? headTop.position.length() : cfg.humanHeadHeight * group.scale.y / head.getWorldScale(new THREE.Vector3()).y;
+      const at = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z).multiplyScalar(h).applyMatrix4(toGeo);
+      const S: readonly (readonly [number, number, number])[] = [[0.2, 0.52, 0.5], [-0.2, 0.52, 0.5], [0.3, 0.26, 0.42], [-0.3, 0.26, 0.42], [0, 0.34, 0.62], [0, 0.1, 0.52]];
+      S.forEach((s, i) => wear.uDmgPos.value[i]!.copy(at(s[0], s[1], s[2])));
+      const o = at(0, 0, 0);
+      wear.uDmgR.value = at(cfg.humanFaceMarkSize, 0, 0).distanceTo(o);
+      wear.uCutDir.value.copy(at(1, 0.25, 0)).sub(o).normalize();    }
+  }
+  /** Each drawn frame: sweat on, marks from the punches that landed on his head this frame, and what the materials show. */
+  const wearStep = (dt: number, next: FighterState, events: readonly SimEvent[]): void => {
+    if (myEpoch !== wearEpoch) { myEpoch = wearEpoch; wet = 0; cutAt = -1; dmg.fill(0); }
+    if (!handsDown) wet = Math.min(1, wet + dt / Math.max(1, cfg.humanSweatFull) * (1 + cfg.humanSweatTired * (1 - next.stamina)));
+    if (cfg.humanFaceDamage) for (const e of events) {
+      if (e.type !== 'punchLand' || e.target !== side || e.part !== 'head') continue;
+      // which side of his face: the punch pushes his head AWAY from the side it landed on
+      const lat = arm.Left[0].getWorldPosition(vA).sub(arm.Right[0].getWorldPosition(vB));
+      const k = e.impulse.x * lat.x + e.impulse.z * lat.z > 0 ? 1 : 0;   // 0 = his left side, 1 = his right
+      const z = e.zone;
+      const spot = z === 'nose' ? 4 : z === 'chin' ? 5 : z === 'jaw' ? 2 + k : z === 'temple' || z === 'forehead' ? k
+        : e.punch === 'hook' ? 2 + k : e.punch === 'uppercut' ? 5 : 4;
+      dmg[spot] = Math.min(1, dmg[spot]! + cfg.humanFaceMarkPerHit * (e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.6 : 0.25));
+      // ONE cut a fight: over the first eye or cheek to be marked this far, on the brow above it
+      if (cutAt < 0 && spot < 4 && dmg[spot]! >= cfg.humanCutAt) cutAt = spot;
+    }
+    const test = cfg.humanFaceMarkTest, show = handsDown ? 0 : 1;
+    for (let i = 0; i < FACE_SPOTS; i++) wear.uDmg.value[i] = Math.max(test, dmg[i]! * show);
+    const c = test > 0 && cutAt < 0 ? 0 : cutAt;
+    if (c >= 0 && (show > 0 || test > 0)) {
+      const eye = wear.uDmgPos.value[c % 2]!, up = wear.uDmgPos.value[c % 2]!.clone().sub(wear.uDmgPos.value[2 + (c % 2)]!).multiplyScalar(0.55);
+      wear.uCut.value.set(eye.x + up.x, eye.y + up.y, eye.z + up.z, 1);
+    } else wear.uCut.value.w = 0;
+    for (const m of skinMats) m.roughness = 1 - cfg.humanSweatShine * Math.max(cfg.humanSweatTest, handsDown ? 0 : wet);
+  };
   const spray = new Spray(parent);
   // the hit snap: the sim head relative to his floor point, its slow average, and how long the snap is drawn
   const headRel = new THREE.Vector3(), headSlow = new THREE.Vector3();
@@ -1531,10 +1590,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       hd.sim.set(next.headBox.x, next.headBox.y, next.headBox.z);
 
       // ---- sweat off the head on clean / flush lands (rig/spray.ts), from the DRAWN head, along the punch ----
+      wearStep(dt, next, events);
       if (cfg.humanSpray) {
         for (const e of events) {
           if (e.type !== 'punchLand' || e.target !== side || e.part !== 'head' || e.grade === 'glancing') continue;
-          const n = Math.round(cfg.rigSprayCount * (e.grade === 'flush' ? 1 : 0.4) * (0.3 + 0.7 * Math.min(1, next.fatigue + 0.4)));
+          // (the wetter he is, the more comes off him: `wet` builds over the fight; his fatigue still counts as before)
+          const n = Math.round(cfg.rigSprayCount * (e.grade === 'flush' ? 1 : 0.4) * (0.3 + 0.7 * Math.min(1, Math.max(wet, next.fatigue) + 0.4)));
           const dl = Math.hypot(e.impulse.x, e.impulse.z) || 1, off = next.body.headR * 1.6;
           spray.burst(n, { x: hd.drawn.x + e.impulse.x / dl * off, y: hd.drawn.y + next.body.headR * 0.3, z: hd.drawn.z + e.impulse.z / dl * off }, e.impulse, cfg.rigSpraySpeed, cfg.rigSpraySize, cfg.rigSprayLife);
         }

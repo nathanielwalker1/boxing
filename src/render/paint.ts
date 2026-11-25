@@ -202,10 +202,29 @@ function kitMaskFor(bodyFile: number): { value: THREE.Texture | null } {
   return u;
 }
 
-function paintFighterMaterial(mat: THREE.Material, kitAll: number, maskU: { value: THREE.Texture | null } = paintU.uKitMask): void {
+/** One fighter's FACE WEAR (human/view.ts fills it): six spots on the face in the body mesh's own bind space (L eye, R eye,
+ *  L cheek, R cheek, nose, mouth), how marked each is 0..1 (redness, then a bruise), and his one cut (a short dark line). */
+export interface FaceWear {
+  uDmgPos: { value: THREE.Vector3[] }; uDmg: { value: number[] }; uDmgR: { value: number };
+  uCut: { value: THREE.Vector4 }; uCutDir: { value: THREE.Vector3 };
+}
+export const FACE_SPOTS = 6;
+export function makeFaceWear(): FaceWear {
+  return {
+    uDmgPos: { value: Array.from({ length: FACE_SPOTS }, () => new THREE.Vector3()) }, uDmg: { value: new Array<number>(FACE_SPOTS).fill(0) }, uDmgR: { value: 1 },
+    uCut: { value: new THREE.Vector4(0, 0, 0, 0) }, uCutDir: { value: new THREE.Vector3(1, 0, 0) },
+  };
+}
+const NO_WEAR = makeFaceWear();
+
+function paintFighterMaterial(mat: THREE.Material, kitAll: number, maskU: { value: THREE.Texture | null } = paintU.uKitMask, wear: FaceWear = NO_WEAR): void {
   if (mat.userData['painted']) return;
   mat.userData['painted'] = true;
   chain(mat, 'fighter', shader => {
+    Object.assign(shader.uniforms, wear);
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', 'varying vec3 vBindP;\nvoid main() {')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBindP = position;');
     for (const k of ['uPaint', 'uBandTop', 'uBands', 'uBandSoft', 'uBandFloor', 'uLitCol', 'uShadeCol', 'uTintMix', 'uSkinDesat', 'uKitMask',
       'uBandOn', 'uDesatOn', 'uBandMix', 'uMaskDbg', 'uRimCol', 'uRimStr', 'uRimPow'] as const) shader.uniforms[k] = paintU[k];
     shader.uniforms['uKitMask'] = maskU;
@@ -215,6 +234,8 @@ function paintFighterMaterial(mat: THREE.Material, kitAll: number, maskU: { valu
         uniform float uBandOn, uDesatOn, uBandMix, uMaskDbg, uRimStr, uRimPow;
         uniform vec3 uLitCol, uShadeCol, uRimCol;
         uniform sampler2D uKitMask;
+        uniform vec3 uDmgPos[${FACE_SPOTS}]; uniform float uDmg[${FACE_SPOTS}]; uniform float uDmgR; uniform vec4 uCut; uniform vec3 uCutDir;
+        varying vec3 vBindP;
         ${LUMA}
         void main() {`)
       .replace('#include <opaque_fragment>', `
@@ -245,6 +266,15 @@ function paintFighterMaterial(mat: THREE.Material, kitAll: number, maskU: { valu
           // cool fresnel rim on the (normal-mapped) grazing edges: separates the figure from the black room
           float fr = pow(1.0 - clamp(dot(normal, geometryViewDir), 0.0, 1.0), uRimPow);
           col += uRimCol * (fr * uRimStr * alb);
+          // FACE WEAR: redness, then a bruise, where he has been hit; one cut. Skin only (never on the kit).
+          float dm = 0.0;
+          for (int i = 0; i < ${FACE_SPOTS}; i++) dm = max(dm, uDmg[i] * (1.0 - smoothstep(0.3 * uDmgR, uDmgR, distance(vBindP, uDmgPos[i]))));
+          vec3 sore = mix(col * vec3(1.3, 0.6, 0.58), col * vec3(0.55, 0.36, 0.58), smoothstep(0.45, 1.0, dm));
+          col = mix(col, sore, clamp(dm * 1.5, 0.0, 1.0) * (1.0 - kit));
+          vec3 dc = vBindP - uCut.xyz;
+          float along = dot(dc, uCutDir);
+          float cutM = uCut.w * (1.0 - smoothstep(0.035 * uDmgR, 0.07 * uDmgR, length(dc - along * uCutDir))) * (1.0 - smoothstep(0.3 * uDmgR, 0.42 * uDmgR, abs(along)));
+          col = mix(col, vec3(0.3, 0.015, 0.02), cutM * (1.0 - kit));
           outgoingLight = col;
           if (uMaskDbg > 0.5) outgoingLight = kit > 0.5 ? vec3(1.0, 0.0, 0.0) : (bootM > 0.5 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0));
         }
@@ -256,7 +286,7 @@ function paintFighterMaterial(mat: THREE.Material, kitAll: number, maskU: { valu
  * Give a spawned fighter the painted look: patch its materials and add an inverted-hull outline to each skinned mesh
  * (same geometry, same skeleton, pushed out along the skinned normal). The hulls are hidden when the switch is off.
  */
-export function paintFighter(model: THREE.Object3D, c: Config, bodyFile?: number): void {
+export function paintFighter(model: THREE.Object3D, c: Config, bodyFile?: number, wear?: FaceWear): void {
   const maskU = bodyFile === undefined ? paintU.uKitMask : kitMaskFor(bodyFile);
   const skinned: THREE.SkinnedMesh[] = [];
   model.traverse(o => {
@@ -267,7 +297,7 @@ export function paintFighter(model: THREE.Object3D, c: Config, bodyFile?: number
       if (!(mt as THREE.MeshStandardMaterial).isMeshStandardMaterial) return mt;
       let mm = mt;
       if (glove && !mt.userData['kitMat']) { mm = mt.clone(); mm.userData['painted'] = false; mm.userData['kitMat'] = true; }   // never share the body's material
-      paintFighterMaterial(mm, glove || /^(glove|trunks|trim|boot)$/.test(mm.name) ? 1 : 0, maskU);
+      paintFighterMaterial(mm, glove || /^(glove|trunks|trim|boot)$/.test(mm.name) ? 1 : 0, maskU, wear);
       return mm;
     };
     m.material = Array.isArray(m.material) ? m.material.map(fix) : fix(m.material);

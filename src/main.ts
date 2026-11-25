@@ -13,7 +13,7 @@ import { createState, hurtLevel, step } from './sim';
 import { aiStep, createAi, type AiState, type StyleParams } from './ai';
 import * as aiModule from './ai';
 import { createFighterView as createRigView, type RigView } from './rig';
-import { createHumanView, humanReady, preloadHuman, setHumanHandsDown } from './human/view';
+import { createHumanView, humanReady, preloadHuman, resetHumanWear, setHumanHandsDown } from './human/view';
 import { addFighterLights } from './human/body';
 import * as THREE from 'three';
 import { loadMocapGeo } from './core/mocapLoad';
@@ -160,6 +160,7 @@ function startFight(a: FighterSpec, b: FighterSpec, opts: StartOpts | null = nul
   const rebuild: [boolean, boolean] = [specs[0].id !== a.id, specs[1].id !== b.id];
   specs = [a, b];
   const s = seed + fightNo++;
+  resetHumanWear();   // (human/view.ts: sweat and face marks start again)
   let st = createState([a, b], cfg, s);
   if (opts?.prepare) st = opts.prepare(st);
   prev = next = st;
