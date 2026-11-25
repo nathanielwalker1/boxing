@@ -199,7 +199,8 @@ type ClipPose = { role: string; f: string; role2?: string | undefined; f2?: stri
 function makeBoxer(assets: BoxerAssets, side: 'red' | 'blue', pose: PoseName, cp: ClipPose | null): THREE.Group {
   // ?trunks=t2 (red) and ?trunks2=t3 (blue): which trunks part each wears (Meshy bodies; default the body's first)
   const trunksStyle = params.get(side === 'red' ? 'trunks' : 'trunks2') ?? params.get('trunks');
-  const root = assets.spawn(side === 'red' ? 'light' : 'dark', trunksStyle ? { ...KIT[side], trunksStyle } : KIT[side]);
+  const hairStyle = params.get(side === 'red' ? 'hair' : 'hair2');   // ?hair=h1 / ?hair2=h1: the hair part; none = bald
+  const root = assets.spawn(side === 'red' ? 'light' : 'dark', { ...KIT[side], ...(trunksStyle ? { trunksStyle } : {}), ...(hairStyle ? { hairStyle } : {}) });
   const g = new THREE.Group();
   g.add(root);
   g.updateMatrixWorld(true);

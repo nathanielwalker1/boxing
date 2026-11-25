@@ -178,7 +178,9 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   // ?trunks=t2 (red) / ?trunks2=t3 (blue) pick a trunks style on the fight page too, as on the proof page
   const q = new URLSearchParams(location.search);
   const trunksStyle = side === 0 ? q.get('trunks') : (q.get('trunks2') ?? q.get('trunks'));
-  const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c', ...(trunksStyle ? { trunksStyle } : {}) };
+  // ?hair=h1 (red) / ?hair2=h1 (blue): the hair part worn; none = bald. Each side is its own choice (no fallback).
+  const hairStyle = q.get(side === 0 ? 'hair' : 'hair2');
+  const kit: KitColors = { glove: spec.gloves, trunks: spec.trunksPrimary, trim: spec.trunksSecondary, boot: spec.boots, hair: spec.hairColor ?? '#15100c', ...(trunksStyle ? { trunksStyle } : {}), ...(hairStyle ? { hairStyle } : {}) };
   const model = boxer.spawn(tone, kit);
   paintFighter(model, cfg);   // the paint look's banded shading + ink outline (render/paint.ts; hidden when cfg.paintLook is off)
   const { skel, bones } = skeletonOf(model);

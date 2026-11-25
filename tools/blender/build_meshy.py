@@ -1229,6 +1229,203 @@ def build_trunks(TRUNKS_CACHE, TRUNKS_NAME):
 _built = [build_trunks(c_, n_) for c_, n_ in zip(TRUNKS_CACHE.split("|"), TRUNKS_NAME.split(","))]
 TRUNKS = tuple(t for t, _ in _built)
 for t in TRUNKS: t.hide_render = False
+
+# ---------------------------------------------------------------- 6d. hair: a separate, swappable part
+# Cut from a bust wearing it (HAIR_CACHE "dir|dir|...", HAIR_NAME "h1,h2,..."; same zip layout as a body): the dark
+# hair geometry on the head is kept (plus a thin ring of scalp), scaled so the donor's ear-to-ear width is this body's,
+# set down with the donor's bare scalp top on this body's crown and the ears in line, pushed out to a minimum
+# clearance, decimated and baked to public/fighter/hair_<name>_{c,n}.webp. The colour map's ALPHA is the hair itself
+# (dark texels): the loader cuts the scalp ring away, so this body's own skin shows between the braids. Weights: the
+# body underneath (nearest vertex); anything standing off the head (a knot, a tail) rides the Head bone.
+HAIR_CACHE, HAIR_NAME = (argv[10], argv[11]) if len(argv) > 11 and argv[10] else (None, "")
+HAIR_TRIS = 9000
+HAIR_CLEAR = 0.002        # minimum distance (m) from the scalp
+HAIR_HEAD_FROM = 0.58     # the donor is a bust: its head is everything above this fraction of its height
+HAIR_DARK = 0.22          # hair = base colour's brightest channel under this (skin is ~0.9)
+def build_hair(HCACHE, HNAME):
+    from mathutils.kdtree import KDTree
+    HSTEM = "hair_" + HNAME
+    hfiles = os.listdir(HCACHE)
+    def htex(tag):
+        for f in hfiles:
+            b = f.lower()
+            if b.endswith(".png") and (b.endswith("_%s.png" % tag) if tag else not any(b.endswith("_%s.png" % t) for t in ("normal", "roughness", "metallic"))):
+                return os.path.join(HCACHE, f)
+        raise SystemExit("hair texture missing: " + (tag or "base colour"))
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.fbx(filepath=os.path.join(HCACHE, next(f for f in hfiles if f.lower().endswith(".fbx"))))
+    new = [o for o in bpy.data.objects if o not in before]
+    hi = next(o for o in new if o.type == "MESH")
+    for o in new:
+        if o is not hi: bpy.data.objects.remove(o, do_unlink=True)
+    hi.parent = None
+    bpy.ops.object.select_all(action="DESELECT"); hi.select_set(True); bpy.context.view_layer.objects.active = hi
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    D = verts(hi).astype(np.float64)
+    dlo, dhi = D.min(0), D.max(0)
+    cimg_src = load_img(htex(""), True)
+    px = px_of(cimg_src)
+    hm_ = hi.data
+    nl = len(hm_.loops)
+    lv = np.empty(nl, dtype=np.int64); hm_.loops.foreach_get("vertex_index", lv)
+    luv = np.empty(nl * 2, dtype=np.float32); hm_.uv_layers.active.data.foreach_get("uv", luv); luv = luv.reshape(-1, 2)
+    vuv = np.zeros((len(D), 2)); vuv[lv] = luv
+    ix = np.clip((vuv[:, 0] % 1.0) * px.shape[1], 0, px.shape[1] - 1).astype(np.int64)
+    iy = np.clip((vuv[:, 1] % 1.0) * px.shape[0], 0, px.shape[0] - 1).astype(np.int64)
+    mxc = px[iy, ix, :3].max(1)
+    del px
+    # donor landmarks (its own units): ear-to-ear half width, the ears' depth, the bare scalp's top
+    zn = (D[:, 2] - dlo[2]) / (dhi[2] - dlo[2])
+    headm = zn > HAIR_HEAD_FROM
+    xc = (dlo[0] + dhi[0]) / 2
+    wd = float(np.abs(D[headm, 0] - xc).max())
+    ey = float(D[headm & (np.abs(D[:, 0] - xc) > 0.95 * wd), 1].mean())
+    dark = mxc < HAIR_DARK
+    stop = float(D[headm & (mxc > 0.4), 2].max())
+    # this body's: crown, half width and depth of the ears (the band 8 to 17.5 cm under the crown)
+    Pb = verts(body).astype(np.float64)
+    top_b = float(Pb[:, 2].max())
+    band = (Pb[:, 2] > top_b - 0.175) & (Pb[:, 2] < top_b - 0.08)
+    wb = float(np.abs(Pb[band, 0]).max())
+    eyb = float(Pb[band & (np.abs(Pb[:, 0]) > 0.95 * wb), 1].mean())
+    s = wb / wd
+    # the hair: dark, on the head, not the brows / eyes (dark, on the face: inside the temples, under the hairline, in
+    # front of the ears; the face looks down -y like the body's)
+    brow = (np.abs(D[:, 0] - xc) < 0.65 * wd) & (D[:, 2] < stop - 0.85 * wd) & (D[:, 1] < ey)
+    keep = dark & (zn > HAIR_HEAD_FROM - 0.08) & ~brow
+    Eh = np.empty(len(hm_.edges) * 2, dtype=np.int64); hm_.edges.foreach_get("vertices", Eh); Eh = Eh.reshape(-1, 2)
+    ok = (zn > HAIR_HEAD_FROM - 0.08) & ~(brow & dark)
+    for _ in range(3):        # a thin ring of scalp round every braid, so the alpha edge has geometry under it
+        m = keep[Eh[:, 0]] | keep[Eh[:, 1]]
+        keep[Eh[m, 0]] = True; keep[Eh[m, 1]] = True
+        keep &= ok
+    log("hair %s donor: half width %.3f, scalp top %.3f, ears y %.3f; body: crown %.3f, half width %.3f, ears y %.3f; scale %.4f; %d dark verts on the head, %d brow / eye verts left out"
+        % (HNAME, wd, stop, ey, top_b, wb, eyb, s, int((dark & headm & ~brow).sum()), int((dark & headm & brow).sum())))
+    hm_.transform(Matrix.Translation(Vector((-xc, -ey, -stop))))
+    hm_.transform(Matrix.Scale(s, 4))
+    hm_.transform(Matrix.Translation(Vector((0.0, eyb, top_b))))
+    bm_ = bmesh.new(); bm_.from_mesh(hm_)
+    bm_.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm_, geom=[v for v in bm_.verts if not keep[v.index]], context="VERTS")
+    bm_.verts.ensure_lookup_table()
+    seen = set(); small = []
+    for v0 in bm_.verts:      # drop specks: islands under 40 vertices
+        if v0.index in seen: continue
+        isl = [v0]; seen.add(v0.index); k = 0
+        while k < len(isl):
+            for e in isl[k].link_edges:
+                o_ = e.other_vert(isl[k])
+                if o_.index not in seen: seen.add(o_.index); isl.append(o_)
+            k += 1
+        if len(isl) < 40: small += isl
+    bmesh.ops.delete(bm_, geom=small, context="VERTS")
+    bm_.to_mesh(hm_); bm_.free(); hm_.update()
+    tris_hi = sum(len(p.vertices) - 2 for p in hm_.polygons)
+    Dk = verts(hi)
+    log("hair source: %d tris, x %.3f..%.3f y %.3f..%.3f z %.3f..%.3f" % (tris_hi, Dk[:, 0].min(), Dk[:, 0].max(), Dk[:, 1].min(), Dk[:, 1].max(), Dk[:, 2].min(), Dk[:, 2].max()))
+    if tris_hi < 3000: raise SystemExit("hair: no dark hair found on the donor's head")
+    lo = hi.copy(); lo.data = hi.data.copy(); lo.name = HSTEM
+    bpy.context.scene.collection.objects.link(lo)
+    mod = lo.modifiers.new("dec", "DECIMATE")
+    mod.decimate_type = "COLLAPSE"; mod.ratio = min(1.0, HAIR_TRIS / tris_hi); mod.use_collapse_triangulate = True
+    bpy.ops.object.select_all(action="DESELECT"); lo.select_set(True); bpy.context.view_layer.objects.active = lo
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    for u in list(lo.data.uv_layers): lo.data.uv_layers.remove(u)
+    lo.data.uv_layers.new(name="UV")
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=0.004)
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(rotate=True, margin=0.004)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    # bake colour + normal from the full-res hair (selected to active)
+    th = bpy.data.materials.new("hair_high"); th.use_nodes = True
+    n_ = th.node_tree; tb = n_.nodes["Principled BSDF"]; tout = n_.nodes["Material Output"]
+    tc_ = n_.nodes.new("ShaderNodeTexImage"); tc_.image = cimg_src
+    tn_ = n_.nodes.new("ShaderNodeTexImage"); tn_.image = load_img(htex("normal"), False)
+    nm_ = n_.nodes.new("ShaderNodeNormalMap")
+    n_.links.new(tn_.outputs["Color"], nm_.inputs["Color"]); n_.links.new(nm_.outputs["Normal"], tb.inputs["Normal"])
+    n_.links.new(tc_.outputs["Color"], tb.inputs["Base Color"])
+    em_ = n_.nodes.new("ShaderNodeEmission")
+    hi.data.materials.clear(); hi.data.materials.append(th)
+    tl_ = bpy.data.materials.new(HSTEM); tl_.use_nodes = True
+    timg = tl_.node_tree.nodes.new("ShaderNodeTexImage"); tl_.node_tree.nodes.active = timg
+    lo.data.materials.clear(); lo.data.materials.append(tl_)
+    imgs = {}
+    bpy.context.scene.render.engine = "CYCLES"
+    for name, n, colour, kind in (("c", 1024, True, "EMIT"), ("n", 1024, False, "NORMAL")):
+        img = bpy.data.images.new(HSTEM + "_" + name, n, n, alpha=(name == "c"))
+        img.colorspace_settings.name = "sRGB" if colour else "Non-Color"
+        timg.image = img
+        if kind == "EMIT":
+            n_.links.new(tc_.outputs["Color"], em_.inputs["Color"]); n_.links.new(em_.outputs["Emission"], tout.inputs["Surface"])
+        else:
+            n_.links.new(tb.outputs["BSDF"], tout.inputs["Surface"])
+        bpy.ops.object.select_all(action="DESELECT"); hi.select_set(True); lo.select_set(True)
+        bpy.context.view_layer.objects.active = lo
+        bpy.ops.object.bake(type=kind, use_selected_to_active=True, cage_extrusion=0.006, max_ray_distance=0.02,
+                            margin=8, normal_space="TANGENT")
+        imgs[name] = img
+    bpy.data.objects.remove(hi, do_unlink=True)
+    # alpha = the hair itself: dark texels opaque, the scalp ring cut away by the loader (alphaTest)
+    a_ = px_of(imgs["c"]).copy()
+    a_[..., 3] = 1.0 - sm(0.30, 0.48, a_[..., :3].max(2))
+    imgs["c"].pixels.foreach_set(a_.ravel())
+    log("hair texture: %.0f%% of texels opaque" % (100 * float((a_[..., 3] > 0.5).mean())))
+    # clearance: every vertex at least HAIR_CLEAR outside this body's skin
+    T = verts(lo).astype(np.float64)
+    bmb = bmesh.new(); bmb.from_mesh(body.data)
+    bvh_b = BVHTree.FromBMesh(bmb)
+    pushed = 0; deep = 0.0
+    for it in range(3):
+        for i in range(len(T)):
+            loc, nrm, _, _ = bvh_b.find_nearest(Vector(T[i].tolist()))
+            if loc is None: continue
+            sd = (Vector(T[i].tolist()) - loc).dot(nrm)
+            if sd < HAIR_CLEAR:
+                T[i] += np.array(nrm[:]) * (HAIR_CLEAR - sd)
+                if it == 0: pushed += 1; deep = min(deep, sd)
+    bmb.free()
+    lo.data.vertices.foreach_set("co", T.astype(np.float32).ravel())
+    lo.data.update()
+    log("hair: %d -> %d tris; %d of %d verts pushed out to %.0f mm clearance (deepest was %.1f mm inside)"
+        % (tris_hi, sum(len(p.vertices) - 2 for p in lo.data.polygons), pushed, len(T), 1000 * HAIR_CLEAR, -1000 * deep))
+    # weights: the body's underneath, smoothed; what stands off the head rides the Head bone
+    kd = KDTree(len(Pb))
+    for i in range(len(Pb)): kd.insert(Pb[i].tolist(), i)
+    kd.balance()
+    near = [kd.find(T[i].tolist()) for i in range(len(T))]
+    Wt = W[[q[1] for q in near]].copy()
+    far = np.array([q[2] for q in near]) > 0.02
+    Wt[far] = 0; Wt[far, BONES.index("Head")] = 1
+    me_ = lo.data
+    Et = np.empty(len(me_.edges) * 2, dtype=np.int64); me_.edges.foreach_get("vertices", Et); Et = Et.reshape(-1, 2)
+    degt = np.bincount(Et.ravel(), minlength=len(T)).astype(float)
+    for it in range(4):
+        acc = np.zeros_like(Wt)
+        np.add.at(acc, Et[:, 0], Wt[Et[:, 1]]); np.add.at(acc, Et[:, 1], Wt[Et[:, 0]])
+        Wt = 0.5 * Wt + 0.5 * acc / np.maximum(degt, 1)[:, None]
+    order_ = np.argsort(-Wt, 1)
+    keep_ = np.zeros_like(Wt, dtype=bool); np.put_along_axis(keep_, order_[:, :4], True, 1)
+    Wt[~keep_] = 0; Wt[Wt < 0.01] = 0
+    Wt /= np.maximum(Wt.sum(1, keepdims=True), 1e-9)
+    for g in list(lo.vertex_groups): lo.vertex_groups.remove(g)
+    for k, b_ in enumerate(BONES):
+        nz = np.nonzero(Wt[:, k] > 0)[0]
+        if not len(nz): continue
+        g = lo.vertex_groups.new(name="mixamorig:" + b_)
+        for vi in nz.tolist(): g.add([vi], float(Wt[vi, k]), "REPLACE")
+    lo.parent = rig
+    am = lo.modifiers.new("Armature", "ARMATURE"); am.object = rig
+    for p in lo.data.polygons: p.use_smooth = True
+    lo.data.name = HSTEM
+    for name, img in imgs.items():
+        path = os.path.join(OUTDIR, "%s_%s.webp" % (HSTEM, name)); tmp = path[:-5] + "_tmp.webp"
+        img.filepath_raw = tmp; img.file_format = "WEBP"; img.save(filepath=tmp, quality=92)
+        os.replace(tmp, path); log("wrote", os.path.basename(path), os.path.getsize(path))
+    tl_.node_tree.nodes.remove(timg)         # the loader loads hair_<name>_* itself; the glb carries no image
+    return lo
+HAIRS = tuple(build_hair(c_, n_) for c_, n_ in zip(HAIR_CACHE.split("|"), HAIR_NAME.split(","))) if HAIR_CACHE else ()
 # the body under the trunks goes, between the rims EVERY style covers (no poke-through, fewer triangles): on an old
 # body that is its moulded shorts, on a bare body the hips and the tops of the thighs
 cut = (max(c[0] for _, c in _built), min(c[1] for _, c in _built))
@@ -1243,7 +1440,7 @@ mat = bpy.data.materials.new("meshy")
 body.data.materials.clear()
 body.data.materials.append(mat)
 for o in list(bpy.data.objects):
-    if o not in (body, rig) + TRUNKS + GLOVES:
+    if o not in (body, rig) + TRUNKS + GLOVES + HAIRS:
         bpy.data.objects.remove(o, do_unlink=True)
 for p in me.polygons:
     p.use_smooth = True
@@ -1259,7 +1456,7 @@ jlen, jtype = struct.unpack("<I4s", blob[12:20])
 js = json.loads(blob[20:20 + jlen].decode("utf8"))
 rest = blob[20 + jlen:]
 # src/human/body.ts reads this: one baked material, textures <glb stem>_{c,n,r,mask,skin}.webp next to the glb
-js.setdefault("asset", {})["extras"] = {"look": 3, "kind": "meshy", "stem": STEM, "height": H, "glove": GSTEM, "trunks": [t.name for t in TRUNKS]}
+js.setdefault("asset", {})["extras"] = {"look": 3, "kind": "meshy", "stem": STEM, "height": H, "glove": GSTEM, "trunks": [t.name for t in TRUNKS], "hair": [h.name for h in HAIRS]}
 raw = json.dumps(js, separators=(",", ":")).encode("utf8")
 raw += b" " * ((4 - len(raw) % 4) % 4)
 with open(TMP, "wb") as f:

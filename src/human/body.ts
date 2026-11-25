@@ -21,7 +21,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 export type SkinTone = 'light' | 'dark';
-export interface KitColors { glove: string; trunks: string; trim: string; boot: string; hair: string; /** which trunks part a Meshy body wears ('t1' vintage, 't2' gladiator skirt, 't3' side tassels, 't4' Muay Thai split); default: the body's first */ trunksStyle?: string }
+export interface KitColors { glove: string; trunks: string; trim: string; boot: string; hair: string; /** which trunks part a Meshy body wears ('t1' vintage, 't2' gladiator skirt, 't3' side tassels, 't4' Muay Thai split); default: the body's first */ trunksStyle?: string; /** which hair part a Meshy body wears ('h1' cornrows); default: none (bald) */ hairStyle?: string }
 
 export interface BoxerAssets {
   spawn(tone: SkinTone, kit: KitColors): THREE.Object3D;
@@ -184,6 +184,10 @@ const MESHY = {
   trunksContrast: 1.0,      // the baked folds multiply through the tint unchanged
   trunksPartRoughness: 0.5, // the separate trunks part (trunks_<name>): satin, the moulded shorts' baked mean
   kitDesaturate: 0.15,      // kit colours pulled this far towards their own grey: satin, not flat plastic
+  hairRoughness: 0.78,      // the separate hair part (hair_<name>): matte, a little sheen on the braids
+  hairContrast: 0.5,        // the baked braid shading through the hair colour, softened (hair is near black: 1 would crush it)
+  hairGain: 1.6,            // kit hair colour at the hair's mean shading, lifted so the braids read under the ring light
+  hairAlphaTest: 0.5,       // the colour map's alpha is the hair itself; under this the scalp ring is cut away
 };
 
 /**
@@ -253,6 +257,49 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
     }
     trunksParts.set(stem, { src: tSrc, normal: tn, w: tImg.width, h: tImg.height, meanY: n ? s / n : 1, mats: new Map() });
   }));
+  // the swappable hair part (build_meshy.py 6d): meshes named hair_<name>, textures <stem>_c (alpha = the hair) / _n
+  const hairStems: string[] = [];
+  scene.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && m.name.startsWith('hair_')) hairStems.push(m.name); });
+  const hairParts = new Map<string, TrunksPart>();
+  await Promise.all(hairStems.map(async stem => {
+    const [hImg, hn] = await Promise.all([il.loadAsync(`${base}${stem}_c.webp`), tl.loadAsync(`${base}${stem}_n.webp`)]);
+    hn.flipY = false; hn.colorSpace = THREE.NoColorSpace; hn.anisotropy = 8;
+    const cv = document.createElement('canvas');
+    cv.width = hImg.width; cv.height = hImg.height;
+    const g = cv.getContext('2d', { willReadFrequently: true })!;
+    g.drawImage(hImg, 0, 0);
+    const hSrc = g.getImageData(0, 0, hImg.width, hImg.height).data;
+    let s = 0, n = 0;
+    for (let i = 0; i < hSrc.length; i += 4) {
+      if (hSrc[i + 3]! < 128) continue;   // the hair's own texels only
+      s += 0.2126 * hSrc[i]! + 0.7152 * hSrc[i + 1]! + 0.0722 * hSrc[i + 2]!; n++;
+    }
+    hairParts.set(stem, { src: hSrc, normal: hn, w: hImg.width, h: hImg.height, meanY: n ? Math.max(1, s / n) : 1, mats: new Map() });
+  }));
+  /** The hair part's material per kit hair colour: tinted whole, the braid shading kept, the scalp ring cut by alpha. */
+  const hairMat = (kit: KitColors, stem: string): THREE.MeshStandardMaterial | null => {
+    const p = hairParts.get(stem);
+    if (!p) return null;
+    const hit = p.mats.get(kit.hair);
+    if (hit) return hit;
+    const kc = rgb(kit.hair), out = new Uint8ClampedArray(p.src);
+    for (let i = 0; i < out.length; i += 4) {
+      const y = 0.2126 * p.src[i]! + 0.7152 * p.src[i + 1]! + 0.0722 * p.src[i + 2]!;
+      const f = Math.pow(Math.min(4, y / p.meanY), MESHY.hairContrast) * MESHY.hairGain;
+      out[i] = kc[0] * f; out[i + 1] = kc[1] * f; out[i + 2] = kc[2] * f;   // alpha stays the hair mask
+    }
+    const cv = document.createElement('canvas');
+    cv.width = p.w; cv.height = p.h;
+    cv.getContext('2d')!.putImageData(new ImageData(out, p.w, p.h), 0, 0);
+    const t = new THREE.CanvasTexture(cv);
+    t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.premultiplyAlpha = false;
+    const m = new THREE.MeshStandardMaterial({
+      name: 'meshy_hair', map: t, normalMap: p.normal, normalScale: new THREE.Vector2(MESHY.normalScale, MESHY.normalScale),
+      roughness: MESHY.hairRoughness, metalness: 0, alphaTest: MESHY.hairAlphaTest, side: THREE.DoubleSide,
+    });
+    p.mats.set(kit.hair, m);
+    return m;
+  };
   // region statistics, mask-weighted: mean luminance of trunks and gloves, mean skin colour
   let tY = 0, tW = 0, gY = 0, gW = 0, sR = 0, sG = 0, sB = 0, sW = 0;
   for (let i = 0; i < src.length; i += 4) {
@@ -368,6 +415,11 @@ async function loadMeshy(scene: THREE.Object3D, base: string, stem: string): Pro
         m.castShadow = true;
         m.receiveShadow = true;
         m.frustumCulled = false;
+        if (m.name.startsWith('hair_')) {   // the hair worn: kit.hairStyle ('h1') if this body carries it, else bald
+          const hm = m.name === `hair_${kit.hairStyle ?? ''}` ? hairMat(kit, m.name) : null;
+          if (hm) m.material = hm; else m.visible = false;
+          return;
+        }
         const isTrunks = m.name.startsWith('trunks');
         if (isTrunks && m.name !== style) { m.visible = false; return; }
         if (isTrunks) part.trunks = m;
