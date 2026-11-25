@@ -47,7 +47,10 @@ function pair(tag, a, b, n) {
   }
 }
 const want = w => WHAT === w || WHAT === 'all';
-if (WHAT.includes(':')) { const [a, b] = WHAT.split(':'); pair('style_med', ai(a, 1), ai(b, 1), FIGHTS); }
+const who = n => EXPLOIT.includes(n) ? { kind: 'bot', bot: n, style: 'pressure' } : ai(n, 1);
+if (WHAT.includes(':')) { const [a, b] = WHAT.split(':'); pair(EXPLOIT.includes(a) || EXPLOIT.includes(b) ? 'exploit' : 'style_med', who(a), who(b), FIGHTS); }
+// spam: the one-punch and power-loop bots against three styles, `fights` each (the repetition check, a third the size of `exploit`)
+if (WHAT === 'spam') for (const b of EXPLOIT.filter(n => n.startsWith('spam_') || n.startsWith('high_low') || n === 'power_only')) for (const s of ['pressure', 'counter', 'swarmer']) pair('exploit', who(b), ai(s, 1), FIGHTS);
 if (want('styles')) for (let i = 0; i < STYLES.length; i++) for (let j = i + 1; j < STYLES.length; j++) pair('style_med', ai(STYLES[i], 1), ai(STYLES[j], 1), FIGHTS);
 if (want('exploit')) for (const b of EXPLOIT) for (const s of STYLES) pair('exploit', { kind: 'bot', bot: b, style: 'pressure' }, ai(s, 1), Math.max(2, Math.round(FIGHTS / 5)));
 if (want('ladder')) for (const s of STYLES) {
