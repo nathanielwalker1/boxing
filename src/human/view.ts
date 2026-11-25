@@ -593,9 +593,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         if (cfg.humanCrossRise > 0 && cfg.mocapOutcome && !cfg.humanRawPose && !next.down && next.punch.type === 'cross' && out.ik?.outcome && ci.kind === 'land' && ob) {
           if (!ci.resolved) {
             const ty = ci.part === 'head' ? ob.head.y : ci.at ? ci.at.y : NaN;
-            if (!Number.isNaN(ty)) riseGap = ty - (gloveOf(out.ik.arm)[1]! - dropNow);
+            // (against the take's glove at its CONTACT frame, and on the whole-punch envelope: read off the glove in
+            //  flight and weighted like the hand, the rise came in over the last ticks — Nate: "upon being close to
+            //  the fighter's face, it grows and extends weirdly")
+            if (!Number.isNaN(ty) && !Number.isNaN(ci.hitY)) riseGap = ty - (ci.hitY - dropNow);
           }
-          want = riseGap * out.ik.w * cfg.humanCrossRise;
+          want = riseGap * ci.wBody * cfg.humanCrossRise;
           if (want > 0) {
             let room = Infinity;
             for (const s of ['Left', 'Right'] as const) {

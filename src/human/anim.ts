@@ -278,7 +278,8 @@ export class HumanAnim {
   /** The counter coil asked this tick (humanCounterLook): added to the lean and the hips drop. */
   private ctrKey = -1; private ctrT0 = NaN;
   private readonly coil = { lat: 0, twist: 0, drop: 0 };
-  conformInfo: { kind: OutcomeKind | 'none'; w: number; at: Vec3 | null; part: BodyPart; resolved: boolean; toHit: number } = { kind: 'none', w: 0, at: null, part: 'head', resolved: false, toHit: 0 };
+  /** (wBody: the whole-punch envelope the body's travel uses, in from the punch's start and out over its recovery; hitY: the take's own glove height at its contact frame, m — both for humanCrossRise) */
+  conformInfo: { kind: OutcomeKind | 'none'; w: number; at: Vec3 | null; part: BodyPart; resolved: boolean; toHit: number; wBody: number; hitY: number } = { kind: 'none', w: 0, at: null, part: 'head', resolved: false, toHit: 0, wBody: 0, hitY: NaN };
   /** The part the punch in flight is predicted to land on, then the part it was scored on. */
   private ocPart: BodyPart = 'head';
   /** (audit) the punch's body travel this frame along his facing, m: the sim's own, what the contact frame lacks, and the envelope on that. */
@@ -333,7 +334,7 @@ export class HumanAnim {
     }
     const w = Number.isNaN(this.ocT.x) ? 0 : wIn * this.ocKindW;
     const at = { x: this.ocT.x, y: this.ocT.y, z: this.ocT.z };
-    let turn = 0, lunge = cfg.humanInertia ? { x: 0, z: 0 } : lunge0;
+    let turn = 0, lunge = cfg.humanInertia ? { x: 0, z: 0 } : lunge0, wBody = 0, hitY = NaN;
     if (w > 1e-3 || (cfg.humanInertia && !Number.isNaN(this.ocT.x))) {
       // where the clip glove is now (his frame, from the drawn origin), and where the target is
       mocapClipGlove(pick, frame, cfg, me.body.heightM, CG2);
@@ -363,6 +364,10 @@ export class HumanAnim {
       lunge = { x: c * Ln, z: s * Ln };
       // (no body turn: Nate 2026-11-17, every layer earns its way back; the across error stays, reported by the audit)
       void exL; turn = 0;
+      // (humanCrossRise: the whole-punch envelope and the take's glove height at its contact frame, for the view.
+      //  A whole-body turn onto the target on the same envelope was tried 2026-11-25 for the cross and removed: the
+      //  cross's sideways error did not move, median 1-2 cm, range -22..18 either way)
+      if (cfg.humanInertia) { wBody = wL; hitY = CG2.y; }
     }
     // A MISS IS STILL A COMMITTED PUNCH: he steps with it (the view holds the glove humanMissGap short of the other man)
     if (cfg.humanInertia && cfg.humanWhiffStep > 0) {
@@ -370,7 +375,7 @@ export class HumanAnim {
       const Lw = cfg.humanWhiffStep * env * (1 - this.ocKindW);
       lunge = { x: lunge.x + Math.cos(me.yaw) * Lw, z: lunge.z + Math.sin(me.yaw) * Lw };
     }
-    this.conformInfo = { kind, w, at: Number.isNaN(at.x) ? null : at, part: this.ocPart, resolved: p.resolved, toHit };
+    this.conformInfo = { kind, w, at: Number.isNaN(at.x) ? null : at, part: this.ocPart, resolved: p.resolved, toHit, wBody, hitY };
     return { ik: { arm: pick.arm, w, at, exact: true, outcome: true }, turn, lunge };
   }
 
