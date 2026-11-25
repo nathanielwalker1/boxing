@@ -102,6 +102,7 @@ if (params.get('wear')) cfg.humanWearStart = Number(params.get('wear')) || 0;   
 // which body (0 v2, 1 m1, 2 m2): ?body=N, or the dev server's VITE_BODY (so a second server on the same code runs the
 // whole browser suite on another body, for the m1-vs-m2 A/B)
 const bodyParam = params.get('body') ?? (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_BODY;
+if (params.get('tired') !== null) cfg.humanTiredPin = Math.max(0, Math.min(1, Number(params.get('tired')) || 0));   // (?tired=0.9: both fighters DRAWN that tired, 0 = pinned fresh)
 // (no ?body: each fighter wears the body of his own build, human/view.ts bodyFileFor; ?body=N puts everyone in body N)
 const bodyForced = bodyParam !== undefined && bodyParam !== null && /^[0-5]$/.test(bodyParam);
 if (bodyForced) cfg.humanBodyFile = Number(bodyParam);

@@ -245,11 +245,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   // BUILD TRIM (heavyweights, Nate 2026-11-25: the large body too fat, the skinny one too thin): the lower spine is scaled
   // across and front to back, and the bones above take that scale back off, so arms, head and reach are untouched.
   // Large body (file 4): the belly only (the chest bone undoes it). Skinny body (file 5): the whole trunk, shoulders a little wider.
+  // (undo: b's own axes seen in its parent's frame, each un-scaled by what the parent did to it — wx across, wy up, wz front to back)
+  const undo = (b: THREE.Bone, wx: number, wy = 1, wz = wx): void => {
+    const s = [0, 1, 2].map(i => { const d = new THREE.Vector3().setComponent(i, 1).applyQuaternion(b.quaternion); return 1 / Math.hypot(wx * d.x, wy * d.y, wz * d.z); });
+    b.scale.multiply(new THREE.Vector3(s[0], s[1], s[2]));
+  };
   {
-    const undo = (b: THREE.Bone, w: number): void => {   // b's own axes seen in its parent's frame, each un-scaled by what the parent did to it
-      const s = [0, 1, 2].map(i => { const d = new THREE.Vector3().setComponent(i, 1).applyQuaternion(b.quaternion); return 1 / Math.hypot(w * d.x, d.y, w * d.z); });
-      b.scale.multiply(new THREE.Vector3(s[0], s[1], s[2]));
-    };
     if (bodyFile === 4 && cfg.humanFatBelly !== 1) { const w = cfg.humanFatBelly; spine[0]!.scale.set(w, 1, w); undo(spine[2]!, w); }
     if (bodyFile === 5 && cfg.humanSkinnyTorso !== 1) {
       const w = cfg.humanSkinnyTorso;
@@ -257,6 +258,18 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       undo(neck, w); undo(bone('LeftShoulder'), w); undo(bone('RightShoulder'), w);
     }
   }
+  // ALIVE (drawn only): the soft parts move by bone SCALE on top of the build's own — the belly (lower spine) and the chest
+  // (upper spine) — and the bones above each take it back off (undo), so arms, head and reach keep their size.
+  const clav = { Left: bone('LeftShoulder'), Right: bone('RightShoulder') };
+  const softBones = [spine[0]!, spine[1]!, spine[2]!, neck, clav.Left, clav.Right];
+  const softBase = softBones.map(b => b.scale.clone());   // as built (head shape, build trim)
+  /** Belly and chest each scaled (across, up, front to back) for this frame. Call once the frame's rotations of these bones are in. */
+  const softScale = (bx: number, by: number, bz: number, cx: number, cy: number, cz: number): void => {
+    softBones.forEach((b, i) => b.scale.copy(softBase[i]!));
+    if (bx !== 1 || by !== 1 || bz !== 1) { spine[0]!.scale.multiply(vA.set(bx, by, bz)); undo(spine[1]!, bx, by, bz); }
+    if (cx !== 1 || cy !== 1 || cz !== 1) { spine[2]!.scale.multiply(vA.set(cx, cy, cz)); undo(neck, cx, cy, cz); undo(clav.Left, cx, cy, cz); undo(clav.Right, cx, cy, cz); }
+  };
+  let hipSlow = NaN, flatW = 0;   // (humanTiredFlat) the clip's hip height averaged, and how much of the bounce is being taken out
   let menuW = 0;   // (humanMenuHandsDown) 0..1: how far the arms are down at his sides
   const headTop = bones.find(b => b.name.endsWith('HeadTop_End')) ?? null;
   // WEAR OVER THE FIGHT (drawn only; the sim never reads it): `wet` = how sweaty he is, `dmg` = how marked each face spot is,
@@ -703,6 +716,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   }
   function run(prev: FighterState, next: FighterState, alpha: number, dt: number, events: readonly SimEvent[]): void {
     lastEvents = events;
+    // (humanTiredPin, the ?tired=N link) how tired he is DRAWN, pinned: copies of the states for the picture only
+    if (cfg.humanTiredPin >= 0) {
+      const t = Math.min(1, cfg.humanTiredPin);
+      prev = { ...prev, fatigue: t, stamina: 1 - t, staminaCap: 1 };
+      next = { ...next, fatigue: t, stamina: 1 - t, staminaCap: 1 };
+    }
     group.userData.down = next.down;   // (render/ropes.ts: a man on the floor is not held by the ropes' bow)
     { const L = stageLog(); if (L) L[side] = []; }
     {
@@ -739,6 +758,43 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       applyFit(fit, out.pose, fitOut);
       for (let i = 0; i < bones.length; i++) { const r = fitOut.localRot[i]!; bones[i]!.quaternion.set(r[0], r[1], r[2], r[3]); }
       hips.position.set(fitOut.hipsPos[0], fitOut.hipsPos[1], fitOut.hipsPos[2]);
+      // ---- ALIVE (drawn only), on the clip and before every hand is placed: the breath in the chest and shoulders, the tired
+      //      head, the flatter stance. The breath is the one anim.ts already leans the head on (same phase), so they move as one. ----
+      if (cfg.humanTiredOn && !cfg.humanRawPose) {
+        const td = next.down ? 0 : tiredOf(next, cfg);
+        // the bounce: the clip's hip height pulled toward its own slow average
+        const calm = next.punch.type === null && !next.down && !next.slip.active && struck <= 0;
+        const hy = fitOut.hipsPos[1];
+        if (!calm || !(hipSlow === hipSlow)) hipSlow = hy; else hipSlow += (hy - hipSlow) * (1 - Math.exp(-Math.min(dt, 0.1) / 0.6));
+        flatW += ((calm ? td * cfg.humanTiredFlat : 0) - flatW) * (1 - Math.exp(-Math.min(dt, 0.1) / 0.3));
+        hips.position.y = hy + (hipSlow - hy) * flatW;
+        // the breath, 0 (out) .. 1 (in)
+        const ph = (anim as unknown as { breath: number }).breath;
+        const inB = 0.5 - 0.5 * Math.sin(ph), sw = (cfg.humanBreathChest + cfg.humanBreathChestTired * td) * inB;
+        const bl = sw * cfg.humanBreathBelly;
+        softScale(1 + bl * 0.5, 1, 1 + bl, 1 + sw * 0.5, 1, 1 + sw);
+        group.updateMatrixWorld(true);
+        group.getWorldQuaternion(qG);
+        // shoulders up on the breath in (each collar bone turned about his front-to-back axis)
+        const rise = (cfg.humanBreathShoulder + cfg.humanBreathShoulderTired * td) * inB;
+        if (rise > 1e-5) {
+          vN.set(0, 0, 1).applyQuaternion(qG).normalize();
+          for (const [a, sgn] of [['Left', 1], ['Right', -1]] as const) {
+            const len = Math.max(0.05, arm[a][0].position.length());   // collar bone length, native m
+            rotateWorld(clav[a], qR.setFromAxisAngle(vN, sgn * Math.atan2(rise, len)));
+          }
+        }
+        // the head: hangs when tired, and the chin rides the breath (mouth breathing) — about his left axis, positive = chin down
+        const nod = (cfg.humanTiredHeadHang * td - cfg.humanBreathHeadBob * td * (inB - 0.5) * 2) * Math.PI / 180;
+        if (Math.abs(nod) > 1e-5) {
+          vN.set(1, 0, 0).applyQuaternion(qG).normalize();
+          qR.setFromAxisAngle(vN, nod * 0.5);
+          const q2 = qI.copy(qR);   // (rotateWorld uses qL / qP only)
+          rotateWorld(neck, q2);
+          group.updateMatrixWorld(true);
+          rotateWorld(head, q2);
+        }
+      } else softScale(1, 1, 1, 1, 1, 1);
       group.updateMatrixWorld(true);
       stamp('clip');
 
