@@ -649,6 +649,8 @@ nyr = np.zeros((N1, N1), dtype=np.float32)                    # facing: + = back
 swr = np.zeros((N1, N1), dtype=np.float32)
 zr = np.zeros((N1, N1), dtype=np.float32)                     # height of the texel's triangle (m)
 xr = np.zeros((N1, N1), dtype=np.float32)                     # its x (+ left)
+xt = np.zeros((N1, N1), dtype=np.float32); yt = np.zeros((N1, N1), dtype=np.float32)
+zt = np.zeros((N1, N1), dtype=np.float32)                     # per-texel interpolated surface height (m)
 UVp = uvl[LT] * N1 - 0.5
 for ti in range(len(TV)):
     a, b, c = UVp[ti]
@@ -666,6 +668,10 @@ for ti in range(len(TV)):
     swr[gy[ins], gx[ins]] = tsw[ti]
     zr[gy[ins], gx[ins]] = cz[ti]
     xr[gy[ins], gx[ins]] = cen[ti, 0]
+    l3 = 1 - l1 - l2
+    zt[gy[ins], gx[ins]] = (l1 * P[TV[ti, 0], 2] + l2 * P[TV[ti, 1], 2] + l3 * P[TV[ti, 2], 2])[ins]   # the texel's own surface height
+    xt[gy[ins], gx[ins]] = (l1 * P[TV[ti, 0], 0] + l2 * P[TV[ti, 1], 0] + l3 * P[TV[ti, 2], 0])[ins]
+    yt[gy[ins], gx[ins]] = (l1 * P[TV[ti, 0], 1] + l2 * P[TV[ti, 1], 1] + l3 * P[TV[ti, 2], 1])[ins]
 cover = lab >= 0
 log("uv coverage %.1f%%" % (100 * cover.mean()))
 cp = px_of(C).reshape(N1, 2, N1, 2, 4).mean((1, 3))[..., :3]   # base colour at 1024
@@ -677,6 +683,21 @@ lace = (sat < 0.25) & (mx > 0.45)                              # white laces / c
 red = ((hue < 0.035) | (hue > 0.92)) & (sat > 0.45)
 skinlike = (hue > 0.02) & (hue < 0.14) & (sat > 0.18) & (mx > 0.12)
 m_trunks = (lab == 1) & lace
+# waistband top edge, measured per direction round the body (the band tilts: lower in front, higher at the back): the
+# 98th percentile height of the band's own cloth texels in 36 angle bins, smoothed. The trunks region is then cut PER
+# TEXEL at that height (its interpolated surface position), not per triangle, so the top line is clean and level-ish.
+_th = np.arctan2(yt, xt); _nb = 36
+_edge = np.full(_nb, np.nan)
+_bi = np.clip(((_th + math.pi) / (2 * math.pi) * _nb).astype(int), 0, _nb - 1)
+_src = m_trunks & (zt > 0)
+for _k in range(_nb):
+    _q = zt[_src & (_bi == _k)]
+    if _q.size > 50: _edge[_k] = np.percentile(_q, 99)
+_edge = np.where(np.isnan(_edge), np.nanmedian(_edge), _edge)
+for _ in range(2): _edge = 0.25 * np.roll(_edge, 1) + 0.5 * _edge + 0.25 * np.roll(_edge, -1)
+_ctr = (np.arange(_nb) + 0.5) / _nb * 2 * math.pi - math.pi
+def cut_z(theta): return np.interp(theta, _ctr, _edge, period=2 * math.pi)
+log("waistband top edge cm by angle (front -90deg ... back +90deg):", np.round(100 * _edge[::3], 1).tolist(), "min %.1f max %.1f" % (100 * _edge.min(), 100 * _edge.max()))
 m_glove = (lab == 2) & ~lace | (lab == 5) & (red | (mx < 0.12))
 m_boot = (lab == 3) & (mx < 0.25) & ~skinlike
 m_hair = (lab == 4) & (mx < 0.16) & (sat < 0.6)
@@ -709,6 +730,12 @@ ch = [bleed(clean(bleed(m.astype(np.float32), 6))) for m in (m_trunks, m_glove, 
 # took the kit colour as a red streak on the skin
 own = bleed((lab == 1).astype(np.float32), 6) > 0.99
 ch[0] = ch[0] * own
+# per-texel cut at the measured waistband top (positions bled into the gutter so seams cut at the same height)
+zb, xb, yb = bleed(zt, 6), bleed(xt, 6), bleed(yt, 6)
+cutb = cut_z(np.arctan2(yb, xb))
+_c0 = ch[0].copy()
+ch[0] = ch[0] * np.clip((cutb + 0.002 - zb) / 0.004, 0, 1)
+ch[3] = np.maximum(ch[3], _c0 - ch[0])          # what the cut took from the trunks is skin
 # boots: the shaft above SOCK_Z becomes a short white sock band (boxing boots read low and matte, not tall and shiny)
 SOCK_Z = 0.19
 zrb = bleed(zr, 6)
@@ -744,6 +771,14 @@ for s in (1, -1):
     f = np.clip(blur(np.where(zm, lum / max(float(lum[zm].mean()), 1e-4), 1.0), 2, 2), 0.6, 1.5) ** 0.35
     rep[zm] = cp[refm].mean(0) * f[zm][:, None]; repw |= zm
     log("forearm repaint side %d: %d texels from %d reference skin texels, colour %s" % (s, int(zm.sum()), int(refm.sum()), np.round(cp[refm].mean(0), 3).tolist()))
+# cloth-coloured texels above the waistband cut (now skin): skin colour from just above the cut, own shading kept
+cutt = cut_z(np.arctan2(yt, xt))
+zc = (lab == 1) & lace & (zt > 0) & (zt >= cutt - 0.002)
+refc = (lab >= 0) & skinlike & (zt > cutt + 0.01) & (zt < cutt + 0.06) & (np.abs(xt) < 0.30)
+if zc.any() and refc.any():
+    fc = np.clip(blur(np.where(zc, lum / max(float(lum[zc].mean()), 1e-4), 1.0), 2, 2), 0.6, 1.5) ** 0.35
+    rep[zc] = cp[refc].mean(0) * fc[zc][:, None]; repw |= zc
+    log("waistband repaint: %d texels from %d reference skin texels, colour %s" % (int(zc.sum()), int(refc.sum()), np.round(cp[refc].mean(0), 3).tolist()))
 rf = repw.astype(np.float32); gut = ~cover & (box(rf, 3) > 0)   # carry it into the island gutter (no red seam)
 for k in range(3):
     rep[..., k] = np.where(gut, box(rep[..., k], 3) / np.maximum(box(rf, 3), 1e-6), rep[..., k])
