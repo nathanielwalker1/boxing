@@ -273,9 +273,18 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   const soft = { b: 0, bv: 0, c: 0, cv: 0, hx: 0, hxv: 0, hz: 0, hzv: 0 };
   const softGain = bodyFile === 4 ? 1 : -1;   // (-1: read humanSoftLean live)
   // (for the checks: what the soft layers are doing to him right now — belly and chest scale front to back against the build's, the head's swing in degrees)
-  ((window as unknown as { __humanSoft?: Record<number, unknown> }).__humanSoft ??= {})[side] = () => ({
+  /** A land of size k (1 = flush, nominal power) on his body or head, pushed along world (ix, iz): the springs are kicked. */
+  const softKick = (k: number, part: 'head' | 'body', ix: number, iz: number): void => {
+    const body = part === 'body' ? 1 : cfg.humanSoftCross, hd = part === 'head' ? 1 : cfg.humanSoftCross;
+    const w = 2 * Math.PI * cfg.humanSoftHz, wh = 2 * Math.PI * cfg.humanSoftHeadHz, il = Math.hypot(ix, iz) || 1;
+    soft.bv += k * body * w; soft.cv += k * body * w;
+    const a = k * hd * cfg.humanSoftHeadDeg * Math.PI / 180 * wh;
+    soft.hxv += a * ix / il; soft.hzv += a * iz / il;
+  };
+  // (.kick: the review film sets the wobble off on a man standing with his hands down, where nothing covers it)
+  ((window as unknown as { __humanSoft?: Record<number, unknown> }).__humanSoft ??= {})[side] = Object.assign(() => ({
     belly: spine[0]!.scale.z / softBase[0]!.z, chest: spine[2]!.scale.z / softBase[2]!.z, headDeg: Math.hypot(soft.hx, soft.hz) * 180 / Math.PI,
-  });
+  }), { kick: softKick });
   let hipSlow = NaN, flatW = 0;   // (humanTiredFlat) the clip's hip height averaged, and how much of the bounce is being taken out
   let menuW = 0;   // (humanMenuHandsDown) 0..1: how far the arms are down at his sides
   const headTop = bones.find(b => b.name.endsWith('HeadTop_End')) ?? null;
@@ -773,11 +782,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
         for (const e of events) {
           if (e.type !== 'punchLand' || e.target !== side) continue;
           const k = (e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.7 : 0.35) * Math.max(0.5, Math.min(1.5, e.power));
-          const body = e.part === 'body' ? 1 : cfg.humanSoftCross, hd = e.part === 'head' ? 1 : cfg.humanSoftCross;
-          const w = 2 * Math.PI * cfg.humanSoftHz, wh = 2 * Math.PI * cfg.humanSoftHeadHz, il = Math.hypot(e.impulse.x, e.impulse.z) || 1;
-          soft.bv += k * body * w; soft.cv += k * body * w;
-          const a = k * hd * cfg.humanSoftHeadDeg * Math.PI / 180 * wh;
-          soft.hxv += a * e.impulse.x / il; soft.hzv += a * e.impulse.z / il;
+          softKick(k, e.part === 'body' ? 'body' : 'head', e.impulse.x, e.impulse.z);
         }
         const w = 2 * Math.PI * cfg.humanSoftHz, wh = 2 * Math.PI * cfg.humanSoftHeadHz;
         const n = Math.max(1, Math.ceil(Math.min(dt, 0.1) * 240)), h = Math.min(dt, 0.1) / n;
