@@ -102,6 +102,18 @@ theory. He is the judge of *feel* and *look* — you are the judge of *does it r
     takes over 2 minutes, stop it and find out why before running another. Find a tuning
     value with config overrides in one run, not by editing source and re-booting per value.
 
+13. **Rules and balance work (added 2026-11-24 after a session took 2.5 hours over 2 parts).**
+    - **Split a number by its source before tuning it.** A balance number far off target is
+      a bug until shown otherwise: `node scripts/balance/kinds.mjs <label>` (or add the
+      split to the harness) before changing a config value. One guess, then a one-fight
+      trace in `scripts/_debug.mjs`.
+    - **The mash check gates the play folder.** Any change to how often punches land, are
+      blocked or are dodged runs `npm run balance -- spam 2 <label>` (about 5 minutes) before
+      the play folder moves. A masher bot over 30% means the folder stays where it is and
+      the report says so.
+    - **One watcher per background job, and never end a turn only to wait.** While a run is
+      going, do the next part's reading, test or builder brief.
+
 ## Sub-agents
 When a stage's work is split by workstream, the orchestrator: (a) confirms `src/core` is
 frozen, (b) writes each sub-agent a brief that names its folders, its deliverable from
