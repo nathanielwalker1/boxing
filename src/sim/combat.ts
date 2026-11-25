@@ -13,7 +13,7 @@
 import type { BodyPart, Config, FighterState, FrameInput, HitGrade, PunchType, Side, SimEvent, SimState, Vec3 } from '../core';
 import { SIM_DT, atan2, clamp, closestOnSegment, frameOf, lerp, smoothstep, sphereCapsuleOverlap, sqrt, v2dist, v2dot, handLateralSign, worldToLocal } from '../core';
 import { PUNCHES, punchCrouch, punchEnvelope, punchHand, punchLean, punchTwist, whiffPhases, whiffRecoveryMult } from './punches';
-import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, iqClass, setIqClass, IQ_BLOCKED, IQ_FAST, IQ_MISSED, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist, pressDist, duckT } from './state';
+import { guardPress, setGuardPress, timedSkill, setTimedSkill, EMPTY_BUFFER, MASK_CROSS, MASK_HOOK, MASK_JAB, MASK_UPPERCUT, PUNISH_BLOCK, PUNISH_SLIP, punishSource, brokenMult, chainCarry, cockMult, idlePunch, prevPunchMask, punchBuffer, punchMask, setBrokenMult, setChainCarry, setCockMult, setPrevPunchMask, setPunchBuffer, setStuffed, setWhiffMult, iqClass, setIqClass, IQ_BLOCKED, IQ_FAST, IQ_MISSED, stuffed, targetCut, touchedBlock, whiffMult, stunAge, setReachNerf, regenDelay, setRegenDelay, setPressDist, pressDist, duckT, repeatKey, repeatRun, repeatAge, repeatCounted, setRepeat, ageRepeat } from './state';
 import { applyReaction, hitBody } from './reaction';
 import { takeHit } from './resources';
 import { slipBack, slipLateral } from './slip';
@@ -99,7 +99,13 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // punch's follow-through, so the wind-up is comboCockScale as long.
   const chained = f.punch.type !== null;
   // iqMissCost: only a punch chained off a clean land gets the shortened wind-up; off a block, a glance or a miss it is a cold throw.
-  const fastChain = chained && (!cfg.iqMissCost || iqClass(f) === IQ_FAST);
+  // Repeat read (audit P4): the same punch (type + hand + level) again inside repeatWindow of the last one's start. The first
+  // repeatFreeJab jab repeats are free; every counted repeat costs more, is easier to read, and never gets the fast chain.
+  const key = 1 + (['jab', 'cross', 'hook', 'uppercut'] as PunchType[]).indexOf(type) * 4 + (hand === 'rear' ? 2 : 0) + (v.body ? 1 : 0);
+  const run = cfg.repeatMax > 0 && repeatKey(f) === key && repeatAge(f) <= cfg.repeatWindow ? repeatRun(f) + 1 : 0;
+  const repeats = cfg.repeatMax > 0 ? Math.min(cfg.repeatMax, Math.max(0, run - (type === 'jab' ? cfg.repeatFreeJab : 0))) : 0;
+  if (cfg.repeatMax > 0) setRepeat(f, key, run, repeats);
+  const fastChain = chained && repeats === 0 && (!cfg.iqMissCost || iqClass(f) === IQ_FAST);
   // iqLoadedCounter: a DUCK loads both hands for the punches that come up out of it: a rising uppercut or a body hook pressed while
   // ducked (inside slipLoadedTime of the duck) or inside the rise window after (the same load a slip gives its side, spent the same way).
   const duckLoad = !!cfg.iqLoadedCounter && (variant === 'risingUppercut' || variant === 'bodyHook') && duckT(f) >= 0 && duckT(f) <= cfg.slipLoadedTime;   // (duckT 0 = released this tick or inside the rise window; -1 = crouched with no evade, no load)
@@ -141,7 +147,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
   // wind-up blends out of it instead of snapping to zero and reloading.
   // (Polish phase: also out of a pose still unwinding after a feint or a stuff — the hands are free, the body is not home yet.)
   setChainCarry(f, { on: chained || (cfg.carryFadeOn && (f.torsoTwist !== 0 || f.lean.fwd !== 0)), twist: f.torsoTwist, fwd: f.lean.fwd, lat: f.lean.lat, crouch: f.crouch });
-  f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost * throwWeight(type, cfg) * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg));   // (polish phase: by the punch's weight)
+  f.stamina = Math.max(0, f.stamina - cfg.staminaPunchCost * throwWeight(type, cfg) * rated(f, 'stamina', -cfg.ratingStaminaCost, cfg) * (1 + cfg.repeatStaminaCost * repeats));   // (polish phase: by the punch's weight)
   // WORK TIRES (workCapLoss, 0 = off): every punch thrown, landed or not, wears the stamina ceiling by its weight
   if (cfg.workCapLoss > 0) f.wear += cfg.workCapLoss * throwWeight(type, cfg);
   f.punch = {
@@ -208,6 +214,7 @@ function startPunch(f: FighterState, opp: FighterState | null, side: Side, type:
  */
 export function stepActions(f: FighterState, side: Side, input: Readonly<FrameInput>, cfg: Config, dt: number, events: SimEvent[], opp: FighterState | null = null, inStop = false): void {
   const mask = punchMask(input);
+  ageRepeat(f, dt);
   setTimedSkill(f, input.timedSkill ?? 1);
   const pressed = fastestOf(mask & ~prevPunchMask(f));
   setPrevPunchMask(f, mask);
@@ -772,7 +779,8 @@ export function resolvePunch(s: SimState, side: Side, type: PunchType, cfg: Conf
   // Only a HELD block can be perfect — a fist absorbed by a relaxed guard pinned on the face is a plain block.
   // (From a guard that takes a beat to come up — hands low — the block must at least be half-way there.)
   // (A hurt man has no perfect block: his guard is loose, it cannot also be a clean read. Audit P1, 2026-11-24.)
-  const perfect = d.block && !(d.hurt > 0) && d.blockT <= Math.min(cfg.perfectBlockWindow, cfg.perfectBlockLateFrac * flight) && d.blockT >= guardOf(d, cfg).raise * 0.5;
+  const readWide = 1 + cfg.repeatReadBonus * repeatCounted(a);   // a counted repeat is easier to read (audit P4)
+  const perfect = d.block && !(d.hurt > 0) && d.blockT <= Math.min(cfg.perfectBlockWindow * readWide, cfg.perfectBlockLateFrac * readWide * flight) && d.blockT >= guardOf(d, cfg).raise * 0.5;
   // The guard's shape and wear (overhaul): how much of it this punch meets. A perfect block meets all of it.
   // A RESTING guard that the fist pinned against the face is not a block: the hands were in the way (guardPinnedCover).
   // (Outcome first: full block while held — no geometric guard holes; wear still breaks the guard, below.)
