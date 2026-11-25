@@ -16,6 +16,7 @@ import { applyFit, buildFit, type Fit, type FitOut, type Skeleton } from './reta
 import { HumanAnim, tiredOf } from './anim';
 import { PoseInertia } from './inertia';
 import { Spray } from '../rig/spray';
+import { Stains } from './stains';
 import { FACE_SPOTS, makeFaceWear, paintFighter } from '../render/paint';
 import { installRigReplay, type ReplayFeed } from '../rig/replay';
 import { SIM_DT } from '../core';
@@ -274,6 +275,8 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   let drip = 0;   // 0..1: how far the blood has run down from the cut (humanCutDripTime seconds to its full length)
   const cutPos = [new THREE.Vector3(), new THREE.Vector3()];
   const blood = new Spray(parent, 0x8a0a10, 0x4a0508);   // off a cut man's head on a clean or flush shot
+  const stains = new Stains(parent);                      // what comes off HIM and lands on the canvas (human/stains.ts)
+  const STAIN_BLOOD = new THREE.Color(cfg.humanStainBloodColor), STAIN_SWEAT = new THREE.Color(cfg.humanStainSweatColor);
   const dmg = new Array<number>(FACE_SPOTS).fill(0);
   const skinMats: THREE.MeshStandardMaterial[] = [];
   {
@@ -297,6 +300,12 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       //  cheekbone under it), L brow, R brow, the bridge of the nose, and a small one on the lip. 4th number = its size.)
       const S: readonly (readonly [number, number, number, number])[] = [[0.2, 0.47, 0.5, 0.75], [-0.2, 0.47, 0.5, 0.75], [0.22, 0.63, 0.5, 0.6], [-0.22, 0.63, 0.5, 0.6], [0, 0.42, 0.62, 0.6], [0, 0.14, 0.56, 0.45]];
       S.forEach((s, i) => { wear.uDmgPos.value[i]!.copy(at(s[0], s[1], s[2])); wear.uDmgSize.value[i] = s[3]; });
+      // THE BODY's four (spots 6-9: L ribs, R ribs, solar plexus, belly), straight in the mesh's rest space, which is the
+      // man standing at native height, feet at 0, y up, +x his left, +z his front: [x, y] as shares of that height, then
+      // size. Measured across the body only, on its front half (uDmgFlat), so a deep belly marks like a flat one.
+      const Hn = cfg.humanNativeHeight;
+      const B: readonly (readonly [number, number, number])[] = [[0.085, 0.64, 1.6], [-0.085, 0.64, 1.6], [0, 0.69, 1.3], [0, 0.6, 1.8]];
+      B.forEach((b, j) => { wear.uDmgPos.value[6 + j]!.set(b[0] * Hn, b[1] * Hn, -0.02 * Hn); wear.uDmgSize.value[6 + j] = b[2]; wear.uDmgFlat.value[6 + j] = 1; });
       const o = at(0, 0, 0);
       wear.uDmgR.value = at(cfg.humanFaceMarkSize, 0, 0).distanceTo(o);
       wear.uCutDir.value.copy(at(1, 0.25, 0)).sub(o).normalize();
@@ -324,9 +333,25 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
     else { add(4, 0.6); add(k, 0.5); }
     if (cutAt < 0 && cutProne) for (const s of [k, 1 - k]) if (Math.max(dmg[s]!, dmg[2 + s]!) >= cfg.humanCutAt) { cutAt = s; break; }
   };
+  /** THE BODY RULE (one landed body punch -> a red mark; never past humanBodyMarkMax: sore, not black). ribs = that side's
+   *  ribs; liver = his right ribs; solar = the solar plexus; belly = the belly; no zone given: a hook = that side's ribs,
+   *  anything else the belly. A flush punch adds humanBodyMarkPerHit, a clean one 0.6 of it, a glancing one 0.25. */
+  const markBody = (zone: string | undefined, punch: string, k: number, grade: string): void => {
+    const a = cfg.humanBodyMarkPerHit * (grade === 'flush' ? 1 : grade === 'clean' ? 0.6 : 0.25);
+    const i = zone === 'ribs' ? 6 + k : zone === 'liver' ? 7 : zone === 'solar' ? 8 : zone === 'belly' ? 9 : punch === 'hook' ? 6 + k : 9;
+    dmg[i] = Math.min(Math.max(cfg.humanBodyMarkMax, dmg[i]!), dmg[i]! + a);
+  };
   /** window.__humanWear[side] (scripts/wear_sheet.mjs): land punches on his face by hand, and read what it did. */
   ((window as unknown as { __humanWear?: Record<number, unknown> }).__humanWear ??= {})[side] = {
     hit: (zone: string | undefined, punch: string, k: number, grade: string) => { wearForce = true; markHit(zone, punch, k, grade); },
+    body: (zone: string | undefined, punch: string, k: number, grade: string) => { wearForce = true; markBody(zone, punch, k, grade); },
+    /** Put `blood` and `sweat` spots on the canvas as head shots along (dx, dz) would, from where he stands. */
+    splat: (blood: number, sweat: number, dx: number, dz: number) => {
+      const under = { x: group.position.x, z: group.position.z }, dir = { x: dx, z: dz };
+      stains.splat(blood, under, dir, cfg.humanStainNear, cfg.humanStainFar, cfg.humanStainSpread, cfg.humanStainBloodSize, STAIN_BLOOD);
+      stains.splat(sweat, under, dir, cfg.humanStainNear, cfg.humanStainFar, cfg.humanStainSpread, cfg.humanStainSweatSize, STAIN_SWEAT);
+      return stains.active;
+    },
     reset: () => { dmg.fill(0); cutAt = -1; wet = 0; drip = 0; },
     /** Make this a fight he does (or does not) cut in, whatever the roll said. */
     prone: (on: boolean) => { cutProne = on; },
@@ -337,15 +362,15 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
   };
   /** Each drawn frame: sweat on, marks from the punches that landed on his head this frame, and what the materials show. */
   const wearStep = (dt: number, next: FighterState, events: readonly SimEvent[]): void => {
-    if (myEpoch !== wearEpoch) { myEpoch = wearEpoch; wet = 0; cutAt = -1; drip = 0; dmg.fill(0); cutProne = cutRoll(); }
+    if (myEpoch !== wearEpoch) { myEpoch = wearEpoch; wet = 0; cutAt = -1; drip = 0; dmg.fill(0); cutProne = cutRoll(); stains.clear(); }
     if (cutAt >= 0 && !handsDown) drip = Math.min(1, drip + dt / Math.max(1, cfg.humanCutDripTime));
     if (!handsDown) wet = Math.min(1, wet + dt / Math.max(1, cfg.humanSweatFull) * (1 + cfg.humanSweatTired * (1 - next.stamina)));
     if (cfg.humanFaceDamage) for (const e of events) {
-      if (e.type !== 'punchLand' || e.target !== side || e.part !== 'head') continue;
+      if (e.type !== 'punchLand' || e.target !== side) continue;
       // which side of his face: the punch pushes his head AWAY from the side it landed on
       const lat = arm.Left[0].getWorldPosition(vA).sub(arm.Right[0].getWorldPosition(vB));
       const k = e.impulse.x * lat.x + e.impulse.z * lat.z > 0 ? 1 : 0;   // 0 = his left side, 1 = his right
-      markHit(e.zone, e.punch, k, e.grade);
+      if (e.part === 'head') markHit(e.zone, e.punch, k, e.grade); else markBody(e.liver ? 'liver' : e.zone, e.punch, k, e.grade);
     }
     const test = cfg.humanFaceMarkTest, show = handsDown && !wearForce ? 0 : 1;
     for (let i = 0; i < FACE_SPOTS; i++) wear.uDmg.value[i] = Math.max(test, dmg[i]! * show);
@@ -399,6 +424,7 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       if (feeds[side] === feed) delete feeds[side];
       spray.mesh.parent?.remove(spray.mesh);
       blood.mesh.parent?.remove(blood.mesh);
+      stains.dispose();
       model.traverse(o => {
         const m = o as THREE.Mesh;
         if (m.isMesh) (Array.isArray(m.material) ? m.material : [m.material]).forEach(mt => mt.dispose());
@@ -1642,6 +1668,11 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
           spray.burst(n, { x: hd.drawn.x + e.impulse.x / dl * off, y: hd.drawn.y + next.body.headR * 0.3, z: hd.drawn.z + e.impulse.z / dl * off }, e.impulse, cfg.rigSpraySpeed, cfg.rigSpraySize, cfg.rigSprayLife);
           // BLOOD: only off a man who is cut, only on a clean or flush head shot (a flush one throws it all, a clean one half)
           if (cutAt >= 0 && cfg.humanBloodCount > 0) blood.burst(Math.round(cfg.humanBloodCount * (e.grade === 'flush' ? 1 : 0.5)), { x: hd.drawn.x + e.impulse.x / dl * off, y: hd.drawn.y + next.body.headR * 0.3, z: hd.drawn.z + e.impulse.z / dl * off }, e.impulse, cfg.rigSpraySpeed * 0.8, cfg.humanBloodSize, cfg.rigSprayLife);
+          // ON THE CANVAS, where it would come down (out along the punch from under his head), and it stays: a few damp
+          // spots of sweat once he is wet, a few of blood if he is cut
+          const fl = e.grade === 'flush' ? 1 : 0.5, under = { x: hd.drawn.x, z: hd.drawn.z };
+          stains.splat(Math.round(cfg.humanStainSweat * fl * wet), under, e.impulse, cfg.humanStainNear, cfg.humanStainFar, cfg.humanStainSpread, cfg.humanStainSweatSize, STAIN_SWEAT);
+          if (cutAt >= 0) stains.splat(Math.round(cfg.humanStainBlood * fl), under, e.impulse, cfg.humanStainNear, cfg.humanStainFar, cfg.humanStainSpread, cfg.humanStainBloodSize, STAIN_BLOOD);
         }
       }
       spray.update(dt);
