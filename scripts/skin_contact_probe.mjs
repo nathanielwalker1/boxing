@@ -69,6 +69,8 @@ await page.addInitScript(() => {
             // which way the arm was pulled: toward him (+) / back, up (+) / down, to the puncher's right (+) / left
             const hs = [P[s].hips, P[1 - s].hips], fx = hs[1][0] - hs[0][0], fz = hs[1][2] - hs[0][2], fl = Math.hypot(fx, fz) || 1, d = [b[0] - c[0], b[1] - c[1], b[2] - c[2]];
             rec.offF = (d[0] * fx + d[2] * fz) / fl * 100; rec.offU = d[1] * 100; rec.offR = (d[0] * -fz + d[2] * fx) / fl * 100; rec.dist = fl * 100; } } }
+        // how far the puncher's own facing (the sim's) is off the line to the other man on the hit frame, degrees
+        { const F = window.__sim.state().fighters, a = Math.atan2(F[1 - s].pos.z - F[s].pos.z, F[1 - s].pos.x - F[s].pos.x) - F[s].yaw; rec.yawOff = Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) * 180 / Math.PI; }
         open.push(rec); (rec.land ? lands : blocks).push(rec);
       }
       for (const r of open) {
@@ -153,7 +155,7 @@ await key('Enter'); await on('select');
 await key('Enter'); await on('opponent');
 await key('Enter'); await on('fight');
 await until(page, () => !!window.__humanMesh?.[0] && !!window.__humanMesh?.[1] && window.__tick.simTicks > 5, undefined, { label: 'fight + mesh hook', timeout: 150_000 });
-await page.evaluate(async ([CFG, MASH2, CLOSE]) => {
+await page.evaluate(async ([CFG, MASH2, CLOSE, CIRCLE]) => {
   const c = window.__cfg; Object.assign(c, CFG); c.healthDamagePerImpulse *= 0.1; c.flowReplayOn = false; window.__flow.rounds(1, 900);
   const AI = await import('/src/ai/index.ts'), core = await import('/src/core/index.ts');
   const st = window.__sim.state(); const spec = core.ROSTER.find(r => r.id === st.fighters[0].specId);
@@ -166,6 +168,10 @@ await page.evaluate(async ([CFG, MASH2, CLOSE]) => {
     if (t % 16 === 0) i[cyc[k % cyc.length]] = true;
     if (k % 3 === 2 && t % 16 < 3) i.level = true;
     if (CLOSE) i.move = { x: 0, y: 1 };   // (argv[5] = close: both walk into each other the whole time, both mashing)
+    // (argv[5] = circle: he PIVOTS — block held + a sideways flick — every second, alternate sides, and throws nothing:
+    //  the other man's punches land on a man who has just taken an angle. Plain strafing never puts the puncher's
+    //  facing off the line by more than 1 degree: measured 2026-11-25)
+    if (CIRCLE) { const ph = t % 60; i.jab = i.cross = i.hook = i.uppercut = false; i.level = false; i.block = ph < 14; i.move = ph >= 4 && ph < 7 ? { x: Math.floor(t / 60) % 2 ? -1 : 1, y: 0 } : { x: 0, y: 0 }; }
     return i;
   });
   // argv[5] = mash2: the other man mashes too, half a beat off (close exchanges, both punching)
@@ -182,7 +188,7 @@ await page.evaluate(async ([CFG, MASH2, CLOSE]) => {
     });
   }
   window.__goManual();
-}, [CFG, process.argv[5] === 'mash2' || process.argv[5] === 'close', process.argv[5] === 'close']);
+}, [CFG, process.argv[5] === 'mash2' || process.argv[5] === 'close', process.argv[5] === 'close', process.argv[5] === 'circle']);
 // throwaway frames, stepped from here until the sim is really running (the flow's own timers need real time to pass)
 for (let i = 0; i < 200; i++) { const tk = await page.evaluate(() => { window.__stepFrames(2, 1000 / 60); return window.__tick.simTicks; }); if (tk > 60) break; }
 if (process.argv[4] === 'shots' || process.argv[4] === 'blockshots') {
@@ -215,7 +221,7 @@ for (const l of [...lands].sort((a, b) => b.v - a.v).slice(0, 5)) console.log(` 
 console.log('OFF THE TAKE: how far the landing glove is from where the punch animation alone had it, on the hit frame, cm');
 for (const p of ['jab', 'cross', 'hook', 'uppercut']) { const g = lands.filter(l => l.punch === p && l.off !== undefined).map(l => l.off); if (g.length) console.log(`  ${p.padEnd(8)} n ${String(g.length).padStart(2)}: median ${pct(g, 0.5).toFixed(0)}, p90 ${pct(g, 0.9).toFixed(0)}, max ${Math.max(...g).toFixed(0)}` + (() => { const h = lands.filter(l => l.punch === p && l.offArm !== undefined).map(l => l.offArm); return h.length ? ` | the arm's own share (after the body has leaned / turned): median ${pct(h, 0.5).toFixed(0)}, p90 ${pct(h, 0.9).toFixed(0)}, max ${Math.max(...h).toFixed(0)}` : ''; })()
   + (() => { const L = lands.filter(l => l.punch === p && l.offF !== undefined); if (!L.length) return ''; const md = k => pct(L.map(l => l[k]), 0.5).toFixed(0), rg = k => `${Math.min(...L.map(l => l[k])).toFixed(0)}..${Math.max(...L.map(l => l[k])).toFixed(0)}`;
-    return `\n           which way (median, range): toward him ${md('offF')} (${rg('offF')}), up ${md('offU')} (${rg('offU')}), to his right ${md('offR')} (${rg('offR')}); hips apart ${md('dist')} (${rg('dist')})`; })()); }
+    return `\n           which way (median, range): toward him ${md('offF')} (${rg('offF')}), up ${md('offU')} (${rg('offU')}), to his right ${md('offR')} (${rg('offR')}); sideways either way median ${pct(L.map(l => Math.abs(l.offR)), 0.5).toFixed(0)}, p90 ${pct(L.map(l => Math.abs(l.offR)), 0.9).toFixed(0)}; hips apart ${md('dist')} (${rg('dist')}); his facing off the line to the other man, deg: median ${md('yawOff')}, max ${Math.max(...L.map(l => l.yawOff)).toFixed(0)}`; })()); }
 console.log('BLOCKS, smallest gap between the punching glove and his nearer guard glove in the 10 frames from the block, cm');
 for (const s of [0, 1]) { const g = blocks.filter(b => b.s === s).map(b => b.v * 100); if (g.length) console.log(`  side ${s} n ${g.length}: median ${pct(g, 0.5).toFixed(1)}, p90 ${pct(g, 0.9).toFixed(1)}, worst ${Math.max(...g).toFixed(1)}, over 3 cm ${g.filter(x => x > 3).length}`); }
 for (const b of [...blocks].sort((a, c) => c.v - a.v).slice(0, 4)) console.log(`   worst: f${b.f} side ${b.s} ${b.punch} -> ${b.part}, gap ${(b.v * 100).toFixed(1)}, target ${b.tl}`);

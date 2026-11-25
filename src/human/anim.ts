@@ -364,10 +364,16 @@ export class HumanAnim {
       lunge = { x: c * Ln, z: s * Ln };
       // (no body turn: Nate 2026-11-17, every layer earns its way back; the across error stays, reported by the audit)
       void exL; turn = 0;
-      // (humanCrossRise: the whole-punch envelope and the take's glove height at its contact frame, for the view.
-      //  A whole-body turn onto the target on the same envelope was tried 2026-11-25 for the cross and removed: the
-      //  cross's sideways error did not move, median 1-2 cm, range -22..18 either way)
-      if (cfg.humanInertia) { wBody = wL; hitY = CG2.y; }
+      // (humanCrossRise: the whole-punch envelope and the take's glove height at its contact frame, for the view)
+      if (cfg.humanInertia) {
+        wBody = wL; hitY = CG2.y;
+        // (A WHOLE-BODY TURN onto the target, by the angle between the take's contact-frame glove and the target seen
+        //  from his own spot, on this envelope: tried 2026-11-25 for jab and cross, removed. MEASURED: his facing is on
+        //  the line at every land (0-1 deg, pivots included), and the arm's sideways pull is near constant per take
+        //  (jab 9-13 cm one way, hook 22, cross 4), but turning by that angle OVERSHOT — the jab went from 9 cm one way
+        //  to 12 the other, p90 18 to 36. The angle predicted here is not the error the arm corrects in the view; find
+        //  out why with a per-land trace of the two before turning the body again.)
+      }
     }
     // A MISS IS STILL A COMMITTED PUNCH: he steps with it (the view holds the glove humanMissGap short of the other man)
     if (cfg.humanInertia && cfg.humanWhiffStep > 0) {
