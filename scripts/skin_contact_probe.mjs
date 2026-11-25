@@ -72,7 +72,11 @@ await page.addInitScript(() => {
             // (the sideways pull, layer by layer: how far to his right the final glove is of where each layer left it; and
             //  what the animation side predicted: the target to the right of the take's contact-frame glove, his own frame)
             rec.sideBy = L.map(x => { const q = x[g === 'L' ? 1 : 2]; return [x[0], ((b[0] - q[0]) * -fz + (b[2] - q[2]) * fx) / fl * 100]; });
-            const td = P[s].turnDbg; if (td) { rec.predR = -(td[0] - td[1]) * 100; rec.predF = (td[2] - td[3]) * 100; } } } }
+            const td = P[s].turnDbg; if (td) { rec.predR = -(td[0] - td[1]) * 100; rec.predF = (td[2] - td[3]) * 100;
+              // (the glove as the clip alone DREW it this frame, in the puncher's own frame from his sim spot, against the
+              //  animation side's own figure for the take's contact frame: [left, forward] drawn minus figured, cm)
+              const F = window.__sim.state().fighters[s], cy = Math.cos(F.yaw), sy = Math.sin(F.yaw), dx = a[0] - F.pos.x, dz = a[2] - F.pos.z;
+              rec.mdlL = ((dx * -sy + dz * cy) - td[1]) * 100; rec.mdlF = ((dx * cy + dz * sy) - td[3]) * 100; rec.lng = (P[s].lungeDbg?.[0] ?? 0) * 100; } } } }
         // how far the puncher's own facing (the sim's) is off the line to the other man on the hit frame, degrees
         { const F = window.__sim.state().fighters, a = Math.atan2(F[1 - s].pos.z - F[s].pos.z, F[1 - s].pos.x - F[s].pos.x) - F[s].yaw; rec.yawOff = Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) * 180 / Math.PI; }
         open.push(rec); (rec.land ? lands : blocks).push(rec);
@@ -231,6 +235,8 @@ for (const p of ['jab', 'cross', 'hook', 'uppercut']) { const g = lands.filter(l
 for (const p of ['jab', 'cross', 'hook', 'uppercut']) { const L = lands.filter(l => l.punch === p && l.predR !== undefined && l.sideBy); if (!L.length) continue;
   const names = L[0].sideBy.map(x => x[0]);
   console.log(`  TRACE ${p}: predicted right ${pct(L.map(l => l.predR), 0.5).toFixed(0)} (${Math.min(...L.map(l => l.predR)).toFixed(0)}..${Math.max(...L.map(l => l.predR)).toFixed(0)}) v arm right ${pct(L.map(l => l.offR), 0.5).toFixed(0)}; predicted forward ${pct(L.map(l => l.predF), 0.5).toFixed(0)} (${Math.min(...L.map(l => l.predF)).toFixed(0)}..${Math.max(...L.map(l => l.predF)).toFixed(0)}) v arm forward ${pct(L.map(l => l.offF), 0.5).toFixed(0)}; per land predicted-right minus arm-right: median ${pct(L.map(l => l.predR - l.offR), 0.5).toFixed(0)}, spread ${pct(L.map(l => Math.abs(l.predR - l.offR)), 0.9).toFixed(0)}`);
+  { const rg = k => `${pct(L.map(l => l[k]), 0.5).toFixed(0)} (${Math.min(...L.map(l => l[k])).toFixed(0)}..${Math.max(...L.map(l => l[k])).toFixed(0)})`;
+    console.log(`     the clip's glove as DRAWN minus the animation side's figure for it: left ${rg('mdlL')}, forward ${rg('mdlF')}; the clip's own lunge ${rg('lng')}`); }
   console.log(`     sideways left to do after each layer: ${names.map(n => `${n} ${pct(L.map(l => (l.sideBy.find(x => x[0] === n) ?? [0, NaN])[1]).filter(v => !Number.isNaN(v)), 0.5).toFixed(0)}`).join(', ')}`); }
 console.log('BLOCKS, smallest gap between the punching glove and his nearer guard glove in the 10 frames from the block, cm');
 for (const s of [0, 1]) { const g = blocks.filter(b => b.s === s).map(b => b.v * 100); if (g.length) console.log(`  side ${s} n ${g.length}: median ${pct(g, 0.5).toFixed(1)}, p90 ${pct(g, 0.9).toFixed(1)}, worst ${Math.max(...g).toFixed(1)}, over 3 cm ${g.filter(x => x > 3).length}`); }
