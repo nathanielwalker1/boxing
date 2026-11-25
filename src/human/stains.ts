@@ -44,13 +44,14 @@ export class Stains {
 
   /**
    * `n` blots thrown from the floor point under `from` along `dir` (x, z): each lands `near`..`far` metres out, up to
-   * `spread` metres to either side, `size` metres across (0.6..1.4 of it), stretched along the throw. The oldest are reused past MAX.
+   * `spread` metres to either side, `size` metres across (0.35..2.25 of it, mostly small), stretched along the throw. The oldest are reused past MAX.
    */
   splat(n: number, from: { x: number; z: number }, dir: { x: number; z: number }, near: number, far: number, spread: number, size: number, color: THREE.Color): void {
     const dl = Math.hypot(dir.x, dir.z) || 1, dx = dir.x / dl, dz = dir.z / dl;
     for (let k = 0; k < n; k++) {
       const d = near + (far - near) * this.rnd(), side = (this.rnd() * 2 - 1) * spread;
-      const r = size * 0.5 * (0.6 + 0.8 * this.rnd());
+      // a spectrum of sizes: most are specks (a third of `size`), a few are blots (over twice it)
+      const u = this.rnd(), r = size * 0.5 * (0.35 + 1.9 * u * u * u);
       this.p.set(from.x + dx * d - dz * side, 0.003, from.z + dz * d + dx * side);
       this.q.setFromAxisAngle(Stains.UP, Math.atan2(-dz, dx) + (this.rnd() - 0.5) * 0.6);
       this.s.set(r * (1 + 0.9 * this.rnd()), 1, r);

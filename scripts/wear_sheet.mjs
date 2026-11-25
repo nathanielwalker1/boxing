@@ -21,6 +21,7 @@ const STREAM = [
 // Body punches, in the order they land (one for every 8 head punches): [zone, punch, side, grade].
 const BODY = [['ribs', 'hook', 0, 'clean'], ['liver', 'hook', 1, 'flush'], ['solar', 'cross', 0, 'clean'], ['belly', 'jab', 1, 'clean'], ['ribs', 'hook', 0, 'flush']];
 const STAGES = [0, 10, 20, 40, 60, 80];
+const BODY_STAGES = [0, 4, 8, 15, 22, 30];   // body punches landed by each stage (its own scale: the last tile is 30)
 const FIGHTERS = 2;   // the first N on the select screen
 
 const out = new URL('./output/', import.meta.url).pathname;
@@ -45,21 +46,20 @@ for (let f = 0; f < FIGHTERS; f++) {
   if (cells.length) await page.waitForFunction(last => window.__flow.state().shown !== last, cells[cells.length - 1].name, { timeout: 15000 });
   await frames(page, 45);
   const name = await page.evaluate(() => window.__flow.state().shown);
-  let landed = 0;
+  let landed = 0, bodyLanded = 0;
   for (const n of STAGES) {
-    const state = await page.evaluate(([from, to, stream, body]) => {
+    const state = await page.evaluate(([from, to, stream, body, bFrom, bTo]) => {
       const w = window.__humanWear[0];
       if (from === 0) { w.reset(); w.prone(true); }   // (the sheet shows a fight he DOES cut in: humanCutChance of them)
       for (let i = from; i < to; i++) { const s = stream[i % stream.length]; w.hit(s[0], s[1], s[2], s[3]); w.age(1.5); }   // (about 1.5 s of fight a landed head punch: 115 of them in 180 s)
-      // one body punch for every 8 to the head (measured on the bots: about 9 to the body a fight against 115)
-      for (let j = Math.floor(from / 8); j < Math.floor(to / 8); j++) { const s = body[j % body.length]; w.body(s[0], s[1], s[2], s[3]); }
+      for (let j = bFrom; j < bTo; j++) { const s = body[j % body.length]; w.body(s[0], s[1], s[2], s[3]); }
       return w.state();
-    }, [landed, n, STREAM, BODY]);
-    landed = n;
+    }, [landed, n, STREAM, BODY, bodyLanded, BODY_STAGES[STAGES.indexOf(n)]]);
+    landed = n; bodyLanded = BODY_STAGES[STAGES.indexOf(n)];
     await frames(page, 3);
     const png = await page.screenshot({ clip: { x: 440, y: 20, width: 150, height: 150 } });
     const torso = await page.screenshot({ clip: { x: 400, y: 140, width: 200, height: 200 } });
-    cells.push({ name, n, state, src: `data:image/png;base64,${png.toString('base64')}`, src2: `data:image/png;base64,${torso.toString('base64')}` });
+    cells.push({ name, n, nb: bodyLanded, state, src: `data:image/png;base64,${png.toString('base64')}`, src2: `data:image/png;base64,${torso.toString('base64')}` });
     console.log(`${name} after ${n}: spots ${state.dmg.join(' ')}  cut ${state.cut < 0 ? 'none' : state.cut === 0 ? 'left brow' : 'right brow'}`);
   }
   await page.evaluate(() => window.__humanWear[0].reset());
@@ -67,7 +67,7 @@ for (let f = 0; f < FIGHTERS; f++) {
 }
 const sheet = await browser.newPage({ viewport: { width: STAGES.length * 330 + 20, height: FIGHTERS * 760 + 20 } });
 await sheet.setContent(`<body style="margin:10px;background:#111;color:#ddd;font:13px/1.35 sans-serif"><div style="display:grid;grid-template-columns:repeat(${STAGES.length},320px);gap:10px">${
-  cells.map(c => `<div><img src="${c.src}" width="320" height="320"><div><b>${c.name}</b> after ${c.n} head punches</div><div>eyes ${c.state.dmg[0]} / ${c.state.dmg[1]} · brows ${c.state.dmg[2]} / ${c.state.dmg[3]} · nose ${c.state.dmg[4]} · lip ${c.state.dmg[5]} · cut ${c.state.cut < 0 ? 'none' : c.state.cut === 0 ? 'L eye' : 'R eye'}</div><img src="${c.src2}" width="320" height="320"><div>and ${Math.floor(c.n / 8)} body punches: ribs ${c.state.dmg[6]} / ${c.state.dmg[7]} · solar ${c.state.dmg[8]} · belly ${c.state.dmg[9]}</div></div>`).join('')
+  cells.map(c => `<div><img src="${c.src}" width="320" height="320"><div><b>${c.name}</b> after ${c.n} head punches</div><div>eyes ${c.state.dmg[0]} / ${c.state.dmg[1]} · brows ${c.state.dmg[2]} / ${c.state.dmg[3]} · nose ${c.state.dmg[4]} · lip ${c.state.dmg[5]} · cut ${c.state.cut < 0 ? 'none' : c.state.cut === 0 ? 'L eye' : 'R eye'}</div><img src="${c.src2}" width="320" height="320"><div>after ${c.nb} body punches: ribs ${c.state.dmg[6]} / ${c.state.dmg[7]} · solar ${c.state.dmg[8]} · belly ${c.state.dmg[9]}</div></div>`).join('')
 }</div></body>`);
 await sheet.screenshot({ path: `${out}wear_sheet.png`, fullPage: true });
 await browser.close();
