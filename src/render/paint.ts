@@ -205,13 +205,13 @@ function kitMaskFor(bodyFile: number): { value: THREE.Texture | null } {
 /** One fighter's FACE WEAR (human/view.ts fills it): six spots on the face in the body mesh's own bind space (L eye, R eye,
  *  L cheek, R cheek, nose, mouth), how marked each is 0..1 (redness, then a bruise), and his one cut (a short dark line). */
 export interface FaceWear {
-  uDmgPos: { value: THREE.Vector3[] }; uDmg: { value: number[] }; uDmgR: { value: number };
+  uDmgPos: { value: THREE.Vector3[] }; uDmg: { value: number[] }; uDmgR: { value: number }; /** each spot's size against uDmgR */ uDmgSize: { value: number[] };
   uCut: { value: THREE.Vector4 }; uCutDir: { value: THREE.Vector3 };
 }
 export const FACE_SPOTS = 6;
 export function makeFaceWear(): FaceWear {
   return {
-    uDmgPos: { value: Array.from({ length: FACE_SPOTS }, () => new THREE.Vector3()) }, uDmg: { value: new Array<number>(FACE_SPOTS).fill(0) }, uDmgR: { value: 1 },
+    uDmgPos: { value: Array.from({ length: FACE_SPOTS }, () => new THREE.Vector3()) }, uDmg: { value: new Array<number>(FACE_SPOTS).fill(0) }, uDmgR: { value: 1 }, uDmgSize: { value: new Array<number>(FACE_SPOTS).fill(1) },
     uCut: { value: new THREE.Vector4(0, 0, 0, 0) }, uCutDir: { value: new THREE.Vector3(1, 0, 0) },
   };
 }
@@ -234,7 +234,7 @@ function paintFighterMaterial(mat: THREE.Material, kitAll: number, maskU: { valu
         uniform float uBandOn, uDesatOn, uBandMix, uMaskDbg, uRimStr, uRimPow;
         uniform vec3 uLitCol, uShadeCol, uRimCol;
         uniform sampler2D uKitMask;
-        uniform vec3 uDmgPos[${FACE_SPOTS}]; uniform float uDmg[${FACE_SPOTS}]; uniform float uDmgR; uniform vec4 uCut; uniform vec3 uCutDir;
+        uniform vec3 uDmgPos[${FACE_SPOTS}]; uniform float uDmg[${FACE_SPOTS}]; uniform float uDmgSize[${FACE_SPOTS}]; uniform float uDmgR; uniform vec4 uCut; uniform vec3 uCutDir;
         varying vec3 vBindP;
         ${LUMA}
         void main() {`)
@@ -268,7 +268,7 @@ function paintFighterMaterial(mat: THREE.Material, kitAll: number, maskU: { valu
           col += uRimCol * (fr * uRimStr * alb);
           // FACE WEAR: redness, then a bruise, where he has been hit; one cut. Skin only (never on the kit).
           float dm = 0.0;
-          for (int i = 0; i < ${FACE_SPOTS}; i++) dm = max(dm, uDmg[i] * (1.0 - smoothstep(0.3 * uDmgR, uDmgR, distance(vBindP, uDmgPos[i]))));
+          for (int i = 0; i < ${FACE_SPOTS}; i++) dm = max(dm, uDmg[i] * (1.0 - smoothstep(0.3 * uDmgR * uDmgSize[i], uDmgR * uDmgSize[i], distance(vBindP, uDmgPos[i]))));
           vec3 sore = mix(col * vec3(1.3, 0.6, 0.58), col * vec3(0.55, 0.36, 0.58), smoothstep(0.45, 1.0, dm));
           col = mix(col, sore, clamp(dm * 1.5, 0.0, 1.0) * (1.0 - kit));
           vec3 dc = vBindP - uCut.xyz;

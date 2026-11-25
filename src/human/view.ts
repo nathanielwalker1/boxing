@@ -282,12 +282,39 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       group.updateMatrixWorld(true);
       const h = headTop ? headTop.position.length() : cfg.humanHeadHeight * group.scale.y / head.getWorldScale(new THREE.Vector3()).y;
       const at = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z).multiplyScalar(h).applyMatrix4(toGeo);
-      const S: readonly (readonly [number, number, number])[] = [[0.2, 0.52, 0.5], [-0.2, 0.52, 0.5], [0.3, 0.26, 0.42], [-0.3, 0.26, 0.42], [0, 0.34, 0.62], [0, 0.1, 0.52]];
-      S.forEach((s, i) => wear.uDmgPos.value[i]!.copy(at(s[0], s[1], s[2])));
+      // (Nate 2026-11-25: a boxer marks up round the EYES and NOSE, not the cheek or jaw. So: L eye, R eye (socket and the
+      //  cheekbone under it), L brow, R brow, the bridge of the nose, and a small one on the lip. 4th number = its size.)
+      const S: readonly (readonly [number, number, number, number])[] = [[0.2, 0.47, 0.5, 0.75], [-0.2, 0.47, 0.5, 0.75], [0.22, 0.63, 0.5, 0.6], [-0.22, 0.63, 0.5, 0.6], [0, 0.42, 0.62, 0.6], [0, 0.14, 0.56, 0.45]];
+      S.forEach((s, i) => { wear.uDmgPos.value[i]!.copy(at(s[0], s[1], s[2])); wear.uDmgSize.value[i] = s[3]; });
       const o = at(0, 0, 0);
       wear.uDmgR.value = at(cfg.humanFaceMarkSize, 0, 0).distanceTo(o);
       wear.uCutDir.value.copy(at(1, 0.25, 0)).sub(o).normalize();    }
   }
+  /** THE RULE (one landed head punch -> marks). `k`: 0 = it landed on his left side, 1 = his right. A flush punch adds
+   *  humanFaceMarkPerHit, a clean one 0.6 of it, a glancing one 0.25, shared out by where it landed:
+   *    nose: nose 1, both eyes 0.25        temple / forehead: that brow 1, that eye 0.5
+   *    jaw / chin: lip 0.4 only (the lip never passes 0.5: redness, no bruise)
+   *    no zone given: a hook = that eye 1, that brow 0.3; an uppercut = lip 0.4; a straight = nose 0.6, that eye 0.5
+   *  A spot reads as redness from about 0.1, turns to bruise from 0.45, is full at 1. ONE cut a fight: on the brow of the
+   *  first side whose eye or brow reaches humanCutAt. */
+  let wearForce = false;   // (the review sheet: show the marks on a menu screen too)
+  const markHit = (zone: string | undefined, punch: string, k: number, grade: string): void => {
+    const a = cfg.humanFaceMarkPerHit * (grade === 'flush' ? 1 : grade === 'clean' ? 0.6 : 0.25);
+    const add = (i: number, w: number, cap = 1): void => { dmg[i] = Math.min(Math.max(cap, dmg[i]!), dmg[i]! + a * w); };
+    if (zone === 'nose') { add(4, 1); add(0, 0.25); add(1, 0.25); }
+    else if (zone === 'temple' || zone === 'forehead') { add(2 + k, 1); add(k, 0.5); }
+    else if (zone === 'jaw' || zone === 'chin') add(5, 0.4, 0.5);
+    else if (punch === 'hook') { add(k, 1); add(2 + k, 0.3); }
+    else if (punch === 'uppercut') add(5, 0.4, 0.5);
+    else { add(4, 0.6); add(k, 0.5); }
+    if (cutAt < 0) for (const s of [k, 1 - k]) if (Math.max(dmg[s]!, dmg[2 + s]!) >= cfg.humanCutAt) { cutAt = s; break; }
+  };
+  /** window.__humanWear[side] (scripts/wear_sheet.mjs): land punches on his face by hand, and read what it did. */
+  ((window as unknown as { __humanWear?: Record<number, unknown> }).__humanWear ??= {})[side] = {
+    hit: (zone: string | undefined, punch: string, k: number, grade: string) => { wearForce = true; markHit(zone, punch, k, grade); },
+    reset: () => { dmg.fill(0); cutAt = -1; wet = 0; },
+    state: () => ({ dmg: dmg.map(v => Math.round(v * 100) / 100), cut: cutAt, wet }),
+  };
   /** Each drawn frame: sweat on, marks from the punches that landed on his head this frame, and what the materials show. */
   const wearStep = (dt: number, next: FighterState, events: readonly SimEvent[]): void => {
     if (myEpoch !== wearEpoch) { myEpoch = wearEpoch; wet = 0; cutAt = -1; dmg.fill(0); }
@@ -297,20 +324,13 @@ export function createHumanView(side: Side, spec: FighterSpec, cfg: Config, pare
       // which side of his face: the punch pushes his head AWAY from the side it landed on
       const lat = arm.Left[0].getWorldPosition(vA).sub(arm.Right[0].getWorldPosition(vB));
       const k = e.impulse.x * lat.x + e.impulse.z * lat.z > 0 ? 1 : 0;   // 0 = his left side, 1 = his right
-      const z = e.zone;
-      const spot = z === 'nose' ? 4 : z === 'chin' ? 5 : z === 'jaw' ? 2 + k : z === 'temple' || z === 'forehead' ? k
-        : e.punch === 'hook' ? 2 + k : e.punch === 'uppercut' ? 5 : 4;
-      dmg[spot] = Math.min(1, dmg[spot]! + cfg.humanFaceMarkPerHit * (e.grade === 'flush' ? 1 : e.grade === 'clean' ? 0.6 : 0.25));
-      // ONE cut a fight: over the first eye or cheek to be marked this far, on the brow above it
-      if (cutAt < 0 && spot < 4 && dmg[spot]! >= cfg.humanCutAt) cutAt = spot;
+      markHit(e.zone, e.punch, k, e.grade);
     }
-    const test = cfg.humanFaceMarkTest, show = handsDown ? 0 : 1;
+    const test = cfg.humanFaceMarkTest, show = handsDown && !wearForce ? 0 : 1;
     for (let i = 0; i < FACE_SPOTS; i++) wear.uDmg.value[i] = Math.max(test, dmg[i]! * show);
     const c = test > 0 && cutAt < 0 ? 0 : cutAt;
-    if (c >= 0 && (show > 0 || test > 0)) {
-      const eye = wear.uDmgPos.value[c % 2]!, up = wear.uDmgPos.value[c % 2]!.clone().sub(wear.uDmgPos.value[2 + (c % 2)]!).multiplyScalar(0.55);
-      wear.uCut.value.set(eye.x + up.x, eye.y + up.y, eye.z + up.z, 1);
-    } else wear.uCut.value.w = 0;
+    if (c >= 0 && (show > 0 || test > 0)) { const b = wear.uDmgPos.value[2 + c]!; wear.uCut.value.set(b.x, b.y, b.z, 1); }
+    else wear.uCut.value.w = 0;
     for (const m of skinMats) m.roughness = 1 - cfg.humanSweatShine * Math.max(cfg.humanSweatTest, handsDown ? 0 : wet);
   };
   const spray = new Spray(parent);
