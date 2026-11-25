@@ -8,7 +8,7 @@
 //               character faces +Z at rest, his left = +X.
 //   roles.json  role -> { slug, from, to, contact | impact } or null, picked from the labels.
 // Decoded and fitted onto our skeleton at load by src/human/clip.ts + src/human/retarget.ts.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const Q = 32767, H = 8192;
@@ -231,6 +231,12 @@ export function bake(outDir, rows, raws) {
     combos[name] = { slug: c.slug, from: Math.min(from, b.peak - 2), to: Math.min(c.frames - 1, b.to + Math.round((b.to - b.peak) * 0.5)), contact: b.peak, first: { from: a.from, to: a.to, contact: a.peak }, ...(body ? { body: true } : {}) };
   }
   Object.assign(roles, combos);
-  writeFileSync(join(outDir, 'roles.json'), JSON.stringify(roles, null, 1) + '\n');
+  // HAND-SET ROLES SURVIVE A RE-BAKE (2026-11-23: a bake for four new takes wiped 145 lines of hand-set roles — the v2
+  // uppercut, the combinations' trims, the knockdown get-up, the calm hits). A role already in roles.json with a value
+  // is kept as it is; the picks above only fill roles that are missing or null.
+  const rolesPath = join(outDir, 'roles.json');
+  const kept = existsSync(rolesPath) ? JSON.parse(readFileSync(rolesPath, 'utf8')) : {};
+  for (const [k, v] of Object.entries(kept)) if (v !== null) roles[k] = v;
+  writeFileSync(rolesPath, JSON.stringify(roles, null, 1) + '\n');
   return { clips: clips.length, bytes: bin.length + JSON.stringify(index).length, roles: Object.entries(roles).map(([k, v]) => `${k}=${v ? v.slug : 'null'}`).join(' ') };
 }

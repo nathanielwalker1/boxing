@@ -453,7 +453,40 @@ export class HumanAnim {
       const upAt = getUpAt(next);
       const kg = cfg.humanInertia && !cfg.humanRawPose && upAt > 0 ? this.find('knockdown_getup') : null;
       const gu = this.pick('getup');
-      if (kg) {
+      // HE FALLS THE WAY THE SHOT SENDS HIM AND GETS UP FROM HOW HE LANDED (humanGetUpTakes, Nate's takes 2026-11-24).
+      // The variant is the sim's (knockdowns this round + his get-up time), so a replay draws the same one as live play.
+      // Lying directions (hips -> head, measured): knockdown_4 -164 deg vs stand_up -180; knockdown_5 +16 vs standing_up 0 /
+      // getting_up +3; knockdown +168 vs stand_up 180 — close enough for the crossfade. A mirrored get-up has a mirrored fall.
+      let plan: { fall: Pick; up: Pick } | null = null;
+      if (cfg.humanGetUpTakes && cfg.humanInertia && !cfg.humanRawPose && upAt > 0) {
+        const k = next.knockdowns + Math.round(upAt * 10), v = k % 4;
+        const both = (f: Pick | null, g: Pick | null, mir: boolean): { fall: Pick; up: Pick } | null =>
+          f && g ? { fall: mir ? { ...f, mirror: !f.mirror } : f, up: mir ? { ...g, mirror: !g.mirror } : g } : null;
+        if (this.lastHitPart === 'head') {
+          plan = v < 2 ? both(this.find('knockdown_4'), this.find('getup_back'), v === 1)
+            : both(this.find('knockdown_5'), this.find(v === 2 ? 'getup_front' : 'getup_front_2'), false);
+        } else if (k % 2 === 1) plan = both(this.find('knockdown'), this.find('getup_back'), (k & 2) !== 0);
+        // (even body knockdowns keep the hands-and-knees take below)
+      }
+      if (plan) {
+        const fr = plan.fall.role as Role & { settle?: number }, ffps = plan.fall.clip.fps;
+        const gr = plan.up.role as Role & { lie?: number }, gfps = plan.up.clip.fps;
+        const settleF = fr.settle ?? fr.to, lieF = gr.lie ?? gr.from;
+        const fallNative = (settleF - fr.from) / ffps, riseNative = (gr.to - lieF) / gfps, blend = cfg.humanGetUpBlend;
+        const t = prev.down ? ip(prev.downT, next.downT) : next.downT;
+        // the fall at its own pace (quicker when the count is short), the rise ending on the tick he is up
+        const tFall = Math.min(fallNative, Math.max(0.6, upAt * 0.4));
+        const R = Math.min(riseNative, Math.max(1.2, upAt - tFall - blend));
+        const tRise = upAt - R;
+        if (t < tRise - blend) {
+          this.want('down', plan.fall, (fr.from + (settleF - fr.from) * Math.min(1, t / tFall)) / ffps, { fadeOut: blend });
+          label = `down ${plan.fall.name}${plan.fall.mirror ? ' (mirrored)' : ''}`;
+        } else {
+          const f = t < tRise ? lieF : lieF + (gr.to - lieF) * clamp((t - tRise) / Math.max(1e-3, R), 0, 1);
+          this.want('getup', plan.up, f / gfps, { fadeIn: blend, fadeOut: 0.3 });
+          label = `getup ${plan.up.name}${plan.up.mirror ? ' (mirrored)' : ''} f${f.toFixed(0)}`;
+        }
+      } else if (kg) {
         const kr = kg.role as Role & { hold?: number; up?: number }, fps = kg.clip.fps;
         const F0 = kr.from, FH = kr.hold ?? kr.from, FU = kr.up ?? kr.to, F1 = kr.to;
         const R = Math.min((F1 - FU) / fps * 0.9, upAt * 0.45), tFall = Math.min((FH - F0) / fps * 0.85, Math.max(0.3, upAt - R));
@@ -724,7 +757,11 @@ export class HumanAnim {
           label = label || 'lean_back (clip v2)';
         } else if (proc) {
           slipLv = clamp(dip / Math.max(0.01, cfg.levelDrop), 0, 1) * (name === 'duck' ? 1 : cfg.humanSlipKnee);
-          if (name !== 'duck' && !cfg.humanSlipAuthored) {
+          // (THE LEAN BACK IS DRAWN, Nate 2026-11-24 "why doesn't the fighter lean back": with humanSlipAuthored on this
+          //  whole branch was skipped, and the authored slip draws sideways slips only — the sim pulled his head back
+          //  34-51 cm and dodged the jab while the body stood still)
+          if (name === 'lean_back' && cfg.humanSlipAuthored) lean.back = off;
+          else if (name !== 'duck' && !cfg.humanSlipAuthored) {
             lean.lat = leftward * (cfg.humanCounterLook && leftward > 0 ? cfg.humanCounterLeftLean : 1); lean.back = s.dir === 2 ? off : 0;
             lean.twist = s.dir === 2 ? 0 : leftward * cfg.humanSlipTwist;
           }
@@ -737,6 +774,12 @@ export class HumanAnim {
           lean.lat = leftward; lean.back = s.dir === 2 ? off : 0; lean.fwd = dip;
           label = label || name + ' (procedural)';
         }
+      }
+      // ---- the LEAN BACK carried INTO a punch (2026-11-24): above, the pull is drawn only while no punch runs, so a counter
+      //      thrown from it snapped the body upright on the press. It stays as the sim's own offset returns (the punch comes
+      //      off the back foot, then the weight rolls forward with it). ----
+      if (cfg.humanSlipAuthored && cfg.mocapOutcome && cfg.humanSlipProcedural && !cfg.humanRawPose && !next.down && s.active && s.dir === 2 && punching) {
+        lean.back = ip(prev.slip.offset, s.offset);
       }
       // ---- the AUTHORED SLIP (humanSlipAuthored): a boxer's slip drawn from the sim's offset, in every phase (rise, hold, return, and under a counter's
       //      wind-up): the weight goes onto the slip-side leg (hips across, knees dip, feet stay pinned), the head goes off the line by what the rules
@@ -756,8 +799,14 @@ export class HumanAnim {
           //  already adds the slip lean at humanCounterLeanKeep, so that much is taken off here and the sum stays continuous)
           const coil = punching && cfg.humanCounterLook && p.hand === 'lead' && (p.type === 'hook' || p.type === 'uppercut');
           lean.back += cfg.humanSlipHeadBack * k;   // the shoulder turn carries the slip-side head toward the other man; this takes it back
-          lean.lat = (leftward * (leftward > 0 ? cfg.humanSlipLeftGain : cfg.humanSlipRightGain) + sg * cfg.humanSlipHeadExtra * k) * cfg.humanSlipLeanGain - hip - (coil ? leftward * cfg.humanCounterLeanKeep : 0);
-          lean.twist = -sg * k * cfg.humanSlipTwistDeg * Math.PI / 180;   // + = turn toward his left: the slip-side shoulder comes FORWARD, so the turn is the other way
+          // (a punch out of the slip brings the punching shoulder back toward the line: held fully off it, the reach had to
+          //  straighten and lift the arm and wind the torso round to get there — filmed 2026-11-24, lean + jab / hook drawn as a
+          //  straight arm rising over his guard with the back turned to the camera. humanSlipLatPunchKeep of it stays.)
+          lean.lat = ((leftward * (leftward > 0 ? cfg.humanSlipLeftGain : cfg.humanSlipRightGain) + sg * cfg.humanSlipHeadExtra * k) * cfg.humanSlipLeanGain - hip) * (punching ? cfg.humanSlipLatPunchKeep : 1) - (coil ? leftward * cfg.humanCounterLeanKeep : 0);
+          // (a punch out of the slip turns the shoulders itself: the slip's own turn added on top over-rotated them — measured
+          //  2026-11-24, lean left + jab 87 deg off square against 28 for a jab and 50 for the lean. While a punch runs only
+          //  humanSlipTwistPunchKeep of the turn stays; the head stays off the line, which is the point of the angle.)
+          lean.twist = -sg * k * cfg.humanSlipTwistDeg * Math.PI / 180 * (punching ? cfg.humanSlipTwistPunchKeep : 1);   // + = turn toward his left: the slip-side shoulder comes FORWARD, so the turn is the other way
           if (!punching) label = label || (leftward > 0 ? 'slip_left' : 'slip_right') + ' (authored)';
         }
       }
